@@ -12,5 +12,7 @@ Media.lua
 Skin.lua
 Skins\BlizzardProgressBars.lua
 Skins\EncounterJournal.lua
+Skins\ToyBox.lua
+Skins\SpellBook.lua
 Options.lua
 Commands.lua
