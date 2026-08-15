@@ -10,7 +10,9 @@ NialoSkin/
 |-- Core.lua                   Namespace, modules, events, chat output
 |-- Media.lua                  Shared textures and colors
 |-- Skin.lua                   Shared pixel-border utility
-|-- Options.lua                Scrollable in-game texture picker
+|-- Options/
+|   |-- NSkin_General_Options.lua  Shared `/nskin` window and progress-bar page
+|   `-- Spellbook_Options.lua      Spellbook settings page
 |-- Commands.lua               Central `/nskin` command router
 |-- Media/Icon.tga             Addon-list icon
 |-- Skins/

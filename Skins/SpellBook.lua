@@ -22,6 +22,13 @@ local titleBarBackground
 local assistedCombatDivider
 local initialized = false
 
+local function SetFontSize(fontString, size)
+    if not fontString or not size then return end
+
+    local font, _, flags = fontString:GetFont()
+    if font then fontString:SetFont(font, size, flags) end
+end
+
 local function SkinCategoryTab(tab, selected)
     if not tab then return end
 
@@ -237,7 +244,10 @@ local function SkinSpellBookItem(item)
 
     -- Keep functional overlays while removing Blizzard's ornamental artwork.
     if item.Backplate then item.Backplate:SetAlpha(0) end
-    if item.Name then item.Name:SetTextColor(1, 1, 1) end
+    if item.Name then
+        item.Name:SetTextColor(1, 1, 1)
+        SetFontSize(item.Name, NSkin:GetSpellBookTextSize())
+    end
     if item.SubName then item.SubName:SetTextColor(1, 1, 1) end
     if item.RequiredLevel then item.RequiredLevel:SetTextColor(1, 1, 1) end
     if button.BorderSheen then button.BorderSheen:SetAlpha(0) end
@@ -320,6 +330,20 @@ local function SkinActiveSpellBookItems()
     end
 
     SkinSpellBookControls()
+end
+
+function SpellBookSkin:RefreshTextSize()
+    local playerSpells = _G.PlayerSpellsFrame
+    local spellBook = playerSpells and playerSpells.SpellBookFrame
+    local pagedSpells = spellBook and spellBook.PagedSpellsFrame
+    if not pagedSpells or not pagedSpells.EnumerateFrames then return end
+
+    local size = NSkin:GetSpellBookTextSize()
+    for _, frame in pagedSpells:EnumerateFrames() do
+        if frame.HasValidData and frame:HasValidData() and frame.Name then
+            SetFontSize(frame.Name, size)
+        end
+    end
 end
 
 local function RemoveSpellBookBackground()

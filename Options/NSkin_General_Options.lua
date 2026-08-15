@@ -3,8 +3,61 @@ local _, NSkin = ...
 local WINDOW_WIDTH = 560
 local WINDOW_HEIGHT = 360
 local ROW_HEIGHT = 26
+local CONTROL_BACKGROUND = { 0.04, 0.04, 0.04, 0.90 }
+local CONTROL_BACKGROUND_SELECTED = { 0.16, 0.16, 0.16, 0.95 }
+local DIVIDER_COLOR = { 0.45, 0.45, 0.45, 1 }
 
 local options
+local optionPageDefinitions = {}
+
+local function SkinOptionsWindow(frame)
+    if frame.Bg then
+        frame.Bg:SetAlpha(0)
+        frame.Bg:Hide()
+    end
+    if frame.TopTileStreaks then
+        frame.TopTileStreaks:SetAlpha(0)
+        frame.TopTileStreaks:Hide()
+    end
+    if frame.NineSlice then frame.NineSlice:Hide() end
+    if frame.Inset then
+        if frame.Inset.Bg then frame.Inset.Bg:Hide() end
+        if frame.Inset.NineSlice then frame.Inset.NineSlice:Hide() end
+    end
+
+    NSkin:CreateFlatBackground(frame, "NSkinOptionsBackground",
+        { 0, 0, 0, 0.80 }, DIVIDER_COLOR)
+
+    local titleBackground = frame:CreateTexture(nil, "BACKGROUND", nil, 7)
+    titleBackground:SetPoint("TOPLEFT", 1, -1)
+    titleBackground:SetPoint("TOPRIGHT", -1, -1)
+    titleBackground:SetHeight(21)
+    titleBackground:SetColorTexture(unpack(CONTROL_BACKGROUND))
+    frame.NSkinTitleBackground = titleBackground
+
+    if frame.TitleText then frame.TitleText:SetTextColor(1, 1, 1) end
+
+    local closeButton = frame.CloseButton
+    NSkin:SkinFlatButton(closeButton, "x", CONTROL_BACKGROUND, DIVIDER_COLOR, 16)
+    if closeButton then
+        closeButton:SetSize(22, 22)
+        closeButton:ClearAllPoints()
+        closeButton:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 0)
+    end
+end
+
+function NSkin:RegisterOptionsPage(key, label, builder)
+    if type(key) ~= "string" or type(label) ~= "string" or type(builder) ~= "function" then
+        return false
+    end
+
+    optionPageDefinitions[#optionPageDefinitions + 1] = {
+        key = key,
+        label = label,
+        builder = builder,
+    }
+    return true
+end
 
 local builtInTextures = {
     {
@@ -86,20 +139,24 @@ local function CreateOptionsWindow()
     frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
     frame:Hide()
 
-    frame.TitleText:SetText("Nialo Skin — Progress Bar Texture")
+    frame.TitleText:SetText("Nialo Skin")
+    SkinOptionsWindow(frame)
 
-    local label = frame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    label:SetPoint("TOPLEFT", 18, -42)
+    local progressPage = CreateFrame("Frame", nil, frame)
+    progressPage:SetAllPoints(frame)
+
+    local label = progressPage:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    label:SetPoint("TOPLEFT", frame, "TOPLEFT", 18, -76)
     label:SetText("Texture")
 
-    local selected = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    local selected = CreateFrame("Button", nil, progressPage, "UIPanelButtonTemplate")
     selected:SetPoint("TOPLEFT", label, "BOTTOMLEFT", 0, -8)
     selected:SetPoint("RIGHT", frame, "RIGHT", -18, 0)
     selected:SetHeight(28)
     selected:SetText("Naowh Gradient")
     frame.selectedButton = selected
 
-    local listBorder = CreateFrame("Frame", nil, frame, "BackdropTemplate")
+    local listBorder = CreateFrame("Frame", nil, progressPage, "BackdropTemplate")
     listBorder:SetPoint("TOPLEFT", selected, "BOTTOMLEFT", 0, -6)
     listBorder:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -18, 52)
     listBorder:SetBackdrop({
@@ -172,6 +229,7 @@ local function CreateOptionsWindow()
                 row:SetScript("OnClick", function(self)
                     NSkin:SetStatusBarTexture(self.texturePath)
                     selected:SetText(self.textureName)
+                    NSkin:SetFlatButtonLabel(selected, self.textureName, 12)
                     NSkin:Print("progress bar texture set to " .. self.textureName .. ".")
                 end)
 
@@ -194,7 +252,9 @@ local function CreateOptionsWindow()
             row:Show()
         end
 
-        selected:SetText(FindTextureName(self.textures, NSkin:GetStatusBarTexture()))
+        local selectedName = FindTextureName(self.textures, NSkin:GetStatusBarTexture())
+        selected:SetText(selectedName)
+        NSkin:SetFlatButtonLabel(selected, selectedName, 12)
         scrollFrame:SetVerticalScroll(0)
     end
 
@@ -207,7 +267,7 @@ local function CreateOptionsWindow()
         end
     end)
 
-    local reset = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    local reset = CreateFrame("Button", nil, progressPage, "UIPanelButtonTemplate")
     reset:SetSize(110, 24)
     reset:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -18, 14)
     reset:SetText("Reset Default")
@@ -217,9 +277,65 @@ local function CreateOptionsWindow()
         NSkin:Print("progress bar texture reset to Naowh Gradient.")
     end)
 
+    NSkin:SkinFlatButton(selected, selected:GetText(), CONTROL_BACKGROUND, DIVIDER_COLOR, 12)
+    NSkin:SkinFlatButton(reset, "Reset Default", CONTROL_BACKGROUND, DIVIDER_COLOR, 12)
+    if selected:GetFontString() then selected:GetFontString():SetAlpha(0) end
+    if reset:GetFontString() then reset:GetFontString():SetAlpha(0) end
+
+    local pages = {
+        { key = "progress", label = "Progress Bars", page = progressPage },
+    }
+
+    for i = 1, #optionPageDefinitions do
+        local definition = optionPageDefinitions[i]
+        local page = definition.builder(frame)
+        if page then
+            page:Hide()
+            pages[#pages + 1] = {
+                key = definition.key,
+                label = definition.label,
+                page = page,
+            }
+        end
+    end
+
+    for i = 1, #pages do
+        local pageInfo = pages[i]
+        local tab = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+        tab:SetSize(125, 26)
+        tab:SetPoint("TOPLEFT", frame, "TOPLEFT", 16 + (i - 1) * 129, -34)
+        tab:SetText("")
+        NSkin:SkinFlatButton(tab, pageInfo.label, CONTROL_BACKGROUND, DIVIDER_COLOR, 12)
+        tab:SetFrameLevel(frame:GetFrameLevel() + 5)
+        tab:SetScript("OnClick", function()
+            frame:SelectOptionsPage(pageInfo.key)
+        end)
+        pageInfo.tab = tab
+    end
+
+    function frame:SelectOptionsPage(key)
+        self.selectedPageKey = key
+        for i = 1, #pages do
+            local pageInfo = pages[i]
+            local selectedPage = pageInfo.key == key
+            pageInfo.page:SetShown(selectedPage)
+            pageInfo.tab:SetEnabled(not selectedPage)
+            pageInfo.tab.NSkinFlatBackground:SetColorTexture(unpack(
+                selectedPage and CONTROL_BACKGROUND_SELECTED or CONTROL_BACKGROUND
+            ))
+            if selectedPage and pageInfo.page.Refresh then
+                pageInfo.page:Refresh()
+            end
+        end
+
+        if key == "progress" then
+            listBorder:Show()
+            self:RebuildTextureList()
+        end
+    end
+
     frame:SetScript("OnShow", function(self)
-        listBorder:Show()
-        self:RebuildTextureList()
+        self:SelectOptionsPage(self.selectedPageKey or "progress")
     end)
 
     options = frame

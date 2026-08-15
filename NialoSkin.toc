@@ -11,9 +11,10 @@ Core.lua
 Media.lua
 Skin.lua
 Components\Buttons.lua
+Options\NSkin_General_Options.lua
+Options\NSkin_Spellbook_Options.lua
 Skins\BlizzardProgressBars.lua
 Skins\EncounterJournal.lua
 Skins\ToyBox.lua
 Skins\SpellBook.lua
-Options.lua
 Commands.lua
