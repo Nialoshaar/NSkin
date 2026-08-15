@@ -10,6 +10,7 @@
 Core.lua
 Media.lua
 Skin.lua
+Components\Buttons.lua
 Skins\BlizzardProgressBars.lua
 Skins\EncounterJournal.lua
 Skins\ToyBox.lua

@@ -100,6 +100,9 @@ function NSkin:HideTextureRegions(frame, textureToKeep)
         local region = regions[i]
         if region ~= textureToKeep and region.GetObjectType
             and region:GetObjectType() == "Texture" then
+            -- Blizzard frequently shows these regions again when control
+            -- state changes. Alpha remains suppressed across those Show calls.
+            region:SetAlpha(0)
             region:SetTexture(nil)
             region:Hide()
         end
@@ -116,24 +119,8 @@ function NSkin:CreateFlatBackground(frame, key, color, borderColor)
     background:SetPoint("TOPLEFT", 1, -1)
     background:SetPoint("BOTTOMRIGHT", -1, 1)
     background:SetColorTexture(unpack(color or DEFAULT_FLAT_BACKGROUND))
+    background:Show()
     frame[key] = background
     self:CreatePixelBorder(frame, key .. "Border", 1, borderColor or self.colors.border)
     return background
-end
-
-function NSkin:SkinFlatButton(button, label, backgroundColor, borderColor)
-    if not button then return end
-
-    button:SetNormalTexture(nil)
-    button:SetPushedTexture(nil)
-    button:SetDisabledTexture(nil)
-    button:SetHighlightTexture(nil)
-    self:CreateFlatBackground(button, nil, backgroundColor, borderColor)
-
-    if label and not button.NSkinLabel then
-        local text = button:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-        text:SetPoint("CENTER", 0, 1)
-        text:SetText(label)
-        button.NSkinLabel = text
-    end
 end

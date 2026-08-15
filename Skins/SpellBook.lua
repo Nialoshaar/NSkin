@@ -6,6 +6,10 @@ local BORDER_SIZE = 1
 local CIRCLE_MASK_ATLAS = "talents-node-circle-mask"
 local ICON_SIZE = 50
 local ICON_CROP = 0.06
+local PAGING_BUTTON_TEXT_SIZE = 16
+local WINDOW_BUTTON_TEXT_SIZE = 20
+local WINDOW_BUTTON_TEXT_OFFSET_X = 0
+local WINDOW_BUTTON_TEXT_OFFSET_Y = 0
 local CONTROL_BACKGROUND = { 0.04, 0.04, 0.04, 0.90 }
 local CONTROL_BACKGROUND_SELECTED = { 0.16, 0.16, 0.16, 0.95 }
 local DIVIDER_COLOR = { 0.45, 0.45, 0.45, 1 }
@@ -29,6 +33,7 @@ local function SkinCategoryTab(tab, selected)
         end
         NSkin:HideTextureRegions(tab)
         NSkin:CreateFlatBackground(tab, nil, CONTROL_BACKGROUND, DIVIDER_COLOR)
+        NSkin:CreateFlatButtonGlow(tab)
         if tab.Text then tab.Text:SetTextColor(1, 1, 1) end
     end
 
@@ -74,8 +79,10 @@ end
 local function SkinPagingControls(pagingControls)
     if not pagingControls then return end
 
-    NSkin:SkinFlatButton(pagingControls.PrevPageButton, "<", CONTROL_BACKGROUND, DIVIDER_COLOR)
-    NSkin:SkinFlatButton(pagingControls.NextPageButton, ">", CONTROL_BACKGROUND, DIVIDER_COLOR)
+    NSkin:SkinFlatButton(pagingControls.PrevPageButton, "<", CONTROL_BACKGROUND,
+        DIVIDER_COLOR, PAGING_BUTTON_TEXT_SIZE)
+    NSkin:SkinFlatButton(pagingControls.NextPageButton, ">", CONTROL_BACKGROUND,
+        DIVIDER_COLOR, PAGING_BUTTON_TEXT_SIZE)
     if pagingControls.PageText then
         pagingControls.PageText:SetTextColor(1, 1, 1)
     end
@@ -87,6 +94,33 @@ local function SkinPagingControls(pagingControls)
     end
     if nextPage and nextPage.NSkinLabel then
         nextPage.NSkinLabel:SetAlpha(nextPage:IsEnabled() and 1 or 0.35)
+    end
+end
+
+local function SkinWindowButtons(playerSpells, spellBook)
+    if not playerSpells or not spellBook then return end
+
+    local closeButton = playerSpells.CloseButton
+    local expandFrame = playerSpells.MaximizeMinimizeButton
+    local maximizeButton = expandFrame and expandFrame.MaximizeButton
+    local minimizeButton = expandFrame and expandFrame.MinimizeButton
+
+    NSkin:SkinFlatButton(closeButton, "x", CONTROL_BACKGROUND, DIVIDER_COLOR,
+        WINDOW_BUTTON_TEXT_SIZE, WINDOW_BUTTON_TEXT_OFFSET_X, WINDOW_BUTTON_TEXT_OFFSET_Y)
+    NSkin:SkinFlatButton(maximizeButton, "+", CONTROL_BACKGROUND, DIVIDER_COLOR,
+        WINDOW_BUTTON_TEXT_SIZE, WINDOW_BUTTON_TEXT_OFFSET_X, WINDOW_BUTTON_TEXT_OFFSET_Y)
+    NSkin:SkinFlatButton(minimizeButton, "-", CONTROL_BACKGROUND, DIVIDER_COLOR,
+        WINDOW_BUTTON_TEXT_SIZE, WINDOW_BUTTON_TEXT_OFFSET_X, WINDOW_BUTTON_TEXT_OFFSET_Y)
+
+    if closeButton then
+        closeButton:SetSize(22, 22)
+        closeButton:ClearAllPoints()
+        closeButton:SetPoint("BOTTOMRIGHT", spellBook, "TOPRIGHT", 0, 0)
+    end
+    if expandFrame and closeButton then
+        expandFrame:SetSize(22, 22)
+        expandFrame:ClearAllPoints()
+        expandFrame:SetPoint("BOTTOMRIGHT", closeButton, "BOTTOMLEFT", 0, 0)
     end
 end
 
@@ -133,10 +167,27 @@ local function SkinTitleBar(playerSpells, spellBook)
 
     if not titleBarBackground then
         titleBarBackground = playerSpells:CreateTexture(nil, "BACKGROUND", nil, 7)
-        titleBarBackground:SetPoint("TOPLEFT", playerSpells, "TOPLEFT", 1, -1)
-        titleBarBackground:SetPoint("TOPRIGHT", playerSpells, "TOPRIGHT", -1, -1)
+        titleBarBackground:SetPoint("BOTTOMLEFT", spellBook, "TOPLEFT", 0, 0)
+        titleBarBackground:SetPoint("BOTTOMRIGHT", spellBook, "TOPRIGHT", 0, 0)
         titleBarBackground:SetHeight(22)
         titleBarBackground:SetColorTexture(0.04, 0.04, 0.04, 0.95)
+    end
+end
+
+local function RemoveSpellBookPortraitAndHelp(playerSpells, spellBook)
+    if not playerSpells or not spellBook then return end
+
+    if playerSpells.PortraitContainer then
+        playerSpells.PortraitContainer:SetAlpha(0)
+        playerSpells.PortraitContainer:Hide()
+    elseif playerSpells.portrait then
+        playerSpells.portrait:SetAlpha(0)
+        playerSpells.portrait:Hide()
+    end
+
+    if spellBook.HelpPlateButton then
+        spellBook.HelpPlateButton:SetAlpha(0)
+        spellBook.HelpPlateButton:Hide()
     end
 end
 
@@ -146,11 +197,13 @@ local function SkinSpellBookControls()
     local pagedSpells = spellBook and spellBook.PagedSpellsFrame
     if not spellBook then return end
 
+    RemoveSpellBookPortraitAndHelp(playerSpells, spellBook)
     SkinTitleBar(playerSpells, spellBook)
     SkinSpellBookTabs()
     SkinSearchBox(spellBook.SearchBox)
     SkinPagingControls(pagedSpells and pagedSpells.PagingControls)
     SkinAssistedCombat(spellBook.AssistedCombatRotationSpellFrame)
+    SkinWindowButtons(playerSpells, spellBook)
 end
 
 local function CreateCircularBorder(button, icon)
