@@ -18,45 +18,139 @@ local titleBarBackground
 local assistedCombatDivider
 local initialized = false
 
-local function HideTextureRegions(frame, textureToKeep)
-    if not frame or not frame.GetRegions then return end
+local function SkinCategoryTab(tab, selected)
+    if not tab then return end
 
-    for region in frame.regionIterator or frame:GetRegions() do
-        if region ~= textureToKeep and region.GetObjectType
-            and region:GetObjectType() == "Texture" then
-            region:SetTexture(nil)
-            region:Hide()
+    if not tab.NSkinFlatBackground then
+        if type(tab.SetTabSelected) == "function" and _G.hooksecurefunc then
+            -- Keep the flat selected state synchronized for both the upper
+            -- category tabs and the persistent bottom navigation tabs.
+            _G.hooksecurefunc(tab, "SetTabSelected", SkinCategoryTab)
         end
+        NSkin:HideTextureRegions(tab)
+        NSkin:CreateFlatBackground(tab, nil, CONTROL_BACKGROUND, DIVIDER_COLOR)
+        if tab.Text then tab.Text:SetTextColor(1, 1, 1) end
+    end
+
+    tab.NSkinFlatBackground:SetColorTexture(unpack(
+        selected and CONTROL_BACKGROUND_SELECTED or CONTROL_BACKGROUND
+    ))
+end
+
+local function SkinTabSystem(tabSystem)
+    if not tabSystem or not tabSystem.tabs then return end
+
+    for i = 1, #tabSystem.tabs do
+        local tab = tabSystem.tabs[i]
+        local selected = tab and tab.IsSelected and tab:IsSelected()
+        SkinCategoryTab(tab, selected)
     end
 end
 
-local function CreateFlatBackground(frame, color)
-    if frame.NSkinFlatBackground then return frame.NSkinFlatBackground end
+local function SkinSpellBookTabs()
+    local playerSpells = _G.PlayerSpellsFrame
+    local spellBook = playerSpells and playerSpells.SpellBookFrame
+    if not spellBook then return end
 
-    local background = frame:CreateTexture(nil, "BACKGROUND", nil, 7)
-    background:SetPoint("TOPLEFT", 1, -1)
-    background:SetPoint("BOTTOMRIGHT", -1, 1)
-    background:SetColorTexture(unpack(color or CONTROL_BACKGROUND))
-    frame.NSkinFlatBackground = background
-    NSkin:CreatePixelBorder(frame, "NSkinFlatBorder", BORDER_SIZE, DIVIDER_COLOR)
-    return background
+    SkinTabSystem(spellBook.CategoryTabSystem)
+    SkinTabSystem(playerSpells.TabSystem)
 end
 
-local function SkinFlatButton(button, label)
-    if not button then return end
+local function SkinSearchBox(searchBox)
+    if not searchBox then return end
 
-    button:SetNormalTexture(nil)
-    button:SetPushedTexture(nil)
-    button:SetDisabledTexture(nil)
-    button:SetHighlightTexture(nil)
-    CreateFlatBackground(button)
-
-    if label and not button.NSkinLabel then
-        local text = button:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-        text:SetPoint("CENTER", 0, 1)
-        text:SetText(label)
-        button.NSkinLabel = text
+    local searchIcon = searchBox.SearchIcon or searchBox.searchIcon
+    if not searchBox.NSkinFlatBackground then
+        NSkin:HideTextureRegions(searchBox, searchIcon)
+        NSkin:CreateFlatBackground(searchBox, nil, { 0, 0, 0, 0.75 }, DIVIDER_COLOR)
     end
+    searchBox:SetTextColor(1, 1, 1)
+    if searchBox.Instructions then
+        searchBox.Instructions:SetTextColor(0.55, 0.55, 0.55)
+    end
+    if searchIcon then searchIcon:Show() end
+end
+
+local function SkinPagingControls(pagingControls)
+    if not pagingControls then return end
+
+    NSkin:SkinFlatButton(pagingControls.PrevPageButton, "<", CONTROL_BACKGROUND, DIVIDER_COLOR)
+    NSkin:SkinFlatButton(pagingControls.NextPageButton, ">", CONTROL_BACKGROUND, DIVIDER_COLOR)
+    if pagingControls.PageText then
+        pagingControls.PageText:SetTextColor(1, 1, 1)
+    end
+
+    local previous = pagingControls.PrevPageButton
+    local nextPage = pagingControls.NextPageButton
+    if previous and previous.NSkinLabel then
+        previous.NSkinLabel:SetAlpha(previous:IsEnabled() and 1 or 0.35)
+    end
+    if nextPage and nextPage.NSkinLabel then
+        nextPage.NSkinLabel:SetAlpha(nextPage:IsEnabled() and 1 or 0.35)
+    end
+end
+
+local function SkinAssistedCombat(frame)
+    if not frame then return end
+
+    if not frame.NSkinSkinned then
+        NSkin:HideTextureRegions(frame)
+        frame.NSkinSkinned = true
+    end
+    if frame.Label then frame.Label:SetTextColor(1, 1, 1) end
+
+    local button = frame.Button
+    local icon = button and button.Icon
+    if button and icon then
+        if button.Border then
+            button.Border:SetTexture(nil)
+            button.Border:Hide()
+        end
+        NSkin:CreatePixelBorder(button, "NSkinSpellBookBorder", BORDER_SIZE,
+            NSkin.colors.border, false, icon)
+    end
+
+    if not assistedCombatDivider then
+        assistedCombatDivider = frame:CreateTexture(nil, "ARTWORK", nil, 1)
+        assistedCombatDivider:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -2)
+        assistedCombatDivider:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 0, 2)
+        assistedCombatDivider:SetWidth(1)
+        assistedCombatDivider:SetColorTexture(unpack(DIVIDER_COLOR))
+    end
+end
+
+local function SkinTitleBar(playerSpells, spellBook)
+    if not playerSpells or not spellBook then return end
+
+    if playerSpells.NineSlice then playerSpells.NineSlice:Hide() end
+    if playerSpells.NSkinWindowBorder then
+        NSkin:SetPixelBorderShown(playerSpells.NSkinWindowBorder, false)
+    end
+    NSkin:CreatePixelBorder(spellBook, "NSkinWindowBorder", BORDER_SIZE, DIVIDER_COLOR)
+    if playerSpells.TitleContainer and playerSpells.TitleContainer.TitleText then
+        playerSpells.TitleContainer.TitleText:SetTextColor(1, 1, 1)
+    end
+
+    if not titleBarBackground then
+        titleBarBackground = playerSpells:CreateTexture(nil, "BACKGROUND", nil, 7)
+        titleBarBackground:SetPoint("TOPLEFT", playerSpells, "TOPLEFT", 1, -1)
+        titleBarBackground:SetPoint("TOPRIGHT", playerSpells, "TOPRIGHT", -1, -1)
+        titleBarBackground:SetHeight(22)
+        titleBarBackground:SetColorTexture(0.04, 0.04, 0.04, 0.95)
+    end
+end
+
+local function SkinSpellBookControls()
+    local playerSpells = _G.PlayerSpellsFrame
+    local spellBook = playerSpells and playerSpells.SpellBookFrame
+    local pagedSpells = spellBook and spellBook.PagedSpellsFrame
+    if not spellBook then return end
+
+    SkinTitleBar(playerSpells, spellBook)
+    SkinSpellBookTabs()
+    SkinSearchBox(spellBook.SearchBox)
+    SkinPagingControls(pagedSpells and pagedSpells.PagingControls)
+    SkinAssistedCombat(spellBook.AssistedCombatRotationSpellFrame)
 end
 
 local function CreateCircularBorder(button, icon)
@@ -171,6 +265,8 @@ local function SkinActiveSpellBookItems()
             SkinSpellBookHeader(frame)
         end
     end
+
+    SkinSpellBookControls()
 end
 
 local function RemoveSpellBookBackground()
@@ -179,6 +275,21 @@ local function RemoveSpellBookBackground()
     if not spellBook then return end
 
     if playerSpells.Bg then playerSpells.Bg:SetAlpha(0) end
+    if playerSpells.TopTileStreaks then
+        playerSpells.TopTileStreaks:SetTexture(nil)
+        playerSpells.TopTileStreaks:Hide()
+    end
+
+    -- These belong to the inherited panel template rather than the spellbook
+    -- artwork. Its top edge is the faint curved streak left below the title.
+    local inset = playerSpells.Inset
+    if inset then
+        if inset.Bg then
+            inset.Bg:SetTexture(nil)
+            inset.Bg:Hide()
+        end
+        if inset.NineSlice then inset.NineSlice:Hide() end
+    end
 
     local regions = {
         spellBook.TopBar,
@@ -242,6 +353,7 @@ function SpellBookSkin:Initialize()
     end
 
     RemoveSpellBookBackground()
+    SkinSpellBookControls()
     SkinActiveSpellBookItems()
 end
 

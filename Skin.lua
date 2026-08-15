@@ -1,5 +1,7 @@
 local _, NSkin = ...
 
+local DEFAULT_FLAT_BACKGROUND = { 0.04, 0.04, 0.04, 0.90 }
+
 -- Creates four simple texture edges without using BackdropTemplate or NineSlice.
 -- The regions are owned by the target frame and do not alter protected state.
 function NSkin:CreatePixelBorder(frame, key, size, color, outside, anchor)
@@ -88,4 +90,50 @@ function NSkin:SetQualityBorder(border, quality)
     self:SetPixelBorderColor(border, red, green, blue)
     self:SetPixelBorderShown(border, true)
     return true
+end
+
+function NSkin:HideTextureRegions(frame, textureToKeep)
+    if not frame or not frame.GetRegions then return end
+
+    local regions = { frame:GetRegions() }
+    for i = 1, #regions do
+        local region = regions[i]
+        if region ~= textureToKeep and region.GetObjectType
+            and region:GetObjectType() == "Texture" then
+            region:SetTexture(nil)
+            region:Hide()
+        end
+    end
+end
+
+function NSkin:CreateFlatBackground(frame, key, color, borderColor)
+    if not frame or not frame.CreateTexture then return nil end
+
+    key = key or "NSkinFlatBackground"
+    if frame[key] then return frame[key] end
+
+    local background = frame:CreateTexture(nil, "BACKGROUND", nil, 7)
+    background:SetPoint("TOPLEFT", 1, -1)
+    background:SetPoint("BOTTOMRIGHT", -1, 1)
+    background:SetColorTexture(unpack(color or DEFAULT_FLAT_BACKGROUND))
+    frame[key] = background
+    self:CreatePixelBorder(frame, key .. "Border", 1, borderColor or self.colors.border)
+    return background
+end
+
+function NSkin:SkinFlatButton(button, label, backgroundColor, borderColor)
+    if not button then return end
+
+    button:SetNormalTexture(nil)
+    button:SetPushedTexture(nil)
+    button:SetDisabledTexture(nil)
+    button:SetHighlightTexture(nil)
+    self:CreateFlatBackground(button, nil, backgroundColor, borderColor)
+
+    if label and not button.NSkinLabel then
+        local text = button:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        text:SetPoint("CENTER", 0, 1)
+        text:SetText(label)
+        button.NSkinLabel = text
+    end
 end
