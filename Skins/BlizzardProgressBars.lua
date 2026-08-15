@@ -1,0 +1,494 @@
+local _, NSkin = ...
+
+local ProgressBars = NSkin:NewModule("BlizzardProgressBars")
+
+-- Feature-specific settings live here until a user-facing options panel exists.
+local BAR_HEIGHT = 16
+local BORDER_SIZE = 1
+local SCENARIO_TIMER_BAR_Y = 0
+
+local styledBars = setmetatable({}, { __mode = "k" })
+local protectedRegions = setmetatable({}, { __mode = "k" })
+local strippedRegions = setmetatable({}, { __mode = "k" })
+local hiddenFrames = setmetatable({}, { __mode = "k" })
+
+local statusHookInstalled = false
+local scenarioHookInstalled = false
+local tooltipHooksInstalled = false
+local scanPending = false
+local conflictWarningShown = false
+local hookedObjectiveTrackers = setmetatable({}, { __mode = "k" })
+
+local function IsStatusBar(object)
+    return object
+        and object.GetObjectType
+        and object:GetObjectType() == "StatusBar"
+        and object.SetStatusBarTexture
+end
+
+local function HideTexture(texture)
+    if not texture
+        or not texture.IsObjectType
+        or not texture:IsObjectType("Texture")
+        or protectedRegions[texture]
+    then
+        return
+    end
+
+    local function EnforceHidden(self)
+        if self.__NSkinHiding then return end
+        self.__NSkinHiding = true
+
+        if self.SetAlpha then self:SetAlpha(0) end
+        if self.SetTexture then self:SetTexture(nil) end
+        self:Hide()
+
+        self.__NSkinHiding = false
+    end
+
+    if strippedRegions[texture] then
+        EnforceHidden(texture)
+        return
+    end
+
+    strippedRegions[texture] = true
+    if texture.SetAtlas then pcall(texture.SetAtlas, texture, nil) end
+    EnforceHidden(texture)
+
+    if hooksecurefunc then
+        pcall(hooksecurefunc, texture, "Show", function(self)
+            if not protectedRegions[self] then EnforceHidden(self) end
+        end)
+        if texture.SetShown then
+            pcall(hooksecurefunc, texture, "SetShown", function(self, shown)
+                if shown and not protectedRegions[self] then EnforceHidden(self) end
+            end)
+        end
+        if texture.SetAtlas then
+            pcall(hooksecurefunc, texture, "SetAtlas", function(self, atlas)
+                if atlas and not protectedRegions[self] then EnforceHidden(self) end
+            end)
+        end
+        pcall(hooksecurefunc, texture, "SetTexture", function(self, path)
+            if path and not protectedRegions[self] then EnforceHidden(self) end
+        end)
+        if texture.SetAlpha then
+            pcall(hooksecurefunc, texture, "SetAlpha", function(self, alpha)
+                if alpha ~= 0 and not protectedRegions[self] then EnforceHidden(self) end
+            end)
+        end
+    end
+end
+
+local function HideFrame(frame)
+    if not frame or not frame.Hide then return end
+
+    hiddenFrames[frame] = true
+    if frame.SetAlpha then frame:SetAlpha(0) end
+    frame:Hide()
+
+    if frame.__NSkinHideHooked or not hooksecurefunc then return end
+    frame.__NSkinHideHooked = true
+
+    if frame.Show then
+        pcall(hooksecurefunc, frame, "Show", function(self)
+            if hiddenFrames[self] then
+                if self.SetAlpha then self:SetAlpha(0) end
+                self:Hide()
+            end
+        end)
+    end
+
+    if frame.SetShown then
+        pcall(hooksecurefunc, frame, "SetShown", function(self, shown)
+            if shown and hiddenFrames[self] then
+                if self.SetAlpha then self:SetAlpha(0) end
+                self:Hide()
+            end
+        end)
+    end
+end
+
+local function StripRegions(frame)
+    if not frame or not frame.GetRegions then return end
+    local regions = { frame:GetRegions() }
+    for i = 1, #regions do HideTexture(regions[i]) end
+end
+
+local widgetArtKeys = {
+    "BackgroundGlow", "BGLeft", "BGRight", "BGCenter",
+    "BorderLeft", "BorderRight", "BorderCenter", "Spark",
+    "GlowLeft", "GlowRight", "GlowCenter",
+}
+
+local function StripWidgetArt(bar)
+    if not bar then return end
+    if bar.GlowPulseAnim and bar.GlowPulseAnim.Stop then
+        bar.GlowPulseAnim:Stop()
+    end
+    for i = 1, #widgetArtKeys do HideTexture(bar[widgetArtKeys[i]]) end
+end
+
+local function StripWidgetContainerArt(widget)
+    if not widget then return end
+    HideTexture(widget.LabelBG)
+    HideTexture(widget.LabelBGDivider)
+end
+
+local function CreateBackdrop(bar)
+    if bar.__NSkinBackground then return end
+
+    local background = bar:CreateTexture(nil, "BACKGROUND", nil, -8)
+    background:SetAllPoints(bar)
+    background:SetColorTexture(unpack(NSkin.colors.progressBarBackground))
+    protectedRegions[background] = true
+    bar.__NSkinBackground = background
+
+    local border = NSkin:CreatePixelBorder(
+        bar,
+        "__NSkinProgressBorder",
+        BORDER_SIZE,
+        NSkin.colors.border,
+        true
+    )
+    if border then
+        protectedRegions[border.top] = true
+        protectedRegions[border.bottom] = true
+        protectedRegions[border.left] = true
+        protectedRegions[border.right] = true
+    end
+end
+
+local function CenterText(bar)
+    local function Center(region)
+        if region and region.IsObjectType and region:IsObjectType("FontString") then
+            region:ClearAllPoints()
+            region:SetPoint("CENTER", bar, "CENTER", 0, 1)
+        end
+    end
+
+    Center(bar.Label)
+    if not bar.GetRegions then return end
+    local regions = { bar:GetRegions() }
+    for i = 1, #regions do Center(regions[i]) end
+end
+
+local function ApplyTexture(bar)
+    if bar.__NSkinApplying then return end
+    bar.__NSkinApplying = true
+
+    -- Preserve the tint selected by Blizzard for this specific widget (purple,
+    -- green, blue, and so on) while replacing only the texture.
+    local red, green, blue, alpha = bar:GetStatusBarColor()
+    bar:SetStatusBarTexture(NSkin:GetStatusBarTexture())
+    local fill = bar:GetStatusBarTexture()
+    if fill then
+        protectedRegions[fill] = true
+        fill:Show()
+        if fill.SetHorizTile then fill:SetHorizTile(false) end
+        if fill.SetVertTile then fill:SetVertTile(false) end
+        fill:SetDrawLayer("ARTWORK", 1)
+
+        if not fill.__NSkinTileHooked and hooksecurefunc and fill.SetHorizTile then
+            fill.__NSkinTileHooked = true
+            pcall(hooksecurefunc, fill, "SetHorizTile", function(self, tiled)
+                if tiled and not self.__NSkinTileFixing then
+                    self.__NSkinTileFixing = true
+                    self:SetHorizTile(false)
+                    self.__NSkinTileFixing = false
+                end
+            end)
+        end
+    end
+
+    bar:SetStatusBarColor(red, green, blue, alpha)
+    if bar.__NSkinBackground then bar.__NSkinBackground:Show() end
+
+    bar.__NSkinApplying = false
+end
+
+local function StyleBar(bar)
+    if not IsStatusBar(bar) or (bar.IsForbidden and bar:IsForbidden()) then return end
+
+    if not styledBars[bar] then
+        styledBars[bar] = true
+        local fill = bar:GetStatusBarTexture()
+        if fill then protectedRegions[fill] = true end
+
+        StripRegions(bar)
+        StripWidgetArt(bar)
+        if BAR_HEIGHT > 0 then bar:SetHeight(BAR_HEIGHT) end
+        CreateBackdrop(bar)
+
+        if hooksecurefunc then
+            pcall(hooksecurefunc, bar, "SetStatusBarTexture", function(self)
+                if not self.__NSkinApplying then ApplyTexture(self) end
+            end)
+        end
+    end
+
+    StripWidgetArt(bar)
+    ApplyTexture(bar)
+    CenterText(bar)
+end
+
+local scenarioArtKeys = {
+    "GlowTexture", "HeaderIconGlow", "HeaderBackground", "Background",
+    "BackgroundTexture", "FinalBG",
+}
+
+local function HideScenarioArt(widget)
+    local function HideKnownArt(container)
+        if not container then return end
+        for i = 1, #scenarioArtKeys do
+            local art = container[scenarioArtKeys[i]]
+            if art and art.IsObjectType and art:IsObjectType("Texture") then
+                HideTexture(art)
+            elseif art and art.Hide then
+                HideFrame(art)
+            end
+        end
+        HideFrame(container.Frame)
+        HideFrame(container.FrontModelScene)
+        HideFrame(container.BackModelScene)
+    end
+
+    local current = widget
+    for _ = 1, 6 do
+        if not current then break end
+        HideKnownArt(current)
+        HideKnownArt(current.WidgetContainer)
+        HideKnownArt(current.widgetContainer)
+        current = current.GetParent and current:GetParent()
+    end
+end
+
+local function AnchorScenarioTimer(widget)
+    local bar = widget and widget.TimerBar
+    if not IsStatusBar(bar) or bar.__NSkinAnchorFixing then return end
+    bar.__NSkinAnchorFixing = true
+    bar:ClearAllPoints()
+    bar:SetPoint("BOTTOM", widget, "BOTTOM", 0, SCENARIO_TIMER_BAR_Y)
+    bar.__NSkinAnchorFixing = false
+end
+
+local function SkinScenarioTimer(widget)
+    local bar = widget and widget.TimerBar
+    if not IsStatusBar(bar) then return end
+
+    HideScenarioArt(widget)
+    StyleBar(bar)
+    bar.__NSkinScenarioOwner = widget
+
+    if not bar.__NSkinAnchorHooked and hooksecurefunc then
+        bar.__NSkinAnchorHooked = true
+        pcall(hooksecurefunc, bar, "SetPoint", function(self)
+            if not self.__NSkinAnchorFixing then
+                AnchorScenarioTimer(self.__NSkinScenarioOwner)
+            end
+        end)
+    end
+    AnchorScenarioTimer(widget)
+end
+
+local function InstallHooks()
+    local statusMixin = _G.UIWidgetTemplateStatusBarMixin
+    if not statusHookInstalled and statusMixin and type(statusMixin.Setup) == "function" then
+        statusHookInstalled = true
+        hooksecurefunc(statusMixin, "Setup", function(widget)
+            if widget.IsForbidden and widget:IsForbidden() then return end
+            StripWidgetContainerArt(widget)
+            if IsStatusBar(widget.Bar) then StyleBar(widget.Bar) end
+        end)
+    end
+
+    local scenarioMixin = _G.UIWidgetTemplateScenarioHeaderTimerMixin
+    if not scenarioHookInstalled and scenarioMixin and type(scenarioMixin.Setup) == "function" then
+        scenarioHookInstalled = true
+        hooksecurefunc(scenarioMixin, "Setup", function(widget)
+            if widget.IsForbidden and widget:IsForbidden() then return end
+            SkinScenarioTimer(widget)
+        end)
+    end
+end
+
+local objectiveTrackerNames = {
+    "ScenarioObjectiveTracker",
+    "UIWidgetObjectiveTracker",
+    "CampaignQuestObjectiveTracker",
+    "QuestObjectiveTracker",
+    "AdventureObjectiveTracker",
+    "AchievementObjectiveTracker",
+    "MonthlyActivitiesObjectiveTracker",
+    "ProfessionsRecipeTracker",
+    "BonusObjectiveTracker",
+    "WorldQuestObjectiveTracker",
+    "InitiativeTasksObjectiveTracker",
+}
+
+local function StyleTrackerProgressBar(tracker, key)
+    local progressBar = tracker.usedProgressBars and tracker.usedProgressBars[key]
+    local bar = progressBar and progressBar.Bar
+    if IsStatusBar(bar) then StyleBar(bar) end
+end
+
+local function StyleTrackerTimerBar(tracker, key)
+    local timerBar = tracker.usedTimerBars and tracker.usedTimerBars[key]
+    local bar = timerBar and timerBar.Bar
+    if IsStatusBar(bar) then StyleBar(bar) end
+end
+
+local function StyleExistingTrackerBars(tracker)
+    if tracker.usedProgressBars then
+        for key in pairs(tracker.usedProgressBars) do
+            StyleTrackerProgressBar(tracker, key)
+        end
+    end
+    if tracker.usedTimerBars then
+        for key in pairs(tracker.usedTimerBars) do
+            StyleTrackerTimerBar(tracker, key)
+        end
+    end
+end
+
+local function InstallObjectiveTrackerHooks()
+    if not hooksecurefunc then return end
+
+    for i = 1, #objectiveTrackerNames do
+        local tracker = _G[objectiveTrackerNames[i]]
+        if tracker and not hookedObjectiveTrackers[tracker] then
+            hookedObjectiveTrackers[tracker] = true
+
+            if type(tracker.GetProgressBar) == "function" then
+                hooksecurefunc(tracker, "GetProgressBar", StyleTrackerProgressBar)
+            end
+            if type(tracker.GetTimerBar) == "function" then
+                hooksecurefunc(tracker, "GetTimerBar", StyleTrackerTimerBar)
+            end
+
+            StyleExistingTrackerBars(tracker)
+        end
+    end
+end
+
+local function SkinTooltipProgressBar(tooltip)
+    if not tooltip or not tooltip.progressBarPool then return end
+    if tooltip.IsForbidden and tooltip:IsForbidden() then return end
+
+    local pooled = tooltip.progressBarPool:GetNextActive()
+    local bar = pooled and pooled.Bar
+    if IsStatusBar(bar) then StyleBar(bar) end
+end
+
+local function SkinTooltipStatusBar(tooltip)
+    if not tooltip or not tooltip.statusBarPool then return end
+    if tooltip.IsForbidden and tooltip:IsForbidden() then return end
+
+    local bar = tooltip.statusBarPool:GetNextActive()
+    if IsStatusBar(bar) then StyleBar(bar) end
+end
+
+local function InstallTooltipHooks()
+    if tooltipHooksInstalled or not hooksecurefunc then return end
+    if type(_G.GameTooltip_ShowProgressBar) ~= "function"
+        or type(_G.GameTooltip_ShowStatusBar) ~= "function"
+    then
+        return
+    end
+
+    tooltipHooksInstalled = true
+    hooksecurefunc("GameTooltip_ShowProgressBar", SkinTooltipProgressBar)
+    hooksecurefunc("GameTooltip_ShowStatusBar", SkinTooltipStatusBar)
+end
+
+function ProgressBars:Scan()
+    scanPending = false
+    InstallHooks()
+    InstallObjectiveTrackerHooks()
+    InstallTooltipHooks()
+
+    -- A rescan only revisits bars already identified by the exact widget
+    -- mixins. It never walks arbitrary frame trees.
+    for bar in pairs(styledBars) do
+        if IsStatusBar(bar) then
+            StripWidgetArt(bar)
+            ApplyTexture(bar)
+            CenterText(bar)
+        end
+    end
+end
+
+function ProgressBars:QueueScan()
+    if scanPending then return end
+    scanPending = true
+    C_Timer.After(0, function() self:Scan() end)
+end
+
+function ProgressBars:RefreshTexture()
+    for bar in pairs(styledBars) do
+        if IsStatusBar(bar) then ApplyTexture(bar) end
+    end
+end
+
+function ProgressBars:Debug()
+    local count = 0
+    for bar in pairs(styledBars) do
+        count = count + 1
+        print(count, bar.GetName and bar:GetName() or "<anonymous>", tostring(bar))
+    end
+
+    local trackerCount = 0
+    for _ in pairs(hookedObjectiveTrackers) do trackerCount = trackerCount + 1 end
+
+    NSkin:Print(("hooks: status=%s, scenario=%s, tooltip=%s, trackers=%d; styled bars=%d"):format(
+        statusHookInstalled and "yes" or "no",
+        scenarioHookInstalled and "yes" or "no",
+        tooltipHooksInstalled and "yes" or "no",
+        trackerCount,
+        count
+    ))
+end
+
+local function WarnAboutLegacyAddon()
+    if conflictWarningShown then return end
+
+    local loaded = false
+    if _G.C_AddOns and _G.C_AddOns.IsAddOnLoaded then
+        loaded = _G.C_AddOns.IsAddOnLoaded("BlizzardProgressBarSkin")
+    elseif _G.IsAddOnLoaded then
+        loaded = _G.IsAddOnLoaded("BlizzardProgressBarSkin")
+    end
+
+    if loaded then
+        conflictWarningShown = true
+        NSkin:Print("BlizzardProgressBarSkin is also enabled. Disable the old addon to prevent competing status-bar hooks.")
+    end
+end
+
+local refreshEvents = {
+    "PLAYER_ENTERING_WORLD",
+}
+
+for i = 1, #refreshEvents do
+    NSkin:RegisterEvent(refreshEvents[i], function() ProgressBars:QueueScan() end)
+end
+
+NSkin:RegisterEvent("PLAYER_ENTERING_WORLD", WarnAboutLegacyAddon)
+
+local relevantAddons = {
+    Blizzard_UIWidgets = true,
+    Blizzard_ScenarioObjectiveTracker = true,
+    Blizzard_ObjectiveTracker = true,
+    Blizzard_SharedTooltip = true,
+}
+
+NSkin:RegisterEvent("ADDON_LOADED", function(_, addonName)
+    InstallHooks()
+    InstallObjectiveTrackerHooks()
+    InstallTooltipHooks()
+    if relevantAddons[addonName] then ProgressBars:QueueScan() end
+end)
+
+InstallHooks()
+InstallObjectiveTrackerHooks()
+InstallTooltipHooks()
