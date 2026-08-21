@@ -476,7 +476,7 @@ local function ContinueAfterJournalLoads()
     end
 end
 
-if NSkin:IsModuleEnabled("EncounterJournal") then
+NSkin:RegisterModuleInitializer("EncounterJournal", function()
     if _G.EventRegistry and _G.EventRegistry.RegisterCallback then
         _G.EventRegistry:RegisterCallback(
             "EncounterJournal.TabSet",
@@ -486,4 +486,4 @@ if NSkin:IsModuleEnabled("EncounterJournal") then
     end
 
     ContinueAfterJournalLoads()
-end
+end)

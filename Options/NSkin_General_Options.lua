@@ -190,7 +190,7 @@ local function CreateModuleOptionsPage(optionsFrame)
         label:SetText(definition.label)
 
         row:SetScript("OnClick", function(self)
-            local enabled = self:GetChecked() == true
+            local enabled = not not self:GetChecked()
             NSkin:SetModuleEnabled(self.moduleKey, enabled)
             self.check:SetShown(enabled)
             reloadNotice:Show()

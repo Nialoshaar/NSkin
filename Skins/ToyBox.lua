@@ -79,7 +79,7 @@ function ToyBoxSkin:Initialize()
     end
 end
 
-if NSkin:IsModuleEnabled("ToyBox") then
+NSkin:RegisterModuleInitializer("ToyBox", function()
     if _G.C_AddOns and _G.C_AddOns.IsAddOnLoaded("Blizzard_Collections") then
         ToyBoxSkin:Initialize()
     elseif _G.EventUtil and _G.EventUtil.ContinueOnAddOnLoaded then
@@ -87,4 +87,4 @@ if NSkin:IsModuleEnabled("ToyBox") then
             ToyBoxSkin:Initialize()
         end)
     end
-end
+end)

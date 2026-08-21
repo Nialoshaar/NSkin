@@ -467,7 +467,7 @@ local function WarnAboutLegacyAddon()
     end
 end
 
-if NSkin:IsModuleEnabled("BlizzardProgressBars") then
+NSkin:RegisterModuleInitializer("BlizzardProgressBars", function()
     NSkin:RegisterEvent("PLAYER_ENTERING_WORLD", function() ProgressBars:QueueScan() end)
     NSkin:RegisterEvent("PLAYER_ENTERING_WORLD", WarnAboutLegacyAddon)
 
@@ -488,4 +488,4 @@ if NSkin:IsModuleEnabled("BlizzardProgressBars") then
     InstallHooks()
     InstallObjectiveTrackerHooks()
     InstallTooltipHooks()
-end
+end)

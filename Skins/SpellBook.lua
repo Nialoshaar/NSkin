@@ -437,7 +437,7 @@ function SpellBookSkin:Initialize()
     SkinActiveSpellBookItems()
 end
 
-if NSkin:IsModuleEnabled("SpellBook") then
+NSkin:RegisterModuleInitializer("SpellBook", function()
     if _G.C_AddOns and _G.C_AddOns.IsAddOnLoaded("Blizzard_PlayerSpells") then
         SpellBookSkin:Initialize()
     elseif _G.EventUtil and _G.EventUtil.ContinueOnAddOnLoaded then
@@ -445,4 +445,4 @@ if NSkin:IsModuleEnabled("SpellBook") then
             SpellBookSkin:Initialize()
         end)
     end
-end
+end)

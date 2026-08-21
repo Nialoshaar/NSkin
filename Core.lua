@@ -28,6 +28,8 @@ end
 
 local eventFrame = CreateFrame("Frame")
 local callbacks = {}
+local moduleInitializers = {}
+local modulesStarted = false
 
 function NSkin:NewModule(name)
     assert(type(name) == "string" and name ~= "", "A module name is required")
@@ -51,11 +53,38 @@ function NSkin:RegisterEvent(event, callback)
     handlers[#handlers + 1] = callback
 end
 
+function NSkin:RegisterModuleInitializer(name, callback)
+    assert(type(name) == "string" and name ~= "", "A module name is required")
+    assert(type(callback) == "function", "Module initializer must be a function")
+
+    moduleInitializers[#moduleInitializers + 1] = {
+        name = name,
+        callback = callback,
+    }
+end
+
 function NSkin:Print(message)
     print(("|cff33aaff%s:|r %s"):format(self.name, tostring(message)))
 end
 
 eventFrame:SetScript("OnEvent", function(_, event, ...)
+    if event == "ADDON_LOADED" and not modulesStarted and (...) == ADDON_NAME then
+        modulesStarted = true
+
+        for i = 1, #moduleInitializers do
+            local initializer = moduleInitializers[i]
+            if NSkin:IsModuleEnabled(initializer.name) then
+                initializer.callback()
+            end
+        end
+
+        -- ADDON_LOADED is needed by the core only for SavedVariables startup.
+        -- Keep it registered only when an enabled module requested callbacks.
+        if not callbacks.ADDON_LOADED then
+            eventFrame:UnregisterEvent("ADDON_LOADED")
+        end
+    end
+
     local handlers = callbacks[event]
     if not handlers then return end
 
@@ -63,3 +92,8 @@ eventFrame:SetScript("OnEvent", function(_, event, ...)
         handlers[i](event, ...)
     end
 end)
+
+-- SavedVariables are guaranteed to be available when our ADDON_LOADED fires.
+-- Module files can therefore register cheap initializers without accidentally
+-- reading their enabled state too early during file loading.
+eventFrame:RegisterEvent("ADDON_LOADED")
