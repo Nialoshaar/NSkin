@@ -3,6 +3,29 @@ local ADDON_NAME, NSkin = ...
 NSkin.name = ADDON_NAME
 NSkin.modules = NSkin.modules or {}
 
+NSkin.moduleDefinitions = {
+    { key = "BlizzardProgressBars", label = "Progress Bars" },
+    { key = "EncounterJournal", label = "Adventure Journal" },
+    { key = "ToyBox", label = "Collections (Toy Box and Heirlooms)" },
+    { key = "SpellBook", label = "Spellbook" },
+}
+
+local function GetDatabase()
+    _G.NSkinDB = _G.NSkinDB or {}
+    return _G.NSkinDB
+end
+
+function NSkin:IsModuleEnabled(name)
+    local modules = GetDatabase().modules
+    return modules and modules[name] == true or false
+end
+
+function NSkin:SetModuleEnabled(name, enabled)
+    local database = GetDatabase()
+    database.modules = database.modules or {}
+    database.modules[name] = enabled == true
+end
+
 local eventFrame = CreateFrame("Frame")
 local callbacks = {}
 

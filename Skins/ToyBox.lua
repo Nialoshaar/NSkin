@@ -55,6 +55,7 @@ end
 
 function ToyBoxSkin:Initialize()
     if initialized then return end
+    if not NSkin:IsModuleEnabled("ToyBox") then return end
 
     if not _G.hooksecurefunc then return end
 
@@ -78,10 +79,12 @@ function ToyBoxSkin:Initialize()
     end
 end
 
-if _G.C_AddOns and _G.C_AddOns.IsAddOnLoaded("Blizzard_Collections") then
-    ToyBoxSkin:Initialize()
-elseif _G.EventUtil and _G.EventUtil.ContinueOnAddOnLoaded then
-    _G.EventUtil.ContinueOnAddOnLoaded("Blizzard_Collections", function()
+if NSkin:IsModuleEnabled("ToyBox") then
+    if _G.C_AddOns and _G.C_AddOns.IsAddOnLoaded("Blizzard_Collections") then
         ToyBoxSkin:Initialize()
-    end)
+    elseif _G.EventUtil and _G.EventUtil.ContinueOnAddOnLoaded then
+        _G.EventUtil.ContinueOnAddOnLoaded("Blizzard_Collections", function()
+            ToyBoxSkin:Initialize()
+        end)
+    end
 end

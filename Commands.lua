@@ -19,6 +19,11 @@ end
 local commands = {}
 
 commands.rescan = function()
+    if not NSkin:IsModuleEnabled("BlizzardProgressBars") then
+        NSkin:Print("Progress Bars is disabled. Enable it in /nskin and reload the UI first.")
+        return
+    end
+
     if RunModuleMethod(
         "BlizzardProgressBars",
         "Scan",

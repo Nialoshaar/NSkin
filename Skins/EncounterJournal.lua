@@ -284,6 +284,7 @@ end
 
 function EncounterJournalSkin:Initialize()
     if initialized then return end
+    if not NSkin:IsModuleEnabled("EncounterJournal") then return end
 
     local journal = _G.EncounterJournal
     local instanceSelect = journal and journal.instanceSelect
@@ -475,12 +476,14 @@ local function ContinueAfterJournalLoads()
     end
 end
 
-if _G.EventRegistry and _G.EventRegistry.RegisterCallback then
-    _G.EventRegistry:RegisterCallback(
-        "EncounterJournal.TabSet",
-        EncounterJournalSkin.OnTabSet,
-        EncounterJournalSkin
-    )
-end
+if NSkin:IsModuleEnabled("EncounterJournal") then
+    if _G.EventRegistry and _G.EventRegistry.RegisterCallback then
+        _G.EventRegistry:RegisterCallback(
+            "EncounterJournal.TabSet",
+            EncounterJournalSkin.OnTabSet,
+            EncounterJournalSkin
+        )
+    end
 
-ContinueAfterJournalLoads()
+    ContinueAfterJournalLoads()
+end

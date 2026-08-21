@@ -333,6 +333,8 @@ local function SkinActiveSpellBookItems()
 end
 
 function SpellBookSkin:RefreshTextSize()
+    if not NSkin:IsModuleEnabled("SpellBook") then return end
+
     local playerSpells = _G.PlayerSpellsFrame
     local spellBook = playerSpells and playerSpells.SpellBookFrame
     local pagedSpells = spellBook and spellBook.PagedSpellsFrame
@@ -397,6 +399,7 @@ end
 
 function SpellBookSkin:Initialize()
     if initialized then return end
+    if not NSkin:IsModuleEnabled("SpellBook") then return end
 
     local mixin = _G.SpellBookItemMixin
     if not mixin or type(mixin.UpdateVisuals) ~= "function" or not _G.hooksecurefunc then
@@ -434,10 +437,12 @@ function SpellBookSkin:Initialize()
     SkinActiveSpellBookItems()
 end
 
-if _G.C_AddOns and _G.C_AddOns.IsAddOnLoaded("Blizzard_PlayerSpells") then
-    SpellBookSkin:Initialize()
-elseif _G.EventUtil and _G.EventUtil.ContinueOnAddOnLoaded then
-    _G.EventUtil.ContinueOnAddOnLoaded("Blizzard_PlayerSpells", function()
+if NSkin:IsModuleEnabled("SpellBook") then
+    if _G.C_AddOns and _G.C_AddOns.IsAddOnLoaded("Blizzard_PlayerSpells") then
         SpellBookSkin:Initialize()
-    end)
+    elseif _G.EventUtil and _G.EventUtil.ContinueOnAddOnLoaded then
+        _G.EventUtil.ContinueOnAddOnLoaded("Blizzard_PlayerSpells", function()
+            SpellBookSkin:Initialize()
+        end)
+    end
 end

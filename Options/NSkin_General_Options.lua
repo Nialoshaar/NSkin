@@ -140,6 +140,79 @@ local function FindTextureName(textures, path)
     return "Custom texture"
 end
 
+local function CreateModuleOptionsPage(optionsFrame)
+    local page = CreateFrame("Frame", nil, optionsFrame)
+    page:SetAllPoints(optionsFrame)
+
+    local title = page:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+    title:SetPoint("TOPLEFT", optionsFrame, "TOPLEFT", CONTENT_LEFT, -102)
+    title:SetText("Modules")
+
+    local description = page:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    description:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -8)
+    description:SetText("Disabled modules install no hooks or events after reloading the UI.")
+
+    local reloadNotice = page:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+    reloadNotice:SetPoint("BOTTOMLEFT", optionsFrame, "BOTTOMLEFT", CONTENT_LEFT, 22)
+    reloadNotice:SetText("Module changes require a UI reload.")
+    reloadNotice:Hide()
+    page.reloadNotice = reloadNotice
+
+    local reloadButton = CreateFrame("Button", nil, page)
+    reloadButton:SetSize(100, 24)
+    reloadButton:SetPoint("BOTTOMRIGHT", optionsFrame, "BOTTOMRIGHT", -20, 14)
+    NSkin:SkinFlatButton(reloadButton, "Reload UI", CONTROL_BACKGROUND, DIVIDER_COLOR, 12)
+    reloadButton:SetScript("OnClick", function() _G.ReloadUI() end)
+    reloadButton:Hide()
+    page.reloadButton = reloadButton
+
+    page.rows = {}
+    for i = 1, #NSkin.moduleDefinitions do
+        local definition = NSkin.moduleDefinitions[i]
+        local row = CreateFrame("CheckButton", nil, page)
+        row:SetSize(260, 22)
+        row:SetPoint("TOPLEFT", description, "BOTTOMLEFT", 0, -12 - (i - 1) * 30)
+        row.moduleKey = definition.key
+
+        local box = CreateFrame("Frame", nil, row)
+        box:SetSize(18, 18)
+        box:SetPoint("LEFT", row, "LEFT", 0, 0)
+        NSkin:CreateFlatBackground(box, nil, CONTROL_BACKGROUND, DIVIDER_COLOR)
+
+        local check = box:CreateTexture(nil, "ARTWORK")
+        check:SetPoint("TOPLEFT", 4, -4)
+        check:SetPoint("BOTTOMRIGHT", -4, 4)
+        check:SetColorTexture(0, 0.55, 0.82, 1)
+        row.check = check
+
+        local label = row:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+        label:SetPoint("LEFT", box, "RIGHT", 8, 0)
+        label:SetText(definition.label)
+
+        row:SetScript("OnClick", function(self)
+            local enabled = self:GetChecked() == true
+            NSkin:SetModuleEnabled(self.moduleKey, enabled)
+            self.check:SetShown(enabled)
+            reloadNotice:Show()
+            reloadButton:Show()
+        end)
+
+        page.rows[i] = row
+    end
+
+    function page:Refresh()
+        for i = 1, #self.rows do
+            local row = self.rows[i]
+            local enabled = NSkin:IsModuleEnabled(row.moduleKey)
+            row:SetChecked(enabled)
+            row.check:SetShown(enabled)
+        end
+    end
+
+    page:Hide()
+    return page
+end
+
 local function CreateOptionsWindow()
     if options then return options end
 
@@ -325,10 +398,15 @@ local function CreateOptionsWindow()
     if selected:GetFontString() then selected:GetFontString():SetAlpha(0) end
     if reset:GetFontString() then reset:GetFontString():SetAlpha(0) end
 
+    local generalPage = CreateModuleOptionsPage(frame)
     local pages = {
+        { key = "general", page = generalPage },
         { key = "progress", page = progressPage },
     }
-    local pagesByKey = { progress = pages[1] }
+    local pagesByKey = {
+        general = pages[1],
+        progress = pages[2],
+    }
 
     for i = 1, #optionPageDefinitions do
         local definition = optionPageDefinitions[i]
@@ -401,7 +479,7 @@ local function CreateOptionsWindow()
     end
 
     frame:SetScript("OnShow", function(self)
-        self:SelectOptionsPage(self.selectedPageKey or "progress")
+        self:SelectOptionsPage(self.selectedPageKey or "general")
     end)
 
     options = frame

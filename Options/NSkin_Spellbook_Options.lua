@@ -23,7 +23,7 @@ function NSkin:SetSpellBookTextSize(size)
     GetDatabase().spellBookTextSize = size
 
     local spellBook = self.modules and self.modules.SpellBook
-    if spellBook and spellBook.RefreshTextSize then
+    if self:IsModuleEnabled("SpellBook") and spellBook and spellBook.RefreshTextSize then
         spellBook:RefreshTextSize()
     end
     return true
@@ -61,7 +61,12 @@ NSkin:RegisterOptionsPage("spellbook", "Spellbook", function(optionsFrame)
     function page:Refresh()
         self.refreshing = true
         local size = NSkin:GetSpellBookTextSize()
+        local enabled = NSkin:IsModuleEnabled("SpellBook")
         slider:SetValue(size)
+        if enabled then slider:Enable() else slider:Disable() end
+        slider:SetAlpha(enabled and 1 or 0.40)
+        label:SetAlpha(enabled and 1 or 0.40)
+        valueText:SetAlpha(enabled and 1 or 0.40)
         valueText:SetText(size .. " px")
         self.refreshing = false
     end

@@ -402,6 +402,7 @@ local function InstallTooltipHooks()
 end
 
 function ProgressBars:Scan()
+    if not NSkin:IsModuleEnabled("BlizzardProgressBars") then return end
     scanPending = false
     InstallHooks()
     InstallObjectiveTrackerHooks()
@@ -419,6 +420,7 @@ function ProgressBars:Scan()
 end
 
 function ProgressBars:QueueScan()
+    if not NSkin:IsModuleEnabled("BlizzardProgressBars") then return end
     if scanPending then return end
     scanPending = true
     C_Timer.After(0, function() self:Scan() end)
@@ -465,30 +467,25 @@ local function WarnAboutLegacyAddon()
     end
 end
 
-local refreshEvents = {
-    "PLAYER_ENTERING_WORLD",
-}
+if NSkin:IsModuleEnabled("BlizzardProgressBars") then
+    NSkin:RegisterEvent("PLAYER_ENTERING_WORLD", function() ProgressBars:QueueScan() end)
+    NSkin:RegisterEvent("PLAYER_ENTERING_WORLD", WarnAboutLegacyAddon)
 
-for i = 1, #refreshEvents do
-    NSkin:RegisterEvent(refreshEvents[i], function() ProgressBars:QueueScan() end)
-end
+    local relevantAddons = {
+        Blizzard_UIWidgets = true,
+        Blizzard_ScenarioObjectiveTracker = true,
+        Blizzard_ObjectiveTracker = true,
+        Blizzard_SharedTooltip = true,
+    }
 
-NSkin:RegisterEvent("PLAYER_ENTERING_WORLD", WarnAboutLegacyAddon)
+    NSkin:RegisterEvent("ADDON_LOADED", function(_, addonName)
+        InstallHooks()
+        InstallObjectiveTrackerHooks()
+        InstallTooltipHooks()
+        if relevantAddons[addonName] then ProgressBars:QueueScan() end
+    end)
 
-local relevantAddons = {
-    Blizzard_UIWidgets = true,
-    Blizzard_ScenarioObjectiveTracker = true,
-    Blizzard_ObjectiveTracker = true,
-    Blizzard_SharedTooltip = true,
-}
-
-NSkin:RegisterEvent("ADDON_LOADED", function(_, addonName)
     InstallHooks()
     InstallObjectiveTrackerHooks()
     InstallTooltipHooks()
-    if relevantAddons[addonName] then ProgressBars:QueueScan() end
-end)
-
-InstallHooks()
-InstallObjectiveTrackerHooks()
-InstallTooltipHooks()
+end
