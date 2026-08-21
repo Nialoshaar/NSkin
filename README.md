@@ -12,7 +12,7 @@ NialoSkin/
 |-- Skin.lua                   Shared pixel-border utility
 |-- Options/
 |   |-- NSkin_General_Options.lua  Shared `/nskin` window and progress-bar page
-|   `-- Spellbook_Options.lua      Spellbook settings page
+|   `-- NSkin_Spellbook_Options.lua  Spellbook settings page
 |-- Commands.lua               Central `/nskin` command router
 |-- Media/Icon.tga             Addon-list icon
 |-- Skins/

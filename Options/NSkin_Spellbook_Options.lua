@@ -34,7 +34,8 @@ NSkin:RegisterOptionsPage("spellbook", "Spellbook", function(optionsFrame)
     page:SetAllPoints(optionsFrame)
 
     local label = page:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    label:SetPoint("TOPLEFT", optionsFrame, "TOPLEFT", 18, -82)
+    label:SetPoint("TOPLEFT", optionsFrame, "TOPLEFT",
+        optionsFrame.NSkinContentLeft or 180, -102)
     label:SetText("Spell name text size")
 
     local valueText = page:CreateFontString(nil, "ARTWORK", "GameFontHighlight")

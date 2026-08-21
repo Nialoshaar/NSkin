@@ -1,16 +1,35 @@
 local _, NSkin = ...
 
-local WINDOW_WIDTH = 560
-local WINDOW_HEIGHT = 360
+local WINDOW_WIDTH = 700
+local WINDOW_HEIGHT = 460
 local ROW_HEIGHT = 26
+local CONTENT_LEFT = 180
+local NAV_TOP = -102
 local CONTROL_BACKGROUND = { 0.04, 0.04, 0.04, 0.90 }
-local CONTROL_BACKGROUND_SELECTED = { 0.16, 0.16, 0.16, 0.95 }
 local DIVIDER_COLOR = { 0.45, 0.45, 0.45, 1 }
 
 local options
 local optionPageDefinitions = {}
 
+local navigationItems = {
+    { key = "general", label = "General" },
+    { label = "Shared Elements", heading = true },
+    { key = "progress", label = "Progress Bars", indent = true },
+    { key = "buttons", label = "Buttons", indent = true },
+    { key = "tabs", label = "Tabs", indent = true },
+    { key = "scrollbars", label = "Scrollbars", indent = true },
+    { key = "icons", label = "Icons", indent = true },
+    { label = "Windows", heading = true },
+    { key = "collections", label = "Collections", indent = true },
+    { key = "journal", label = "Adventure Journal", indent = true },
+    { key = "spellbook", label = "Spellbook", indent = true },
+}
+
 local function SkinOptionsWindow(frame)
+    -- BasicFrameTemplate owns several direct border/title textures in
+    -- addition to its NineSlice. Remove them before creating our flat layers.
+    NSkin:HideTextureRegions(frame)
+
     if frame.Bg then
         frame.Bg:SetAlpha(0)
         frame.Bg:Hide()
@@ -19,23 +38,25 @@ local function SkinOptionsWindow(frame)
         frame.TopTileStreaks:SetAlpha(0)
         frame.TopTileStreaks:Hide()
     end
-    if frame.NineSlice then frame.NineSlice:Hide() end
+    if frame.NineSlice then
+        NSkin:HideTextureRegions(frame.NineSlice)
+        frame.NineSlice:SetAlpha(0)
+        frame.NineSlice:Hide()
+    end
     if frame.Inset then
+        NSkin:HideTextureRegions(frame.Inset)
         if frame.Inset.Bg then frame.Inset.Bg:Hide() end
-        if frame.Inset.NineSlice then frame.Inset.NineSlice:Hide() end
+        if frame.Inset.NineSlice then
+            NSkin:HideTextureRegions(frame.Inset.NineSlice)
+            frame.Inset.NineSlice:SetAlpha(0)
+            frame.Inset.NineSlice:Hide()
+        end
     end
 
     NSkin:CreateFlatBackground(frame, "NSkinOptionsBackground",
         { 0, 0, 0, 0.80 }, DIVIDER_COLOR)
 
-    local titleBackground = frame:CreateTexture(nil, "BACKGROUND", nil, 7)
-    titleBackground:SetPoint("TOPLEFT", 1, -1)
-    titleBackground:SetPoint("TOPRIGHT", -1, -1)
-    titleBackground:SetHeight(21)
-    titleBackground:SetColorTexture(unpack(CONTROL_BACKGROUND))
-    frame.NSkinTitleBackground = titleBackground
-
-    if frame.TitleText then frame.TitleText:SetTextColor(1, 1, 1) end
+    if frame.TitleText then frame.TitleText:Hide() end
 
     local closeButton = frame.CloseButton
     NSkin:SkinFlatButton(closeButton, "x", CONTROL_BACKGROUND, DIVIDER_COLOR, 16)
@@ -141,24 +162,46 @@ local function CreateOptionsWindow()
 
     frame.TitleText:SetText("Nialo Skin")
     SkinOptionsWindow(frame)
+    frame.NSkinContentLeft = CONTENT_LEFT
+
+    local logo = frame:CreateTexture(nil, "ARTWORK")
+    logo:SetPoint("TOPLEFT", frame, "TOPLEFT", 14, -14)
+    logo:SetSize(44, 44)
+    logo:SetTexture("Interface\\AddOns\\NialoSkin\\Media\\Icon.tga")
+
+    local addonName = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightLarge")
+    addonName:SetPoint("LEFT", logo, "RIGHT", 4, -7)
+    addonName:SetText("NSkin")
+
+    local version = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    version:SetPoint("BOTTOMLEFT", addonName, "TOPRIGHT", 3, -2)
+    local addonVersion = _G.C_AddOns and _G.C_AddOns.GetAddOnMetadata
+        and _G.C_AddOns.GetAddOnMetadata(NSkin.name, "Version") or ""
+    version:SetText(addonVersion ~= "" and ("v" .. addonVersion) or "")
+
+    local navigationDivider = frame:CreateTexture(nil, "ARTWORK")
+    navigationDivider:SetPoint("TOPLEFT", frame, "TOPLEFT", CONTENT_LEFT - 14, -96)
+    navigationDivider:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", CONTENT_LEFT - 14, 24)
+    navigationDivider:SetWidth(1)
+    navigationDivider:SetColorTexture(unpack(DIVIDER_COLOR))
 
     local progressPage = CreateFrame("Frame", nil, frame)
     progressPage:SetAllPoints(frame)
 
     local label = progressPage:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    label:SetPoint("TOPLEFT", frame, "TOPLEFT", 18, -76)
+    label:SetPoint("TOPLEFT", frame, "TOPLEFT", CONTENT_LEFT, -102)
     label:SetText("Texture")
 
     local selected = CreateFrame("Button", nil, progressPage, "UIPanelButtonTemplate")
     selected:SetPoint("TOPLEFT", label, "BOTTOMLEFT", 0, -8)
-    selected:SetPoint("RIGHT", frame, "RIGHT", -18, 0)
+    selected:SetPoint("RIGHT", frame, "RIGHT", -20, 0)
     selected:SetHeight(28)
     selected:SetText("Naowh Gradient")
     frame.selectedButton = selected
 
     local listBorder = CreateFrame("Frame", nil, progressPage, "BackdropTemplate")
     listBorder:SetPoint("TOPLEFT", selected, "BOTTOMLEFT", 0, -6)
-    listBorder:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -18, 52)
+    listBorder:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -20, 52)
     listBorder:SetBackdrop({
         bgFile = "Interface\\Buttons\\WHITE8X8",
         edgeFile = "Interface\\Buttons\\WHITE8X8",
@@ -269,7 +312,7 @@ local function CreateOptionsWindow()
 
     local reset = CreateFrame("Button", nil, progressPage, "UIPanelButtonTemplate")
     reset:SetSize(110, 24)
-    reset:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -18, 14)
+    reset:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -20, 14)
     reset:SetText("Reset Default")
     reset:SetScript("OnClick", function()
         NSkin:ResetStatusBarTexture()
@@ -283,8 +326,9 @@ local function CreateOptionsWindow()
     if reset:GetFontString() then reset:GetFontString():SetAlpha(0) end
 
     local pages = {
-        { key = "progress", label = "Progress Bars", page = progressPage },
+        { key = "progress", page = progressPage },
     }
+    local pagesByKey = { progress = pages[1] }
 
     for i = 1, #optionPageDefinitions do
         local definition = optionPageDefinitions[i]
@@ -293,24 +337,47 @@ local function CreateOptionsWindow()
             page:Hide()
             pages[#pages + 1] = {
                 key = definition.key,
-                label = definition.label,
                 page = page,
             }
+            pagesByKey[definition.key] = pages[#pages]
         end
     end
 
-    for i = 1, #pages do
-        local pageInfo = pages[i]
-        local tab = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-        tab:SetSize(125, 26)
-        tab:SetPoint("TOPLEFT", frame, "TOPLEFT", 16 + (i - 1) * 129, -34)
-        tab:SetText("")
-        NSkin:SkinFlatButton(tab, pageInfo.label, CONTROL_BACKGROUND, DIVIDER_COLOR, 12)
-        tab:SetFrameLevel(frame:GetFrameLevel() + 5)
-        tab:SetScript("OnClick", function()
-            frame:SelectOptionsPage(pageInfo.key)
-        end)
-        pageInfo.tab = tab
+    for i = 1, #navigationItems do
+        local item = navigationItems[i]
+        if item.key and not pagesByKey[item.key] then
+            local placeholder = CreateFrame("Frame", nil, frame)
+            placeholder:SetAllPoints(frame)
+            placeholder:Hide()
+            local pageInfo = { key = item.key, page = placeholder }
+            pages[#pages + 1] = pageInfo
+            pagesByKey[item.key] = pageInfo
+        end
+
+        if item.heading then
+            local heading = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+            heading:SetPoint("TOPLEFT", frame, "TOPLEFT", 12, NAV_TOP - (i - 1) * 16)
+            heading:SetText(item.label)
+        else
+            local navigationButton = CreateFrame("Button", nil, frame)
+            navigationButton:SetSize(132, 16)
+            navigationButton:SetPoint("TOPLEFT", frame, "TOPLEFT",
+                item.indent and 27 or 12, NAV_TOP - (i - 1) * 16)
+            navigationButton:SetNormalFontObject("GameFontHighlightSmall")
+            navigationButton:SetHighlightFontObject("GameFontHighlightSmall")
+            navigationButton:SetText(item.label)
+            navigationButton:GetFontString():SetJustifyH("LEFT")
+
+            local selectedBackground = navigationButton:CreateTexture(nil, "BACKGROUND")
+            selectedBackground:SetAllPoints(navigationButton)
+            selectedBackground:SetColorTexture(0, 0.55, 0.82, 0.85)
+            selectedBackground:Hide()
+            navigationButton.selectedBackground = selectedBackground
+            navigationButton:SetScript("OnClick", function()
+                frame:SelectOptionsPage(item.key)
+            end)
+            pagesByKey[item.key].navigationButton = navigationButton
+        end
     end
 
     function frame:SelectOptionsPage(key)
@@ -319,10 +386,9 @@ local function CreateOptionsWindow()
             local pageInfo = pages[i]
             local selectedPage = pageInfo.key == key
             pageInfo.page:SetShown(selectedPage)
-            pageInfo.tab:SetEnabled(not selectedPage)
-            pageInfo.tab.NSkinFlatBackground:SetColorTexture(unpack(
-                selectedPage and CONTROL_BACKGROUND_SELECTED or CONTROL_BACKGROUND
-            ))
+            if pageInfo.navigationButton then
+                pageInfo.navigationButton.selectedBackground:SetShown(selectedPage)
+            end
             if selectedPage and pageInfo.page.Refresh then
                 pageInfo.page:Refresh()
             end
