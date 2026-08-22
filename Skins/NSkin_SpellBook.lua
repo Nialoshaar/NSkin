@@ -10,15 +10,11 @@ local PAGING_BUTTON_TEXT_SIZE = 16
 local WINDOW_BUTTON_TEXT_SIZE = 20
 local WINDOW_BUTTON_TEXT_OFFSET_X = 0
 local WINDOW_BUTTON_TEXT_OFFSET_Y = 0
-local CONTROL_BACKGROUND = { 0.04, 0.04, 0.04, 0.90 }
-local CONTROL_BACKGROUND_SELECTED = { 0.16, 0.16, 0.16, 0.95 }
-local DIVIDER_COLOR = { 0.45, 0.45, 0.45, 1 }
 
 local borders = {}
 local circularBorders = {}
 local headerLines = {}
 local spellBookBackground
-local titleBarBackground
 local assistedCombatDivider
 local initialized = false
 
@@ -29,43 +25,14 @@ local function SetFontSize(fontString, size)
     if font then fontString:SetFont(font, size, flags) end
 end
 
-local function SkinCategoryTab(tab, selected)
-    if not tab then return end
-
-    if not tab.NSkinFlatBackground then
-        if type(tab.SetTabSelected) == "function" and _G.hooksecurefunc then
-            -- Keep the flat selected state synchronized for both the upper
-            -- category tabs and the persistent bottom navigation tabs.
-            _G.hooksecurefunc(tab, "SetTabSelected", SkinCategoryTab)
-        end
-        NSkin:HideTextureRegions(tab)
-        NSkin:CreateFlatBackground(tab, nil, CONTROL_BACKGROUND, DIVIDER_COLOR)
-        NSkin:CreateFlatButtonGlow(tab)
-        if tab.Text then tab.Text:SetTextColor(1, 1, 1) end
-    end
-
-    tab.NSkinFlatBackground:SetColorTexture(unpack(
-        selected and CONTROL_BACKGROUND_SELECTED or CONTROL_BACKGROUND
-    ))
-end
-
-local function SkinTabSystem(tabSystem)
-    if not tabSystem or not tabSystem.tabs then return end
-
-    for i = 1, #tabSystem.tabs do
-        local tab = tabSystem.tabs[i]
-        local selected = tab and tab.IsSelected and tab:IsSelected()
-        SkinCategoryTab(tab, selected)
-    end
-end
-
 local function SkinSpellBookTabs()
     local playerSpells = _G.PlayerSpellsFrame
     local spellBook = playerSpells and playerSpells.SpellBookFrame
     if not spellBook then return end
 
-    SkinTabSystem(spellBook.CategoryTabSystem)
-    SkinTabSystem(playerSpells.TabSystem)
+    local style = NSkin:GetStyle("tab")
+    NSkin:SkinTabSystem(spellBook.CategoryTabSystem, style)
+    NSkin:SkinTabSystem(playerSpells.TabSystem, style)
 end
 
 local function SkinSearchBox(searchBox)
@@ -74,7 +41,8 @@ local function SkinSearchBox(searchBox)
     local searchIcon = searchBox.SearchIcon or searchBox.searchIcon
     if not searchBox.NSkinFlatBackground then
         NSkin:HideTextureRegions(searchBox, searchIcon)
-        NSkin:CreateFlatBackground(searchBox, nil, { 0, 0, 0, 0.75 }, DIVIDER_COLOR)
+        NSkin:CreateFlatBackground(searchBox, nil, { 0, 0, 0, 0.75 },
+            NSkin:GetStyle("window").border)
     end
     searchBox:SetTextColor(1, 1, 1)
     if searchBox.Instructions then
@@ -86,10 +54,11 @@ end
 local function SkinPagingControls(pagingControls)
     if not pagingControls then return end
 
-    NSkin:SkinFlatButton(pagingControls.PrevPageButton, "<", CONTROL_BACKGROUND,
-        DIVIDER_COLOR, PAGING_BUTTON_TEXT_SIZE)
-    NSkin:SkinFlatButton(pagingControls.NextPageButton, ">", CONTROL_BACKGROUND,
-        DIVIDER_COLOR, PAGING_BUTTON_TEXT_SIZE)
+    local tabStyle = NSkin:GetStyle("tab")
+    NSkin:SkinFlatButton(pagingControls.PrevPageButton, "<", tabStyle.background,
+        tabStyle.border, PAGING_BUTTON_TEXT_SIZE)
+    NSkin:SkinFlatButton(pagingControls.NextPageButton, ">", tabStyle.background,
+        tabStyle.border, PAGING_BUTTON_TEXT_SIZE)
     if pagingControls.PageText then
         pagingControls.PageText:SetTextColor(1, 1, 1)
     end
@@ -112,11 +81,12 @@ local function SkinWindowButtons(playerSpells, spellBook)
     local maximizeButton = expandFrame and expandFrame.MaximizeButton
     local minimizeButton = expandFrame and expandFrame.MinimizeButton
 
-    NSkin:SkinFlatButton(closeButton, "x", CONTROL_BACKGROUND, DIVIDER_COLOR,
+    local tabStyle = NSkin:GetStyle("tab")
+    NSkin:SkinFlatButton(closeButton, "x", tabStyle.background, tabStyle.border,
         WINDOW_BUTTON_TEXT_SIZE, WINDOW_BUTTON_TEXT_OFFSET_X, WINDOW_BUTTON_TEXT_OFFSET_Y)
-    NSkin:SkinFlatButton(maximizeButton, "+", CONTROL_BACKGROUND, DIVIDER_COLOR,
+    NSkin:SkinFlatButton(maximizeButton, "+", tabStyle.background, tabStyle.border,
         WINDOW_BUTTON_TEXT_SIZE, WINDOW_BUTTON_TEXT_OFFSET_X, WINDOW_BUTTON_TEXT_OFFSET_Y)
-    NSkin:SkinFlatButton(minimizeButton, "-", CONTROL_BACKGROUND, DIVIDER_COLOR,
+    NSkin:SkinFlatButton(minimizeButton, "-", tabStyle.background, tabStyle.border,
         WINDOW_BUTTON_TEXT_SIZE, WINDOW_BUTTON_TEXT_OFFSET_X, WINDOW_BUTTON_TEXT_OFFSET_Y)
 
     if closeButton then
@@ -156,7 +126,7 @@ local function SkinAssistedCombat(frame)
         assistedCombatDivider:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -2)
         assistedCombatDivider:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 0, 2)
         assistedCombatDivider:SetWidth(1)
-        assistedCombatDivider:SetColorTexture(unpack(DIVIDER_COLOR))
+        assistedCombatDivider:SetColorTexture(unpack(NSkin:GetStyle("window").header.divider))
     end
 end
 
@@ -167,18 +137,12 @@ local function SkinTitleBar(playerSpells, spellBook)
     if playerSpells.NSkinWindowBorder then
         NSkin:SetPixelBorderShown(playerSpells.NSkinWindowBorder, false)
     end
-    NSkin:CreatePixelBorder(spellBook, "NSkinWindowBorder", BORDER_SIZE, DIVIDER_COLOR)
+    NSkin:SkinWindow(spellBook)
     if playerSpells.TitleContainer and playerSpells.TitleContainer.TitleText then
         playerSpells.TitleContainer.TitleText:SetTextColor(1, 1, 1)
     end
 
-    if not titleBarBackground then
-        titleBarBackground = playerSpells:CreateTexture(nil, "BACKGROUND", nil, 7)
-        titleBarBackground:SetPoint("BOTTOMLEFT", spellBook, "TOPLEFT", 0, 0)
-        titleBarBackground:SetPoint("BOTTOMRIGHT", spellBook, "TOPRIGHT", 0, 0)
-        titleBarBackground:SetHeight(22)
-        titleBarBackground:SetColorTexture(0.04, 0.04, 0.04, 0.95)
-    end
+    NSkin:SkinWindowHeader(playerSpells, spellBook)
 end
 
 local function RemoveSpellBookPortraitAndHelp(playerSpells, spellBook)
@@ -298,7 +262,7 @@ local function SkinSpellBookHeader(header)
         line:SetPoint("BOTTOMLEFT", header, "BOTTOMLEFT", -8, 12)
         line:SetPoint("BOTTOMRIGHT", header, "BOTTOMRIGHT", -60, 12)
         line:SetHeight(1)
-        line:SetColorTexture(0.45, 0.45, 0.45, 1)
+        line:SetColorTexture(unpack(NSkin:GetStyle("window").header.divider))
         headerLines[header] = line
     end
 end
@@ -384,11 +348,7 @@ local function RemoveSpellBookBackground()
         if region then region:SetAlpha(0) end
     end
 
-    if not spellBookBackground then
-        spellBookBackground = spellBook:CreateTexture(nil, "BACKGROUND", nil, 0)
-        spellBookBackground:SetAllPoints(spellBook)
-        spellBookBackground:SetColorTexture(0, 0, 0, 0.80)
-    end
+    spellBookBackground = NSkin:SkinWindow(spellBook)
 
     local pagedSpells = spellBook.PagedSpellsFrame
     local pagingControls = pagedSpells and pagedSpells.PagingControls

@@ -4,13 +4,9 @@ local DEFAULT_TEXT_SIZE = 16
 local MIN_TEXT_SIZE = 8
 local MAX_TEXT_SIZE = 32
 
-local function GetDatabase()
-    _G.NSkinDB = _G.NSkinDB or {}
-    return _G.NSkinDB
-end
-
 function NSkin:GetSpellBookTextSize()
-    local size = tonumber(GetDatabase().spellBookTextSize)
+    local options = self:GetModuleOptions("SpellBook", false)
+    local size = options and tonumber(options.textSize)
     if not size then return DEFAULT_TEXT_SIZE end
     return math.max(MIN_TEXT_SIZE, math.min(MAX_TEXT_SIZE, math.floor(size + 0.5)))
 end
@@ -20,7 +16,8 @@ function NSkin:SetSpellBookTextSize(size)
     if not size then return false end
 
     size = math.max(MIN_TEXT_SIZE, math.min(MAX_TEXT_SIZE, math.floor(size + 0.5)))
-    GetDatabase().spellBookTextSize = size
+    local options = self:GetModuleOptions("SpellBook", true)
+    options.textSize = size == DEFAULT_TEXT_SIZE and nil or size
 
     local spellBook = self.modules and self.modules.SpellBook
     if self:IsModuleEnabled("SpellBook") and spellBook and spellBook.RefreshTextSize then

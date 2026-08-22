@@ -1,9 +1,9 @@
 local _, NSkin = ...
 
-local DEFAULT_FLAT_BACKGROUND = { 0.04, 0.04, 0.04, 0.90 }
-
 -- Creates four simple texture edges without using BackdropTemplate or NineSlice.
 -- The regions are owned by the target frame and do not alter protected state.
+
+-- Icons Skinning
 function NSkin:CreatePixelBorder(frame, key, size, color, outside, anchor)
     if not frame or not frame.CreateTexture then return nil end
     if key and frame[key] then return frame[key] end
@@ -73,6 +73,14 @@ function NSkin:SetPixelBorderColor(border, red, green, blue, alpha)
     border.right:SetColorTexture(red, green, blue, alpha)
 end
 
+function NSkin:SetPixelBorderSize(border, size)
+    if not border or not size then return end
+    border.top:SetHeight(size)
+    border.bottom:SetHeight(size)
+    border.left:SetWidth(size)
+    border.right:SetWidth(size)
+end
+
 function NSkin:CreateQualityBorder(frame, anchor, key, size, outside)
     local border = self:CreatePixelBorder(frame, key, size, nil, outside == true, anchor)
     self:SetPixelBorderShown(border, false)
@@ -118,9 +126,10 @@ function NSkin:CreateFlatBackground(frame, key, color, borderColor)
     local background = frame:CreateTexture(nil, "BACKGROUND", nil, 7)
     background:SetPoint("TOPLEFT", 1, -1)
     background:SetPoint("BOTTOMRIGHT", -1, 1)
-    background:SetColorTexture(unpack(color or DEFAULT_FLAT_BACKGROUND))
+    local tabStyle = self:GetStyle("tab")
+    background:SetColorTexture(unpack(color or tabStyle.background))
     background:Show()
     frame[key] = background
-    self:CreatePixelBorder(frame, key .. "Border", 1, borderColor or self.colors.border)
+    self:CreatePixelBorder(frame, key .. "Border", 1, borderColor or tabStyle.border)
     return background
 end

@@ -7,14 +7,17 @@
 ## OptionalDeps: NaowhUI_Media
 ## IconTexture: Interface\AddOns\NialoSkin\Media\Icon.tga
 
-Core.lua
-Media.lua
-Skin.lua
-Components\Buttons.lua
+NSkin_Core.lua
+NSkin_Default.lua
+NSkin_Database.lua
+NSkin_Theme.lua
+NSkin_Media.lua
+NSkin_Skin.lua
+NSkin_Components.lua
 Options\NSkin_General_Options.lua
-Options\NSkin_Spellbook_Options.lua
-Skins\BlizzardProgressBars.lua
-Skins\EncounterJournal.lua
-Skins\ToyBox.lua
-Skins\SpellBook.lua
-Commands.lua
+Options\NSkin_SpellBook_Options.lua
+Skins\NSkin_BlizzardProgressBars.lua
+Skins\NSkin_EncounterJournal.lua
+Skins\NSkin_ToyBox.lua
+Skins\NSkin_SpellBook.lua
+NSkin_Commands.lua

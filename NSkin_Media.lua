@@ -1,7 +1,7 @@
 local _, NSkin = ...
 
 NSkin.defaults = {
-    statusBarTexture = "Interface\\AddOns\\NaowhUI_Media\\Shared\\Textures\\NaowhGradient.tga",
+    statusBarTexture = "Interface\\Buttons\\WHITE8X8",
 }
 
 NSkin.media = {
@@ -13,13 +13,8 @@ NSkin.colors = {
     border = { 0, 0, 0, 1 },
 }
 
-local function GetDatabase()
-    _G.NSkinDB = _G.NSkinDB or {}
-    return _G.NSkinDB
-end
-
 function NSkin:GetStatusBarTexture()
-    local texture = GetDatabase().statusBarTexture
+    local texture = self:GetProfile().statusBarTexture
     if type(texture) ~= "string" or texture == "" then
         return self.defaults.statusBarTexture
     end
@@ -33,7 +28,7 @@ function NSkin:SetStatusBarTexture(texture)
     texture = texture:match("^%s*(.-)%s*$")
     if texture == "" then return false end
 
-    GetDatabase().statusBarTexture = texture
+    self:GetProfile().statusBarTexture = texture
 
     local progressBars = self.modules.BlizzardProgressBars
     if progressBars and progressBars.RefreshTexture then
@@ -44,7 +39,7 @@ function NSkin:SetStatusBarTexture(texture)
 end
 
 function NSkin:ResetStatusBarTexture()
-    GetDatabase().statusBarTexture = nil
+    self:GetProfile().statusBarTexture = nil
 
     local progressBars = self.modules.BlizzardProgressBars
     if progressBars and progressBars.RefreshTexture then

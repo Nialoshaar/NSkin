@@ -10,20 +10,15 @@ NSkin.moduleDefinitions = {
     { key = "SpellBook", label = "Spellbook" },
 }
 
-local function GetDatabase()
-    _G.NSkinDB = _G.NSkinDB or {}
-    return _G.NSkinDB
-end
-
 function NSkin:IsModuleEnabled(name)
-    local modules = GetDatabase().modules
+    local modules = self:GetProfile().modules
     return modules and modules[name] == true or false
 end
 
 function NSkin:SetModuleEnabled(name, enabled)
-    local database = GetDatabase()
-    database.modules = database.modules or {}
-    database.modules[name] = enabled == true
+    local profile = self:GetProfile()
+    profile.modules = profile.modules or {}
+    profile.modules[name] = enabled == true
 end
 
 local eventFrame = CreateFrame("Frame")
