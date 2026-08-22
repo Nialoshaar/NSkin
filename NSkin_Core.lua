@@ -4,22 +4,33 @@ NSkin.name = ADDON_NAME
 NSkin.modules = NSkin.modules or {}
 
 NSkin.moduleDefinitions = {
-    { key = "BlizzardProgressBars", label = "Progress Bars" },
-    { key = "EncounterJournal", label = "Adventure Journal" },
-    { key = "ToyBox", label = "Collections (Toy Box and Heirlooms)" },
-    { key = "SpellBook", label = "Spellbook" },
+    { key = "BlizzardProgressBars", label = "Progress Bars", defaultEnabled = false },
+    { key = "EncounterJournal", label = "Adventure Journal", defaultEnabled = false },
+    { key = "ToyBox", label = "Collections (Toy Box and Heirlooms)", defaultEnabled = false },
+    { key = "SpellBook", label = "Spellbook", defaultEnabled = false },
 }
+
+NSkin.moduleDefinitionByKey = {}
+for i = 1, #NSkin.moduleDefinitions do
+    local definition = NSkin.moduleDefinitions[i]
+    NSkin.moduleDefinitionByKey[definition.key] = definition
+end
+
+function NSkin:GetModuleDefault(name)
+    local definition = self.moduleDefinitionByKey[name]
+    return definition and definition.defaultEnabled == true or false
+end
 
 function NSkin:IsModuleEnabled(name)
     local modules = self:GetProfile().modules
     if modules and modules[name] ~= nil then return modules[name] == true end
-    return self.defaultModules[name] == true
+    return self:GetModuleDefault(name)
 end
 
 function NSkin:SetModuleEnabled(name, enabled)
     local profile = self:GetProfile()
     local value = enabled == true
-    local default = self.defaultModules[name] == true
+    local default = self:GetModuleDefault(name)
     if value == default then
         if profile.modules then
             profile.modules[name] = nil

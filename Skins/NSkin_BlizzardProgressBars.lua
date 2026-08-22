@@ -431,12 +431,6 @@ function ProgressBars:QueueScan()
     C_Timer.After(0, function() self:Scan() end)
 end
 
-function ProgressBars:RefreshTexture()
-    for bar in pairs(styledBars) do
-        if IsStatusBar(bar) then ApplyTexture(bar) end
-    end
-end
-
 function ProgressBars:RefreshTheme()
     for bar in pairs(styledBars) do
         if IsStatusBar(bar) then

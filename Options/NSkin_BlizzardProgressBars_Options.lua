@@ -1,16 +1,14 @@
 local _, NSkin = ...
 
 local ROW_HEIGHT = 26
+local FALLBACK_STATUS_BAR = "Interface\\Buttons\\WHITE8X8"
 local builtInTextures = {
     { name = "Blizzard Flat", path = "Interface\\Buttons\\WHITE8X8", priority = 1 },
 }
 
 function NSkin:GetStatusBarTexture()
-    local texture = self:GetProfile().statusBarTexture
-    if type(texture) == "string" and texture ~= "" then return texture end
-    local defaultTexture = self:GetStyle("progressBar").texture
-    return type(defaultTexture) == "string" and defaultTexture ~= ""
-        and defaultTexture or self.media.fallbackStatusBar
+    local texture = self:GetStyle("progressBar").texture
+    return type(texture) == "string" and texture ~= "" and texture or FALLBACK_STATUS_BAR
 end
 
 function NSkin:SetStatusBarTexture(texture)
@@ -18,17 +16,11 @@ function NSkin:SetStatusBarTexture(texture)
     texture = texture:match("^%s*(.-)%s*$")
     if texture == "" then return false end
 
-    local defaultTexture = self:GetStyle("progressBar").texture
-    self:GetProfile().statusBarTexture = texture == defaultTexture and nil or texture
-    local module = self.modules.BlizzardProgressBars
-    if module and module.RefreshTexture then module:RefreshTexture() end
-    return true
+    return self:SetThemeOverride("progressBar.texture", texture)
 end
 
 function NSkin:ResetStatusBarTexture()
-    self:GetProfile().statusBarTexture = nil
-    local module = self.modules.BlizzardProgressBars
-    if module and module.RefreshTexture then module:RefreshTexture() end
+    return self:ResetThemeOverride("progressBar.texture")
 end
 
 local function CollectTextures()

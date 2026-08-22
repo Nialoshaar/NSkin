@@ -1,12 +1,5 @@
 local _, NSkin = ...
 
-NSkin.defaultModules = {
-    BlizzardProgressBars = false,
-    EncounterJournal = false,
-    ToyBox = false,
-    SpellBook = false,
-}
-
 NSkin.defaultModuleOptions = {
     SpellBook = {
         textSize = 16,

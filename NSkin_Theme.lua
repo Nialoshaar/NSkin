@@ -45,8 +45,11 @@ local function CopyWithOverrides(defaults, overrides)
     local result = {}
     for key, defaultValue in pairs(defaults) do
         local override = overrides and overrides[key]
-        if type(defaultValue) == "table" and type(override) == "table" then
-            result[key] = CopyWithOverrides(defaultValue, override)
+        if type(defaultValue) == "table" then
+            result[key] = CopyWithOverrides(
+                defaultValue,
+                type(override) == "table" and override or nil
+            )
         elseif override ~= nil then
             result[key] = override
         else

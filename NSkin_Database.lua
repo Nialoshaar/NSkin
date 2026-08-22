@@ -1,6 +1,7 @@
 local _, NSkin = ...
 
 local DEFAULT_PROFILE = "Default"
+local CURRENT_DATABASE_VERSION = 2
 local activeProfile
 
 local function CopyTable(source)
@@ -27,22 +28,36 @@ local function GetCharacterKey()
     return name .. "-" .. realm
 end
 
-local function MigrateLegacyDatabase(database, profile)
+local function RemoveEmptyThemeTables(profile)
+    local theme = profile.theme
+    if not theme then return end
+    if theme.progressBar and not next(theme.progressBar) then theme.progressBar = nil end
+    if not next(theme) then profile.theme = nil end
+end
+
+local function MigrateVersion1(database, profile)
     if database.modules and profile.modules == nil then
         profile.modules = database.modules
         for moduleName, enabled in pairs(profile.modules) do
-            if (enabled == true) == (NSkin.defaultModules[moduleName] == true) then
+            if (enabled == true) == NSkin:GetModuleDefault(moduleName) then
                 profile.modules[moduleName] = nil
             end
         end
         if not next(profile.modules) then profile.modules = nil end
     end
-    if database.statusBarTexture ~= nil and profile.statusBarTexture == nil then
+
+    if database.statusBarTexture ~= nil then
         local defaultTexture = NSkin.defaultTheme.progressBar.texture
-        if database.statusBarTexture ~= defaultTexture then
-            profile.statusBarTexture = database.statusBarTexture
+        profile.theme = profile.theme or {}
+        profile.theme.progressBar = profile.theme.progressBar or {}
+        if database.statusBarTexture == defaultTexture then
+            profile.theme.progressBar.texture = nil
+        else
+            profile.theme.progressBar.texture = database.statusBarTexture
         end
+        RemoveEmptyThemeTables(profile)
     end
+
     if database.spellBookTextSize ~= nil then
         local defaultSize = NSkin.defaultModuleOptions.SpellBook.textSize
         if database.spellBookTextSize ~= defaultSize then
@@ -57,6 +72,33 @@ local function MigrateLegacyDatabase(database, profile)
     database.modules = nil
     database.statusBarTexture = nil
     database.spellBookTextSize = nil
+end
+
+local function MigrateVersion2(database)
+    local defaultTexture = NSkin.defaultTheme.progressBar.texture
+    for _, profile in pairs(database.profiles) do
+        local texture = profile.statusBarTexture
+        if texture ~= nil then
+            profile.theme = profile.theme or {}
+            profile.theme.progressBar = profile.theme.progressBar or {}
+            if texture == defaultTexture then
+                profile.theme.progressBar.texture = nil
+            else
+                profile.theme.progressBar.texture = texture
+            end
+            profile.statusBarTexture = nil
+            RemoveEmptyThemeTables(profile)
+        end
+    end
+end
+
+local function RunMigrations(database, activeProfileTable)
+    local version = tonumber(database.version) or 0
+    if version < 1 then MigrateVersion1(database, activeProfileTable) end
+    if version < 2 then MigrateVersion2(database) end
+    if version < CURRENT_DATABASE_VERSION then
+        database.version = CURRENT_DATABASE_VERSION
+    end
 end
 
 function NSkin:GetDatabase()
@@ -80,7 +122,7 @@ function NSkin:GetProfileName()
     end
 
     database.profiles[profileName] = database.profiles[profileName] or {}
-    MigrateLegacyDatabase(database, database.profiles[profileName])
+    RunMigrations(database, database.profiles[profileName])
     activeProfile = profileName
     return profileName
 end
@@ -138,10 +180,12 @@ function NSkin:SelectProfile(name)
         return false, "That profile does not exist."
     end
 
+    if name == self:GetProfileName() then return true end
+
     local characterKey = GetCharacterKey()
     if characterKey then database.profileKeys[characterKey] = name end
     activeProfile = name
-    if self.RefreshTheme then self:RefreshTheme() end
+    self:NotifyProfileChanged()
     return true
 end
 
@@ -172,14 +216,15 @@ function NSkin:DeleteProfile(name)
         return false, "That profile does not exist."
     end
     if name == DEFAULT_PROFILE then return false, "The Default profile cannot be deleted." end
+    local isActive = name == self:GetProfileName()
 
     database.profiles[name] = nil
     for characterKey, profileName in pairs(database.profileKeys) do
         if profileName == name then database.profileKeys[characterKey] = DEFAULT_PROFILE end
     end
-    if activeProfile == name then
+    if isActive then
         activeProfile = DEFAULT_PROFILE
-        if self.RefreshTheme then self:RefreshTheme() end
+        self:NotifyProfileChanged()
     end
     return true
 end
@@ -188,7 +233,12 @@ function NSkin:ResetProfile(name)
     name = NormalizeProfileName(name) or self:GetProfileName()
     local profiles = self:GetDatabase().profiles
     if not profiles[name] then return false, "That profile does not exist." end
+    local isActive = name == self:GetProfileName()
     profiles[name] = {}
-    if activeProfile == name and self.RefreshTheme then self:RefreshTheme() end
+    if isActive then self:NotifyProfileChanged() end
     return true
+end
+
+function NSkin:NotifyProfileChanged()
+    if type(_G.ReloadUI) == "function" then _G.ReloadUI() end
 end

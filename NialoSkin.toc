@@ -4,14 +4,12 @@
 ## Author: Nialo
 ## Version: 1.6.3
 ## SavedVariables: NSkinDB
-## OptionalDeps: NaowhUI_Media
 ## IconTexture: Interface\AddOns\NialoSkin\Media\Icon.tga
 
 NSkin_Core.lua
 NSkin_Default.lua
 NSkin_Database.lua
 NSkin_Theme.lua
-NSkin_Media.lua
 NSkin_Skin.lua
 NSkin_Components.lua
 Options\NSkin_General_Options.lua
