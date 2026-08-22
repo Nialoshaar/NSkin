@@ -4,7 +4,6 @@ local EncounterJournalSkin = NSkin:NewModule("EncounterJournal")
 
 local BORDER_SIZE = 1
 local CLEAR_TEXTURE = 0
-local HOVER_ALPHA = 0.14
 
 -- EncounterInstanceButtonTemplate uses only this subregion of its source
 -- texture. These values add a small zoom while remaining inside that region.
@@ -78,9 +77,9 @@ function EncounterJournalSkin:StyleBossButton(button)
     if not background then
         background = button:CreateTexture(nil, "BACKGROUND", nil, -7)
         background:SetAllPoints(button)
-        background:SetColorTexture(0, 0, 0, 1)
         button.__NSkinBossBackground = background
     end
+    background:SetColorTexture(unpack(NSkin:GetStyle("encounterCard").background))
     background:Show()
 end
 
@@ -114,13 +113,14 @@ function EncounterJournalSkin:StyleInstancePage()
             imageBorder:SetFrameLevel(instance:GetFrameLevel() + 1)
             instance.__NSkinLoreImageBorder = imageBorder
         end
-        NSkin:CreatePixelBorder(
+        local border = NSkin:CreatePixelBorder(
             imageBorder,
             "__NSkinBorder",
             BORDER_SIZE,
-            NSkin.colors.border,
+            NSkin:GetStyle("encounterCard").border,
             false
         )
+        NSkin:SetPixelBorderColor(border, unpack(NSkin:GetStyle("encounterCard").border))
     end
 
     if instance.titleBG then
@@ -161,12 +161,15 @@ end
 
 local function GetOrCreateHover(button)
     local hover = button.__NSkinEncounterHover
-    if hover then return hover end
+    if hover then
+        hover:SetColorTexture(unpack(NSkin:GetStyle("encounterCard").hover))
+        return hover
+    end
 
     hover = button:CreateTexture(nil, "ARTWORK", nil, 7)
     hover:SetPoint("TOPLEFT", button, "TOPLEFT", BORDER_SIZE, -BORDER_SIZE)
     hover:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -BORDER_SIZE, BORDER_SIZE)
-    hover:SetColorTexture(1, 1, 1, HOVER_ALPHA)
+    hover:SetColorTexture(unpack(NSkin:GetStyle("encounterCard").hover))
     hover:SetBlendMode("ADD")
     hover:Hide()
     button.__NSkinEncounterHover = hover
@@ -201,13 +204,14 @@ function EncounterJournalSkin:StyleButton(button)
     background:SetAlpha(1)
     background:Show()
 
-    NSkin:CreatePixelBorder(
+    local border = NSkin:CreatePixelBorder(
         button,
         "__NSkinEncounterBorder",
         BORDER_SIZE,
-        NSkin.colors.border,
+        NSkin:GetStyle("encounterCard").border,
         false
     )
+    NSkin:SetPixelBorderColor(border, unpack(NSkin:GetStyle("encounterCard").border))
 
     ApplyButtonStateTextures(button)
     StripCardFrameAtlases(button)
@@ -226,6 +230,13 @@ function EncounterJournalSkin:StyleVisibleFrames(scrollBox)
     scrollBox:ForEachFrame(function(button)
         EncounterJournalSkin:StyleButton(button)
     end)
+end
+
+function EncounterJournalSkin:RefreshTheme()
+    if not initialized then return end
+    self:StyleVisibleFrames(hookedScrollBox)
+    self:StyleBossFrames(bossScrollBox)
+    self:StyleInstancePage()
 end
 
 local function FinishConcealment(scrollBox)

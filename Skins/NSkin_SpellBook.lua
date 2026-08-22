@@ -14,7 +14,6 @@ local WINDOW_BUTTON_TEXT_OFFSET_Y = 0
 local borders = {}
 local circularBorders = {}
 local headerLines = {}
-local spellBookBackground
 local assistedCombatDivider
 local initialized = false
 
@@ -41,12 +40,12 @@ local function SkinSearchBox(searchBox)
     local searchIcon = searchBox.SearchIcon or searchBox.searchIcon
     if not searchBox.NSkinFlatBackground then
         NSkin:HideTextureRegions(searchBox, searchIcon)
-        NSkin:CreateFlatBackground(searchBox, nil, { 0, 0, 0, 0.75 },
-            NSkin:GetStyle("window").border)
     end
-    searchBox:SetTextColor(1, 1, 1)
+    local style = NSkin:GetStyle("searchBox")
+    NSkin:CreateFlatBackground(searchBox, nil, style.background, style.border)
+    searchBox:SetTextColor(unpack(style.text))
     if searchBox.Instructions then
-        searchBox.Instructions:SetTextColor(0.55, 0.55, 0.55)
+        searchBox.Instructions:SetTextColor(unpack(style.placeholderText))
     end
     if searchIcon then searchIcon:Show() end
 end
@@ -54,13 +53,12 @@ end
 local function SkinPagingControls(pagingControls)
     if not pagingControls then return end
 
-    local tabStyle = NSkin:GetStyle("tab")
-    NSkin:SkinFlatButton(pagingControls.PrevPageButton, "<", tabStyle.background,
-        tabStyle.border, PAGING_BUTTON_TEXT_SIZE)
-    NSkin:SkinFlatButton(pagingControls.NextPageButton, ">", tabStyle.background,
-        tabStyle.border, PAGING_BUTTON_TEXT_SIZE)
+    NSkin:SkinFlatButton(pagingControls.PrevPageButton, "<", nil, nil,
+        PAGING_BUTTON_TEXT_SIZE)
+    NSkin:SkinFlatButton(pagingControls.NextPageButton, ">", nil, nil,
+        PAGING_BUTTON_TEXT_SIZE)
     if pagingControls.PageText then
-        pagingControls.PageText:SetTextColor(1, 1, 1)
+        pagingControls.PageText:SetTextColor(unpack(NSkin:GetStyle("button").text))
     end
 
     local previous = pagingControls.PrevPageButton
@@ -81,12 +79,11 @@ local function SkinWindowButtons(playerSpells, spellBook)
     local maximizeButton = expandFrame and expandFrame.MaximizeButton
     local minimizeButton = expandFrame and expandFrame.MinimizeButton
 
-    local tabStyle = NSkin:GetStyle("tab")
-    NSkin:SkinFlatButton(closeButton, "x", tabStyle.background, tabStyle.border,
+    NSkin:SkinFlatButton(closeButton, "x", nil, nil,
         WINDOW_BUTTON_TEXT_SIZE, WINDOW_BUTTON_TEXT_OFFSET_X, WINDOW_BUTTON_TEXT_OFFSET_Y)
-    NSkin:SkinFlatButton(maximizeButton, "+", tabStyle.background, tabStyle.border,
+    NSkin:SkinFlatButton(maximizeButton, "+", nil, nil,
         WINDOW_BUTTON_TEXT_SIZE, WINDOW_BUTTON_TEXT_OFFSET_X, WINDOW_BUTTON_TEXT_OFFSET_Y)
-    NSkin:SkinFlatButton(minimizeButton, "-", tabStyle.background, tabStyle.border,
+    NSkin:SkinFlatButton(minimizeButton, "-", nil, nil,
         WINDOW_BUTTON_TEXT_SIZE, WINDOW_BUTTON_TEXT_OFFSET_X, WINDOW_BUTTON_TEXT_OFFSET_Y)
 
     if closeButton then
@@ -108,7 +105,7 @@ local function SkinAssistedCombat(frame)
         NSkin:HideTextureRegions(frame)
         frame.NSkinSkinned = true
     end
-    if frame.Label then frame.Label:SetTextColor(1, 1, 1) end
+    if frame.Label then frame.Label:SetTextColor(unpack(NSkin:GetStyle("button").text)) end
 
     local button = frame.Button
     local icon = button and button.Icon
@@ -117,8 +114,9 @@ local function SkinAssistedCombat(frame)
             button.Border:SetTexture(nil)
             button.Border:Hide()
         end
-        NSkin:CreatePixelBorder(button, "NSkinSpellBookBorder", BORDER_SIZE,
-            NSkin.colors.border, false, icon)
+        local border = NSkin:CreatePixelBorder(button, "NSkinSpellBookBorder", BORDER_SIZE,
+            NSkin:GetStyle("icon").border, false, icon)
+        NSkin:SetPixelBorderColor(border, unpack(NSkin:GetStyle("icon").border))
     end
 
     if not assistedCombatDivider then
@@ -126,20 +124,17 @@ local function SkinAssistedCombat(frame)
         assistedCombatDivider:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -2)
         assistedCombatDivider:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 0, 2)
         assistedCombatDivider:SetWidth(1)
-        assistedCombatDivider:SetColorTexture(unpack(NSkin:GetStyle("window").header.divider))
     end
+    assistedCombatDivider:SetColorTexture(unpack(NSkin:GetStyle("window").header.divider))
 end
 
 local function SkinTitleBar(playerSpells, spellBook)
     if not playerSpells or not spellBook then return end
 
     if playerSpells.NineSlice then playerSpells.NineSlice:Hide() end
-    if playerSpells.NSkinWindowBorder then
-        NSkin:SetPixelBorderShown(playerSpells.NSkinWindowBorder, false)
-    end
     NSkin:SkinWindow(spellBook)
     if playerSpells.TitleContainer and playerSpells.TitleContainer.TitleText then
-        playerSpells.TitleContainer.TitleText:SetTextColor(1, 1, 1)
+        playerSpells.TitleContainer.TitleText:SetTextColor(unpack(NSkin:GetStyle("button").text))
     end
 
     NSkin:SkinWindowHeader(playerSpells, spellBook)
@@ -179,7 +174,7 @@ end
 
 local function CreateCircularBorder(button, icon)
     local border = button:CreateTexture(nil, "ARTWORK", nil, -2)
-    border:SetColorTexture(unpack(NSkin.colors.border))
+    border:SetColorTexture(unpack(NSkin:GetStyle("icon").border))
     border:SetPoint("TOPLEFT", icon, "TOPLEFT", -BORDER_SIZE, BORDER_SIZE)
     border:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", BORDER_SIZE, -BORDER_SIZE)
 
@@ -208,12 +203,13 @@ local function SkinSpellBookItem(item)
 
     -- Keep functional overlays while removing Blizzard's ornamental artwork.
     if item.Backplate then item.Backplate:SetAlpha(0) end
+    local textColor = NSkin:GetStyle("button").text
     if item.Name then
-        item.Name:SetTextColor(1, 1, 1)
+        item.Name:SetTextColor(unpack(textColor))
         SetFontSize(item.Name, NSkin:GetSpellBookTextSize())
     end
-    if item.SubName then item.SubName:SetTextColor(1, 1, 1) end
-    if item.RequiredLevel then item.RequiredLevel:SetTextColor(1, 1, 1) end
+    if item.SubName then item.SubName:SetTextColor(unpack(textColor)) end
+    if item.RequiredLevel then item.RequiredLevel:SetTextColor(unpack(textColor)) end
     if button.BorderSheen then button.BorderSheen:SetAlpha(0) end
     if button.Border then
         button.Border:SetTexture(nil)
@@ -225,17 +221,19 @@ local function SkinSpellBookItem(item)
             button,
             nil,
             BORDER_SIZE,
-            NSkin.colors.border,
+            NSkin:GetStyle("icon").border,
             false,
             icon
         )
     end
+    NSkin:SetPixelBorderColor(borders[button], unpack(NSkin:GetStyle("icon").border))
 
     if isPassive then
         NSkin:SetPixelBorderShown(borders[button], false)
         if button.IconMask then button.IconMask:Show() end
 
         local circularBorder = circularBorders[button] or CreateCircularBorder(button, icon)
+        circularBorder:SetColorTexture(unpack(NSkin:GetStyle("icon").border))
         circularBorder:Show()
     else
         NSkin:SetPixelBorderShown(borders[button], true)
@@ -251,7 +249,7 @@ local function SkinSpellBookHeader(header)
         header.Backplate:SetTexture(nil)
         header.Backplate:Hide()
     end
-    if header.Text then header.Text:SetTextColor(1, 1, 1) end
+    if header.Text then header.Text:SetTextColor(unpack(NSkin:GetStyle("button").text)) end
     if header.Border then
         header.Border:SetTexture(nil)
         header.Border:Hide()
@@ -262,9 +260,9 @@ local function SkinSpellBookHeader(header)
         line:SetPoint("BOTTOMLEFT", header, "BOTTOMLEFT", -8, 12)
         line:SetPoint("BOTTOMRIGHT", header, "BOTTOMRIGHT", -60, 12)
         line:SetHeight(1)
-        line:SetColorTexture(unpack(NSkin:GetStyle("window").header.divider))
         headerLines[header] = line
     end
+    headerLines[header]:SetColorTexture(unpack(NSkin:GetStyle("window").header.divider))
 end
 
 local function RemoveActionBarDecoration(item)
@@ -282,14 +280,14 @@ local function SkinActiveSpellBookItems()
     local playerSpells = _G.PlayerSpellsFrame
     local spellBook = playerSpells and playerSpells.SpellBookFrame
     local pagedSpells = spellBook and spellBook.PagedSpellsFrame
-    if not pagedSpells or not pagedSpells.EnumerateFrames then return end
-
-    for _, frame in pagedSpells:EnumerateFrames() do
-        if frame.HasValidData and frame:HasValidData() then
-            SkinSpellBookItem(frame)
-            RemoveActionBarDecoration(frame)
-        elseif frame.Text then
-            SkinSpellBookHeader(frame)
+    if pagedSpells and pagedSpells.EnumerateFrames then
+        for _, frame in pagedSpells:EnumerateFrames() do
+            if frame.HasValidData and frame:HasValidData() then
+                SkinSpellBookItem(frame)
+                RemoveActionBarDecoration(frame)
+            elseif frame.Text then
+                SkinSpellBookHeader(frame)
+            end
         end
     end
 
@@ -348,12 +346,10 @@ local function RemoveSpellBookBackground()
         if region then region:SetAlpha(0) end
     end
 
-    spellBookBackground = NSkin:SkinWindow(spellBook)
-
     local pagedSpells = spellBook.PagedSpellsFrame
     local pagingControls = pagedSpells and pagedSpells.PagingControls
     if pagingControls and pagingControls.PageText then
-        pagingControls.PageText:SetTextColor(1, 1, 1)
+        pagingControls.PageText:SetTextColor(unpack(NSkin:GetStyle("button").text))
     end
 end
 
@@ -393,8 +389,11 @@ function SpellBookSkin:Initialize()
     end
 
     RemoveSpellBookBackground()
-    SkinSpellBookControls()
     SkinActiveSpellBookItems()
+end
+
+function SpellBookSkin:RefreshTheme()
+    if initialized then SkinActiveSpellBookItems() end
 end
 
 NSkin:RegisterModuleInitializer("SpellBook", function()

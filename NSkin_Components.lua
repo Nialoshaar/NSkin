@@ -60,13 +60,18 @@ function NSkin:SkinFlatButton(button, label, backgroundColor, borderColor,
     labelSize, labelOffsetX, labelOffsetY)
     if not button or not button.CreateTexture or not button.CreateFontString then return end
 
+    local style = self:GetStyle("button")
+    backgroundColor = backgroundColor or style.background
+    borderColor = borderColor or style.border
+
     if not button.NSkinFlatBackground then
         self:HideTextureRegions(button)
     end
 
     self:CreateFlatBackground(button, nil, backgroundColor, borderColor)
-    self:CreateFlatButtonGlow(button)
-    self:SetFlatButtonLabel(button, label, labelSize, labelOffsetX, labelOffsetY)
+    self:CreateFlatButtonGlow(button, style.hoverAlpha)
+    local text = self:SetFlatButtonLabel(button, label, labelSize, labelOffsetX, labelOffsetY)
+    if text then text:SetTextColor(unpack(style.text)) end
 end
 
 -- Windows Skinning
@@ -106,19 +111,6 @@ function NSkin:SkinWindowHeader(owner, anchor)
     background:SetHeight(style.height)
     background:SetColorTexture(unpack(style.background))
     return background
-end
-
-function NSkin:CreateWindowDivider(owner, key, point, relativeTo, relativePoint,
-    offsetX, offsetY, width, height)
-    if not owner then return nil end
-    if owner[key] then return owner[key] end
-
-    local divider = owner:CreateTexture(nil, "ARTWORK", nil, 1)
-    divider:SetPoint(point, relativeTo, relativePoint, offsetX or 0, offsetY or 0)
-    divider:SetSize(width or 1, height or 1)
-    divider:SetColorTexture(unpack(self:GetStyle("window").header.divider))
-    owner[key] = divider
-    return divider
 end
 
 -- Tab Skinning

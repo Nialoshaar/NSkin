@@ -1,5 +1,18 @@
 local _, NSkin = ...
 
+NSkin.defaultModules = {
+    BlizzardProgressBars = false,
+    EncounterJournal = false,
+    ToyBox = false,
+    SpellBook = false,
+}
+
+NSkin.defaultModuleOptions = {
+    SpellBook = {
+        textSize = 16,
+    },
+}
+
 -- Immutable bundled design. Player changes belong in the active profile's
 -- theme table and are resolved over these values at runtime.
 NSkin.defaultTheme = {
@@ -21,5 +34,43 @@ NSkin.defaultTheme = {
         border = { 0.45, 0.45, 0.45, 1 },
         text = { 1, 1, 1, 1 },
         hoverAlpha = 0.10,
+    },
+
+    button = {
+        background = { 0.04, 0.04, 0.04, 0.90 },
+        border = { 0.45, 0.45, 0.45, 1 },
+        text = { 1, 1, 1, 1 },
+        hoverAlpha = 0.10,
+    },
+
+    icon = {
+        border = { 0, 0, 0, 1 },
+    },
+
+    searchBox = {
+        background = { 0, 0, 0, 0.75 },
+        border = { 0.45, 0.45, 0.45, 1 },
+        text = { 1, 1, 1, 1 },
+        placeholderText = { 0.55, 0.55, 0.55, 1 },
+    },
+
+    progressBar = {
+        texture = "Interface\\Buttons\\WHITE8X8",
+        background = { 0.06, 0.06, 0.06, 0.90 },
+        border = { 0, 0, 0, 1 },
+    },
+
+    encounterCard = {
+        background = { 0, 0, 0, 1 },
+        border = { 0, 0, 0, 1 },
+        hover = { 1, 1, 1, 0.14 },
+    },
+
+    options = {
+        accent = { 0, 0.55, 0.82, 1 },
+        selectedNavigation = { 0, 0.55, 0.82, 0.85 },
+        listBackground = { 0.07, 0.10, 0.11, 0.94 },
+        selectedListBackground = { 0.12, 0.20, 0.23, 0.94 },
+        listHighlight = { 0.38, 0.42, 0.43, 0.75 },
     },
 }

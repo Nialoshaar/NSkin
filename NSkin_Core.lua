@@ -12,13 +12,23 @@ NSkin.moduleDefinitions = {
 
 function NSkin:IsModuleEnabled(name)
     local modules = self:GetProfile().modules
-    return modules and modules[name] == true or false
+    if modules and modules[name] ~= nil then return modules[name] == true end
+    return self.defaultModules[name] == true
 end
 
 function NSkin:SetModuleEnabled(name, enabled)
     local profile = self:GetProfile()
-    profile.modules = profile.modules or {}
-    profile.modules[name] = enabled == true
+    local value = enabled == true
+    local default = self.defaultModules[name] == true
+    if value == default then
+        if profile.modules then
+            profile.modules[name] = nil
+            if not next(profile.modules) then profile.modules = nil end
+        end
+    else
+        profile.modules = profile.modules or {}
+        profile.modules[name] = value
+    end
 end
 
 local eventFrame = CreateFrame("Frame")

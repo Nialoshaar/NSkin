@@ -9,7 +9,7 @@ function NSkin:CreatePixelBorder(frame, key, size, color, outside, anchor)
     if key and frame[key] then return frame[key] end
 
     size = size or 1
-    color = color or self.colors.border
+    color = color or self:GetStyle("icon").border
     anchor = anchor or frame
 
     local function NewEdge()
@@ -118,18 +118,19 @@ function NSkin:HideTextureRegions(frame, textureToKeep)
 end
 
 function NSkin:CreateFlatBackground(frame, key, color, borderColor)
-    if not frame or not frame.CreateTexture then return nil end
+    if not frame or not frame.CreateTexture or not color or not borderColor then return nil end
 
     key = key or "NSkinFlatBackground"
-    if frame[key] then return frame[key] end
-
-    local background = frame:CreateTexture(nil, "BACKGROUND", nil, 7)
-    background:SetPoint("TOPLEFT", 1, -1)
-    background:SetPoint("BOTTOMRIGHT", -1, 1)
-    local tabStyle = self:GetStyle("tab")
-    background:SetColorTexture(unpack(color or tabStyle.background))
+    local background = frame[key]
+    if not background then
+        background = frame:CreateTexture(nil, "BACKGROUND", nil, 7)
+        background:SetPoint("TOPLEFT", 1, -1)
+        background:SetPoint("BOTTOMRIGHT", -1, 1)
+        frame[key] = background
+    end
+    background:SetColorTexture(unpack(color))
     background:Show()
-    frame[key] = background
-    self:CreatePixelBorder(frame, key .. "Border", 1, borderColor or tabStyle.border)
+    local border = self:CreatePixelBorder(frame, key .. "Border", 1, borderColor)
+    self:SetPixelBorderColor(border, unpack(borderColor))
     return background
 end

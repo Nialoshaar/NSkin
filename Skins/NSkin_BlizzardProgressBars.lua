@@ -136,11 +136,16 @@ local function StripWidgetContainerArt(widget)
 end
 
 local function CreateBackdrop(bar)
-    if bar.__NSkinBackground then return end
+    local style = NSkin:GetStyle("progressBar")
+    if bar.__NSkinBackground then
+        bar.__NSkinBackground:SetColorTexture(unpack(style.background))
+        NSkin:SetPixelBorderColor(bar.__NSkinProgressBorder, unpack(style.border))
+        return
+    end
 
     local background = bar:CreateTexture(nil, "BACKGROUND", nil, -8)
     background:SetAllPoints(bar)
-    background:SetColorTexture(unpack(NSkin.colors.progressBarBackground))
+    background:SetColorTexture(unpack(style.background))
     protectedRegions[background] = true
     bar.__NSkinBackground = background
 
@@ -148,7 +153,7 @@ local function CreateBackdrop(bar)
         bar,
         "__NSkinProgressBorder",
         BORDER_SIZE,
-        NSkin.colors.border,
+        style.border,
         true
     )
     if border then
@@ -429,6 +434,15 @@ end
 function ProgressBars:RefreshTexture()
     for bar in pairs(styledBars) do
         if IsStatusBar(bar) then ApplyTexture(bar) end
+    end
+end
+
+function ProgressBars:RefreshTheme()
+    for bar in pairs(styledBars) do
+        if IsStatusBar(bar) then
+            CreateBackdrop(bar)
+            ApplyTexture(bar)
+        end
     end
 end
 
