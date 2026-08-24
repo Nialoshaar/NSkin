@@ -100,8 +100,7 @@ end
 
 local function ExecuteWindowSkin(definition)
     if not NSkin:IsModuleEnabled(definition.module) then return false end
-    definition.apply()
-    return true
+    return definition.apply() == true
 end
 
 local function ApplyWindowSkin(definition)

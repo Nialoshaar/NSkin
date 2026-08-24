@@ -7,13 +7,12 @@ local CIRCLE_MASK_ATLAS = "talents-node-circle-mask"
 local ICON_SIZE = 50
 local ICON_CROP = 0.06
 local PAGING_BUTTON_TEXT_SIZE = 16
+local SPELL_BOOK_BORDER_KEY = "NSkinSpellBookItemBorder"
+local SPELL_BOOK_STATE = "spellBook"
 local WINDOW_BUTTON_TEXT_SIZE = 20
 local WINDOW_BUTTON_TEXT_OFFSET_X = 0
 local WINDOW_BUTTON_TEXT_OFFSET_Y = 0
 
-local borders = setmetatable({}, { __mode = "k" })
-local circularBorders = setmetatable({}, { __mode = "k" })
-local headerLines = setmetatable({}, { __mode = "k" })
 local assistedCombatDivider
 local initialized = false
 
@@ -72,12 +71,11 @@ local function SkinSearchBox(searchBox)
     if not searchBox then return end
 
     local searchIcon = searchBox.SearchIcon or searchBox.searchIcon
-    local data = NSkin:GetSkinData(searchBox)
-    if not data.flatBackground then
+    if not NSkin:GetFlatBackground(searchBox) then
         NSkin:HideTextureRegions(searchBox, searchIcon)
     end
     local style = NSkin:GetStyle("searchBox")
-    data.flatBackground = NSkin:CreateFlatBackground(
+    NSkin:CreateFlatBackground(
         searchBox, nil, style.background, style.border
     )
     searchBox:SetTextColor(unpack(style.text))
@@ -100,8 +98,8 @@ local function SkinPagingControls(pagingControls)
 
     local previous = pagingControls.PrevPageButton
     local nextPage = pagingControls.NextPageButton
-    local previousData = previous and NSkin:GetSkinData(previous, false)
-    local nextData = nextPage and NSkin:GetSkinData(nextPage, false)
+    local previousData = previous and NSkin:GetSkinData(previous, "components", false)
+    local nextData = nextPage and NSkin:GetSkinData(nextPage, "components", false)
     if previousData and previousData.label then
         previousData.label:SetAlpha(previous:IsEnabled() and 1 or 0.35)
     end
@@ -140,7 +138,7 @@ end
 local function SkinAssistedCombat(frame)
     if not frame then return end
 
-    local data = NSkin:GetSkinData(frame)
+    local data = NSkin:GetSkinData(frame, SPELL_BOOK_STATE)
     if not data.spellBookSkinned then
         NSkin:HideTextureRegions(frame)
         data.spellBookSkinned = true
@@ -224,7 +222,7 @@ local function CreateCircularBorder(button, icon)
     border:AddMaskTexture(mask)
 
     border:Hide()
-    circularBorders[button] = border
+    NSkin:GetSkinData(button, SPELL_BOOK_STATE).circularBorder = border
     return border
 end
 
@@ -256,29 +254,33 @@ local function SkinSpellBookItem(item)
         button.Border:Hide()
     end
 
-    if not borders[button] then
-        borders[button] = NSkin:CreatePixelBorder(
+    local border = NSkin:GetPixelBorder(button, SPELL_BOOK_BORDER_KEY)
+    if not border then
+        border = NSkin:CreatePixelBorder(
             button,
-            nil,
+            SPELL_BOOK_BORDER_KEY,
             BORDER_SIZE,
             NSkin:GetStyle("icon").border,
             false,
             icon
         )
     end
-    NSkin:SetPixelBorderColor(borders[button], unpack(NSkin:GetStyle("icon").border))
+    NSkin:SetPixelBorderColor(border, unpack(NSkin:GetStyle("icon").border))
+
+    local data = NSkin:GetSkinData(button, SPELL_BOOK_STATE)
+    local circularBorder = data.circularBorder
 
     if isPassive then
-        NSkin:SetPixelBorderShown(borders[button], false)
+        NSkin:SetPixelBorderShown(border, false)
         if button.IconMask then button.IconMask:Show() end
 
-        local circularBorder = circularBorders[button] or CreateCircularBorder(button, icon)
+        circularBorder = circularBorder or CreateCircularBorder(button, icon)
         circularBorder:SetColorTexture(unpack(NSkin:GetStyle("icon").border))
         circularBorder:Show()
     else
-        NSkin:SetPixelBorderShown(borders[button], true)
+        NSkin:SetPixelBorderShown(border, true)
         if button.IconMask then button.IconMask:Hide() end
-        if circularBorders[button] then circularBorders[button]:Hide() end
+        if circularBorder then circularBorder:Hide() end
     end
 end
 
@@ -295,14 +297,15 @@ local function SkinSpellBookHeader(header)
         header.Border:Hide()
     end
 
-    if not headerLines[header] then
+    local data = NSkin:GetSkinData(header, SPELL_BOOK_STATE)
+    if not data.headerLine then
         local line = header:CreateTexture(nil, "ARTWORK", nil, 1)
         line:SetPoint("BOTTOMLEFT", header, "BOTTOMLEFT", -8, 12)
         line:SetPoint("BOTTOMRIGHT", header, "BOTTOMRIGHT", -60, 12)
         line:SetHeight(1)
-        headerLines[header] = line
+        data.headerLine = line
     end
-    headerLines[header]:SetColorTexture(unpack(NSkin:GetStyle("window").header.divider))
+    data.headerLine:SetColorTexture(unpack(NSkin:GetStyle("window").header.divider))
 end
 
 local function RemoveActionBarDecoration(item)
@@ -394,15 +397,18 @@ local function RemoveSpellBookBackground()
 end
 
 function SpellBookSkin:Initialize()
-    if initialized then return end
-    if not NSkin:IsModuleEnabled("SpellBook") then return end
+    if initialized then return true end
+    if not NSkin:IsModuleEnabled("SpellBook") then return false end
 
     local mixin = _G.SpellBookItemMixin
-    if not mixin or type(mixin.UpdateVisuals) ~= "function" or not _G.hooksecurefunc then
-        return
+    local playerSpells = _G.PlayerSpellsFrame
+    local spellBook = playerSpells and playerSpells.SpellBookFrame
+    if not mixin or type(mixin.UpdateVisuals) ~= "function" or not _G.hooksecurefunc
+        or not spellBook
+    then
+        return false
     end
 
-    initialized = true
     _G.hooksecurefunc(mixin, "UpdateVisuals", SkinSpellBookItem)
     if type(mixin.UpdateActionBarAnim) == "function" then
         _G.hooksecurefunc(mixin, "UpdateActionBarAnim", RemoveActionBarDecoration)
@@ -416,8 +422,6 @@ function SpellBookSkin:Initialize()
         _G.hooksecurefunc(mixin, "OnIconLeave", SkinSpellBookItem)
     end
 
-    local playerSpells = _G.PlayerSpellsFrame
-    local spellBook = playerSpells and playerSpells.SpellBookFrame
     local pagedSpells = spellBook and spellBook.PagedSpellsFrame
     local pagedContentMixin = _G.PagedContentFrameBaseMixin
     local pagedContentEvent = pagedContentMixin and pagedContentMixin.Event
@@ -430,6 +434,8 @@ function SpellBookSkin:Initialize()
 
     RemoveSpellBookBackground()
     SkinActiveSpellBookItems()
+    initialized = true
+    return true
 end
 
 function SpellBookSkin:RefreshTheme()
@@ -439,5 +445,5 @@ end
 NSkin:RegisterWindowSkin({
     module = "SpellBook",
     addon = "Blizzard_PlayerSpells",
-    apply = function() SpellBookSkin:Initialize() end,
+    apply = function() return SpellBookSkin:Initialize() end,
 })

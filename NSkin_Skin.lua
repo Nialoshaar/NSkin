@@ -2,14 +2,39 @@ local _, NSkin = ...
 
 local skinData = setmetatable({}, { __mode = "k" })
 
-function NSkin:GetSkinData(object, create)
+function NSkin:GetSkinData(object, namespace, create)
     if not object then return nil end
+
+    -- Preserve GetSkinData(object, false) while allowing each subsystem to
+    -- keep its state in a clearly named table.
+    if type(namespace) == "boolean" then
+        create = namespace
+        namespace = nil
+    end
+
     local data = skinData[object]
     if not data and create ~= false then
         data = {}
         skinData[object] = data
     end
-    return data
+    if not data or not namespace then return data end
+
+    local scoped = data[namespace]
+    if not scoped and create ~= false then
+        scoped = {}
+        data[namespace] = scoped
+    end
+    return scoped
+end
+
+function NSkin:GetPixelBorder(frame, key)
+    local data = self:GetSkinData(frame, "primitives", false)
+    return data and data.borders and data.borders[key]
+end
+
+function NSkin:GetFlatBackground(frame, key)
+    local data = self:GetSkinData(frame, "primitives", false)
+    return data and data.backgrounds and data.backgrounds[key or "NSkinFlatBackground"]
 end
 
 -- Creates four simple texture edges without using BackdropTemplate or NineSlice.
@@ -18,7 +43,7 @@ end
 -- Icons Skinning
 function NSkin:CreatePixelBorder(frame, key, size, color, outside, anchor)
     if not frame or not frame.CreateTexture then return nil end
-    local data = self:GetSkinData(frame)
+    local data = self:GetSkinData(frame, "primitives")
     if key then
         data.borders = data.borders or {}
         if data.borders[key] then return data.borders[key] end
@@ -137,7 +162,7 @@ function NSkin:CreateFlatBackground(frame, key, color, borderColor)
     if not frame or not frame.CreateTexture or not color or not borderColor then return nil end
 
     key = key or "NSkinFlatBackground"
-    local data = self:GetSkinData(frame)
+    local data = self:GetSkinData(frame, "primitives")
     data.backgrounds = data.backgrounds or {}
     local background = data.backgrounds[key]
     if not background then

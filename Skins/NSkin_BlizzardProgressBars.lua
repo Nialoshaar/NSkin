@@ -5,6 +5,8 @@ local ProgressBars = NSkin:NewModule("BlizzardProgressBars")
 -- Feature-specific settings live here until a user-facing options panel exists.
 local BAR_HEIGHT = 16
 local BORDER_SIZE = 1
+local PROGRESS_BORDER_KEY = "__NSkinProgressBorder"
+local PROGRESS_STATE = "progressBars"
 local SCENARIO_TIMER_BAR_Y = 0
 local FALLBACK_STATUS_BAR = "Interface\\Buttons\\WHITE8X8"
 
@@ -53,7 +55,7 @@ local function HideTexture(texture)
     end
 
     local function EnforceHidden(self)
-        local data = NSkin:GetSkinData(self)
+        local data = NSkin:GetSkinData(self, PROGRESS_STATE)
         if data.hiding then return end
         data.hiding = true
 
@@ -105,7 +107,7 @@ local function HideFrame(frame)
     if frame.SetAlpha then frame:SetAlpha(0) end
     frame:Hide()
 
-    local data = NSkin:GetSkinData(frame)
+    local data = NSkin:GetSkinData(frame, PROGRESS_STATE)
     if data.hideHooked or not hooksecurefunc then return end
     data.hideHooked = true
 
@@ -156,10 +158,10 @@ end
 
 local function CreateBackdrop(bar)
     local style = NSkin:GetStyle("progressBar")
-    local data = NSkin:GetSkinData(bar)
+    local data = NSkin:GetSkinData(bar, PROGRESS_STATE)
     if data.progressBackground then
         data.progressBackground:SetColorTexture(unpack(style.background))
-        NSkin:SetPixelBorderColor(data.progressBorder, unpack(style.border))
+        NSkin:SetPixelBorderColor(NSkin:GetPixelBorder(bar, PROGRESS_BORDER_KEY), unpack(style.border))
         return
     end
 
@@ -171,13 +173,12 @@ local function CreateBackdrop(bar)
 
     local border = NSkin:CreatePixelBorder(
         bar,
-        "__NSkinProgressBorder",
+        PROGRESS_BORDER_KEY,
         BORDER_SIZE,
         style.border,
         true
     )
     if border then
-        data.progressBorder = border
         protectedRegions[border.top] = true
         protectedRegions[border.bottom] = true
         protectedRegions[border.left] = true
@@ -200,7 +201,7 @@ local function CenterText(bar)
 end
 
 local function ApplyTexture(bar)
-    local data = NSkin:GetSkinData(bar)
+    local data = NSkin:GetSkinData(bar, PROGRESS_STATE)
     if data.applyingTexture then return end
     data.applyingTexture = true
 
@@ -216,11 +217,11 @@ local function ApplyTexture(bar)
         if fill.SetVertTile then fill:SetVertTile(false) end
         fill:SetDrawLayer("ARTWORK", 1)
 
-        local fillData = NSkin:GetSkinData(fill)
+        local fillData = NSkin:GetSkinData(fill, PROGRESS_STATE)
         if not fillData.tileHooked and hooksecurefunc and fill.SetHorizTile then
             fillData.tileHooked = true
             pcall(hooksecurefunc, fill, "SetHorizTile", function(self, tiled)
-                local hookedData = NSkin:GetSkinData(self)
+                local hookedData = NSkin:GetSkinData(self, PROGRESS_STATE)
                 if tiled and not hookedData.tileFixing then
                     hookedData.tileFixing = true
                     self:SetHorizTile(false)
@@ -251,7 +252,7 @@ local function StyleBar(bar)
 
         if hooksecurefunc then
             pcall(hooksecurefunc, bar, "SetStatusBarTexture", function(self)
-                local data = NSkin:GetSkinData(self, false)
+                local data = NSkin:GetSkinData(self, PROGRESS_STATE, false)
                 if not data or not data.applyingTexture then ApplyTexture(self) end
             end)
         end
@@ -295,7 +296,7 @@ end
 
 local function AnchorScenarioTimer(widget)
     local bar = widget and widget.TimerBar
-    local data = IsStatusBar(bar) and NSkin:GetSkinData(bar) or nil
+    local data = IsStatusBar(bar) and NSkin:GetSkinData(bar, PROGRESS_STATE) or nil
     if not data or data.anchorFixing then return end
     data.anchorFixing = true
     bar:ClearAllPoints()
@@ -309,13 +310,13 @@ local function SkinScenarioTimer(widget)
 
     HideScenarioArt(widget)
     StyleBar(bar)
-    local data = NSkin:GetSkinData(bar)
+    local data = NSkin:GetSkinData(bar, PROGRESS_STATE)
     data.scenarioOwner = widget
 
     if not data.anchorHooked and hooksecurefunc then
         data.anchorHooked = true
         pcall(hooksecurefunc, bar, "SetPoint", function(self)
-            local hookedData = NSkin:GetSkinData(self, false)
+            local hookedData = NSkin:GetSkinData(self, PROGRESS_STATE, false)
             if hookedData and not hookedData.anchorFixing then
                 AnchorScenarioTimer(hookedData.scenarioOwner)
             end

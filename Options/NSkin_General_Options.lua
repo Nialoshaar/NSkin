@@ -181,18 +181,25 @@ local function CreateOptionsWindow()
     local byKey = { general = pages[1] }
     for i = 1, #definitions do
         local definition = definitions[i]
-        local page = definition.builder(frame)
-        if page then
-            page:Hide()
-            local info = {
-                key = definition.key,
-                label = definition.label,
-                group = definition.group,
-                page = page,
-            }
-            pages[#pages + 1] = info
-            byKey[definition.key] = info
-        end
+        local info = {
+            key = definition.key,
+            label = definition.label,
+            group = definition.group,
+            builder = definition.builder,
+        }
+        pages[#pages + 1] = info
+        byKey[definition.key] = info
+    end
+
+    local function EnsurePage(info)
+        if info.page then return info.page end
+        if not info.builder then return nil end
+
+        local page = info.builder(frame)
+        if not page then return nil end
+        page:Hide()
+        info.page = page
+        return page
     end
 
     frame.navigationButtons = {}
@@ -237,17 +244,24 @@ local function CreateOptionsWindow()
             self.navigationButtons[i].selectedBackground:SetColorTexture(unpack(selectedColor))
         end
         for i = 1, #pages do
-            if pages[i].page.ApplyTheme then pages[i].page:ApplyTheme() end
+            local page = pages[i].page
+            if page and page.ApplyTheme then page:ApplyTheme() end
         end
     end
     function frame:SelectOptionsPage(key)
-        self.selectedPageKey = key
+        local selectedInfo = byKey[key] or byKey.general
+        local selectedPage = EnsurePage(selectedInfo)
+        if not selectedPage then
+            selectedInfo = byKey.general
+            selectedPage = selectedInfo.page
+        end
+        self.selectedPageKey = selectedInfo.key
         for i = 1, #pages do
             local info = pages[i]
-            local selected = info.key == key
-            info.page:SetShown(selected)
+            local selected = info == selectedInfo
+            if info.page then info.page:SetShown(selected) end
             if info.navigationButton then info.navigationButton.selectedBackground:SetShown(selected) end
-            if selected and info.page.Refresh then info.page:Refresh() end
+            if selected and selectedPage.Refresh then selectedPage:Refresh() end
         end
     end
     frame:SetScript("OnShow", function(self)

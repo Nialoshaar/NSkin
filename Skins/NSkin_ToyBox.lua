@@ -5,6 +5,7 @@ local ToyBoxSkin = NSkin:NewModule("ToyBox")
 local TOYS_PER_PAGE = 18
 local BORDER_SIZE = 1
 local QUALITY_BORDER_KEY = "__NSkinCollectionQualityBorder"
+local TOY_BOX_STATE = "toyBox"
 local HEIRLOOM_QUALITY = _G.Enum and _G.Enum.ItemQuality and _G.Enum.ItemQuality.Heirloom or 7
 local Item = _G.C_Item
 
@@ -13,9 +14,9 @@ local initialized = false
 local function UpdateIconBorder(button, knownQuality)
     if not button or not button.iconTexture then return end
 
-    local data = NSkin:GetSkinData(button)
+    local data = NSkin:GetSkinData(button, TOY_BOX_STATE)
     local itemID = button.itemID
-    local border = data.qualityBorder
+    local border = NSkin:GetPixelBorder(button, QUALITY_BORDER_KEY)
 
     if not itemID or itemID < 0 then
         NSkin:SetPixelBorderShown(border, false)
@@ -25,7 +26,6 @@ local function UpdateIconBorder(button, knownQuality)
     if not border then
         border = NSkin:CreateQualityBorder(button, button.iconTexture, QUALITY_BORDER_KEY, BORDER_SIZE)
         if not border then return end
-        data.qualityBorder = border
     end
 
     if data.qualityItemID ~= itemID then
@@ -41,7 +41,7 @@ end
 local function SkinCollectionButton(button, knownQuality)
     if not button then return end
 
-    local data = NSkin:GetSkinData(button)
+    local data = NSkin:GetSkinData(button, TOY_BOX_STATE)
     if not data.collectionDecorationRemoved then
         local slotFrame = button.slotFrameCollected
         if slotFrame then
@@ -56,33 +56,34 @@ local function SkinCollectionButton(button, knownQuality)
 end
 
 function ToyBoxSkin:Initialize()
-    if initialized then return end
-    if not NSkin:IsModuleEnabled("ToyBox") then return end
+    if initialized then return true end
+    if not NSkin:IsModuleEnabled("ToyBox") then return false end
 
-    if not _G.hooksecurefunc then return end
-
-    initialized = true
+    if not _G.hooksecurefunc then return false end
 
     local toyBox = _G.ToyBox
     local iconsFrame = toyBox and toyBox.iconsFrame
-    if iconsFrame and type(_G.ToySpellButton_UpdateButton) == "function" then
-        _G.hooksecurefunc("ToySpellButton_UpdateButton", SkinCollectionButton)
-
-        for i = 1, TOYS_PER_PAGE do
-            SkinCollectionButton(iconsFrame["spellButton" .. i])
-        end
-    end
-
+    local canSkinToys = iconsFrame and type(_G.ToySpellButton_UpdateButton) == "function"
     local heirloomsJournal = _G.HeirloomsJournal
-    if heirloomsJournal and type(heirloomsJournal.UpdateButton) == "function" then
-        _G.hooksecurefunc(heirloomsJournal, "UpdateButton", function(_, button)
-            SkinCollectionButton(button, HEIRLOOM_QUALITY)
-        end)
+    local canSkinHeirlooms = heirloomsJournal
+        and type(heirloomsJournal.UpdateButton) == "function"
+    if not canSkinToys or not canSkinHeirlooms then return false end
+
+    _G.hooksecurefunc("ToySpellButton_UpdateButton", SkinCollectionButton)
+
+    for i = 1, TOYS_PER_PAGE do
+        SkinCollectionButton(iconsFrame["spellButton" .. i])
     end
+
+    _G.hooksecurefunc(heirloomsJournal, "UpdateButton", function(_, button)
+        SkinCollectionButton(button, HEIRLOOM_QUALITY)
+    end)
+    initialized = true
+    return true
 end
 
 NSkin:RegisterWindowSkin({
     module = "ToyBox",
     addon = "Blizzard_Collections",
-    apply = function() ToyBoxSkin:Initialize() end,
+    apply = function() return ToyBoxSkin:Initialize() end,
 })

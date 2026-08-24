@@ -1,6 +1,7 @@
 local _, NSkin = ...
 
 local EncounterJournalSkin = NSkin:NewModule("EncounterJournal")
+local ENCOUNTER_JOURNAL_STATE = "encounterJournal"
 
 local BORDER_SIZE = 1
 local CLEAR_TEXTURE = 0
@@ -64,7 +65,7 @@ function EncounterJournalSkin:StyleBossButton(button)
 
     ClearButtonTextures(button)
 
-    local data = NSkin:GetSkinData(button)
+    local data = NSkin:GetSkinData(button, ENCOUNTER_JOURNAL_STATE)
     local background = data.bossBackground
     if not background then
         background = button:CreateTexture(nil, "BACKGROUND", nil, -7)
@@ -97,7 +98,7 @@ function EncounterJournalSkin:StyleInstancePage()
         loreImage:SetTexCoord(0.71, 0.06, 0.582, 0.08)
         if loreImage.SetRotation then loreImage:SetRotation(math.rad(180)) end
 
-        local data = NSkin:GetSkinData(instance)
+        local data = NSkin:GetSkinData(instance, ENCOUNTER_JOURNAL_STATE)
         local imageBorder = data.loreImageBorder
         if not imageBorder then
             imageBorder = CreateFrame("Frame", nil, instance)
@@ -141,9 +142,9 @@ local function StripCardFrameAtlases(button)
         local region = regions[i]
         if IsTexture(region) then
             local atlas = region.GetAtlas and region:GetAtlas() or nil
-            local data = NSkin:GetSkinData(region, false)
+            local data = NSkin:GetSkinData(region, ENCOUNTER_JOURNAL_STATE, false)
             if (data and data.encounterCardFrame) or cardFrameAtlases[atlas] then
-                data = data or NSkin:GetSkinData(region)
+                data = data or NSkin:GetSkinData(region, ENCOUNTER_JOURNAL_STATE)
                 data.encounterCardFrame = true
                 if region.SetAtlas then region:SetAtlas(nil) end
                 region:SetTexture(nil)
@@ -155,7 +156,7 @@ local function StripCardFrameAtlases(button)
 end
 
 local function GetOrCreateHover(button)
-    local data = NSkin:GetSkinData(button)
+    local data = NSkin:GetSkinData(button, ENCOUNTER_JOURNAL_STATE)
     local hover = data.encounterHover
     if hover then
         hover:SetColorTexture(unpack(NSkin:GetStyle("encounterCard").hover))
@@ -171,12 +172,12 @@ local function GetOrCreateHover(button)
     data.encounterHover = hover
 
     button:HookScript("OnEnter", function(self)
-        local buttonData = NSkin:GetSkinData(self, false)
+        local buttonData = NSkin:GetSkinData(self, ENCOUNTER_JOURNAL_STATE, false)
         local overlay = buttonData and buttonData.encounterHover
         if overlay then overlay:Show() end
     end)
     button:HookScript("OnLeave", function(self)
-        local buttonData = NSkin:GetSkinData(self, false)
+        local buttonData = NSkin:GetSkinData(self, ENCOUNTER_JOURNAL_STATE, false)
         local overlay = buttonData and buttonData.encounterHover
         if overlay then overlay:Hide() end
     end)
@@ -292,8 +293,8 @@ function EncounterJournalSkin:OnTabSet(journal, tabID)
 end
 
 function EncounterJournalSkin:Initialize()
-    if initialized then return end
-    if not NSkin:IsModuleEnabled("EncounterJournal") then return end
+    if initialized then return true end
+    if not NSkin:IsModuleEnabled("EncounterJournal") then return false end
 
     local journal = _G.EncounterJournal
     local instanceSelect = journal and journal.instanceSelect
@@ -306,10 +307,9 @@ function EncounterJournalSkin:Initialize()
         or not hooksecurefunc
     then
         NSkin:Print("Encounter Journal skin could not attach to the Midnight ScrollBox update lifecycle.")
-        return
+        return false
     end
 
-    initialized = true
     hookedScrollBox = scrollBox
     local info = journal.encounter and journal.encounter.info
     bossScrollBox = info and info.BossesScrollBox
@@ -381,6 +381,8 @@ function EncounterJournalSkin:Initialize()
     end
 
     self:StyleInstancePage()
+    initialized = true
+    return true
 end
 
 local function DescribeTexture(texture)
@@ -438,8 +440,8 @@ function EncounterJournalSkin:Debug()
         local button = frames[i]
         local label = button.name and button.name:GetText() or "<no label>"
 
-        local data = NSkin:GetSkinData(button, false)
-        local border = data and data.borders and data.borders.__NSkinEncounterBorder
+        local data = NSkin:GetSkinData(button, ENCOUNTER_JOURNAL_STATE, false)
+        local border = NSkin:GetPixelBorder(button, "__NSkinEncounterBorder")
         local hover = data and data.encounterHover
         print(("|cff33aaffNSkin journal card %d:|r %s styledBorder=%s hoverShown=%s"):format(
             i,
@@ -486,5 +488,5 @@ NSkin:RegisterWindowSkin({
             )
         end
     end,
-    apply = function() EncounterJournalSkin:Initialize() end,
+    apply = function() return EncounterJournalSkin:Initialize() end,
 })

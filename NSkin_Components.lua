@@ -1,21 +1,23 @@
 local _, NSkin = ...
 
+local COMPONENT_STATE = "components"
+
 -- Buttons Skinning
 local function ShowFlatButtonGlow(button)
-    local data = NSkin:GetSkinData(button, false)
+    local data = NSkin:GetSkinData(button, COMPONENT_STATE, false)
     if data and data.hoverGlow and (not button.IsEnabled or button:IsEnabled()) then
         data.hoverGlow:Show()
     end
 end
 
 local function HideFlatButtonGlow(button)
-    local data = NSkin:GetSkinData(button, false)
+    local data = NSkin:GetSkinData(button, COMPONENT_STATE, false)
     if data and data.hoverGlow then data.hoverGlow:Hide() end
 end
 
 function NSkin:CreateFlatButtonGlow(button, alpha)
     if not button or not button.CreateTexture then return nil end
-    local data = self:GetSkinData(button)
+    local data = self:GetSkinData(button, COMPONENT_STATE)
     if data.hoverGlow then
         data.hoverGlow:SetColorTexture(1, 1, 1, alpha or 0.10)
         return data.hoverGlow
@@ -39,7 +41,7 @@ end
 function NSkin:SetFlatButtonLabel(button, label, size, offsetX, offsetY)
     if not button or not button.CreateFontString then return nil end
 
-    local data = self:GetSkinData(button)
+    local data = self:GetSkinData(button, COMPONENT_STATE)
     local text = data.label
     if not text then
         text = button:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
@@ -68,12 +70,12 @@ function NSkin:SkinFlatButton(button, label, backgroundColor, borderColor,
     backgroundColor = backgroundColor or style.background
     borderColor = borderColor or style.border
 
-    local data = self:GetSkinData(button)
-    if not data.flatBackground then
+    local background = self:GetFlatBackground(button)
+    if not background then
         self:HideTextureRegions(button)
     end
 
-    data.flatBackground = self:CreateFlatBackground(button, nil, backgroundColor, borderColor)
+    self:CreateFlatBackground(button, nil, backgroundColor, borderColor)
     self:CreateFlatButtonGlow(button, style.hoverAlpha)
     local text = self:SetFlatButtonLabel(button, label, labelSize, labelOffsetX, labelOffsetY)
     if text then text:SetTextColor(unpack(style.text)) end
@@ -86,7 +88,7 @@ function NSkin:SkinWindow(frame, backgroundAnchor)
 
     local style = self:GetStyle("window")
     local anchor = backgroundAnchor or frame
-    local data = self:GetSkinData(frame)
+    local data = self:GetSkinData(frame, COMPONENT_STATE)
     local background = data.windowBackground
     if not background then
         background = frame:CreateTexture(nil, "BACKGROUND", nil, 0)
@@ -107,7 +109,7 @@ function NSkin:SkinWindowHeader(owner, anchor)
     if not owner or not anchor then return nil end
 
     local style = self:GetStyle("window").header
-    local data = self:GetSkinData(owner)
+    local data = self:GetSkinData(owner, COMPONENT_STATE)
     local background = data.windowHeaderBackground
     if not background then
         background = owner:CreateTexture(nil, "BACKGROUND", nil, 7)
@@ -130,19 +132,18 @@ function NSkin:SkinTab(tab, selected, style)
     if not tab then return end
     style = style or self:GetStyle("tab")
 
-    local data = self:GetSkinData(tab)
-    if not data.flatBackground then
+    local background = self:GetFlatBackground(tab)
+    if not background then
         if type(tab.SetTabSelected) == "function" and _G.hooksecurefunc then
             _G.hooksecurefunc(tab, "SetTabSelected", RefreshTabSelection)
         end
         self:HideTextureRegions(tab)
-        data.flatBackground = self:CreateFlatBackground(tab, nil, style.background, style.border)
+        background = self:CreateFlatBackground(tab, nil, style.background, style.border)
     end
 
     self:CreateFlatButtonGlow(tab, style.hoverAlpha)
-    local borders = data.borders
-    self:SetPixelBorderColor(borders and borders.NSkinFlatBackgroundBorder, unpack(style.border))
-    data.flatBackground:SetColorTexture(unpack(
+    self:SetPixelBorderColor(self:GetPixelBorder(tab, "NSkinFlatBackgroundBorder"), unpack(style.border))
+    background:SetColorTexture(unpack(
         selected and style.selectedBackground or style.background
     ))
     if tab.Text then tab.Text:SetTextColor(unpack(style.text)) end
