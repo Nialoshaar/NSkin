@@ -59,25 +59,17 @@ local function RemoveMasks(texture)
     end
 end
 
-local function ApplyButtonStateTextures(button)
-    -- File ID 0 clears a Button state slot. Unlike nil or a runtime transparent
-    -- region, it cannot be made visible again by the native button-state engine.
-    button:SetNormalTexture(CLEAR_TEXTURE)
-    button:SetPushedTexture(CLEAR_TEXTURE)
-    button:SetHighlightTexture(CLEAR_TEXTURE)
-    if button.SetDisabledTexture then button:SetDisabledTexture(CLEAR_TEXTURE) end
-end
-
 function EncounterJournalSkin:StyleBossButton(button)
     if not button or not button.creature or not button.text then return end
 
     ClearButtonTextures(button)
 
-    local background = button.__NSkinBossBackground
+    local data = NSkin:GetSkinData(button)
+    local background = data.bossBackground
     if not background then
         background = button:CreateTexture(nil, "BACKGROUND", nil, -7)
         background:SetAllPoints(button)
-        button.__NSkinBossBackground = background
+        data.bossBackground = background
     end
     background:SetColorTexture(unpack(NSkin:GetStyle("encounterCard").background))
     background:Show()
@@ -105,13 +97,14 @@ function EncounterJournalSkin:StyleInstancePage()
         loreImage:SetTexCoord(0.71, 0.06, 0.582, 0.08)
         if loreImage.SetRotation then loreImage:SetRotation(math.rad(180)) end
 
-        local imageBorder = instance.__NSkinLoreImageBorder
+        local data = NSkin:GetSkinData(instance)
+        local imageBorder = data.loreImageBorder
         if not imageBorder then
             imageBorder = CreateFrame("Frame", nil, instance)
             imageBorder:SetPoint("TOPLEFT", loreImage, "TOPLEFT", -1, 1)
             imageBorder:SetPoint("BOTTOMRIGHT", loreImage, "BOTTOMRIGHT", 1, -1)
             imageBorder:SetFrameLevel(instance:GetFrameLevel() + 1)
-            instance.__NSkinLoreImageBorder = imageBorder
+            data.loreImageBorder = imageBorder
         end
         local border = NSkin:CreatePixelBorder(
             imageBorder,
@@ -148,8 +141,10 @@ local function StripCardFrameAtlases(button)
         local region = regions[i]
         if IsTexture(region) then
             local atlas = region.GetAtlas and region:GetAtlas() or nil
-            if region.__NSkinEncounterCardFrame or cardFrameAtlases[atlas] then
-                region.__NSkinEncounterCardFrame = true
+            local data = NSkin:GetSkinData(region, false)
+            if (data and data.encounterCardFrame) or cardFrameAtlases[atlas] then
+                data = data or NSkin:GetSkinData(region)
+                data.encounterCardFrame = true
                 if region.SetAtlas then region:SetAtlas(nil) end
                 region:SetTexture(nil)
                 region:SetAlpha(0)
@@ -160,7 +155,8 @@ local function StripCardFrameAtlases(button)
 end
 
 local function GetOrCreateHover(button)
-    local hover = button.__NSkinEncounterHover
+    local data = NSkin:GetSkinData(button)
+    local hover = data.encounterHover
     if hover then
         hover:SetColorTexture(unpack(NSkin:GetStyle("encounterCard").hover))
         return hover
@@ -172,14 +168,16 @@ local function GetOrCreateHover(button)
     hover:SetColorTexture(unpack(NSkin:GetStyle("encounterCard").hover))
     hover:SetBlendMode("ADD")
     hover:Hide()
-    button.__NSkinEncounterHover = hover
+    data.encounterHover = hover
 
     button:HookScript("OnEnter", function(self)
-        local overlay = self.__NSkinEncounterHover
+        local buttonData = NSkin:GetSkinData(self, false)
+        local overlay = buttonData and buttonData.encounterHover
         if overlay then overlay:Show() end
     end)
     button:HookScript("OnLeave", function(self)
-        local overlay = self.__NSkinEncounterHover
+        local buttonData = NSkin:GetSkinData(self, false)
+        local overlay = buttonData and buttonData.encounterHover
         if overlay then overlay:Hide() end
     end)
 
@@ -213,7 +211,7 @@ function EncounterJournalSkin:StyleButton(button)
     )
     NSkin:SetPixelBorderColor(border, unpack(NSkin:GetStyle("encounterCard").border))
 
-    ApplyButtonStateTextures(button)
+    ClearButtonTextures(button)
     StripCardFrameAtlases(button)
     local hover = GetOrCreateHover(button)
     if button.IsMouseOver then hover:SetShown(button:IsMouseOver()) end
@@ -440,11 +438,14 @@ function EncounterJournalSkin:Debug()
         local button = frames[i]
         local label = button.name and button.name:GetText() or "<no label>"
 
+        local data = NSkin:GetSkinData(button, false)
+        local border = data and data.borders and data.borders.__NSkinEncounterBorder
+        local hover = data and data.encounterHover
         print(("|cff33aaffNSkin journal card %d:|r %s styledBorder=%s hoverShown=%s"):format(
             i,
             tostring(label),
-            tostring(button.__NSkinEncounterBorder ~= nil),
-            tostring(button.__NSkinEncounterHover and button.__NSkinEncounterHover:IsShown())
+            tostring(border ~= nil),
+            tostring(hover and hover:IsShown())
         ))
         print("  normal:", DescribeTexture(button:GetNormalTexture()))
         print("  pushed:", DescribeTexture(button:GetPushedTexture()))
@@ -473,28 +474,17 @@ function EncounterJournalSkin:Debug()
     end
 end
 
-local function ContinueAfterJournalLoads()
-    if _G.EventUtil and _G.EventUtil.ContinueOnAddOnLoaded then
-        _G.EventUtil.ContinueOnAddOnLoaded("Blizzard_EncounterJournal", function()
-            EncounterJournalSkin:Initialize()
-        end)
-    else
-        NSkin:RegisterEvent("ADDON_LOADED", function(_, addonName)
-            if addonName == "Blizzard_EncounterJournal" then
-                EncounterJournalSkin:Initialize()
-            end
-        end)
-    end
-end
-
-NSkin:RegisterModuleInitializer("EncounterJournal", function()
-    if _G.EventRegistry and _G.EventRegistry.RegisterCallback then
-        _G.EventRegistry:RegisterCallback(
-            "EncounterJournal.TabSet",
-            EncounterJournalSkin.OnTabSet,
-            EncounterJournalSkin
-        )
-    end
-
-    ContinueAfterJournalLoads()
-end)
+NSkin:RegisterWindowSkin({
+    module = "EncounterJournal",
+    addon = "Blizzard_EncounterJournal",
+    prepare = function()
+        if _G.EventRegistry and _G.EventRegistry.RegisterCallback then
+            _G.EventRegistry:RegisterCallback(
+                "EncounterJournal.TabSet",
+                EncounterJournalSkin.OnTabSet,
+                EncounterJournalSkin
+            )
+        end
+    end,
+    apply = function() EncounterJournalSkin:Initialize() end,
+})

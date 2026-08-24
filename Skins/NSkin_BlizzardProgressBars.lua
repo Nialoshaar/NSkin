@@ -6,6 +6,23 @@ local ProgressBars = NSkin:NewModule("BlizzardProgressBars")
 local BAR_HEIGHT = 16
 local BORDER_SIZE = 1
 local SCENARIO_TIMER_BAR_Y = 0
+local FALLBACK_STATUS_BAR = "Interface\\Buttons\\WHITE8X8"
+
+function NSkin:GetStatusBarTexture()
+    local texture = self:GetStyle("progressBar").texture
+    return type(texture) == "string" and texture ~= "" and texture or FALLBACK_STATUS_BAR
+end
+
+function NSkin:SetStatusBarTexture(texture)
+    if type(texture) ~= "string" then return false end
+    texture = texture:match("^%s*(.-)%s*$")
+    if texture == "" then return false end
+    return self:SetThemeOverride("progressBar.texture", texture)
+end
+
+function NSkin:ResetStatusBarTexture()
+    return self:ResetThemeOverride("progressBar.texture")
+end
 
 local styledBars = setmetatable({}, { __mode = "k" })
 local protectedRegions = setmetatable({}, { __mode = "k" })
@@ -36,14 +53,15 @@ local function HideTexture(texture)
     end
 
     local function EnforceHidden(self)
-        if self.__NSkinHiding then return end
-        self.__NSkinHiding = true
+        local data = NSkin:GetSkinData(self)
+        if data.hiding then return end
+        data.hiding = true
 
         if self.SetAlpha then self:SetAlpha(0) end
         if self.SetTexture then self:SetTexture(nil) end
         self:Hide()
 
-        self.__NSkinHiding = false
+        data.hiding = false
     end
 
     if strippedRegions[texture] then
@@ -87,8 +105,9 @@ local function HideFrame(frame)
     if frame.SetAlpha then frame:SetAlpha(0) end
     frame:Hide()
 
-    if frame.__NSkinHideHooked or not hooksecurefunc then return end
-    frame.__NSkinHideHooked = true
+    local data = NSkin:GetSkinData(frame)
+    if data.hideHooked or not hooksecurefunc then return end
+    data.hideHooked = true
 
     if frame.Show then
         pcall(hooksecurefunc, frame, "Show", function(self)
@@ -137,9 +156,10 @@ end
 
 local function CreateBackdrop(bar)
     local style = NSkin:GetStyle("progressBar")
-    if bar.__NSkinBackground then
-        bar.__NSkinBackground:SetColorTexture(unpack(style.background))
-        NSkin:SetPixelBorderColor(bar.__NSkinProgressBorder, unpack(style.border))
+    local data = NSkin:GetSkinData(bar)
+    if data.progressBackground then
+        data.progressBackground:SetColorTexture(unpack(style.background))
+        NSkin:SetPixelBorderColor(data.progressBorder, unpack(style.border))
         return
     end
 
@@ -147,7 +167,7 @@ local function CreateBackdrop(bar)
     background:SetAllPoints(bar)
     background:SetColorTexture(unpack(style.background))
     protectedRegions[background] = true
-    bar.__NSkinBackground = background
+    data.progressBackground = background
 
     local border = NSkin:CreatePixelBorder(
         bar,
@@ -157,6 +177,7 @@ local function CreateBackdrop(bar)
         true
     )
     if border then
+        data.progressBorder = border
         protectedRegions[border.top] = true
         protectedRegions[border.bottom] = true
         protectedRegions[border.left] = true
@@ -179,8 +200,9 @@ local function CenterText(bar)
 end
 
 local function ApplyTexture(bar)
-    if bar.__NSkinApplying then return end
-    bar.__NSkinApplying = true
+    local data = NSkin:GetSkinData(bar)
+    if data.applyingTexture then return end
+    data.applyingTexture = true
 
     -- Preserve the tint selected by Blizzard for this specific widget (purple,
     -- green, blue, and so on) while replacing only the texture.
@@ -194,22 +216,24 @@ local function ApplyTexture(bar)
         if fill.SetVertTile then fill:SetVertTile(false) end
         fill:SetDrawLayer("ARTWORK", 1)
 
-        if not fill.__NSkinTileHooked and hooksecurefunc and fill.SetHorizTile then
-            fill.__NSkinTileHooked = true
+        local fillData = NSkin:GetSkinData(fill)
+        if not fillData.tileHooked and hooksecurefunc and fill.SetHorizTile then
+            fillData.tileHooked = true
             pcall(hooksecurefunc, fill, "SetHorizTile", function(self, tiled)
-                if tiled and not self.__NSkinTileFixing then
-                    self.__NSkinTileFixing = true
+                local hookedData = NSkin:GetSkinData(self)
+                if tiled and not hookedData.tileFixing then
+                    hookedData.tileFixing = true
                     self:SetHorizTile(false)
-                    self.__NSkinTileFixing = false
+                    hookedData.tileFixing = false
                 end
             end)
         end
     end
 
     bar:SetStatusBarColor(red, green, blue, alpha)
-    if bar.__NSkinBackground then bar.__NSkinBackground:Show() end
+    if data.progressBackground then data.progressBackground:Show() end
 
-    bar.__NSkinApplying = false
+    data.applyingTexture = false
 end
 
 local function StyleBar(bar)
@@ -227,7 +251,8 @@ local function StyleBar(bar)
 
         if hooksecurefunc then
             pcall(hooksecurefunc, bar, "SetStatusBarTexture", function(self)
-                if not self.__NSkinApplying then ApplyTexture(self) end
+                local data = NSkin:GetSkinData(self, false)
+                if not data or not data.applyingTexture then ApplyTexture(self) end
             end)
         end
     end
@@ -270,11 +295,12 @@ end
 
 local function AnchorScenarioTimer(widget)
     local bar = widget and widget.TimerBar
-    if not IsStatusBar(bar) or bar.__NSkinAnchorFixing then return end
-    bar.__NSkinAnchorFixing = true
+    local data = IsStatusBar(bar) and NSkin:GetSkinData(bar) or nil
+    if not data or data.anchorFixing then return end
+    data.anchorFixing = true
     bar:ClearAllPoints()
     bar:SetPoint("BOTTOM", widget, "BOTTOM", 0, SCENARIO_TIMER_BAR_Y)
-    bar.__NSkinAnchorFixing = false
+    data.anchorFixing = false
 end
 
 local function SkinScenarioTimer(widget)
@@ -283,13 +309,15 @@ local function SkinScenarioTimer(widget)
 
     HideScenarioArt(widget)
     StyleBar(bar)
-    bar.__NSkinScenarioOwner = widget
+    local data = NSkin:GetSkinData(bar)
+    data.scenarioOwner = widget
 
-    if not bar.__NSkinAnchorHooked and hooksecurefunc then
-        bar.__NSkinAnchorHooked = true
+    if not data.anchorHooked and hooksecurefunc then
+        data.anchorHooked = true
         pcall(hooksecurefunc, bar, "SetPoint", function(self)
-            if not self.__NSkinAnchorFixing then
-                AnchorScenarioTimer(self.__NSkinScenarioOwner)
+            local hookedData = NSkin:GetSkinData(self, false)
+            if hookedData and not hookedData.anchorFixing then
+                AnchorScenarioTimer(hookedData.scenarioOwner)
             end
         end)
     end

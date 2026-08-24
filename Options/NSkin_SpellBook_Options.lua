@@ -1,40 +1,9 @@
 local _, NSkin = ...
 
-local MIN_TEXT_SIZE = 8
-local MAX_TEXT_SIZE = 32
-
-function NSkin:GetSpellBookTextSize()
-    local options = self:GetModuleOptions("SpellBook", false)
-    local size = options and tonumber(options.textSize)
-    if not size then return self.defaultModuleOptions.SpellBook.textSize end
-    return math.max(MIN_TEXT_SIZE, math.min(MAX_TEXT_SIZE, math.floor(size + 0.5)))
-end
-
-function NSkin:SetSpellBookTextSize(size)
-    size = tonumber(size)
-    if not size then return false end
-
-    size = math.max(MIN_TEXT_SIZE, math.min(MAX_TEXT_SIZE, math.floor(size + 0.5)))
-    if size == self.defaultModuleOptions.SpellBook.textSize then
-        local options = self:GetModuleOptions("SpellBook", false)
-        if options then
-            options.textSize = nil
-            local profile = self:GetProfile()
-            if not next(options) then profile.moduleOptions.SpellBook = nil end
-            if not next(profile.moduleOptions) then profile.moduleOptions = nil end
-        end
-    else
-        self:GetModuleOptions("SpellBook", true).textSize = size
-    end
-
-    local spellBook = self.modules and self.modules.SpellBook
-    if self:IsModuleEnabled("SpellBook") and spellBook and spellBook.RefreshTextSize then
-        spellBook:RefreshTextSize()
-    end
-    return true
-end
-
-NSkin:RegisterOptionsPage("spellbook", "Spellbook", function(optionsFrame)
+local function BuildSpellBookOptions(optionsFrame)
+    local defaults = NSkin.defaultModuleOptions.SpellBook
+    local MIN_TEXT_SIZE = defaults.minTextSize
+    local MAX_TEXT_SIZE = defaults.maxTextSize
     local page = CreateFrame("Frame", nil, optionsFrame)
     page:SetAllPoints(optionsFrame)
 
@@ -77,4 +46,12 @@ NSkin:RegisterOptionsPage("spellbook", "Spellbook", function(optionsFrame)
     end
 
     return page
-end)
+end
+
+NSkin:RegisterOptionsPage({
+    key = "spellbook",
+    label = "Spellbook",
+    group = "windows",
+    order = 10,
+    builder = BuildSpellBookOptions,
+})

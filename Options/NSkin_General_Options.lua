@@ -4,26 +4,31 @@ local CONTENT_LEFT = 180
 local NAV_TOP = -102
 local options
 local definitions = {}
+local definitionsByKey = {}
 
-local navigation = {
-    { key = "general", label = "General" },
-    { label = "Shared Elements", heading = true },
-    { key = "progress", fallback = "Progress Bars", indent = true },
-    { key = "buttons", fallback = "Buttons", indent = true },
-    { key = "tabs", fallback = "Tabs", indent = true },
-    { key = "scrollbars", fallback = "Scrollbars", indent = true },
-    { key = "icons", fallback = "Icons", indent = true },
-    { label = "Windows", heading = true },
-    { key = "collections", fallback = "Collections", indent = true },
-    { key = "journal", fallback = "Adventure Journal", indent = true },
-    { key = "spellbook", fallback = "Spellbook", indent = true },
+local optionGroups = {
+    shared = { label = "Shared Elements", order = 10 },
+    windows = { label = "Windows", order = 20 },
 }
 
-function NSkin:RegisterOptionsPage(key, label, builder)
-    if type(key) ~= "string" or type(label) ~= "string" or type(builder) ~= "function" then
+function NSkin:RegisterOptionsPage(definition)
+    if type(definition) ~= "table"
+        or type(definition.key) ~= "string"
+        or definition.key == ""
+        or definition.key == "general"
+        or type(definition.label) ~= "string"
+        or definition.label == ""
+        or type(definition.group) ~= "string"
+        or not optionGroups[definition.group]
+        or type(definition.builder) ~= "function"
+        or definitionsByKey[definition.key]
+    then
         return false
     end
-    definitions[#definitions + 1] = { key = key, label = label, builder = builder }
+
+    definition.order = tonumber(definition.order) or 100
+    definitions[#definitions + 1] = definition
+    definitionsByKey[definition.key] = definition
     return true
 end
 
@@ -164,52 +169,64 @@ local function CreateOptionsWindow()
     frame.navigationDivider:SetPoint("BOTTOMLEFT", CONTENT_LEFT - 14, 24)
     frame.navigationDivider:SetWidth(1)
 
-    local pages = { { key = "general", page = CreateGeneralPage(frame) } }
+    table.sort(definitions, function(left, right)
+        local leftGroup = optionGroups[left.group]
+        local rightGroup = optionGroups[right.group]
+        if leftGroup.order ~= rightGroup.order then return leftGroup.order < rightGroup.order end
+        if left.order ~= right.order then return left.order < right.order end
+        return left.label < right.label
+    end)
+
+    local pages = { { key = "general", label = "General", page = CreateGeneralPage(frame) } }
     local byKey = { general = pages[1] }
-    local definitionsByKey = {}
     for i = 1, #definitions do
         local definition = definitions[i]
-        definitionsByKey[definition.key] = definition
         local page = definition.builder(frame)
         if page then
             page:Hide()
-            local info = { key = definition.key, page = page }
+            local info = {
+                key = definition.key,
+                label = definition.label,
+                group = definition.group,
+                page = page,
+            }
             pages[#pages + 1] = info
             byKey[definition.key] = info
         end
     end
 
     frame.navigationButtons = {}
-    for i = 1, #navigation do
-        local item = navigation[i]
-        if item.heading then
+    local navigationRow = 0
+    local activeGroup
+    local function AddNavigationButton(info, indent)
+        local button = CreateFrame("Button", nil, frame)
+        button:SetSize(132, 16)
+        button:SetPoint("TOPLEFT", indent and 27 or 12, NAV_TOP - navigationRow * 16)
+        button:SetNormalFontObject("GameFontHighlightSmall")
+        button:SetHighlightFontObject("GameFontHighlightSmall")
+        button:SetText(info.label)
+        button:GetFontString():SetJustifyH("LEFT")
+        button.selectedBackground = button:CreateTexture(nil, "BACKGROUND")
+        button.selectedBackground:SetAllPoints()
+        button.selectedBackground:Hide()
+        button:SetScript("OnClick", function() frame:SelectOptionsPage(info.key) end)
+        info.navigationButton = button
+        frame.navigationButtons[#frame.navigationButtons + 1] = button
+        navigationRow = navigationRow + 1
+    end
+
+    AddNavigationButton(byKey.general, false)
+    for i = 2, #pages do
+        local info = pages[i]
+        if info.group ~= activeGroup then
+            activeGroup = info.group
+            local group = optionGroups[activeGroup]
             local heading = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-            heading:SetPoint("TOPLEFT", 12, NAV_TOP - (i - 1) * 16)
-            heading:SetText(item.label)
-        else
-            if not byKey[item.key] then
-                local placeholder = CreateFrame("Frame", nil, frame)
-                placeholder:SetAllPoints(frame)
-                placeholder:Hide()
-                local info = { key = item.key, page = placeholder }
-                pages[#pages + 1] = info
-                byKey[item.key] = info
-            end
-            local button = CreateFrame("Button", nil, frame)
-            button:SetSize(132, 16)
-            button:SetPoint("TOPLEFT", item.indent and 27 or 12, NAV_TOP - (i - 1) * 16)
-            button:SetNormalFontObject("GameFontHighlightSmall")
-            button:SetHighlightFontObject("GameFontHighlightSmall")
-            local definition = definitionsByKey[item.key]
-            button:SetText(item.label or (definition and definition.label) or item.fallback)
-            button:GetFontString():SetJustifyH("LEFT")
-            button.selectedBackground = button:CreateTexture(nil, "BACKGROUND")
-            button.selectedBackground:SetAllPoints()
-            button.selectedBackground:Hide()
-            button:SetScript("OnClick", function() frame:SelectOptionsPage(item.key) end)
-            byKey[item.key].navigationButton = button
-            frame.navigationButtons[#frame.navigationButtons + 1] = button
+            heading:SetPoint("TOPLEFT", 12, NAV_TOP - navigationRow * 16)
+            heading:SetText(group.label)
+            navigationRow = navigationRow + 1
         end
+        AddNavigationButton(info, true)
     end
 
     function frame:ApplyTheme()

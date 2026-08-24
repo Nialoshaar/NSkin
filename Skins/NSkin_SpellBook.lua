@@ -11,11 +11,45 @@ local WINDOW_BUTTON_TEXT_SIZE = 20
 local WINDOW_BUTTON_TEXT_OFFSET_X = 0
 local WINDOW_BUTTON_TEXT_OFFSET_Y = 0
 
-local borders = {}
-local circularBorders = {}
-local headerLines = {}
+local borders = setmetatable({}, { __mode = "k" })
+local circularBorders = setmetatable({}, { __mode = "k" })
+local headerLines = setmetatable({}, { __mode = "k" })
 local assistedCombatDivider
 local initialized = false
+
+function NSkin:GetSpellBookTextSize()
+    local defaults = self.defaultModuleOptions.SpellBook
+    local options = self:GetModuleOptions("SpellBook", false)
+    local size = options and tonumber(options.textSize)
+    if not size then return defaults.textSize end
+    return math.max(defaults.minTextSize,
+        math.min(defaults.maxTextSize, math.floor(size + 0.5)))
+end
+
+function NSkin:SetSpellBookTextSize(size)
+    size = tonumber(size)
+    if not size then return false end
+
+    local defaults = self.defaultModuleOptions.SpellBook
+    size = math.max(defaults.minTextSize,
+        math.min(defaults.maxTextSize, math.floor(size + 0.5)))
+    if size == defaults.textSize then
+        local options = self:GetModuleOptions("SpellBook", false)
+        if options then
+            options.textSize = nil
+            local profile = self:GetProfile()
+            if not next(options) then profile.moduleOptions.SpellBook = nil end
+            if not next(profile.moduleOptions) then profile.moduleOptions = nil end
+        end
+    else
+        self:GetModuleOptions("SpellBook", true).textSize = size
+    end
+
+    if self:IsModuleEnabled("SpellBook") and SpellBookSkin.RefreshTextSize then
+        SpellBookSkin:RefreshTextSize()
+    end
+    return true
+end
 
 local function SetFontSize(fontString, size)
     if not fontString or not size then return end
@@ -38,11 +72,14 @@ local function SkinSearchBox(searchBox)
     if not searchBox then return end
 
     local searchIcon = searchBox.SearchIcon or searchBox.searchIcon
-    if not searchBox.NSkinFlatBackground then
+    local data = NSkin:GetSkinData(searchBox)
+    if not data.flatBackground then
         NSkin:HideTextureRegions(searchBox, searchIcon)
     end
     local style = NSkin:GetStyle("searchBox")
-    NSkin:CreateFlatBackground(searchBox, nil, style.background, style.border)
+    data.flatBackground = NSkin:CreateFlatBackground(
+        searchBox, nil, style.background, style.border
+    )
     searchBox:SetTextColor(unpack(style.text))
     if searchBox.Instructions then
         searchBox.Instructions:SetTextColor(unpack(style.placeholderText))
@@ -63,11 +100,13 @@ local function SkinPagingControls(pagingControls)
 
     local previous = pagingControls.PrevPageButton
     local nextPage = pagingControls.NextPageButton
-    if previous and previous.NSkinLabel then
-        previous.NSkinLabel:SetAlpha(previous:IsEnabled() and 1 or 0.35)
+    local previousData = previous and NSkin:GetSkinData(previous, false)
+    local nextData = nextPage and NSkin:GetSkinData(nextPage, false)
+    if previousData and previousData.label then
+        previousData.label:SetAlpha(previous:IsEnabled() and 1 or 0.35)
     end
-    if nextPage and nextPage.NSkinLabel then
-        nextPage.NSkinLabel:SetAlpha(nextPage:IsEnabled() and 1 or 0.35)
+    if nextData and nextData.label then
+        nextData.label:SetAlpha(nextPage:IsEnabled() and 1 or 0.35)
     end
 end
 
@@ -101,9 +140,10 @@ end
 local function SkinAssistedCombat(frame)
     if not frame then return end
 
-    if not frame.NSkinSkinned then
+    local data = NSkin:GetSkinData(frame)
+    if not data.spellBookSkinned then
         NSkin:HideTextureRegions(frame)
-        frame.NSkinSkinned = true
+        data.spellBookSkinned = true
     end
     if frame.Label then frame.Label:SetTextColor(unpack(NSkin:GetStyle("button").text)) end
 
@@ -396,12 +436,8 @@ function SpellBookSkin:RefreshTheme()
     if initialized then SkinActiveSpellBookItems() end
 end
 
-NSkin:RegisterModuleInitializer("SpellBook", function()
-    if _G.C_AddOns and _G.C_AddOns.IsAddOnLoaded("Blizzard_PlayerSpells") then
-        SpellBookSkin:Initialize()
-    elseif _G.EventUtil and _G.EventUtil.ContinueOnAddOnLoaded then
-        _G.EventUtil.ContinueOnAddOnLoaded("Blizzard_PlayerSpells", function()
-            SpellBookSkin:Initialize()
-        end)
-    end
-end)
+NSkin:RegisterWindowSkin({
+    module = "SpellBook",
+    addon = "Blizzard_PlayerSpells",
+    apply = function() SpellBookSkin:Initialize() end,
+})

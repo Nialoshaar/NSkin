@@ -5,7 +5,6 @@ local ToyBoxSkin = NSkin:NewModule("ToyBox")
 local TOYS_PER_PAGE = 18
 local BORDER_SIZE = 1
 local QUALITY_BORDER_KEY = "__NSkinCollectionQualityBorder"
-local QUALITY_ITEM_KEY = "__NSkinCollectionQualityItemID"
 local HEIRLOOM_QUALITY = _G.Enum and _G.Enum.ItemQuality and _G.Enum.ItemQuality.Heirloom or 7
 local Item = _G.C_Item
 
@@ -14,8 +13,9 @@ local initialized = false
 local function UpdateIconBorder(button, knownQuality)
     if not button or not button.iconTexture then return end
 
+    local data = NSkin:GetSkinData(button)
     local itemID = button.itemID
-    local border = button[QUALITY_BORDER_KEY]
+    local border = data.qualityBorder
 
     if not itemID or itemID < 0 then
         NSkin:SetPixelBorderShown(border, false)
@@ -25,13 +25,14 @@ local function UpdateIconBorder(button, knownQuality)
     if not border then
         border = NSkin:CreateQualityBorder(button, button.iconTexture, QUALITY_BORDER_KEY, BORDER_SIZE)
         if not border then return end
+        data.qualityBorder = border
     end
 
-    if button[QUALITY_ITEM_KEY] ~= itemID then
+    if data.qualityItemID ~= itemID then
         local quality = knownQuality or Item.GetItemQualityByID(itemID)
         if not NSkin:SetQualityBorder(border, quality) then return end
 
-        button[QUALITY_ITEM_KEY] = itemID
+        data.qualityItemID = itemID
     else
         NSkin:SetPixelBorderShown(border, true)
     end
@@ -40,14 +41,15 @@ end
 local function SkinCollectionButton(button, knownQuality)
     if not button then return end
 
-    if not button.__NSkinCollectionDecorationRemoved then
+    local data = NSkin:GetSkinData(button)
+    if not data.collectionDecorationRemoved then
         local slotFrame = button.slotFrameCollected
         if slotFrame then
             if slotFrame.SetAtlas then slotFrame:SetAtlas(nil) end
             slotFrame:SetTexture(nil)
             slotFrame:Hide()
         end
-        button.__NSkinCollectionDecorationRemoved = true
+        data.collectionDecorationRemoved = true
     end
 
     UpdateIconBorder(button, knownQuality)
@@ -79,12 +81,8 @@ function ToyBoxSkin:Initialize()
     end
 end
 
-NSkin:RegisterModuleInitializer("ToyBox", function()
-    if _G.C_AddOns and _G.C_AddOns.IsAddOnLoaded("Blizzard_Collections") then
-        ToyBoxSkin:Initialize()
-    elseif _G.EventUtil and _G.EventUtil.ContinueOnAddOnLoaded then
-        _G.EventUtil.ContinueOnAddOnLoaded("Blizzard_Collections", function()
-            ToyBoxSkin:Initialize()
-        end)
-    end
-end)
+NSkin:RegisterWindowSkin({
+    module = "ToyBox",
+    addon = "Blizzard_Collections",
+    apply = function() ToyBoxSkin:Initialize() end,
+})

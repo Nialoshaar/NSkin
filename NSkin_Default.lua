@@ -3,6 +3,8 @@ local _, NSkin = ...
 NSkin.defaultModuleOptions = {
     SpellBook = {
         textSize = 16,
+        minTextSize = 8,
+        maxTextSize = 32,
     },
 }
 

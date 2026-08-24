@@ -16,6 +16,15 @@ for i = 1, #NSkin.moduleDefinitions do
     NSkin.moduleDefinitionByKey[definition.key] = definition
 end
 
+local function SafeCall(callback, ...)
+    local ok, result = pcall(callback, ...)
+    if not ok then
+        local errorHandler = _G.geterrorhandler and _G.geterrorhandler()
+        if errorHandler then pcall(errorHandler, result) end
+    end
+    return ok, result
+end
+
 function NSkin:GetModuleDefault(name)
     local definition = self.moduleDefinitionByKey[name]
     return definition and definition.defaultEnabled == true or false
@@ -46,6 +55,9 @@ local eventFrame = CreateFrame("Frame")
 local callbacks = {}
 local moduleInitializers = {}
 local modulesStarted = false
+local windowSkins = {}
+local pendingWindowAddons = {}
+local fallbackWindowEventRegistered = false
 
 function NSkin:NewModule(name)
     assert(type(name) == "string" and name ~= "", "A module name is required")
@@ -79,8 +91,86 @@ function NSkin:RegisterModuleInitializer(name, callback)
     }
 end
 
+local function IsAddOnLoaded(addonName)
+    if _G.C_AddOns and _G.C_AddOns.IsAddOnLoaded then
+        return _G.C_AddOns.IsAddOnLoaded(addonName)
+    end
+    return _G.IsAddOnLoaded and _G.IsAddOnLoaded(addonName) or false
+end
+
+local function ExecuteWindowSkin(definition)
+    if not NSkin:IsModuleEnabled(definition.module) then return false end
+    definition.apply()
+    return true
+end
+
+local function ApplyWindowSkin(definition)
+    if definition.applied or definition.applying then return end
+    definition.applying = true
+    local ok, applied = SafeCall(ExecuteWindowSkin, definition)
+    definition.applied = ok and applied == true
+    definition.applying = false
+end
+
+local function PrepareWindowSkin(definition)
+    if definition.prepared then return true end
+    if definition.prepare and not SafeCall(definition.prepare) then return false end
+    definition.prepared = true
+    return true
+end
+
+local function StartWindowSkin(definition)
+    if not PrepareWindowSkin(definition) then return end
+    if not definition.addon or IsAddOnLoaded(definition.addon) then
+        ApplyWindowSkin(definition)
+        return
+    end
+
+    if _G.EventUtil and _G.EventUtil.ContinueOnAddOnLoaded then
+        _G.EventUtil.ContinueOnAddOnLoaded(definition.addon, function()
+            ApplyWindowSkin(definition)
+        end)
+        return
+    end
+
+    pendingWindowAddons[definition.addon] = pendingWindowAddons[definition.addon] or {}
+    local pending = pendingWindowAddons[definition.addon]
+    pending[#pending + 1] = definition
+    if not fallbackWindowEventRegistered then
+        fallbackWindowEventRegistered = true
+        NSkin:RegisterEvent("ADDON_LOADED", function(_, addonName)
+            local definitions = pendingWindowAddons[addonName]
+            if not definitions then return end
+            pendingWindowAddons[addonName] = nil
+            for i = 1, #definitions do ApplyWindowSkin(definitions[i]) end
+        end)
+    end
+end
+
+function NSkin:RegisterWindowSkin(definition)
+    if type(definition) ~= "table"
+        or type(definition.module) ~= "string"
+        or not self.moduleDefinitionByKey[definition.module]
+        or type(definition.apply) ~= "function"
+    then
+        return false
+    end
+
+    local key = definition.key or definition.module
+    if windowSkins[key] then return false end
+    windowSkins[key] = definition
+    self:RegisterModuleInitializer(definition.module, function()
+        StartWindowSkin(definition)
+    end)
+    return true
+end
+
 function NSkin:Print(message)
     print(("|cff33aaff%s:|r %s"):format(self.name, tostring(message)))
+end
+
+local function ExecuteModuleInitializer(initializer)
+    if NSkin:IsModuleEnabled(initializer.name) then initializer.callback() end
 end
 
 eventFrame:SetScript("OnEvent", function(_, event, ...)
@@ -88,10 +178,7 @@ eventFrame:SetScript("OnEvent", function(_, event, ...)
         modulesStarted = true
 
         for i = 1, #moduleInitializers do
-            local initializer = moduleInitializers[i]
-            if NSkin:IsModuleEnabled(initializer.name) then
-                initializer.callback()
-            end
+            SafeCall(ExecuteModuleInitializer, moduleInitializers[i])
         end
 
         -- ADDON_LOADED is needed by the core only for SavedVariables startup.
@@ -105,7 +192,7 @@ eventFrame:SetScript("OnEvent", function(_, event, ...)
     if not handlers then return end
 
     for i = 1, #handlers do
-        handlers[i](event, ...)
+        SafeCall(handlers[i], event, ...)
     end
 end)
 

@@ -230,7 +230,12 @@ function NSkin:DeleteProfile(name)
 end
 
 function NSkin:ResetProfile(name)
-    name = NormalizeProfileName(name) or self:GetProfileName()
+    if name == nil then
+        name = self:GetProfileName()
+    else
+        name = NormalizeProfileName(name)
+        if not name then return false, "A valid profile name is required." end
+    end
     local profiles = self:GetDatabase().profiles
     if not profiles[name] then return false, "That profile does not exist." end
     local isActive = name == self:GetProfileName()

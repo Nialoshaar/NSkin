@@ -2,20 +2,23 @@ local _, NSkin = ...
 
 -- Buttons Skinning
 local function ShowFlatButtonGlow(button)
-    if button.NSkinHoverGlow and (not button.IsEnabled or button:IsEnabled()) then
-        button.NSkinHoverGlow:Show()
+    local data = NSkin:GetSkinData(button, false)
+    if data and data.hoverGlow and (not button.IsEnabled or button:IsEnabled()) then
+        data.hoverGlow:Show()
     end
 end
 
 local function HideFlatButtonGlow(button)
-    if button.NSkinHoverGlow then button.NSkinHoverGlow:Hide() end
+    local data = NSkin:GetSkinData(button, false)
+    if data and data.hoverGlow then data.hoverGlow:Hide() end
 end
 
 function NSkin:CreateFlatButtonGlow(button, alpha)
     if not button or not button.CreateTexture then return nil end
-    if button.NSkinHoverGlow then
-        button.NSkinHoverGlow:SetColorTexture(1, 1, 1, alpha or 0.10)
-        return button.NSkinHoverGlow
+    local data = self:GetSkinData(button)
+    if data.hoverGlow then
+        data.hoverGlow:SetColorTexture(1, 1, 1, alpha or 0.10)
+        return data.hoverGlow
     end
 
     local glow = button:CreateTexture(nil, "OVERLAY", nil, -1)
@@ -23,7 +26,7 @@ function NSkin:CreateFlatButtonGlow(button, alpha)
     glow:SetPoint("BOTTOMRIGHT", -1, 1)
     glow:SetColorTexture(1, 1, 1, alpha or 0.10)
     glow:Hide()
-    button.NSkinHoverGlow = glow
+    data.hoverGlow = glow
 
     if button.HookScript then
         button:HookScript("OnEnter", ShowFlatButtonGlow)
@@ -36,10 +39,11 @@ end
 function NSkin:SetFlatButtonLabel(button, label, size, offsetX, offsetY)
     if not button or not button.CreateFontString then return nil end
 
-    local text = button.NSkinLabel
+    local data = self:GetSkinData(button)
+    local text = data.label
     if not text then
         text = button:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-        button.NSkinLabel = text
+        data.label = text
     end
 
     text:ClearAllPoints()
@@ -64,11 +68,12 @@ function NSkin:SkinFlatButton(button, label, backgroundColor, borderColor,
     backgroundColor = backgroundColor or style.background
     borderColor = borderColor or style.border
 
-    if not button.NSkinFlatBackground then
+    local data = self:GetSkinData(button)
+    if not data.flatBackground then
         self:HideTextureRegions(button)
     end
 
-    self:CreateFlatBackground(button, nil, backgroundColor, borderColor)
+    data.flatBackground = self:CreateFlatBackground(button, nil, backgroundColor, borderColor)
     self:CreateFlatButtonGlow(button, style.hoverAlpha)
     local text = self:SetFlatButtonLabel(button, label, labelSize, labelOffsetX, labelOffsetY)
     if text then text:SetTextColor(unpack(style.text)) end
@@ -81,11 +86,12 @@ function NSkin:SkinWindow(frame, backgroundAnchor)
 
     local style = self:GetStyle("window")
     local anchor = backgroundAnchor or frame
-    local background = frame.NSkinWindowBackground
+    local data = self:GetSkinData(frame)
+    local background = data.windowBackground
     if not background then
         background = frame:CreateTexture(nil, "BACKGROUND", nil, 0)
         background:SetAllPoints(anchor)
-        frame.NSkinWindowBackground = background
+        data.windowBackground = background
     end
     background:SetColorTexture(unpack(style.background))
 
@@ -101,12 +107,13 @@ function NSkin:SkinWindowHeader(owner, anchor)
     if not owner or not anchor then return nil end
 
     local style = self:GetStyle("window").header
-    local background = owner.NSkinWindowHeaderBackground
+    local data = self:GetSkinData(owner)
+    local background = data.windowHeaderBackground
     if not background then
         background = owner:CreateTexture(nil, "BACKGROUND", nil, 7)
         background:SetPoint("BOTTOMLEFT", anchor, "TOPLEFT", 0, 0)
         background:SetPoint("BOTTOMRIGHT", anchor, "TOPRIGHT", 0, 0)
-        owner.NSkinWindowHeaderBackground = background
+        data.windowHeaderBackground = background
     end
     background:SetHeight(style.height)
     background:SetColorTexture(unpack(style.background))
@@ -123,17 +130,19 @@ function NSkin:SkinTab(tab, selected, style)
     if not tab then return end
     style = style or self:GetStyle("tab")
 
-    if not tab.NSkinFlatBackground then
+    local data = self:GetSkinData(tab)
+    if not data.flatBackground then
         if type(tab.SetTabSelected) == "function" and _G.hooksecurefunc then
             _G.hooksecurefunc(tab, "SetTabSelected", RefreshTabSelection)
         end
         self:HideTextureRegions(tab)
-        self:CreateFlatBackground(tab, nil, style.background, style.border)
+        data.flatBackground = self:CreateFlatBackground(tab, nil, style.background, style.border)
     end
 
     self:CreateFlatButtonGlow(tab, style.hoverAlpha)
-    self:SetPixelBorderColor(tab.NSkinFlatBackgroundBorder, unpack(style.border))
-    tab.NSkinFlatBackground:SetColorTexture(unpack(
+    local borders = data.borders
+    self:SetPixelBorderColor(borders and borders.NSkinFlatBackgroundBorder, unpack(style.border))
+    data.flatBackground:SetColorTexture(unpack(
         selected and style.selectedBackground or style.background
     ))
     if tab.Text then tab.Text:SetTextColor(unpack(style.text)) end

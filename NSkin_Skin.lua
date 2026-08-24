@@ -1,12 +1,28 @@
 local _, NSkin = ...
 
+local skinData = setmetatable({}, { __mode = "k" })
+
+function NSkin:GetSkinData(object, create)
+    if not object then return nil end
+    local data = skinData[object]
+    if not data and create ~= false then
+        data = {}
+        skinData[object] = data
+    end
+    return data
+end
+
 -- Creates four simple texture edges without using BackdropTemplate or NineSlice.
 -- The regions are owned by the target frame and do not alter protected state.
 
 -- Icons Skinning
 function NSkin:CreatePixelBorder(frame, key, size, color, outside, anchor)
     if not frame or not frame.CreateTexture then return nil end
-    if key and frame[key] then return frame[key] end
+    local data = self:GetSkinData(frame)
+    if key then
+        data.borders = data.borders or {}
+        if data.borders[key] then return data.borders[key] end
+    end
 
     size = size or 1
     color = color or self:GetStyle("icon").border
@@ -49,7 +65,7 @@ function NSkin:CreatePixelBorder(frame, key, size, color, outside, anchor)
     right:SetWidth(size)
 
     local border = { top = top, bottom = bottom, left = left, right = right }
-    if key then frame[key] = border end
+    if key then data.borders[key] = border end
     return border
 end
 
@@ -121,12 +137,14 @@ function NSkin:CreateFlatBackground(frame, key, color, borderColor)
     if not frame or not frame.CreateTexture or not color or not borderColor then return nil end
 
     key = key or "NSkinFlatBackground"
-    local background = frame[key]
+    local data = self:GetSkinData(frame)
+    data.backgrounds = data.backgrounds or {}
+    local background = data.backgrounds[key]
     if not background then
         background = frame:CreateTexture(nil, "BACKGROUND", nil, 7)
         background:SetPoint("TOPLEFT", 1, -1)
         background:SetPoint("BOTTOMRIGHT", -1, 1)
-        frame[key] = background
+        data.backgrounds[key] = background
     end
     background:SetColorTexture(unpack(color))
     background:Show()

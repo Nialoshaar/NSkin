@@ -1,27 +1,9 @@
 local _, NSkin = ...
 
 local ROW_HEIGHT = 26
-local FALLBACK_STATUS_BAR = "Interface\\Buttons\\WHITE8X8"
 local builtInTextures = {
     { name = "Blizzard Flat", path = "Interface\\Buttons\\WHITE8X8", priority = 1 },
 }
-
-function NSkin:GetStatusBarTexture()
-    local texture = self:GetStyle("progressBar").texture
-    return type(texture) == "string" and texture ~= "" and texture or FALLBACK_STATUS_BAR
-end
-
-function NSkin:SetStatusBarTexture(texture)
-    if type(texture) ~= "string" then return false end
-    texture = texture:match("^%s*(.-)%s*$")
-    if texture == "" then return false end
-
-    return self:SetThemeOverride("progressBar.texture", texture)
-end
-
-function NSkin:ResetStatusBarTexture()
-    return self:ResetThemeOverride("progressBar.texture")
-end
 
 local function CollectTextures()
     local paths = {}
@@ -56,7 +38,7 @@ local function FindName(textures, path)
     return "Custom texture"
 end
 
-NSkin:RegisterOptionsPage("progress", "Progress Bars", function(frame)
+local function BuildProgressBarOptions(frame)
     local page = CreateFrame("Frame", nil, frame)
     page:SetAllPoints(frame)
     local label = page:CreateFontString(nil, "ARTWORK", "GameFontNormal")
@@ -172,4 +154,12 @@ NSkin:RegisterOptionsPage("progress", "Progress Bars", function(frame)
     if reset:GetFontString() then reset:GetFontString():SetAlpha(0) end
     page:ApplyTheme()
     return page
-end)
+end
+
+NSkin:RegisterOptionsPage({
+    key = "progress",
+    label = "Progress Bars",
+    group = "shared",
+    order = 10,
+    builder = BuildProgressBarOptions,
+})
