@@ -152,7 +152,6 @@ local function BuildProgressBarOptions(frame)
     end
     if selected:GetFontString() then selected:GetFontString():SetAlpha(0) end
     if reset:GetFontString() then reset:GetFontString():SetAlpha(0) end
-    page:ApplyTheme()
     return page
 end
 

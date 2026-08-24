@@ -58,6 +58,7 @@ local modulesStarted = false
 local windowSkins = {}
 local pendingWindowAddons = {}
 local fallbackWindowEventRegistered = false
+local MAX_WINDOW_SKIN_RETRIES = 3
 
 function NSkin:NewModule(name)
     assert(type(name) == "string" and name ~= "", "A module name is required")
@@ -103,12 +104,38 @@ local function ExecuteWindowSkin(definition)
     return definition.apply() == true
 end
 
-local function ApplyWindowSkin(definition)
+local ApplyWindowSkin
+
+local function ScheduleWindowSkinRetry(definition)
+    if definition.applied
+        or definition.retryScheduled
+        or not NSkin:IsModuleEnabled(definition.module)
+        or (definition.retryCount or 0) >= MAX_WINDOW_SKIN_RETRIES
+        or not _G.C_Timer
+        or type(_G.C_Timer.After) ~= "function"
+    then
+        return
+    end
+
+    definition.retryCount = (definition.retryCount or 0) + 1
+    definition.retryScheduled = true
+    _G.C_Timer.After(0, function()
+        definition.retryScheduled = false
+        ApplyWindowSkin(definition)
+    end)
+end
+
+ApplyWindowSkin = function(definition)
     if definition.applied or definition.applying then return end
     definition.applying = true
     local ok, applied = SafeCall(ExecuteWindowSkin, definition)
     definition.applied = ok and applied == true
     definition.applying = false
+    if definition.applied then
+        definition.retryCount = nil
+    else
+        ScheduleWindowSkinRetry(definition)
+    end
 end
 
 local function PrepareWindowSkin(definition)

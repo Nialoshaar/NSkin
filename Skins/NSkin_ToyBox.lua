@@ -9,7 +9,8 @@ local TOY_BOX_STATE = "toyBox"
 local HEIRLOOM_QUALITY = _G.Enum and _G.Enum.ItemQuality and _G.Enum.ItemQuality.Heirloom or 7
 local Item = _G.C_Item
 
-local initialized = false
+local toysInitialized = false
+local heirloomsInitialized = false
 
 local function UpdateIconBorder(button, knownQuality)
     if not button or not button.iconTexture then return end
@@ -56,7 +57,7 @@ local function SkinCollectionButton(button, knownQuality)
 end
 
 function ToyBoxSkin:Initialize()
-    if initialized then return true end
+    if toysInitialized and heirloomsInitialized then return true end
     if not NSkin:IsModuleEnabled("ToyBox") then return false end
 
     if not _G.hooksecurefunc then return false end
@@ -67,19 +68,24 @@ function ToyBoxSkin:Initialize()
     local heirloomsJournal = _G.HeirloomsJournal
     local canSkinHeirlooms = heirloomsJournal
         and type(heirloomsJournal.UpdateButton) == "function"
-    if not canSkinToys or not canSkinHeirlooms then return false end
+    if not canSkinToys and not canSkinHeirlooms then return false end
 
-    _G.hooksecurefunc("ToySpellButton_UpdateButton", SkinCollectionButton)
-
-    for i = 1, TOYS_PER_PAGE do
-        SkinCollectionButton(iconsFrame["spellButton" .. i])
+    if canSkinToys and not toysInitialized then
+        _G.hooksecurefunc("ToySpellButton_UpdateButton", SkinCollectionButton)
+        toysInitialized = true
+        for i = 1, TOYS_PER_PAGE do
+            SkinCollectionButton(iconsFrame["spellButton" .. i])
+        end
     end
 
-    _G.hooksecurefunc(heirloomsJournal, "UpdateButton", function(_, button)
-        SkinCollectionButton(button, HEIRLOOM_QUALITY)
-    end)
-    initialized = true
-    return true
+    if canSkinHeirlooms and not heirloomsInitialized then
+        _G.hooksecurefunc(heirloomsJournal, "UpdateButton", function(_, button)
+            SkinCollectionButton(button, HEIRLOOM_QUALITY)
+        end)
+        heirloomsInitialized = true
+    end
+
+    return toysInitialized and heirloomsInitialized
 end
 
 NSkin:RegisterWindowSkin({

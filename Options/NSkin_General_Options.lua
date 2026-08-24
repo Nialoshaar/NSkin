@@ -199,6 +199,7 @@ local function CreateOptionsWindow()
         if not page then return nil end
         page:Hide()
         info.page = page
+        if page.ApplyTheme then page:ApplyTheme() end
         return page
     end
 
