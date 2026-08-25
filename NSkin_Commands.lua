@@ -57,6 +57,8 @@ commands.skinning = function()
     end
 end
 
+commands.edit = commands.skinning
+
 local function HandleSlashCommand(message)
     local command = (message or ""):lower():match("^%s*(.-)%s*$")
     if command == "" then
@@ -74,7 +76,7 @@ local function HandleSlashCommand(message)
         return
     end
 
-    NSkin:Print("commands: /nskin, /nskin skinning, /nskin rescan, /nskin debug, /nskin journaldebug")
+    NSkin:Print("commands: /nskin, /nskin edit, /nskin skinning, /nskin rescan, /nskin debug, /nskin journaldebug")
 end
 
 SLASH_NSKIN1 = "/nskin"

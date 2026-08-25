@@ -1,6 +1,9 @@
 local ADDON_NAME, NSkin = ...
 
-NSkin.name = ADDON_NAME
+NSkin.addonName = ADDON_NAME
+NSkin.displayName = "NSkin"
+NSkin.name = NSkin.displayName
+NSkin.mediaPath = "Interface\\AddOns\\" .. ADDON_NAME .. "\\Media\\"
 NSkin.modules = NSkin.modules or {}
 
 NSkin.moduleDefinitions = {
@@ -204,7 +207,7 @@ function NSkin:RegisterWindowSkin(definition)
 end
 
 function NSkin:Print(message)
-    print(("|cff33aaff%s:|r %s"):format(self.name, tostring(message)))
+    print(("|cff33aaff%s:|r %s"):format(self.displayName, tostring(message)))
 end
 
 local function ExecuteModuleInitializer(initializer)

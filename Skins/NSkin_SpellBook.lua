@@ -68,7 +68,7 @@ local function SkinSpellBookTabs()
     NSkin:SkinTabSystem(spellBook.CategoryTabSystem, style)
     NSkin:LayoutTabSystem(spellBook.CategoryTabSystem)
     NSkin:SkinTabSystem(playerSpells.TabSystem, style)
-    if NSkin:IsEditableTabGroupRegistered(TAB_GROUP_ID) then
+    if NSkin:GetTabGroup(TAB_GROUP_ID) then
         NSkin:ApplyTabGroupLayout(TAB_GROUP_ID)
     else
         bottomTabLayout.owner = playerSpells
@@ -439,8 +439,7 @@ function SpellBookSkin:Initialize()
     end
 
     NSkin:RegisterEditableTabGroup(TAB_GROUP_ID, {
-        module = "SpellBook",
-        optionKey = "MainTabs",
+        label = "Spellbook tabs",
         owner = playerSpells,
         container = playerSpells.TabSystem,
         orientation = "HORIZONTAL",
@@ -464,7 +463,10 @@ function SpellBookSkin:Initialize()
 end
 
 function SpellBookSkin:RefreshTheme()
-    if initialized then SkinActiveSpellBookItems() end
+    if initialized then
+        SkinActiveSpellBookItems()
+        NSkin:ApplyTabGroupLayout(TAB_GROUP_ID)
+    end
 end
 
 NSkin:RegisterWindowSkin({

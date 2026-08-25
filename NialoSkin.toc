@@ -1,5 +1,5 @@
 ## Interface: 120007, 120100
-## Title: Nialo Skin
+## Title: NSkin
 ## Notes: Lightweight, modular skins for the Blizzard interface.
 ## Author: Nialo
 ## Version: 2.0.0

@@ -18,7 +18,7 @@ local function BuildBorderOptions(optionsFrame)
     description:SetPoint("RIGHT", optionsFrame, "RIGHT", -20, 0)
     description:SetJustifyH("LEFT")
     description:SetText(
-        "Choose the accent color used by NialoSkin windows, tabs, buttons, "
+        "Choose the accent color used by NSkin windows, tabs, buttons, "
         .. "search boxes, progress bars, and cards. Icon and item-quality "
         .. "borders keep their own colors."
     )

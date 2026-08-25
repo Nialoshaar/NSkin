@@ -1,7 +1,7 @@
 local _, NSkin = ...
 
 local DEFAULT_PROFILE = "Default"
-local CURRENT_DATABASE_VERSION = 3
+local CURRENT_DATABASE_VERSION = 4
 local activeProfile
 
 local function CopyTable(source)
@@ -105,11 +105,45 @@ local function MigrateVersion3(database)
     end
 end
 
+local function MigrateVersion4(database)
+    for _, profile in pairs(database.profiles) do
+        local moduleOptions = profile.moduleOptions
+        local spellBook = moduleOptions and moduleOptions.SpellBook
+        if spellBook then
+            local mainTabs = spellBook.tabGroups and spellBook.tabGroups.MainTabs
+            local placement = mainTabs and mainTabs.placement
+            if placement then
+                profile.theme = profile.theme or {}
+                profile.theme.tab = profile.theme.tab or {}
+                profile.theme.tab.bottom = profile.theme.tab.bottom or {}
+                local bottom = profile.theme.tab.bottom
+                local defaults = NSkin.defaultTheme.tab.bottom
+                if bottom.anchor == nil and placement.alignment ~= defaults.anchor then
+                    bottom.anchor = placement.alignment
+                end
+                if bottom.offsetX == nil and placement.alongOffset ~= defaults.offsetX then
+                    bottom.offsetX = placement.alongOffset
+                end
+                if bottom.offsetY == nil and placement.edgeOffset ~= defaults.offsetY then
+                    bottom.offsetY = placement.edgeOffset
+                end
+                if not next(bottom) then profile.theme.tab.bottom = nil end
+                if not next(profile.theme.tab) then profile.theme.tab = nil end
+                if not next(profile.theme) then profile.theme = nil end
+            end
+            spellBook.tabGroups = nil
+            if not next(spellBook) then moduleOptions.SpellBook = nil end
+            if not next(moduleOptions) then profile.moduleOptions = nil end
+        end
+    end
+end
+
 local function RunMigrations(database, activeProfileTable)
     local version = tonumber(database.version) or 0
     if version < 1 then MigrateVersion1(database, activeProfileTable) end
     if version < 2 then MigrateVersion2(database) end
     if version < 3 then MigrateVersion3(database) end
+    if version < 4 then MigrateVersion4(database) end
     if version < CURRENT_DATABASE_VERSION then
         database.version = CURRENT_DATABASE_VERSION
     end

@@ -18,6 +18,7 @@ local collectionTabLayout = {
     orientation = "HORIZONTAL",
     edge = "BOTTOM",
 }
+local TAB_GROUP_ID = "Collections.MainTabs"
 
 local function HideBackgroundTexture(texture)
     if not texture or not texture.GetObjectType
@@ -107,8 +108,12 @@ local function SkinCollectionTabs(selectedTab)
     for i = 1, #tabs do
         NSkin:SkinTab(tabs[i], i == selectedTab, style)
     end
-    collectionTabLayout.owner = journal
-    NSkin:LayoutTabGroup(tabs, collectionTabLayout)
+    if NSkin:GetTabGroup(TAB_GROUP_ID) then
+        NSkin:ApplyTabGroupLayout(TAB_GROUP_ID)
+    else
+        collectionTabLayout.owner = journal
+        NSkin:LayoutTabGroup(tabs, collectionTabLayout)
+    end
 end
 
 function CollectionSkin:OnTabSet(_, selectedTab)
@@ -215,6 +220,13 @@ function CollectionSkin:Initialize()
     if not canSkinCollections or (not canSkinToys and not canSkinHeirlooms) then return false end
 
     if not collectionsInitialized then
+        NSkin:RegisterEditableTabGroup(TAB_GROUP_ID, {
+            label = "Collections tabs",
+            owner = journal,
+            tabs = GetCollectionTabs(journal),
+            orientation = "HORIZONTAL",
+            edge = "BOTTOM",
+        })
         _G.EventRegistry:RegisterCallback(
             "CollectionsJournal.TabSet",
             CollectionSkin.OnTabSet,

@@ -86,7 +86,7 @@ local function CreateGeneralPage(frame)
 
     local title = page:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
     title:SetPoint("TOPLEFT", frame, "TOPLEFT", CONTENT_LEFT, -102)
-    title:SetText("NialoSkin")
+    title:SetText(NSkin.displayName)
     local description = page:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     description:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -8)
     description:SetWidth(frame:GetWidth() - CONTENT_LEFT - 20)
@@ -130,14 +130,14 @@ local function CreateOptionsWindow()
     local logo = frame:CreateTexture(nil, "ARTWORK")
     logo:SetPoint("TOPLEFT", 14, -14)
     logo:SetSize(44, 44)
-    logo:SetTexture("Interface\\AddOns\\NialoSkin\\Media\\Icon.tga")
+    logo:SetTexture(NSkin.mediaPath .. "Icon.tga")
     local addonName = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightLarge")
     addonName:SetPoint("LEFT", logo, "RIGHT", 4, -7)
     addonName:SetText("NSkin")
     local version = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     version:SetPoint("BOTTOMLEFT", addonName, "TOPRIGHT", 3, -2)
     local value = _G.C_AddOns and _G.C_AddOns.GetAddOnMetadata
-        and _G.C_AddOns.GetAddOnMetadata(NSkin.name, "Version") or ""
+        and _G.C_AddOns.GetAddOnMetadata(NSkin.addonName, "Version") or ""
     version:SetText(value ~= "" and ("v" .. value) or "")
 
     frame.navigationDivider = frame:CreateTexture(nil, "ARTWORK")

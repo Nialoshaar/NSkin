@@ -113,6 +113,42 @@ function NSkin:GetBottomTabOffsetY()
     return self:GetStyle("tab").bottom.offsetY
 end
 
+function NSkin:GetBottomTabPlacement()
+    local layout = self:GetStyle("tab").bottom
+    return {
+        alignment = layout.anchor,
+        alongOffset = layout.offsetX,
+        edgeOffset = layout.offsetY,
+    }
+end
+
+function NSkin:SetBottomTabPlacement(placement)
+    if type(placement) ~= "table" then return false end
+    local alignment = placement.alignment
+    if alignment ~= "LEFT" and alignment ~= "CENTER" and alignment ~= "RIGHT" then
+        return false
+    end
+    local alongOffset = tonumber(placement.alongOffset)
+    local edgeOffset = tonumber(placement.edgeOffset)
+    if not alongOffset or not edgeOffset then return false end
+    alongOffset = math.max(-100, math.min(100, math.floor(alongOffset + 0.5)))
+    edgeOffset = math.max(-100, math.min(100, math.floor(edgeOffset + 0.5)))
+
+    local profile = self:GetProfile()
+    profile.theme = profile.theme or {}
+    profile.theme.tab = profile.theme.tab or {}
+    profile.theme.tab.bottom = profile.theme.tab.bottom or {}
+    local bottom = profile.theme.tab.bottom
+    local defaults = self.defaultTheme.tab.bottom
+    bottom.anchor = alignment == defaults.anchor and nil or alignment
+    bottom.offsetX = alongOffset == defaults.offsetX and nil or alongOffset
+    bottom.offsetY = edgeOffset == defaults.offsetY and nil or edgeOffset
+    PruneEmptyTables(profile.theme)
+    if not next(profile.theme) then profile.theme = nil end
+    self:RefreshTheme()
+    return true
+end
+
 function NSkin:SetBottomTabAnchor(anchor)
     if anchor ~= "LEFT" and anchor ~= "CENTER" and anchor ~= "RIGHT" then
         return false
@@ -154,6 +190,7 @@ function NSkin:RefreshTheme()
             module:RefreshTheme()
         end
     end
+    if self.RefreshRegisteredTabGroups then self:RefreshRegisteredTabGroups() end
 end
 
 function NSkin:SetThemeOverride(path, value)
