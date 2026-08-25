@@ -15,6 +15,7 @@ local WINDOW_BUTTON_TEXT_OFFSET_Y = 0
 
 local assistedCombatDivider
 local initialized = false
+local bottomTabLayout = { edge = "BOTTOM" }
 
 function NSkin:GetSpellBookTextSize()
     local defaults = self.defaultModuleOptions.SpellBook
@@ -66,7 +67,8 @@ local function SkinSpellBookTabs()
     NSkin:SkinTabSystem(spellBook.CategoryTabSystem, style)
     NSkin:LayoutTabSystem(spellBook.CategoryTabSystem)
     NSkin:SkinTabSystem(playerSpells.TabSystem, style)
-    NSkin:LayoutTabSystem(playerSpells.TabSystem)
+    bottomTabLayout.owner = playerSpells
+    NSkin:LayoutTabSystem(playerSpells.TabSystem, bottomTabLayout)
 end
 
 local function SkinSearchBox(searchBox)

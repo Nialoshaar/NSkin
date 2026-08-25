@@ -101,32 +101,44 @@ function NSkin:ResetTabSpacing()
     return self:ResetThemeOverride("tab.spacing")
 end
 
-function NSkin:GetTabOffsetX()
-    return self:GetStyle("tab").offsetX
+function NSkin:GetBottomTabAnchor()
+    return self:GetStyle("tab").bottom.anchor
 end
 
-function NSkin:GetTabOffsetY()
-    return self:GetStyle("tab").offsetY
+function NSkin:GetBottomTabOffsetX()
+    return self:GetStyle("tab").bottom.offsetX
 end
 
-function NSkin:SetTabOffsetX(offset)
+function NSkin:GetBottomTabOffsetY()
+    return self:GetStyle("tab").bottom.offsetY
+end
+
+function NSkin:SetBottomTabAnchor(anchor)
+    if anchor ~= "LEFT" and anchor ~= "CENTER" and anchor ~= "RIGHT" then
+        return false
+    end
+    return self:SetThemeOverride("tab.bottom.anchor", anchor)
+end
+
+function NSkin:SetBottomTabOffsetX(offset)
     offset = tonumber(offset)
     if not offset then return false end
     offset = math.max(-100, math.min(100, math.floor(offset + 0.5)))
-    return self:SetThemeOverride("tab.offsetX", offset)
+    return self:SetThemeOverride("tab.bottom.offsetX", offset)
 end
 
-function NSkin:SetTabOffsetY(offset)
+function NSkin:SetBottomTabOffsetY(offset)
     offset = tonumber(offset)
     if not offset then return false end
     offset = math.max(-100, math.min(100, math.floor(offset + 0.5)))
-    return self:SetThemeOverride("tab.offsetY", offset)
+    return self:SetThemeOverride("tab.bottom.offsetY", offset)
 end
 
-function NSkin:ResetTabOffsets()
-    local resetX = self:ResetThemeOverride("tab.offsetX")
-    local resetY = self:ResetThemeOverride("tab.offsetY")
-    return resetX and resetY
+function NSkin:ResetBottomTabLayout()
+    local resetAnchor = self:ResetThemeOverride("tab.bottom.anchor")
+    local resetX = self:ResetThemeOverride("tab.bottom.offsetX")
+    local resetY = self:ResetThemeOverride("tab.bottom.offsetY")
+    return resetAnchor and resetX and resetY
 end
 
 function NSkin:InvalidateTheme()

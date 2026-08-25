@@ -30,8 +30,11 @@ NSkin.defaultTheme = {
         text = { 1, 1, 1, 1 },
         hoverAlpha = 0.10,
         spacing = 4,
-        offsetX = 0,
-        offsetY = 0,
+        bottom = {
+            anchor = "LEFT",
+            offsetX = 0,
+            offsetY = 0,
+        },
     },
 
     button = {

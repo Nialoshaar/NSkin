@@ -4,6 +4,19 @@ local MIN_SPACING = -30
 local MAX_SPACING = 30
 local MIN_OFFSET = -100
 local MAX_OFFSET = 100
+local BOTTOM_ANCHORS = {
+    { value = "LEFT", label = "Left" },
+    { value = "CENTER", label = "Center" },
+    { value = "RIGHT", label = "Right" },
+}
+
+local function GetBottomAnchorIndex()
+    local current = NSkin:GetBottomTabAnchor()
+    for i = 1, #BOTTOM_ANCHORS do
+        if BOTTOM_ANCHORS[i].value == current then return i end
+    end
+    return 1
+end
 
 local function BuildTabsOptions(optionsFrame)
     local page = CreateFrame("Frame", nil, optionsFrame)
@@ -31,9 +44,18 @@ local function BuildTabsOptions(optionsFrame)
     if slider.High then slider.High:SetText(tostring(MAX_SPACING)) end
     if slider.Text then slider.Text:SetText("") end
 
+    local anchorLabel = page:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    anchorLabel:SetPoint("TOPLEFT", slider, "BOTTOMLEFT", -8, -28)
+    anchorLabel:SetText("Bottom tabs anchor")
+
+    local anchorButton = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
+    anchorButton:SetSize(120, 24)
+    anchorButton:SetPoint("TOPLEFT", anchorLabel, "BOTTOMLEFT", 0, -8)
+    if anchorButton:GetFontString() then anchorButton:GetFontString():SetAlpha(0) end
+
     local offsetXLabel = page:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    offsetXLabel:SetPoint("TOPLEFT", slider, "BOTTOMLEFT", -8, -28)
-    offsetXLabel:SetText("Horizontal offset")
+    offsetXLabel:SetPoint("TOPLEFT", anchorButton, "BOTTOMLEFT", 0, -22)
+    offsetXLabel:SetText("Bottom tabs horizontal offset")
     local offsetXValue = page:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
     offsetXValue:SetPoint("LEFT", offsetXLabel, "RIGHT", 10, 0)
     local offsetXSlider = CreateFrame("Slider", nil, page, "OptionsSliderTemplate")
@@ -48,7 +70,7 @@ local function BuildTabsOptions(optionsFrame)
 
     local offsetYLabel = page:CreateFontString(nil, "ARTWORK", "GameFontNormal")
     offsetYLabel:SetPoint("TOPLEFT", offsetXSlider, "BOTTOMLEFT", -8, -28)
-    offsetYLabel:SetText("Vertical offset")
+    offsetYLabel:SetText("Bottom tabs vertical offset")
     local offsetYValue = page:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
     offsetYValue:SetPoint("LEFT", offsetYLabel, "RIGHT", 10, 0)
     local offsetYSlider = CreateFrame("Slider", nil, page, "OptionsSliderTemplate")
@@ -72,33 +94,41 @@ local function BuildTabsOptions(optionsFrame)
         if not page.refreshing then NSkin:SetTabSpacing(value) end
     end)
 
+    anchorButton:SetScript("OnClick", function()
+        local index = GetBottomAnchorIndex() % #BOTTOM_ANCHORS + 1
+        NSkin:SetBottomTabAnchor(BOTTOM_ANCHORS[index].value)
+        page:Refresh()
+    end)
+
     offsetXSlider:SetScript("OnValueChanged", function(_, value)
         value = math.floor(value + 0.5)
         offsetXValue:SetText(value .. " px")
-        if not page.refreshing then NSkin:SetTabOffsetX(value) end
+        if not page.refreshing then NSkin:SetBottomTabOffsetX(value) end
     end)
 
     offsetYSlider:SetScript("OnValueChanged", function(_, value)
         value = math.floor(value + 0.5)
         offsetYValue:SetText(value .. " px")
-        if not page.refreshing then NSkin:SetTabOffsetY(value) end
+        if not page.refreshing then NSkin:SetBottomTabOffsetY(value) end
     end)
 
     reset:SetScript("OnClick", function()
         NSkin:ResetTabSpacing()
-        NSkin:ResetTabOffsets()
+        NSkin:ResetBottomTabLayout()
         page:Refresh()
     end)
 
     function page:ApplyTheme()
+        NSkin:SkinFlatButton(anchorButton,
+            BOTTOM_ANCHORS[GetBottomAnchorIndex()].label, nil, nil, 12)
         NSkin:SkinFlatButton(reset, "Reset Default", nil, nil, 12)
     end
 
     function page:Refresh()
         self.refreshing = true
         local spacing = NSkin:GetTabSpacing()
-        local offsetX = NSkin:GetTabOffsetX()
-        local offsetY = NSkin:GetTabOffsetY()
+        local offsetX = NSkin:GetBottomTabOffsetX()
+        local offsetY = NSkin:GetBottomTabOffsetY()
         slider:SetValue(spacing)
         offsetXSlider:SetValue(offsetX)
         offsetYSlider:SetValue(offsetY)

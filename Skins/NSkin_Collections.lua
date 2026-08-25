@@ -13,6 +13,11 @@ local Item = _G.C_Item
 local collectionsInitialized = false
 local toysInitialized = false
 local heirloomsInitialized = false
+local collectionTabs
+local collectionTabLayout = {
+    orientation = "HORIZONTAL",
+    edge = "BOTTOM",
+}
 
 local function HideBackgroundTexture(texture)
     if not texture or not texture.GetObjectType
@@ -79,7 +84,8 @@ local function RemoveCollectionPageBackgrounds()
 end
 
 local function GetCollectionTabs(journal)
-    return {
+    if collectionTabs then return collectionTabs end
+    collectionTabs = {
         journal.MountsTab,
         journal.PetsTab,
         journal.ToysTab,
@@ -87,6 +93,7 @@ local function GetCollectionTabs(journal)
         journal.WardrobeTab,
         journal.WarbandScenesTab,
     }
+    return collectionTabs
 end
 
 local function SkinCollectionTabs(selectedTab)
@@ -100,16 +107,8 @@ local function SkinCollectionTabs(selectedTab)
     for i = 1, #tabs do
         NSkin:SkinTab(tabs[i], i == selectedTab, style)
     end
-    NSkin:LayoutTabGroup(tabs, {
-        orientation = "HORIZONTAL",
-        anchor = {
-            point = "TOPLEFT",
-            relativeTo = journal,
-            relativePoint = "BOTTOMLEFT",
-            x = 11,
-            y = 2,
-        },
-    })
+    collectionTabLayout.owner = journal
+    NSkin:LayoutTabGroup(tabs, collectionTabLayout)
 end
 
 function CollectionSkin:OnTabSet(_, selectedTab)
