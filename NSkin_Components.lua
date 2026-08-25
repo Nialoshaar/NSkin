@@ -1,6 +1,7 @@
 local _, NSkin = ...
 
 local COMPONENT_STATE = "components"
+local TAB_LAYOUT_STATE = "tabLayout"
 
 -- Buttons Skinning
 local function ShowFlatButtonGlow(button)
@@ -154,6 +155,8 @@ function NSkin:LayoutTabGroup(tabs, options)
     options = options or {}
 
     local spacing = tonumber(options.spacing) or self:GetTabSpacing()
+    local offsetX = self:GetTabOffsetX()
+    local offsetY = self:GetTabOffsetY()
     local vertical = options.orientation == "VERTICAL"
     local anchor = options.anchor
     local previous
@@ -170,7 +173,8 @@ function NSkin:LayoutTabGroup(tabs, options)
                 if anchor then
                     tab:ClearAllPoints()
                     tab:SetPoint(anchor.point, anchor.relativeTo,
-                        anchor.relativePoint, anchor.x or 0, anchor.y or 0)
+                        anchor.relativePoint, (anchor.x or 0) + offsetX,
+                        (anchor.y or 0) + offsetY)
                 end
             else
                 tab:ClearAllPoints()
@@ -196,6 +200,40 @@ function NSkin:LayoutTabSystem(tabSystem, options)
 
     tabSystem.spacing = tonumber(options and options.spacing) or self:GetTabSpacing()
     tabSystem:MarkDirty()
+
+    local offsetX = self:GetTabOffsetX()
+    local offsetY = self:GetTabOffsetY()
+    local data = self:GetSkinData(tabSystem, TAB_LAYOUT_STATE, false)
+    if offsetX == 0 and offsetY == 0 and not (data and data.active) then return end
+
+    data = data or self:GetSkinData(tabSystem, TAB_LAYOUT_STATE)
+    if not data.point then
+        if not tabSystem.GetPoint
+            or (tabSystem.GetNumPoints and tabSystem:GetNumPoints() ~= 1)
+        then
+            return
+        end
+        local point, relativeTo, relativePoint, x, y = tabSystem:GetPoint(1)
+        if not point then return end
+        data.point = point
+        data.relativeTo = relativeTo
+        data.relativePoint = relativePoint
+        data.x = x or 0
+        data.y = y or 0
+        data.active = true
+    end
+
+    tabSystem:ClearAllPoints()
+    tabSystem:SetPoint(data.point, data.relativeTo, data.relativePoint,
+        data.x + offsetX, data.y + offsetY)
+    if offsetX == 0 and offsetY == 0 then
+        data.point = nil
+        data.relativeTo = nil
+        data.relativePoint = nil
+        data.x = nil
+        data.y = nil
+        data.active = nil
+    end
 end
 
 function NSkin:SkinTabSystem(tabSystem, style)

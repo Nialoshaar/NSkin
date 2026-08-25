@@ -93,12 +93,40 @@ end
 function NSkin:SetTabSpacing(spacing)
     spacing = tonumber(spacing)
     if not spacing then return false end
-    spacing = math.max(0, math.min(30, math.floor(spacing + 0.5)))
+    spacing = math.max(-30, math.min(30, math.floor(spacing + 0.5)))
     return self:SetThemeOverride("tab.spacing", spacing)
 end
 
 function NSkin:ResetTabSpacing()
     return self:ResetThemeOverride("tab.spacing")
+end
+
+function NSkin:GetTabOffsetX()
+    return self:GetStyle("tab").offsetX
+end
+
+function NSkin:GetTabOffsetY()
+    return self:GetStyle("tab").offsetY
+end
+
+function NSkin:SetTabOffsetX(offset)
+    offset = tonumber(offset)
+    if not offset then return false end
+    offset = math.max(-100, math.min(100, math.floor(offset + 0.5)))
+    return self:SetThemeOverride("tab.offsetX", offset)
+end
+
+function NSkin:SetTabOffsetY(offset)
+    offset = tonumber(offset)
+    if not offset then return false end
+    offset = math.max(-100, math.min(100, math.floor(offset + 0.5)))
+    return self:SetThemeOverride("tab.offsetY", offset)
+end
+
+function NSkin:ResetTabOffsets()
+    local resetX = self:ResetThemeOverride("tab.offsetX")
+    local resetY = self:ResetThemeOverride("tab.offsetY")
+    return resetX and resetY
 end
 
 function NSkin:InvalidateTheme()
