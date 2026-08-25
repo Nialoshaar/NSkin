@@ -6,8 +6,7 @@ local TOYS_PER_PAGE = 18
 local BORDER_SIZE = 1
 local QUALITY_BORDER_KEY = "__NSkinCollectionQualityBorder"
 local COLLECTION_ITEM_STATE = "collectionItems"
-local COLLECTION_BACKGROUND_STATE = "collectionBackground"
-local COLLECTION_TAB_COUNT = 6
+local DEFAULT_COLLECTION_TAB_COUNT = 6
 local WINDOW_BUTTON_TEXT_SIZE = 20
 local HEIRLOOM_QUALITY = _G.Enum and _G.Enum.ItemQuality and _G.Enum.ItemQuality.Heirloom or 7
 local Item = _G.C_Item
@@ -23,6 +22,7 @@ local function HideBackgroundTexture(texture)
         return
     end
 
+    texture:SetAlpha(0)
     texture:SetTexture(nil)
     texture:Hide()
 end
@@ -30,14 +30,10 @@ end
 local function RemoveBackgroundFrame(frame)
     if not frame then return end
 
-    local data = NSkin:GetSkinData(frame, COLLECTION_BACKGROUND_STATE)
-    if data.removed then return end
-
     NSkin:HideTextureRegions(frame)
     if frame.NineSlice then frame.NineSlice:Hide() end
     HideBackgroundTexture(frame.Bg)
     HideBackgroundTexture(frame.Background)
-    data.removed = true
 end
 
 local function RemoveCollectionPageBackgrounds()
@@ -89,10 +85,16 @@ local function SkinCollectionTabs()
 
     local selectedTab = _G.PanelTemplates_GetSelectedTab
         and _G.PanelTemplates_GetSelectedTab(journal)
+    local tabCount = tonumber(journal.numTabs) or DEFAULT_COLLECTION_TAB_COUNT
     local style = NSkin:GetStyle("tab")
-    for i = 1, COLLECTION_TAB_COUNT do
+    for i = 1, tabCount do
         NSkin:SkinTab(_G["CollectionsJournalTab" .. i], i == selectedTab, style)
     end
+end
+
+function CollectionSkin:OnTabSet()
+    SkinCollectionTabs()
+    RemoveCollectionPageBackgrounds()
 end
 
 local function SkinCollectionsWindow()
@@ -184,12 +186,17 @@ function CollectionSkin:Initialize()
     local canSkinHeirlooms = heirloomsJournal
         and type(heirloomsJournal.UpdateButton) == "function"
     local canSkinCollections = journal
-        and type(_G.CollectionsJournal_SetTab) == "function"
         and type(_G.PanelTemplates_GetSelectedTab) == "function"
+        and _G.EventRegistry
+        and type(_G.EventRegistry.RegisterCallback) == "function"
     if not canSkinCollections or (not canSkinToys and not canSkinHeirlooms) then return false end
 
     if not collectionsInitialized then
-        _G.hooksecurefunc("CollectionsJournal_SetTab", SkinCollectionTabs)
+        _G.EventRegistry:RegisterCallback(
+            "CollectionsJournal.TabSet",
+            CollectionSkin.OnTabSet,
+            CollectionSkin
+        )
         collectionsInitialized = true
         SkinCollectionsWindow()
         RemoveCollectionPageBackgrounds()
