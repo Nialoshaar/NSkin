@@ -67,6 +67,14 @@ NSkin.defaultTheme = {
         hover = { 1, 1, 1, 0.14 },
     },
 
+    skinningMode = {
+        highlight = { 0, 0.65, 1, 0.16 },
+        hover = { 0, 0.65, 1, 0.28 },
+        dropZone = { 0, 0.65, 1, 0.22 },
+        activeDropZone = { 0, 0.65, 1, 0.55 },
+        ghost = { 0, 0.65, 1, 0.35 },
+    },
+
     options = {
         accent = { 0, 0.55, 0.82, 1 },
         selectedNavigation = { 0, 0.55, 0.82, 0.85 },

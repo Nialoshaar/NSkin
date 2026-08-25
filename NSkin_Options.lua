@@ -20,6 +20,26 @@ local function SetViewEnabled(view, enabled)
     end
 end
 
+local function CommitValues(view, values)
+    if not view.context or type(values) ~= "table" then return false end
+    if view.definition.set(view.context, CopyTable(values)) == true then
+        NSkin:NotifyOptionGroupChanged(view.id)
+        return true
+    end
+    view:Refresh()
+    return false
+end
+
+local function ResetValues(view)
+    if not view.context then return false end
+    if view.definition.reset(view.context) == true then
+        NSkin:NotifyOptionGroupChanged(view.id)
+        return true
+    end
+    view:Refresh()
+    return false
+end
+
 local function CreateDropdown(view, control, y)
     local label = view:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     label:SetPoint("TOPLEFT", view, "TOPLEFT", 0, y)
@@ -43,7 +63,7 @@ local function CreateDropdown(view, control, y)
                     if not view.context then return end
                     local current = CopyTable(view.definition.get(view.context))
                     current[control.key] = value
-                    view.definition.set(view.context, current)
+                    CommitValues(view, current)
                 end,
                 choice.value
             )
@@ -51,6 +71,7 @@ local function CreateDropdown(view, control, y)
     end)
     view.controls[#view.controls + 1] = dropdown
     view.controlByKey[control.key] = dropdown
+    return 64
 end
 
 local function CreateSlider(view, control, y)
@@ -72,13 +93,14 @@ local function CreateSlider(view, control, y)
             if view.refreshing or not view.context then return end
             local current = CopyTable(view.definition.get(view.context))
             current[control.key] = value
-            view.definition.set(view.context, current)
+            CommitValues(view, current)
         end,
     })
-    slider:SetPoint("TOPLEFT", label, "BOTTOMLEFT", view.presentation == "FULL" and 8 or 8, -18)
+    slider:SetPoint("TOPLEFT", label, "BOTTOMLEFT", 8, -18)
     view.controls[#view.controls + 1] = slider
     view.controlByKey[control.key] = slider
     view.valueByKey[control.key] = valueLabel
+    return 70
 end
 
 local function CreateCheckbox(view, control, y)
@@ -89,23 +111,41 @@ local function CreateCheckbox(view, control, y)
         if view.refreshing or not view.context then return end
         local current = CopyTable(view.definition.get(view.context))
         current[control.key] = self:GetChecked() == true
-        view.definition.set(view.context, current)
+        CommitValues(view, current)
     end)
     view.controls[#view.controls + 1] = checkbox
     view.controlByKey[control.key] = checkbox
+    return 42
 end
 
-local function CreateReset(view, control)
+local function CreateReset(view, control, y)
     local button = CreateFrame("Button", nil, view)
     button:SetSize(view.presentation == "FULL" and 110 or 58, 24)
-    button:SetPoint("BOTTOM", view, "BOTTOM", 0, 0)
+    button:SetPoint("TOP", view, "TOP", 0, y - 18)
     local label = view.presentation == "COMPACT" and control.compactLabel or control.label
     NSkin:SkinFlatButton(button, label or "Reset", nil, nil, 12)
-    button:SetScript("OnClick", function()
-        if view.context then view.definition.reset(view.context) end
-    end)
+    button:SetScript("OnClick", function() ResetValues(view) end)
     view.controls[#view.controls + 1] = button
     view.resetButton = button
+    view.resetControl = control
+    return 60
+end
+
+local function GetOrderedControls(definition)
+    local controls = {}
+    for i = 1, #definition.controls do
+        local control = definition.controls[i]
+        controls[i] = { definition = control, index = i }
+    end
+    table.sort(controls, function(a, b)
+        local aOrder = a.definition.order
+            or (a.definition.type == "RESET" and 100000 or a.index)
+        local bOrder = b.definition.order
+            or (b.definition.type == "RESET" and 100000 or b.index)
+        if aOrder == bOrder then return a.index < b.index end
+        return aOrder < bOrder
+    end)
+    return controls
 end
 
 function NSkin:RegisterOptionGroup(id, definition)
@@ -119,6 +159,7 @@ function NSkin:RegisterOptionGroup(id, definition)
     then
         return false
     end
+    definition.orderedControls = GetOrderedControls(definition)
     optionGroups[id] = definition
     viewsByGroup[id] = setmetatable({}, { __mode = "k" })
     return true
@@ -129,16 +170,8 @@ function NSkin:CreateOptionGroupView(parent, id, layout, context)
     local presentation = layout == "COMPACT" and "COMPACT" or "FULL"
     if not parent or not definition then return nil end
 
-    local fieldCount = 0
-    for i = 1, #definition.controls do
-        local controlType = definition.controls[i].type
-        if controlType == "SLIDER" or controlType == "CHECKBOX" then
-            fieldCount = fieldCount + 1
-        end
-    end
-    local viewHeight = 78 + fieldCount * 70
     local view = CreateFrame("Frame", nil, parent)
-    view:SetSize(presentation == "FULL" and 400 or 202, viewHeight)
+    view:SetWidth(presentation == "FULL" and 400 or 202)
     view.id = id
     view.definition = definition
     view.presentation = presentation
@@ -148,23 +181,22 @@ function NSkin:CreateOptionGroupView(parent, id, layout, context)
     view.controlByKey = {}
     view.valueByKey = {}
 
-    local dropdownY = 0
-    local firstSliderY = presentation == "FULL" and -62 or -60
-    local fieldIndex = 0
-    for i = 1, #definition.controls do
-        local control = definition.controls[i]
+    local y = 0
+    for i = 1, #definition.orderedControls do
+        local control = definition.orderedControls[i].definition
+        local height
         if control.type == "DROPDOWN" then
-            CreateDropdown(view, control, dropdownY)
+            height = CreateDropdown(view, control, y)
         elseif control.type == "SLIDER" then
-            fieldIndex = fieldIndex + 1
-            CreateSlider(view, control, firstSliderY - (fieldIndex - 1) * 70)
+            height = CreateSlider(view, control, y)
         elseif control.type == "CHECKBOX" then
-            fieldIndex = fieldIndex + 1
-            CreateCheckbox(view, control, firstSliderY - (fieldIndex - 1) * 70)
+            height = CreateCheckbox(view, control, y)
         elseif control.type == "RESET" then
-            CreateReset(view, control)
+            height = CreateReset(view, control, y)
         end
+        y = y - (height or 0)
     end
+    view:SetHeight(math.max(1, -y))
 
     function view:SetContext(newContext)
         self.context = newContext
@@ -172,17 +204,15 @@ function NSkin:CreateOptionGroupView(parent, id, layout, context)
     end
 
     function view:SetValues(values)
-        if self.context and type(values) == "table" then
-            self.definition.set(self.context, CopyTable(values))
-        end
+        return CommitValues(self, values)
     end
 
     function view:Refresh()
         local enabled = self.context ~= nil
         local values = enabled and self.definition.get(self.context) or nil
         self.refreshing = true
-        for i = 1, #self.definition.controls do
-            local control = self.definition.controls[i]
+        for i = 1, #self.definition.orderedControls do
+            local control = self.definition.orderedControls[i].definition
             local value = values and values[control.key]
             if control.type == "DROPDOWN" then
                 local dropdown = self.controlByKey[control.key]
@@ -207,17 +237,9 @@ function NSkin:CreateOptionGroupView(parent, id, layout, context)
 
     function view:ApplyTheme()
         if self.resetButton then
-            local resetControl
-            for i = 1, #definition.controls do
-                if definition.controls[i].type == "RESET" then
-                    resetControl = definition.controls[i]
-                    break
-                end
-            end
-            local label = resetControl and (self.presentation == "COMPACT"
-                and resetControl.compactLabel or resetControl.label)
-            NSkin:SkinFlatButton(self.resetButton,
-                label or "Reset", nil, nil, 12)
+            local label = self.presentation == "COMPACT"
+                and self.resetControl.compactLabel or self.resetControl.label
+            NSkin:SkinFlatButton(self.resetButton, label or "Reset", nil, nil, 12)
         end
     end
 

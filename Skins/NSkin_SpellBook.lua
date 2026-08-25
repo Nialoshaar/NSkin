@@ -493,8 +493,10 @@ function SpellBookSkin:Initialize()
         label = "Spellbook tabs",
         kind = "TAB_GROUP",
         editorOptions = "tabs.layout",
-        owner = playerSpells,
+        window = playerSpells,
+        target = playerSpells.TabSystem,
         container = playerSpells.TabSystem,
+        priority = 50,
         orientation = "HORIZONTAL",
         edge = "BOTTOM",
     })
@@ -502,7 +504,9 @@ function SpellBookSkin:Initialize()
         label = "Spellbook window",
         kind = "WINDOW",
         editorOptions = "spellbook.window",
-        owner = playerSpells,
+        window = playerSpells,
+        target = playerSpells,
+        priority = 0,
     })
 
     local pagedSpells = spellBook and spellBook.PagedSpellsFrame

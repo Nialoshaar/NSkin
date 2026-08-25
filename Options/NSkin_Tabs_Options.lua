@@ -64,16 +64,12 @@ NSkin:RegisterOptionGroup("tabs.layout", {
         if spacingChanged then
             changed = NSkin:SetTabSpacing(values.spacing) or changed
         end
-        if changed then
-            NSkin:NotifyOptionGroupChanged("tabs.layout")
-        end
+        return changed == true
     end,
     reset = function()
         local changed = NSkin:ResetBottomTabLayout()
         changed = NSkin:ResetTabSpacing() or changed
-        if changed then
-            NSkin:NotifyOptionGroupChanged("tabs.layout")
-        end
+        return changed == true
     end,
 })
 

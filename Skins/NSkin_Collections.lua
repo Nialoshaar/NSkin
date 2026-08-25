@@ -224,8 +224,10 @@ function CollectionSkin:Initialize()
             label = "Collections tabs",
             kind = "TAB_GROUP",
             editorOptions = "tabs.layout",
-            owner = journal,
+            window = journal,
+            target = journal,
             tabs = GetCollectionTabs(journal),
+            priority = 50,
             orientation = "HORIZONTAL",
             edge = "BOTTOM",
         })

@@ -2,6 +2,7 @@ local _, NSkin = ...
 
 local controller
 local ALIGNMENT_ORDER = { "LEFT", "CENTER", "RIGHT" }
+local TRANSPARENT = { 0, 0, 0, 0 }
 local StopDrag
 
 local function CreateLabel(parent, text, point, relativeTo, relativePoint, x, y)
@@ -19,69 +20,6 @@ local function CreateButton(parent, text, width, callback)
     return button
 end
 
-local function LoadEditorOptions(group)
-    for _, view in pairs(controller.optionViews) do
-        view:SetContext(nil)
-        view:Hide()
-    end
-    local id = group and group.editorOptions
-    if not id then return end
-    local view = controller.optionViews[id]
-    if not view then
-        view = NSkin:CreateOptionGroupView(controller.inspector, id, "COMPACT", group)
-        if not view then return end
-        view:SetPoint("TOPLEFT", controller.inspector, "TOPLEFT", 24, -70)
-        controller.optionViews[id] = view
-    else
-        view:SetContext(group)
-    end
-    view:Show()
-end
-
-local function RefreshInspector()
-    if not controller then return end
-    local group = controller.selectedGroup
-    controller.inspector.selection:SetText(
-        group and ("Selected : " .. (group.label or group.id)) or "Select an element"
-    )
-    LoadEditorOptions(group)
-end
-
-local function DockInspector(group)
-    local inspector = controller.inspector
-    inspector:ClearAllPoints()
-    local screenRight = UIParent:GetRight() or GetScreenWidth()
-    local roomOnRight = screenRight - (group.owner:GetRight() or 0)
-    if roomOnRight >= inspector:GetWidth() + 12 then
-        inspector:SetPoint("TOPLEFT", group.owner, "TOPRIGHT", 8, 0)
-    else
-        inspector:SetPoint("TOPRIGHT", group.owner, "TOPLEFT", -8, 0)
-    end
-end
-
-local function DockWithoutSelection(excludedGroup)
-    controller.selectedGroup = nil
-    local visibleGroup
-    NSkin:ForEachRegisteredSkinningElement(function(group)
-        if not visibleGroup and group ~= excludedGroup and group.owner:IsShown() then
-            visibleGroup = group
-        end
-    end)
-    if visibleGroup then
-        DockInspector(visibleGroup)
-    else
-        controller.inspector:ClearAllPoints()
-        controller.inspector:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
-    end
-    RefreshInspector()
-end
-
-local function SelectGroup(group)
-    controller.selectedGroup = group
-    DockInspector(group)
-    RefreshInspector()
-end
-
 local function GetCursorUIPosition()
     local scale = UIParent:GetEffectiveScale()
     local x, y = GetCursorPosition()
@@ -95,24 +33,119 @@ local function PointInFrame(x, y, frame)
         and x >= left and x <= right and y >= bottom and y <= top
 end
 
-StopDrag = function(apply)
-    if not controller.dragging then return end
-    local alignment = controller.hoveredAlignment
-    controller.dragging = false
-    controller.dragFrame:SetScript("OnUpdate", nil)
-    controller.ghost:Hide()
-    for i = 1, #ALIGNMENT_ORDER do
-        controller.dropZones[ALIGNMENT_ORDER[i]]:Hide()
+local function GetElementBounds(element)
+    local left, right, bottom, top = NSkin:GetSkinningElementBounds(element)
+    if not left then return end
+    local padding = element.highlightPadding or 0
+    return left - padding, right + padding, bottom - padding, top + padding
+end
+
+local function AnchorOverlay(overlay, element)
+    overlay:ClearAllPoints()
+    local left, right, bottom, top = GetElementBounds(element)
+    if not left then return false end
+    overlay:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top)
+    overlay:SetPoint("BOTTOMRIGHT", UIParent, "BOTTOMLEFT", right, bottom)
+    return true
+end
+
+local function RefreshOverlayAppearance(element)
+    if not controller then return end
+    local overlay = controller.overlays[element.id]
+    if not overlay then return end
+    local style = NSkin:GetStyle("skinningMode")
+    local selected = controller.selectedElement == element
+    local visible = selected or overlay.hovered == true
+    overlay.texture:SetColorTexture(unpack(visible and style.highlight or TRANSPARENT))
+    NSkin:SetPixelBorderColor(overlay.border, unpack(style.hover))
+    NSkin:SetPixelBorderShown(overlay.border, selected or overlay.hovered == true)
+end
+
+local function ResizeInspector(view)
+    local inspector = controller.inspector
+    local contentHeight = view and view:GetHeight() or 1
+    local screenHeight = UIParent:GetHeight() or 700
+    local maximumHeight = math.max(180, math.min(600, screenHeight - 40))
+    inspector:SetHeight(math.min(maximumHeight, math.max(130, contentHeight + 92)))
+    controller.scrollChild:SetHeight(math.max(1, contentHeight))
+    controller.scrollFrame:SetVerticalScroll(0)
+end
+
+local function LoadEditorOptions(element)
+    for _, view in pairs(controller.optionViews) do
+        view:SetContext(nil)
+        view:Hide()
     end
-    controller.hoveredAlignment = nil
-    if apply and alignment then
-        local placement = NSkin:GetBottomTabPlacement()
-        placement.alignment = alignment
-        placement.alongOffset = 0
-        local group = controller.selectedGroup
-        local view = group and controller.optionViews[group.editorOptions]
-        if view then view:SetValues(placement) end
+    local id = element and element.editorOptions
+    if not id then
+        ResizeInspector(nil)
+        return
     end
+    local view = controller.optionViews[id]
+    if not view then
+        view = NSkin:CreateOptionGroupView(controller.scrollChild, id, "COMPACT", element)
+        if not view then
+            ResizeInspector(nil)
+            return
+        end
+        view:SetPoint("TOPLEFT", controller.scrollChild, "TOPLEFT", 0, 0)
+        controller.optionViews[id] = view
+    else
+        view:SetContext(element)
+    end
+    view:Show()
+    ResizeInspector(view)
+end
+
+local function RefreshInspector()
+    if not controller then return end
+    local element = controller.selectedElement
+    controller.inspector.selection:SetText(
+        element and ("Selected: " .. (element.label or element.id)) or "Select an element"
+    )
+    LoadEditorOptions(element)
+end
+
+local function DockInspector(element)
+    local inspector = controller.inspector
+    local window = element.window
+    inspector:ClearAllPoints()
+    local screenRight = UIParent:GetRight() or GetScreenWidth()
+    local roomOnRight = screenRight - (window:GetRight() or 0)
+    if roomOnRight >= inspector:GetWidth() + 12 then
+        inspector:SetPoint("TOPLEFT", window, "TOPRIGHT", 8, 0)
+    else
+        inspector:SetPoint("TOPRIGHT", window, "TOPLEFT", -8, 0)
+    end
+end
+
+local function DockWithoutSelection(excludedWindow)
+    local previous = controller.selectedElement
+    controller.selectedElement = nil
+    if previous then RefreshOverlayAppearance(previous) end
+    local visibleElement
+    NSkin:ForEachRegisteredSkinningElement(function(element)
+        if not visibleElement and element.window ~= excludedWindow and element.window:IsShown() then
+            visibleElement = element
+        end
+    end)
+    if visibleElement then
+        DockInspector(visibleElement)
+    else
+        controller.inspector:ClearAllPoints()
+        controller.inspector:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+    end
+    RefreshInspector()
+end
+
+local function SelectElement(element)
+    if not element then return end
+    local previous = controller.selectedElement
+    controller.selectedElement = element
+    if previous and previous ~= element then RefreshOverlayAppearance(previous) end
+    RefreshOverlayAppearance(element)
+    DockInspector(element)
+    RefreshInspector()
 end
 
 local function UpdateDrag()
@@ -120,120 +153,128 @@ local function UpdateDrag()
     controller.ghost:ClearAllPoints()
     controller.ghost:SetPoint("CENTER", UIParent, "BOTTOMLEFT", x, y)
     controller.hoveredAlignment = nil
+    local style = NSkin:GetStyle("skinningMode")
     for i = 1, #ALIGNMENT_ORDER do
         local alignment = ALIGNMENT_ORDER[i]
         local zone = controller.dropZones[alignment]
         local hovered = PointInFrame(x, y, zone)
-        zone.texture:SetColorTexture(0, 0.65, 1, hovered and 0.55 or 0.22)
+        zone.texture:SetColorTexture(unpack(hovered and style.activeDropZone or style.dropZone))
         if hovered then controller.hoveredAlignment = alignment end
     end
 end
 
-local function BeginDrag()
-    local group = controller.selectedGroup
-    if not group or group.kind ~= "TAB_GROUP" or controller.dragging then return end
+local function BeginDrag(element)
+    if not element or element.kind ~= "TAB_GROUP" or controller.dragging then return end
     controller.dragging = true
-    local overlay = controller.overlays[group.id]
-    local height = math.max(20, overlay and overlay:GetHeight() or 20)
-    controller.ghost:SetSize(math.max(80, overlay and overlay:GetWidth() or 80), height)
+    local overlay = controller.overlays[element.id]
+    controller.ghost:SetSize(math.max(80, overlay and overlay:GetWidth() or 80),
+        math.max(20, overlay and overlay:GetHeight() or 20))
+    controller.ghost.texture:SetColorTexture(unpack(NSkin:GetStyle("skinningMode").ghost))
     controller.ghost:Show()
 
-    local owner = group.owner
-    local zoneWidth = (owner:GetWidth() or 0) / 3
+    local window = element.window
+    local zoneWidth = (window:GetWidth() or 0) / 3
     for i = 1, #ALIGNMENT_ORDER do
         local alignment = ALIGNMENT_ORDER[i]
         local zone = controller.dropZones[alignment]
         zone:ClearAllPoints()
-        zone:SetSize(zoneWidth, math.max(28, height + 8))
+        zone:SetSize(zoneWidth, math.max(28, controller.ghost:GetHeight() + 8))
         if alignment == "LEFT" then
-            zone:SetPoint("TOPLEFT", owner, "BOTTOMLEFT", 0, 0)
+            zone:SetPoint("TOPLEFT", window, "BOTTOMLEFT", 0, 0)
         elseif alignment == "CENTER" then
-            zone:SetPoint("TOP", owner, "BOTTOM", 0, 0)
+            zone:SetPoint("TOP", window, "BOTTOM", 0, 0)
         else
-            zone:SetPoint("TOPRIGHT", owner, "BOTTOMRIGHT", 0, 0)
+            zone:SetPoint("TOPRIGHT", window, "BOTTOMRIGHT", 0, 0)
         end
         zone:Show()
     end
     controller.dragFrame:SetScript("OnUpdate", UpdateDrag)
 end
 
-local function GetGroupTabs(group)
-    if group.container and type(group.container.tabs) == "table" then
-        return group.container.tabs
-    end
-    return group.tabs
-end
-
-local function AnchorOverlay(overlay, group)
-    overlay:ClearAllPoints()
-    if group.kind ~= "TAB_GROUP" then
-        overlay:SetAllPoints(group.owner)
-        return
-    end
-    local tabs = GetGroupTabs(group)
-    local firstTab
-    local lastTab
-    if type(tabs) == "table" then
-        for i = 1, #tabs do
-            local tab = tabs[i]
-            if tab and (not tab.IsShown or tab:IsShown()) then
-                firstTab = firstTab or tab
-                lastTab = tab
-            end
-        end
-    end
-    if firstTab and lastTab then
-        overlay:SetPoint("TOPLEFT", firstTab, "TOPLEFT", -2, 2)
-        overlay:SetPoint("BOTTOMRIGHT", lastTab, "BOTTOMRIGHT", 2, -2)
-    elseif group.container then
-        overlay:SetAllPoints(group.container)
+StopDrag = function(apply)
+    if not controller.dragging then return end
+    local alignment = controller.hoveredAlignment
+    controller.dragging = false
+    controller.dragFrame:SetScript("OnUpdate", nil)
+    controller.ghost:Hide()
+    for i = 1, #ALIGNMENT_ORDER do controller.dropZones[ALIGNMENT_ORDER[i]]:Hide() end
+    controller.hoveredAlignment = nil
+    if apply and alignment then
+        local placement = NSkin:GetBottomTabPlacement()
+        placement.alignment = alignment
+        placement.alongOffset = 0
+        local element = controller.selectedElement
+        local view = element and controller.optionViews[element.editorOptions]
+        if view then view:SetValues(placement) end
     end
 end
 
-local function CreateOverlay(group)
-    local overlay = CreateFrame("Button", nil, group.owner)
-    AnchorOverlay(overlay, group)
+local function CreateOverlay(element)
+    local overlay = CreateFrame("Button", nil, element.window)
     overlay:SetFrameStrata("DIALOG")
-    local anchorFrame = group.container or group.owner
-    overlay:SetFrameLevel((anchorFrame:GetFrameLevel() or 0)
-        + (group.kind == "TAB_GROUP" and 20 or 10))
+    overlay:SetFrameLevel(math.max(1,
+        (element.window:GetFrameLevel() or 0) + 10 + (element.priority or 0)))
     overlay:RegisterForClicks("LeftButtonUp")
-    overlay.texture = overlay:CreateTexture(nil, "OVERLAY")
+    overlay.texture = overlay:CreateTexture(nil, "BACKGROUND")
     overlay.texture:SetAllPoints()
-    overlay.texture:SetColorTexture(0, 0.65, 1, 0.16)
+    overlay.texture:SetColorTexture(unpack(TRANSPARENT))
+    overlay.border = NSkin:CreatePixelBorder(
+        overlay, "NSkinSkinningModeHighlight", 1,
+        NSkin:GetStyle("skinningMode").hover, false, overlay
+    )
+    NSkin:SetPixelBorderShown(overlay.border, false)
     overlay:SetScript("OnEnter", function(self)
-        self.texture:SetColorTexture(0, 0.65, 1, 0.28)
+        self.hovered = true
+        RefreshOverlayAppearance(element)
     end)
     overlay:SetScript("OnLeave", function(self)
-        self.texture:SetColorTexture(0, 0.65, 1, 0.16)
+        self.hovered = nil
+        RefreshOverlayAppearance(element)
     end)
-    overlay:SetScript("OnClick", function() SelectGroup(group) end)
-    if group.kind == "TAB_GROUP" then
+    overlay:SetScript("OnClick", function() SelectElement(element) end)
+    if element.kind == "TAB_GROUP" then
         overlay:RegisterForDrag("LeftButton")
         overlay:SetScript("OnDragStart", function()
-            SelectGroup(group)
-            BeginDrag()
+            SelectElement(element)
+            BeginDrag(element)
         end)
         overlay:SetScript("OnDragStop", function() StopDrag(true) end)
     end
+    overlay:SetScript("OnShow", function(self)
+        AnchorOverlay(self, element)
+        RefreshOverlayAppearance(element)
+    end)
     overlay:SetScript("OnHide", function()
-        if controller.enabled and controller.selectedGroup == group
-            and not group.owner:IsShown()
+        if controller.enabled and controller.selectedElement == element
+            and not element.window:IsShown()
         then
             StopDrag(false)
-            DockWithoutSelection(group)
+            DockWithoutSelection(element.window)
         end
     end)
-    overlay:Hide()
-    controller.overlays[group.id] = overlay
+    controller.overlays[element.id] = overlay
     return overlay
 end
 
-local function ShowGroupOverlay(group)
+local function ShowElementOverlay(element)
     if not controller or not controller.enabled then return end
-    local overlay = controller.overlays[group.id] or CreateOverlay(group)
-    AnchorOverlay(overlay, group)
+    local overlay = controller.overlays[element.id] or CreateOverlay(element)
+    AnchorOverlay(overlay, element)
+    RefreshOverlayAppearance(element)
+    -- Keep it logically shown while its parent is hidden so its effective
+    -- OnShow can re-anchor after Blizzard lays out the window.
     overlay:Show()
+    if not controller.selectedElement and element.window:IsShown() then DockInspector(element) end
+end
+
+local function HandleSkinningElementRegistered(_, element)
+    ShowElementOverlay(element)
+end
+
+local function HandleElementBoundsChanged(_, element)
+    local overlay = controller and controller.overlays[element.id]
+    if not overlay then return end
+    if AnchorOverlay(overlay, element) then overlay:Show() else overlay:Hide() end
 end
 
 local function CreateController()
@@ -241,7 +282,7 @@ local function CreateController()
     controller = { optionViews = {}, overlays = {}, dropZones = {} }
 
     local inspector = CreateFrame("Frame", nil, UIParent)
-    inspector:SetSize(250, 390)
+    inspector:SetSize(250, 130)
     inspector:SetFrameStrata("DIALOG")
     NSkin:SkinWindow(inspector)
     NSkin:SkinWindowHeader(inspector)
@@ -250,14 +291,30 @@ local function CreateController()
         NSkin:SetSkinningModeEnabled(false)
     end)
     close:SetPoint("TOPRIGHT", inspector, "TOPRIGHT", 0, 0)
-    inspector.selection = CreateLabel(inspector, "Select an element", "TOPLEFT", inspector, "TOPLEFT", 12, -34)
+    inspector.selection = CreateLabel(
+        inspector, "Select an element", "TOPLEFT", inspector, "TOPLEFT", 12, -34
+    )
     controller.inspector = inspector
+
+    local scrollFrame = CreateFrame("ScrollFrame", nil, inspector)
+    scrollFrame:SetPoint("TOPLEFT", inspector, "TOPLEFT", 24, -66)
+    scrollFrame:SetPoint("BOTTOMRIGHT", inspector, "BOTTOMRIGHT", -24, 14)
+    scrollFrame:EnableMouseWheel(true)
+    scrollFrame:SetScript("OnMouseWheel", function(self, delta)
+        local maximum = math.max(0, controller.scrollChild:GetHeight() - self:GetHeight())
+        self:SetVerticalScroll(math.max(0, math.min(maximum,
+            self:GetVerticalScroll() - delta * 30)))
+    end)
+    local scrollChild = CreateFrame("Frame", nil, scrollFrame)
+    scrollChild:SetSize(202, 1)
+    scrollFrame:SetScrollChild(scrollChild)
+    controller.scrollFrame = scrollFrame
+    controller.scrollChild = scrollChild
 
     local ghost = CreateFrame("Frame", nil, UIParent)
     ghost:SetFrameStrata("TOOLTIP")
     ghost.texture = ghost:CreateTexture(nil, "BACKGROUND")
     ghost.texture:SetAllPoints()
-    ghost.texture:SetColorTexture(0, 0.65, 1, 0.35)
     ghost:Hide()
     controller.ghost = ghost
 
@@ -275,26 +332,9 @@ local function CreateController()
     controller.eventFrame:SetScript("OnEvent", function(_, event)
         if event == "PLAYER_REGEN_DISABLED" then NSkin:SetSkinningModeEnabled(false) end
     end)
-    inspector:ClearAllPoints()
     inspector:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
     inspector:Hide()
-    RefreshInspector()
     return controller
-end
-
-local function HandleSkinningElementRegistered(group)
-    ShowGroupOverlay(group)
-    if controller and controller.enabled and not controller.selectedGroup
-        and group.owner:IsShown()
-    then
-        DockInspector(group)
-    end
-end
-
-local function HandleTabGroupLayoutApplied(group)
-    if not controller then return end
-    local overlay = controller.overlays[group.id]
-    if overlay then AnchorOverlay(overlay, group) end
 end
 
 function NSkin:SetSkinningModeEnabled(enabled)
@@ -309,21 +349,27 @@ function NSkin:SetSkinningModeEnabled(enabled)
     if controller.enabled == enabled then return true end
     controller.enabled = enabled
     if enabled then
-        self.OnSkinningElementRegistered = HandleSkinningElementRegistered
-        self.OnTabGroupLayoutApplied = HandleTabGroupLayoutApplied
+        self:RegisterComponentCallback(
+            "SkinningElementRegistered", HandleSkinningElementRegistered, controller
+        )
+        self:RegisterComponentCallback(
+            "TabGroupLayoutApplied", HandleElementBoundsChanged, controller
+        )
+        self:RegisterComponentCallback(
+            "SkinningElementBoundsChanged", HandleElementBoundsChanged, controller
+        )
         controller.inspector:Show()
         DockWithoutSelection()
-        self:ForEachRegisteredSkinningElement(ShowGroupOverlay)
+        self:ForEachRegisteredSkinningElement(ShowElementOverlay)
         controller.eventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
         self:Print("Skinning Mode enabled. Select a highlighted element.")
     else
         StopDrag(false)
-        self.OnSkinningElementRegistered = nil
-        self.OnTabGroupLayoutApplied = nil
+        self:UnregisterComponentCallbacks(controller)
         controller.eventFrame:UnregisterAllEvents()
         for _, overlay in pairs(controller.overlays) do overlay:Hide() end
         controller.inspector:Hide()
-        controller.selectedGroup = nil
+        controller.selectedElement = nil
         self:Print("Skinning Mode disabled.")
     end
     return true

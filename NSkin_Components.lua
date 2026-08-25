@@ -3,6 +3,37 @@ local _, NSkin = ...
 local COMPONENT_STATE = "components"
 local tabGroups = {}
 local skinningElements = {}
+local componentCallbacks = {}
+
+function NSkin:RegisterComponentCallback(event, callback, owner)
+    if type(event) ~= "string" or type(callback) ~= "function" then return false end
+    local listeners = componentCallbacks[event]
+    if not listeners then
+        listeners = {}
+        componentCallbacks[event] = listeners
+    end
+    listeners[#listeners + 1] = { callback = callback, owner = owner }
+    return true
+end
+
+function NSkin:UnregisterComponentCallbacks(owner)
+    if owner == nil then return false end
+    for _, listeners in pairs(componentCallbacks) do
+        for i = #listeners, 1, -1 do
+            if listeners[i].owner == owner then table.remove(listeners, i) end
+        end
+    end
+    return true
+end
+
+local function FireComponentCallback(event, ...)
+    local listeners = componentCallbacks[event]
+    if not listeners then return end
+    for i = 1, #listeners do
+        local listener = listeners[i]
+        listener.callback(listener.owner, ...)
+    end
+end
 
 function NSkin:CreateOptionsSlider(parent, options)
     if not parent then return nil end
@@ -288,7 +319,7 @@ end
 function NSkin:RegisterTabGroup(groupID, definition)
     if type(groupID) ~= "string" or groupID == ""
         or type(definition) ~= "table"
-        or not definition.owner
+        or not (definition.window or definition.owner)
         or definition.orientation ~= "HORIZONTAL"
         or definition.edge ~= "BOTTOM"
         or (not definition.container and type(definition.tabs) ~= "table")
@@ -305,9 +336,6 @@ function NSkin:RegisterTabGroup(groupID, definition)
         tabGroups[groupID] = group
     end
 
-    if self.OnTabGroupRegistered then
-        self:OnTabGroupRegistered(group)
-    end
     self:RegisterSkinningElement(groupID, group)
     return true
 end
@@ -315,10 +343,16 @@ end
 function NSkin:RegisterSkinningElement(elementID, definition)
     if type(elementID) ~= "string" or elementID == ""
         or type(definition) ~= "table"
-        or not definition.owner
+        or not (definition.window or definition.owner)
     then
         return false
     end
+
+    definition.window = definition.window or definition.owner
+    definition.target = definition.target or definition.container or definition.owner
+    definition.owner = nil
+    definition.priority = tonumber(definition.priority) or 0
+    definition.highlightPadding = tonumber(definition.highlightPadding) or 0
 
     local element = skinningElements[elementID]
     if element then
@@ -328,15 +362,54 @@ function NSkin:RegisterSkinningElement(elementID, definition)
         element.id = elementID
         skinningElements[elementID] = element
     end
-    if self.OnSkinningElementRegistered then
-        self:OnSkinningElementRegistered(element)
-    end
+    FireComponentCallback("SkinningElementRegistered", element)
     return true
 end
 
 function NSkin:ForEachRegisteredSkinningElement(callback)
     if type(callback) ~= "function" then return end
     for _, element in pairs(skinningElements) do callback(element) end
+end
+
+function NSkin:GetSkinningElementBounds(element)
+    if not element then return end
+    if type(element.getHighlightBounds) == "function" then
+        local ok, left, right, bottom, top = pcall(element.getHighlightBounds, element)
+        if ok and left and right and bottom and top then return left, right, bottom, top end
+    end
+
+    if element.kind == "TAB_GROUP" then
+        local tabs = element.container and element.container.tabs or element.tabs
+        local left, right, bottom, top
+        if type(tabs) == "table" then
+            for i = 1, #tabs do
+                local tab = tabs[i]
+                if tab and (not tab.IsShown or tab:IsShown()) then
+                    local tabLeft, tabRight = tab:GetLeft(), tab:GetRight()
+                    local tabBottom, tabTop = tab:GetBottom(), tab:GetTop()
+                    if tabLeft and tabRight and tabBottom and tabTop then
+                        left = not left and tabLeft or math.min(left, tabLeft)
+                        right = not right and tabRight or math.max(right, tabRight)
+                        bottom = not bottom and tabBottom or math.min(bottom, tabBottom)
+                        top = not top and tabTop or math.max(top, tabTop)
+                    end
+                end
+            end
+        end
+        if left then return left, right, bottom, top end
+    end
+
+    local target = element.target
+    if not target or (target.IsShown and not target:IsShown()) then return end
+    if not target.GetLeft then return end
+    return target:GetLeft(), target:GetRight(), target:GetBottom(), target:GetTop()
+end
+
+function NSkin:NotifySkinningElementBoundsChanged(elementID)
+    local element = skinningElements[elementID]
+    if not element then return false end
+    FireComponentCallback("SkinningElementBoundsChanged", element)
+    return true
 end
 
 function NSkin:GetTabGroup(groupID)
@@ -353,7 +426,7 @@ function NSkin:ApplyTabGroupLayout(groupID)
     if not group or (_G.InCombatLockdown and _G.InCombatLockdown()) then return false end
 
     local options = {
-        owner = group.owner,
+        owner = group.window,
         edge = group.edge,
         orientation = group.orientation,
         spacing = self:GetTabSpacing(),
@@ -365,9 +438,7 @@ function NSkin:ApplyTabGroupLayout(groupID)
     else
         applied = self:LayoutTabGroup(group.tabs, options) == true
     end
-    if applied and self.OnTabGroupLayoutApplied then
-        self:OnTabGroupLayoutApplied(group)
-    end
+    if applied then FireComponentCallback("TabGroupLayoutApplied", group) end
     return applied
 end
 

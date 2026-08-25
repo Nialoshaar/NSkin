@@ -36,12 +36,12 @@ NSkin:RegisterOptionGroup("spellbook.window", {
         then
             changed = NSkin:SetSpellBookAssistantHidden(values.hideAssistant) or changed
         end
-        if changed then NSkin:NotifyOptionGroupChanged("spellbook.window") end
+        return changed == true
     end,
     reset = function()
         local changed = NSkin:SetSpellBookTextSize(defaults.textSize)
         changed = NSkin:SetSpellBookAssistantHidden(false) or changed
-        if changed then NSkin:NotifyOptionGroupChanged("spellbook.window") end
+        return changed == true
     end,
 })
 
