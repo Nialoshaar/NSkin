@@ -17,6 +17,8 @@ Skins\NSkin_EncounterJournal.lua
 Skins\NSkin_Collections.lua
 Skins\NSkin_SpellBook.lua
 Options\NSkin_General_Options.lua
+Options\NSkin_Border_Options.lua
+Options\NSkin_Tabs_Options.lua
 Options\NSkin_BlizzardProgressBars_Options.lua
 Options\NSkin_SpellBook_Options.lua
 NSkin_Commands.lua

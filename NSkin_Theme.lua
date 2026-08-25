@@ -73,6 +73,40 @@ function NSkin:GetStyle(name)
     return cached
 end
 
+function NSkin:GetBorderAccentColor()
+    return self:GetStyle("window").border
+end
+
+function NSkin:SetBorderAccentColor(color)
+    if type(color) ~= "table" then return false end
+    return self:SetThemeOverride("window.border", color)
+end
+
+function NSkin:ResetBorderAccentColor()
+    return self:ResetThemeOverride("window.border")
+end
+
+function NSkin:GetTabSpacing()
+    return self:GetStyle("tab").spacing
+end
+
+function NSkin:SetTabSpacing(spacing)
+    spacing = tonumber(spacing)
+    if not spacing then return false end
+    spacing = math.max(0, math.min(30, math.floor(spacing + 0.5)))
+    local changed = self:SetThemeOverride("tab.spacing", spacing)
+    if changed and spacing == 0 and self.RestoreTabSpacing then
+        self:RestoreTabSpacing()
+    end
+    return changed
+end
+
+function NSkin:ResetTabSpacing()
+    local changed = self:ResetThemeOverride("tab.spacing")
+    if changed and self.RestoreTabSpacing then self:RestoreTabSpacing() end
+    return changed
+end
+
 function NSkin:InvalidateTheme()
     wipe(resolvedStyles)
 end

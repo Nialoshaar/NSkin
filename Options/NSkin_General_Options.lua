@@ -4,6 +4,8 @@ local CONTENT_LEFT = 180
 local NAV_TOP = -102
 local options
 local definitionsByModule = {}
+local definitionsByKey = {}
+local standaloneDefinitions = {}
 
 local optionGroups = {
     shared = { label = "Shared Elements", order = 10 },
@@ -12,15 +14,36 @@ local optionGroups = {
 
 function NSkin:RegisterOptionsPage(definition)
     if type(definition) ~= "table"
-        or type(definition.module) ~= "string"
-        or not self.moduleDefinitionByKey[definition.module]
         or type(definition.builder) ~= "function"
-        or definitionsByModule[definition.module]
     then
         return false
     end
 
-    definitionsByModule[definition.module] = definition
+    local key = definition.key or definition.module
+    if type(key) ~= "string" or key == "" or definitionsByKey[key] then
+        return false
+    end
+    definition.key = key
+
+    if definition.module then
+        if type(definition.module) ~= "string"
+            or not self.moduleDefinitionByKey[definition.module]
+            or definitionsByModule[definition.module]
+        then
+            return false
+        end
+        definitionsByModule[definition.module] = definition
+    elseif type(definition.key) ~= "string"
+        or definition.key == ""
+        or type(definition.label) ~= "string"
+        or not optionGroups[definition.group]
+    then
+        return false
+    else
+        standaloneDefinitions[#standaloneDefinitions + 1] = definition
+    end
+
+    definitionsByKey[definition.key] = definition
     return true
 end
 
@@ -147,6 +170,16 @@ local function CreateOptionsWindow()
             builder = registered and registered.builder,
         }
     end
+    for i = 1, #standaloneDefinitions do
+        local definition = standaloneDefinitions[i]
+        modulePages[#modulePages + 1] = {
+            key = definition.key,
+            label = definition.label,
+            group = definition.group,
+            order = tonumber(definition.order) or 100,
+            builder = definition.builder,
+        }
+    end
     table.sort(modulePages, function(left, right)
         local leftGroup = optionGroups[left.group]
         local rightGroup = optionGroups[right.group]
@@ -258,7 +291,8 @@ local function CreateOptionsWindow()
         for i = 1, #pages do
             local toggle = pages[i].moduleToggle
             if toggle then
-                NSkin:CreateFlatBackground(toggle, nil, buttonStyle.background, buttonStyle.border)
+                NSkin:CreateFlatBackground(toggle, nil, buttonStyle.background,
+                    NSkin:GetBorderAccentColor())
                 toggle.check:SetColorTexture(unpack(optionsStyle.accent))
             end
         end

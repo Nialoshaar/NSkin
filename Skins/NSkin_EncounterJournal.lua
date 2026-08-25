@@ -111,10 +111,10 @@ function EncounterJournalSkin:StyleInstancePage()
             imageBorder,
             "__NSkinBorder",
             BORDER_SIZE,
-            NSkin:GetStyle("encounterCard").border,
+            NSkin:GetBorderAccentColor(),
             false
         )
-        NSkin:SetPixelBorderColor(border, unpack(NSkin:GetStyle("encounterCard").border))
+        NSkin:SetPixelBorderColor(border, unpack(NSkin:GetBorderAccentColor()))
     end
 
     if instance.titleBG then
@@ -207,10 +207,10 @@ function EncounterJournalSkin:StyleButton(button)
         button,
         "__NSkinEncounterBorder",
         BORDER_SIZE,
-        NSkin:GetStyle("encounterCard").border,
+        NSkin:GetBorderAccentColor(),
         false
     )
-    NSkin:SetPixelBorderColor(border, unpack(NSkin:GetStyle("encounterCard").border))
+    NSkin:SetPixelBorderColor(border, unpack(NSkin:GetBorderAccentColor()))
 
     ClearButtonTextures(button)
     StripCardFrameAtlases(button)

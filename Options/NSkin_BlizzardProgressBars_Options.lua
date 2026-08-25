@@ -79,7 +79,7 @@ local function BuildProgressBarOptions(frame)
         NSkin:SkinFlatButton(reset, "Reset Default", nil, nil, 12)
         local windowStyle = NSkin:GetStyle("window")
         list:SetBackdropColor(unpack(windowStyle.background))
-        list:SetBackdropBorderColor(unpack(windowStyle.border))
+        list:SetBackdropBorderColor(unpack(NSkin:GetBorderAccentColor()))
         local style = NSkin:GetStyle("options")
         local text = NSkin:GetStyle("button").text
         for i = 1, #self.rows do

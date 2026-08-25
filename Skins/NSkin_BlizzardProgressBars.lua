@@ -161,7 +161,8 @@ local function CreateBackdrop(bar)
     local data = NSkin:GetSkinData(bar, PROGRESS_STATE)
     if data.progressBackground then
         data.progressBackground:SetColorTexture(unpack(style.background))
-        NSkin:SetPixelBorderColor(NSkin:GetPixelBorder(bar, PROGRESS_BORDER_KEY), unpack(style.border))
+        NSkin:SetPixelBorderColor(NSkin:GetPixelBorder(bar, PROGRESS_BORDER_KEY),
+            unpack(NSkin:GetBorderAccentColor()))
         return
     end
 
@@ -175,7 +176,7 @@ local function CreateBackdrop(bar)
         bar,
         PROGRESS_BORDER_KEY,
         BORDER_SIZE,
-        style.border,
+        NSkin:GetBorderAccentColor(),
         true
     )
     if border then

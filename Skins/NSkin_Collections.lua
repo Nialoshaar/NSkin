@@ -88,7 +88,12 @@ local function SkinCollectionTabs()
     local tabCount = tonumber(journal.numTabs) or DEFAULT_COLLECTION_TAB_COUNT
     local style = NSkin:GetStyle("tab")
     for i = 1, tabCount do
-        NSkin:SkinTab(_G["CollectionsJournalTab" .. i], i == selectedTab, style)
+        local tab = _G["CollectionsJournalTab" .. i]
+        NSkin:SkinTab(tab, i == selectedTab, style)
+        if i > 1 and style.spacing ~= 0 then
+            NSkin:ApplyTabSpacing(tab,
+                _G["CollectionsJournalTab" .. (i - 1)], style.spacing)
+        end
     end
 end
 

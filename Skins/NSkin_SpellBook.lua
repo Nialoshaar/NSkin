@@ -76,7 +76,7 @@ local function SkinSearchBox(searchBox)
     end
     local style = NSkin:GetStyle("searchBox")
     NSkin:CreateFlatBackground(
-        searchBox, nil, style.background, style.border
+        searchBox, nil, style.background, NSkin:GetBorderAccentColor()
     )
     searchBox:SetTextColor(unpack(style.text))
     if searchBox.Instructions then
