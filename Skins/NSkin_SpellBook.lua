@@ -16,6 +16,7 @@ local WINDOW_BUTTON_TEXT_OFFSET_Y = 0
 local assistedCombatDivider
 local initialized = false
 local bottomTabLayout = { edge = "BOTTOM" }
+local TAB_GROUP_ID = "SpellBook.MainTabs"
 
 function NSkin:GetSpellBookTextSize()
     local defaults = self.defaultModuleOptions.SpellBook
@@ -67,8 +68,12 @@ local function SkinSpellBookTabs()
     NSkin:SkinTabSystem(spellBook.CategoryTabSystem, style)
     NSkin:LayoutTabSystem(spellBook.CategoryTabSystem)
     NSkin:SkinTabSystem(playerSpells.TabSystem, style)
-    bottomTabLayout.owner = playerSpells
-    NSkin:LayoutTabSystem(playerSpells.TabSystem, bottomTabLayout)
+    if NSkin:IsEditableTabGroupRegistered(TAB_GROUP_ID) then
+        NSkin:ApplyTabGroupLayout(TAB_GROUP_ID)
+    else
+        bottomTabLayout.owner = playerSpells
+        NSkin:LayoutTabSystem(playerSpells.TabSystem, bottomTabLayout)
+    end
 end
 
 local function SkinSearchBox(searchBox)
@@ -432,6 +437,15 @@ function SpellBookSkin:Initialize()
     if type(spellBook.UpdateAllSpellData) == "function" then
         _G.hooksecurefunc(spellBook, "UpdateAllSpellData", SkinSpellBookTabs)
     end
+
+    NSkin:RegisterEditableTabGroup(TAB_GROUP_ID, {
+        module = "SpellBook",
+        optionKey = "MainTabs",
+        owner = playerSpells,
+        container = playerSpells.TabSystem,
+        orientation = "HORIZONTAL",
+        edge = "BOTTOM",
+    })
 
     local pagedSpells = spellBook and spellBook.PagedSpellsFrame
     local pagedContentMixin = _G.PagedContentFrameBaseMixin

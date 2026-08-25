@@ -166,7 +166,7 @@ function NSkin:LayoutTabGroup(tabs, options)
     local previous
 
     if owner and edge == "BOTTOM" then
-        local layout = self:GetStyle("tab").bottom
+        local layout = options.placement or self:GetStyle("tab").bottom
         local visibleCount = 0
         local totalWidth = 0
         for i = 1, #tabs do
@@ -178,11 +178,12 @@ function NSkin:LayoutTabGroup(tabs, options)
         end
         totalWidth = totalWidth + math.max(0, visibleCount - 1) * spacing
         local relativePoint = "BOTTOMLEFT"
-        local startX = layout.offsetX
-        if layout.anchor == "CENTER" then
+        local alignment = layout.alignment or layout.anchor
+        local startX = layout.alongOffset or layout.offsetX or 0
+        if alignment == "CENTER" then
             relativePoint = "BOTTOM"
             startX = startX - totalWidth / 2
-        elseif layout.anchor == "RIGHT" then
+        elseif alignment == "RIGHT" then
             relativePoint = "BOTTOMRIGHT"
             startX = startX - totalWidth
         end
@@ -190,7 +191,7 @@ function NSkin:LayoutTabGroup(tabs, options)
         anchorRelativeTo = owner
         anchorRelativePoint = relativePoint
         anchorX = startX
-        anchorY = layout.offsetY
+        anchorY = layout.edgeOffset or layout.offsetY or 0
     end
 
     for i = 1, #tabs do
@@ -218,6 +219,7 @@ function NSkin:LayoutTabGroup(tabs, options)
             previous = tab
         end
     end
+    return previous ~= nil
 end
 
 function NSkin:LayoutTabSystem(tabSystem, options)

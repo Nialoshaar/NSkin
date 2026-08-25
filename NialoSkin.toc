@@ -12,6 +12,7 @@ NSkin_Database.lua
 NSkin_Theme.lua
 NSkin_Skin.lua
 NSkin_Components.lua
+NSkin_SkinningMode.lua
 Skins\NSkin_BlizzardProgressBars.lua
 Skins\NSkin_EncounterJournal.lua
 Skins\NSkin_Collections.lua

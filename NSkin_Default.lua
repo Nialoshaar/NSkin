@@ -5,6 +5,15 @@ NSkin.defaultModuleOptions = {
         textSize = 16,
         minTextSize = 8,
         maxTextSize = 32,
+        tabGroups = {
+            MainTabs = {
+                placement = {
+                    alignment = "LEFT",
+                    alongOffset = 0,
+                    edgeOffset = 0,
+                },
+            },
+        },
     },
 }
 

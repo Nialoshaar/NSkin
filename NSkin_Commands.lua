@@ -49,6 +49,14 @@ commands.journaldebug = function()
     )
 end
 
+commands.skinning = function()
+    if type(NSkin.ToggleSkinningMode) == "function" then
+        NSkin:ToggleSkinningMode()
+    else
+        NSkin:Print("Skinning Mode is unavailable.")
+    end
+end
+
 local function HandleSlashCommand(message)
     local command = (message or ""):lower():match("^%s*(.-)%s*$")
     if command == "" then
@@ -66,7 +74,7 @@ local function HandleSlashCommand(message)
         return
     end
 
-    NSkin:Print("commands: /nskin, /nskin rescan, /nskin debug, /nskin journaldebug")
+    NSkin:Print("commands: /nskin, /nskin skinning, /nskin rescan, /nskin debug, /nskin journaldebug")
 end
 
 SLASH_NSKIN1 = "/nskin"
