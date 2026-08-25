@@ -2,7 +2,7 @@
 ## Title: Nialo Skin
 ## Notes: Lightweight, modular skins for the Blizzard interface.
 ## Author: Nialo
-## Version: 1.6.3
+## Version: 2.0.0
 ## SavedVariables: NSkinDB
 ## IconTexture: Interface\AddOns\NialoSkin\Media\Icon.tga
 
