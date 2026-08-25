@@ -1,8 +1,5 @@
 local _, NSkin = ...
 
-local MIN_SPACING = -30
-local MAX_SPACING = 30
-
 NSkin:RegisterOptionGroup("tabs.layout", {
     controls = {
         {
@@ -35,18 +32,46 @@ NSkin:RegisterOptionGroup("tabs.layout", {
             suffix = " px",
             order = 3,
         },
+        {
+            type = "SLIDER",
+            key = "spacing",
+            label = "Spacing",
+            min = -30,
+            max = 30,
+            step = 1,
+            suffix = " px",
+            order = 4,
+        },
         { type = "RESET", label = "Reset Default", compactLabel = "Reset" },
     },
     get = function()
-        return NSkin:GetBottomTabPlacement()
+        local values = NSkin:GetBottomTabPlacement()
+        values.spacing = NSkin:GetTabSpacing()
+        return values
     end,
-    set = function(_, placement)
-        if NSkin:SetBottomTabPlacement(placement) then
+    set = function(_, values)
+        local currentPlacement = NSkin:GetBottomTabPlacement()
+        local placementChanged = values.alignment ~= nil
+            and (values.alignment ~= currentPlacement.alignment
+                or values.alongOffset ~= currentPlacement.alongOffset
+                or values.edgeOffset ~= currentPlacement.edgeOffset)
+        local spacingChanged = values.spacing ~= nil
+            and values.spacing ~= NSkin:GetTabSpacing()
+        local changed
+        if placementChanged then
+            changed = NSkin:SetBottomTabPlacement(values) or changed
+        end
+        if spacingChanged then
+            changed = NSkin:SetTabSpacing(values.spacing) or changed
+        end
+        if changed then
             NSkin:NotifyOptionGroupChanged("tabs.layout")
         end
     end,
     reset = function()
-        if NSkin:ResetBottomTabLayout() then
+        local changed = NSkin:ResetBottomTabLayout()
+        changed = NSkin:ResetTabSpacing() or changed
+        if changed then
             NSkin:NotifyOptionGroupChanged("tabs.layout")
         end
     end,
@@ -61,37 +86,14 @@ local function BuildTabsOptions(optionsFrame)
         optionsFrame.NSkinContentLeft or 180, -102)
     title:SetText("Tabs")
 
-    local label = page:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    label:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -18)
-    label:SetText("Spacing")
-    local valueText = page:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-    valueText:SetPoint("LEFT", label, "RIGHT", 10, 0)
-
-    local spacingSlider = NSkin:CreateOptionsSlider(page, {
-        min = MIN_SPACING,
-        max = MAX_SPACING,
-        step = 1,
-        onValueChanged = function(_, value)
-            value = math.floor(value + 0.5)
-            valueText:SetText(value .. " px")
-            if not page.refreshing then NSkin:SetTabSpacing(value) end
-        end,
-    })
-    spacingSlider:SetPoint("TOPLEFT", label, "BOTTOMLEFT", 8, -22)
-
     local layoutView = NSkin:CreateOptionGroupView(page, "tabs.layout", "FULL", page)
-    layoutView:SetPoint("TOPLEFT", spacingSlider, "BOTTOMLEFT", -8, -36)
+    layoutView:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -18)
 
     function page:ApplyTheme()
         if layoutView.ApplyTheme then layoutView:ApplyTheme() end
     end
 
     function page:Refresh()
-        self.refreshing = true
-        local spacing = NSkin:GetTabSpacing()
-        spacingSlider:SetValue(spacing)
-        valueText:SetText(spacing .. " px")
-        self.refreshing = false
         layoutView:Refresh()
         self:ApplyTheme()
     end

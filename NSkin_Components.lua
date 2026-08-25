@@ -2,6 +2,7 @@ local _, NSkin = ...
 
 local COMPONENT_STATE = "components"
 local tabGroups = {}
+local skinningElements = {}
 
 function NSkin:CreateOptionsSlider(parent, options)
     if not parent then return nil end
@@ -307,7 +308,35 @@ function NSkin:RegisterTabGroup(groupID, definition)
     if self.OnTabGroupRegistered then
         self:OnTabGroupRegistered(group)
     end
+    self:RegisterSkinningElement(groupID, group)
     return true
+end
+
+function NSkin:RegisterSkinningElement(elementID, definition)
+    if type(elementID) ~= "string" or elementID == ""
+        or type(definition) ~= "table"
+        or not definition.owner
+    then
+        return false
+    end
+
+    local element = skinningElements[elementID]
+    if element then
+        for key, value in pairs(definition) do element[key] = value end
+    else
+        element = definition
+        element.id = elementID
+        skinningElements[elementID] = element
+    end
+    if self.OnSkinningElementRegistered then
+        self:OnSkinningElementRegistered(element)
+    end
+    return true
+end
+
+function NSkin:ForEachRegisteredSkinningElement(callback)
+    if type(callback) ~= "function" then return end
+    for _, element in pairs(skinningElements) do callback(element) end
 end
 
 function NSkin:GetTabGroup(groupID)

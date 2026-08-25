@@ -1,44 +1,69 @@
 local _, NSkin = ...
 
+local defaults = NSkin.defaultModuleOptions.SpellBook
+
+NSkin:RegisterOptionGroup("spellbook.window", {
+    controls = {
+        {
+            type = "SLIDER",
+            key = "textSize",
+            label = "Spell name text size",
+            min = defaults.minTextSize,
+            max = defaults.maxTextSize,
+            step = 1,
+            suffix = " px",
+        },
+        {
+            type = "CHECKBOX",
+            key = "hideAssistant",
+            label = "Hide Single-Button Assistant",
+        },
+        { type = "RESET", label = "Reset Default", compactLabel = "Reset" },
+    },
+    get = function()
+        return {
+            textSize = NSkin:GetSpellBookTextSize(),
+            hideAssistant = NSkin:GetSpellBookAssistantHidden(),
+        }
+    end,
+    set = function(_, values)
+        local changed
+        if values.textSize ~= nil and values.textSize ~= NSkin:GetSpellBookTextSize() then
+            changed = NSkin:SetSpellBookTextSize(values.textSize) or changed
+        end
+        if values.hideAssistant ~= nil
+            and values.hideAssistant ~= NSkin:GetSpellBookAssistantHidden()
+        then
+            changed = NSkin:SetSpellBookAssistantHidden(values.hideAssistant) or changed
+        end
+        if changed then NSkin:NotifyOptionGroupChanged("spellbook.window") end
+    end,
+    reset = function()
+        local changed = NSkin:SetSpellBookTextSize(defaults.textSize)
+        changed = NSkin:SetSpellBookAssistantHidden(false) or changed
+        if changed then NSkin:NotifyOptionGroupChanged("spellbook.window") end
+    end,
+})
+
 local function BuildSpellBookOptions(optionsFrame)
-    local defaults = NSkin.defaultModuleOptions.SpellBook
-    local MIN_TEXT_SIZE = defaults.minTextSize
-    local MAX_TEXT_SIZE = defaults.maxTextSize
     local page = CreateFrame("Frame", nil, optionsFrame)
     page:SetAllPoints(optionsFrame)
 
-    local label = page:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    label:SetPoint("TOPLEFT", optionsFrame, "TOPLEFT",
+    local title = page:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+    title:SetPoint("TOPLEFT", optionsFrame, "TOPLEFT",
         optionsFrame.NSkinContentLeft or 180, -102)
-    label:SetText("Spell name text size")
+    title:SetText("Spellbook")
 
-    local valueText = page:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-    valueText:SetPoint("LEFT", label, "RIGHT", 10, 0)
+    local view = NSkin:CreateOptionGroupView(page, "spellbook.window", "FULL", page)
+    view:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -18)
 
-    local slider = NSkin:CreateOptionsSlider(page, {
-        min = MIN_TEXT_SIZE,
-        max = MAX_TEXT_SIZE,
-        step = 1,
-    })
-    slider:SetPoint("TOPLEFT", label, "BOTTOMLEFT", 8, -22)
-
-    slider:SetScript("OnValueChanged", function(_, value)
-        value = math.floor(value + 0.5)
-        valueText:SetText(value .. " px")
-        if not page.refreshing then NSkin:SetSpellBookTextSize(value) end
-    end)
+    function page:ApplyTheme()
+        if view.ApplyTheme then view:ApplyTheme() end
+    end
 
     function page:Refresh()
-        self.refreshing = true
-        local size = NSkin:GetSpellBookTextSize()
-        local enabled = NSkin:IsModuleEnabled("SpellBook")
-        slider:SetValue(size)
-        if enabled then slider:Enable() else slider:Disable() end
-        slider:SetAlpha(enabled and 1 or 0.40)
-        label:SetAlpha(enabled and 1 or 0.40)
-        valueText:SetAlpha(enabled and 1 or 0.40)
-        valueText:SetText(size .. " px")
-        self.refreshing = false
+        view:SetContext(NSkin:IsModuleEnabled("SpellBook") and page or nil)
+        self:ApplyTheme()
     end
 
     return page

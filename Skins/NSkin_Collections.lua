@@ -222,6 +222,7 @@ function CollectionSkin:Initialize()
     if not collectionsInitialized then
         NSkin:RegisterTabGroup(TAB_GROUP_ID, {
             label = "Collections tabs",
+            kind = "TAB_GROUP",
             editorOptions = "tabs.layout",
             owner = journal,
             tabs = GetCollectionTabs(journal),

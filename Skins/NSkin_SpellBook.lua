@@ -17,6 +17,7 @@ local assistedCombatDivider
 local initialized = false
 local bottomTabLayout = { edge = "BOTTOM" }
 local TAB_GROUP_ID = "SpellBook.MainTabs"
+local WINDOW_ELEMENT_ID = "SpellBook.Window"
 
 function NSkin:GetSpellBookTextSize()
     local defaults = self.defaultModuleOptions.SpellBook
@@ -48,6 +49,31 @@ function NSkin:SetSpellBookTextSize(size)
 
     if self:IsModuleEnabled("SpellBook") and SpellBookSkin.RefreshTextSize then
         SpellBookSkin:RefreshTextSize()
+    end
+    return true
+end
+
+function NSkin:GetSpellBookAssistantHidden()
+    local options = self:GetModuleOptions("SpellBook", false)
+    return options and options.hideAssistant == true or false
+end
+
+function NSkin:SetSpellBookAssistantHidden(hidden)
+    if _G.InCombatLockdown and _G.InCombatLockdown() then return false end
+    hidden = hidden == true
+    local options = self:GetModuleOptions("SpellBook", hidden)
+    if hidden then
+        options.hideAssistant = true
+    elseif options then
+        options.hideAssistant = nil
+        local profile = self:GetProfile()
+        if not next(options) then profile.moduleOptions.SpellBook = nil end
+        if profile.moduleOptions and not next(profile.moduleOptions) then
+            profile.moduleOptions = nil
+        end
+    end
+    if self:IsModuleEnabled("SpellBook") and SpellBookSkin.RefreshAssistant then
+        SpellBookSkin:RefreshAssistant()
     end
     return true
 end
@@ -173,6 +199,23 @@ local function SkinAssistedCombat(frame)
         assistedCombatDivider:SetWidth(1)
     end
     assistedCombatDivider:SetColorTexture(unpack(NSkin:GetStyle("window").header.divider))
+    local hidden = NSkin:GetSpellBookAssistantHidden()
+    local assistantIcon = frame.Button and frame.Button.Icon
+    local assistantBorder = frame.Button
+        and NSkin:GetPixelBorder(frame.Button, "NSkinSpellBookBorder")
+    if hidden then
+        if frame.Label then frame.Label:Hide() end
+        if assistantIcon then assistantIcon:Hide() end
+        if assistantBorder then NSkin:SetPixelBorderShown(assistantBorder, false) end
+        assistedCombatDivider:Hide()
+        data.assistantHiddenByNSkin = true
+    elseif data.assistantHiddenByNSkin then
+        if frame.Label then frame.Label:Show() end
+        if assistantIcon then assistantIcon:Show() end
+        if assistantBorder then NSkin:SetPixelBorderShown(assistantBorder, true) end
+        assistedCombatDivider:Show()
+        data.assistantHiddenByNSkin = nil
+    end
 end
 
 local function SkinTitleBar(playerSpells, spellBook)
@@ -362,6 +405,14 @@ function SpellBookSkin:RefreshTextSize()
     end
 end
 
+function SpellBookSkin:RefreshAssistant()
+    if not NSkin:IsModuleEnabled("SpellBook") then return end
+    local playerSpells = _G.PlayerSpellsFrame
+    local spellBook = playerSpells and playerSpells.SpellBookFrame
+    local frame = spellBook and spellBook.AssistedCombatRotationSpellFrame
+    if frame then SkinAssistedCombat(frame) end
+end
+
 local function RemoveSpellBookBackground()
     local playerSpells = _G.PlayerSpellsFrame
     local spellBook = playerSpells and playerSpells.SpellBookFrame
@@ -440,11 +491,18 @@ function SpellBookSkin:Initialize()
 
     NSkin:RegisterTabGroup(TAB_GROUP_ID, {
         label = "Spellbook tabs",
+        kind = "TAB_GROUP",
         editorOptions = "tabs.layout",
         owner = playerSpells,
         container = playerSpells.TabSystem,
         orientation = "HORIZONTAL",
         edge = "BOTTOM",
+    })
+    NSkin:RegisterSkinningElement(WINDOW_ELEMENT_ID, {
+        label = "Spellbook window",
+        kind = "WINDOW",
+        editorOptions = "spellbook.window",
+        owner = playerSpells,
     })
 
     local pagedSpells = spellBook and spellBook.PagedSpellsFrame

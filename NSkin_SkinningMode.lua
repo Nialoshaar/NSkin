@@ -62,7 +62,7 @@ end
 local function DockWithoutSelection(excludedGroup)
     controller.selectedGroup = nil
     local visibleGroup
-    NSkin:ForEachRegisteredTabGroup(function(group)
+    NSkin:ForEachRegisteredSkinningElement(function(group)
         if not visibleGroup and group ~= excludedGroup and group.owner:IsShown() then
             visibleGroup = group
         end
@@ -131,7 +131,7 @@ end
 
 local function BeginDrag()
     local group = controller.selectedGroup
-    if not group or controller.dragging then return end
+    if not group or group.kind ~= "TAB_GROUP" or controller.dragging then return end
     controller.dragging = true
     local overlay = controller.overlays[group.id]
     local height = math.max(20, overlay and overlay:GetHeight() or 20)
@@ -166,6 +166,10 @@ end
 
 local function AnchorOverlay(overlay, group)
     overlay:ClearAllPoints()
+    if group.kind ~= "TAB_GROUP" then
+        overlay:SetAllPoints(group.owner)
+        return
+    end
     local tabs = GetGroupTabs(group)
     local firstTab
     local lastTab
@@ -191,9 +195,9 @@ local function CreateOverlay(group)
     AnchorOverlay(overlay, group)
     overlay:SetFrameStrata("DIALOG")
     local anchorFrame = group.container or group.owner
-    overlay:SetFrameLevel((anchorFrame:GetFrameLevel() or 0) + 20)
+    overlay:SetFrameLevel((anchorFrame:GetFrameLevel() or 0)
+        + (group.kind == "TAB_GROUP" and 20 or 10))
     overlay:RegisterForClicks("LeftButtonUp")
-    overlay:RegisterForDrag("LeftButton")
     overlay.texture = overlay:CreateTexture(nil, "OVERLAY")
     overlay.texture:SetAllPoints()
     overlay.texture:SetColorTexture(0, 0.65, 1, 0.16)
@@ -204,11 +208,14 @@ local function CreateOverlay(group)
         self.texture:SetColorTexture(0, 0.65, 1, 0.16)
     end)
     overlay:SetScript("OnClick", function() SelectGroup(group) end)
-    overlay:SetScript("OnDragStart", function()
-        SelectGroup(group)
-        BeginDrag()
-    end)
-    overlay:SetScript("OnDragStop", function() StopDrag(true) end)
+    if group.kind == "TAB_GROUP" then
+        overlay:RegisterForDrag("LeftButton")
+        overlay:SetScript("OnDragStart", function()
+            SelectGroup(group)
+            BeginDrag()
+        end)
+        overlay:SetScript("OnDragStop", function() StopDrag(true) end)
+    end
     overlay:SetScript("OnHide", function()
         if controller.enabled and controller.selectedGroup == group
             and not group.owner:IsShown()
@@ -234,7 +241,7 @@ local function CreateController()
     controller = { optionViews = {}, overlays = {}, dropZones = {} }
 
     local inspector = CreateFrame("Frame", nil, UIParent)
-    inspector:SetSize(250, 310)
+    inspector:SetSize(250, 390)
     inspector:SetFrameStrata("DIALOG")
     NSkin:SkinWindow(inspector)
     NSkin:SkinWindowHeader(inspector)
@@ -275,7 +282,7 @@ local function CreateController()
     return controller
 end
 
-local function HandleTabGroupRegistered(group)
+local function HandleSkinningElementRegistered(group)
     ShowGroupOverlay(group)
     if controller and controller.enabled and not controller.selectedGroup
         and group.owner:IsShown()
@@ -302,16 +309,16 @@ function NSkin:SetSkinningModeEnabled(enabled)
     if controller.enabled == enabled then return true end
     controller.enabled = enabled
     if enabled then
-        self.OnTabGroupRegistered = HandleTabGroupRegistered
+        self.OnSkinningElementRegistered = HandleSkinningElementRegistered
         self.OnTabGroupLayoutApplied = HandleTabGroupLayoutApplied
         controller.inspector:Show()
         DockWithoutSelection()
-        self:ForEachRegisteredTabGroup(ShowGroupOverlay)
+        self:ForEachRegisteredSkinningElement(ShowGroupOverlay)
         controller.eventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
         self:Print("Skinning Mode enabled. Select a highlighted element.")
     else
         StopDrag(false)
-        self.OnTabGroupRegistered = nil
+        self.OnSkinningElementRegistered = nil
         self.OnTabGroupLayoutApplied = nil
         controller.eventFrame:UnregisterAllEvents()
         for _, overlay in pairs(controller.overlays) do overlay:Hide() end

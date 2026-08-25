@@ -81,6 +81,20 @@ local function CreateSlider(view, control, y)
     view.valueByKey[control.key] = valueLabel
 end
 
+local function CreateCheckbox(view, control, y)
+    local checkbox = CreateFrame("CheckButton", nil, view, "UICheckButtonTemplate")
+    checkbox:SetPoint("TOPLEFT", view, "TOPLEFT", -4, y)
+    if checkbox.Text then checkbox.Text:SetText(control.label) end
+    checkbox:SetScript("OnClick", function(self)
+        if view.refreshing or not view.context then return end
+        local current = CopyTable(view.definition.get(view.context))
+        current[control.key] = self:GetChecked() == true
+        view.definition.set(view.context, current)
+    end)
+    view.controls[#view.controls + 1] = checkbox
+    view.controlByKey[control.key] = checkbox
+end
+
 local function CreateReset(view, control)
     local button = CreateFrame("Button", nil, view)
     button:SetSize(view.presentation == "FULL" and 110 or 58, 24)
@@ -115,9 +129,16 @@ function NSkin:CreateOptionGroupView(parent, id, layout, context)
     local presentation = layout == "COMPACT" and "COMPACT" or "FULL"
     if not parent or not definition then return nil end
 
+    local fieldCount = 0
+    for i = 1, #definition.controls do
+        local controlType = definition.controls[i].type
+        if controlType == "SLIDER" or controlType == "CHECKBOX" then
+            fieldCount = fieldCount + 1
+        end
+    end
+    local viewHeight = 78 + fieldCount * 70
     local view = CreateFrame("Frame", nil, parent)
-    view:SetSize(presentation == "FULL" and 400 or 202,
-        presentation == "FULL" and 220 or 218)
+    view:SetSize(presentation == "FULL" and 400 or 202, viewHeight)
     view.id = id
     view.definition = definition
     view.presentation = presentation
@@ -129,14 +150,17 @@ function NSkin:CreateOptionGroupView(parent, id, layout, context)
 
     local dropdownY = 0
     local firstSliderY = presentation == "FULL" and -62 or -60
-    local sliderIndex = 0
+    local fieldIndex = 0
     for i = 1, #definition.controls do
         local control = definition.controls[i]
         if control.type == "DROPDOWN" then
             CreateDropdown(view, control, dropdownY)
         elseif control.type == "SLIDER" then
-            sliderIndex = sliderIndex + 1
-            CreateSlider(view, control, firstSliderY - (sliderIndex - 1) * 70)
+            fieldIndex = fieldIndex + 1
+            CreateSlider(view, control, firstSliderY - (fieldIndex - 1) * 70)
+        elseif control.type == "CHECKBOX" then
+            fieldIndex = fieldIndex + 1
+            CreateCheckbox(view, control, firstSliderY - (fieldIndex - 1) * 70)
         elseif control.type == "RESET" then
             CreateReset(view, control)
         end
@@ -173,6 +197,8 @@ function NSkin:CreateOptionGroupView(parent, id, layout, context)
                 self.valueByKey[control.key]:SetText(
                     value ~= nil and (tostring(value) .. (control.suffix or "")) or "-"
                 )
+            elseif control.type == "CHECKBOX" then
+                self.controlByKey[control.key]:SetChecked(value == true)
             end
         end
         self.refreshing = false
