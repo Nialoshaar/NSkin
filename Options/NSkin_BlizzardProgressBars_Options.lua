@@ -156,9 +156,6 @@ local function BuildProgressBarOptions(frame)
 end
 
 NSkin:RegisterOptionsPage({
-    key = "progress",
-    label = "Progress Bars",
-    group = "shared",
-    order = 10,
+    module = "BlizzardProgressBars",
     builder = BuildProgressBarOptions,
 })

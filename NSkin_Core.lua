@@ -4,10 +4,22 @@ NSkin.name = ADDON_NAME
 NSkin.modules = NSkin.modules or {}
 
 NSkin.moduleDefinitions = {
-    { key = "BlizzardProgressBars", label = "Progress Bars", defaultEnabled = false },
-    { key = "EncounterJournal", label = "Adventure Journal", defaultEnabled = false },
-    { key = "Collections", label = "Collections", defaultEnabled = false },
-    { key = "SpellBook", label = "Spellbook", defaultEnabled = false },
+    {
+        key = "BlizzardProgressBars", label = "Progress Bars", defaultEnabled = false,
+        optionsGroup = "shared", optionsOrder = 10,
+    },
+    {
+        key = "EncounterJournal", label = "Adventure Journal", defaultEnabled = false,
+        optionsGroup = "windows", optionsOrder = 10,
+    },
+    {
+        key = "Collections", label = "Collections", defaultEnabled = false,
+        optionsGroup = "windows", optionsOrder = 20,
+    },
+    {
+        key = "SpellBook", label = "Spellbook", defaultEnabled = false,
+        optionsGroup = "windows", optionsOrder = 30,
+    },
 }
 
 NSkin.moduleDefinitionByKey = {}

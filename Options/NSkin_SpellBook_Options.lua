@@ -49,9 +49,6 @@ local function BuildSpellBookOptions(optionsFrame)
 end
 
 NSkin:RegisterOptionsPage({
-    key = "spellbook",
-    label = "Spellbook",
-    group = "windows",
-    order = 10,
+    module = "SpellBook",
     builder = BuildSpellBookOptions,
 })

@@ -3,8 +3,7 @@ local _, NSkin = ...
 local CONTENT_LEFT = 180
 local NAV_TOP = -102
 local options
-local definitions = {}
-local definitionsByKey = {}
+local definitionsByModule = {}
 
 local optionGroups = {
     shared = { label = "Shared Elements", order = 10 },
@@ -13,22 +12,15 @@ local optionGroups = {
 
 function NSkin:RegisterOptionsPage(definition)
     if type(definition) ~= "table"
-        or type(definition.key) ~= "string"
-        or definition.key == ""
-        or definition.key == "general"
-        or type(definition.label) ~= "string"
-        or definition.label == ""
-        or type(definition.group) ~= "string"
-        or not optionGroups[definition.group]
+        or type(definition.module) ~= "string"
+        or not self.moduleDefinitionByKey[definition.module]
         or type(definition.builder) ~= "function"
-        or definitionsByKey[definition.key]
+        or definitionsByModule[definition.module]
     then
         return false
     end
 
-    definition.order = tonumber(definition.order) or 100
-    definitions[#definitions + 1] = definition
-    definitionsByKey[definition.key] = definition
+    definitionsByModule[definition.module] = definition
     return true
 end
 
@@ -71,67 +63,28 @@ local function CreateGeneralPage(frame)
 
     local title = page:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
     title:SetPoint("TOPLEFT", frame, "TOPLEFT", CONTENT_LEFT, -102)
-    title:SetText("Modules")
+    title:SetText("NialoSkin")
     local description = page:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     description:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -8)
-    description:SetText("Disabled modules install no hooks or events after reloading the UI.")
+    description:SetWidth(frame:GetWidth() - CONTENT_LEFT - 20)
+    description:SetJustifyH("LEFT")
+    description:SetText(
+        "Use the button beside each module tab to enable or disable it. "
+        .. "Disabled modules install no hooks or events after reloading the UI."
+    )
+    return page
+end
 
-    local notice = page:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-    notice:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", CONTENT_LEFT, 22)
-    notice:SetText("Module changes require a UI reload.")
-    notice:Hide()
-    local reload = CreateFrame("Button", nil, page)
-    reload:SetSize(100, 24)
-    reload:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -20, 14)
-    reload:SetScript("OnClick", function() _G.ReloadUI() end)
-    reload:Hide()
+local function CreateEmptyModulePage(frame, info)
+    local page = CreateFrame("Frame", nil, frame)
+    page:SetAllPoints(frame)
 
-    page.rows = {}
-    for i = 1, #NSkin.moduleDefinitions do
-        local definition = NSkin.moduleDefinitions[i]
-        local row = CreateFrame("CheckButton", nil, page)
-        row:SetSize(260, 22)
-        row:SetPoint("TOPLEFT", description, "BOTTOMLEFT", 0, -12 - (i - 1) * 30)
-        row.moduleKey = definition.key
-        row.box = CreateFrame("Frame", nil, row)
-        row.box:SetSize(18, 18)
-        row.box:SetPoint("LEFT")
-        row.check = row.box:CreateTexture(nil, "ARTWORK")
-        row.check:SetPoint("TOPLEFT", 4, -4)
-        row.check:SetPoint("BOTTOMRIGHT", -4, 4)
-        local label = row:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-        label:SetPoint("LEFT", row.box, "RIGHT", 8, 0)
-        label:SetText(definition.label)
-        row:SetScript("OnClick", function(self)
-            local enabled = self:GetChecked() == true
-            NSkin:SetModuleEnabled(self.moduleKey, enabled)
-            self.check:SetShown(enabled)
-            notice:Show()
-            reload:Show()
-        end)
-        page.rows[i] = row
-    end
-
-    function page:ApplyTheme()
-        local buttonStyle = NSkin:GetStyle("button")
-        local optionsStyle = NSkin:GetStyle("options")
-        NSkin:SkinFlatButton(reload, "Reload UI", nil, nil, 12)
-        for i = 1, #self.rows do
-            local row = self.rows[i]
-            NSkin:CreateFlatBackground(row.box, nil, buttonStyle.background, buttonStyle.border)
-            row.check:SetColorTexture(unpack(optionsStyle.accent))
-        end
-    end
-    function page:Refresh()
-        self:ApplyTheme()
-        for i = 1, #self.rows do
-            local row = self.rows[i]
-            local enabled = NSkin:IsModuleEnabled(row.moduleKey)
-            row:SetChecked(enabled)
-            row.check:SetShown(enabled)
-        end
-    end
-    page:ApplyTheme()
+    local title = page:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+    title:SetPoint("TOPLEFT", frame, "TOPLEFT", CONTENT_LEFT, -102)
+    title:SetText(info.label)
+    local description = page:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    description:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -8)
+    description:SetText("This module has no additional settings.")
     return page
 end
 
@@ -169,7 +122,32 @@ local function CreateOptionsWindow()
     frame.navigationDivider:SetPoint("BOTTOMLEFT", CONTENT_LEFT - 14, 24)
     frame.navigationDivider:SetWidth(1)
 
-    table.sort(definitions, function(left, right)
+    local notice = frame:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+    notice:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", CONTENT_LEFT, 22)
+    notice:SetText("Module changes require a UI reload.")
+    notice:Hide()
+    local reload = CreateFrame("Button", nil, frame)
+    reload:SetSize(100, 24)
+    reload:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -140, 14)
+    reload:SetScript("OnClick", function() _G.ReloadUI() end)
+    reload:Hide()
+
+    local modulePages = {}
+    for i = 1, #NSkin.moduleDefinitions do
+        local moduleDefinition = NSkin.moduleDefinitions[i]
+        local registered = definitionsByModule[moduleDefinition.key]
+        local group = optionGroups[moduleDefinition.optionsGroup]
+            and moduleDefinition.optionsGroup or "windows"
+        modulePages[#modulePages + 1] = {
+            key = moduleDefinition.key,
+            label = moduleDefinition.label,
+            group = group,
+            order = tonumber(moduleDefinition.optionsOrder) or 100,
+            module = moduleDefinition.key,
+            builder = registered and registered.builder,
+        }
+    end
+    table.sort(modulePages, function(left, right)
         local leftGroup = optionGroups[left.group]
         local rightGroup = optionGroups[right.group]
         if leftGroup.order ~= rightGroup.order then return leftGroup.order < rightGroup.order end
@@ -179,23 +157,21 @@ local function CreateOptionsWindow()
 
     local pages = { { key = "general", label = "General", page = CreateGeneralPage(frame) } }
     local byKey = { general = pages[1] }
-    for i = 1, #definitions do
-        local definition = definitions[i]
-        local info = {
-            key = definition.key,
-            label = definition.label,
-            group = definition.group,
-            builder = definition.builder,
-        }
+    for i = 1, #modulePages do
+        local info = modulePages[i]
         pages[#pages + 1] = info
-        byKey[definition.key] = info
+        byKey[info.key] = info
     end
 
     local function EnsurePage(info)
         if info.page then return info.page end
-        if not info.builder then return nil end
 
-        local page = info.builder(frame)
+        local page
+        if info.builder then
+            page = info.builder(frame)
+        else
+            page = CreateEmptyModulePage(frame, info)
+        end
         if not page then return nil end
         page:Hide()
         info.page = page
@@ -210,14 +186,31 @@ local function CreateOptionsWindow()
         local button = CreateFrame("Button", nil, frame)
         button:SetSize(132, 16)
         button:SetPoint("TOPLEFT", indent and 27 or 12, NAV_TOP - navigationRow * 16)
-        button:SetNormalFontObject("GameFontHighlightSmall")
-        button:SetHighlightFontObject("GameFontHighlightSmall")
-        button:SetText(info.label)
-        button:GetFontString():SetJustifyH("LEFT")
+        button.label = button:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+        button.label:SetPoint("LEFT")
+        button.label:SetPoint("RIGHT", info.module and -22 or 0, 0)
+        button.label:SetJustifyH("LEFT")
+        button.label:SetText(info.label)
         button.selectedBackground = button:CreateTexture(nil, "BACKGROUND")
         button.selectedBackground:SetAllPoints()
         button.selectedBackground:Hide()
         button:SetScript("OnClick", function() frame:SelectOptionsPage(info.key) end)
+        if info.module then
+            local toggle = CreateFrame("Button", nil, button)
+            toggle:SetSize(16, 16)
+            toggle:SetPoint("RIGHT", -1, 0)
+            toggle.check = toggle:CreateTexture(nil, "ARTWORK")
+            toggle.check:SetPoint("TOPLEFT", 4, -4)
+            toggle.check:SetPoint("BOTTOMRIGHT", -4, 4)
+            toggle:SetScript("OnClick", function()
+                NSkin:SetModuleEnabled(info.module, not NSkin:IsModuleEnabled(info.module))
+                frame:RefreshModuleNavigation()
+                notice:Show()
+                reload:Show()
+                if info.page and info.page.Refresh then info.page:Refresh() end
+            end)
+            info.moduleToggle = toggle
+        end
         info.navigationButton = button
         frame.navigationButtons[#frame.navigationButtons + 1] = button
         navigationRow = navigationRow + 1
@@ -237,13 +230,39 @@ local function CreateOptionsWindow()
         AddNavigationButton(info, true)
     end
 
+    function frame:RefreshModuleNavigation()
+        local style = NSkin:GetStyle("options")
+        for i = 1, #pages do
+            local info = pages[i]
+            if info.navigationButton then
+                local enabled = not info.module or NSkin:IsModuleEnabled(info.module)
+                info.navigationButton.label:SetTextColor(unpack(
+                    enabled and style.enabledNavigationText or style.disabledNavigationText
+                ))
+                if info.moduleToggle then info.moduleToggle.check:SetShown(enabled) end
+            end
+        end
+    end
+
     function frame:ApplyTheme()
         SkinOptionsWindow(self)
         self.navigationDivider:SetColorTexture(unpack(NSkin:GetStyle("window").header.divider))
-        local selectedColor = NSkin:GetStyle("options").selectedNavigation
+        local optionsStyle = NSkin:GetStyle("options")
+        local buttonStyle = NSkin:GetStyle("button")
+        NSkin:SkinFlatButton(reload, "Reload UI", nil, nil, 12)
         for i = 1, #self.navigationButtons do
-            self.navigationButtons[i].selectedBackground:SetColorTexture(unpack(selectedColor))
+            self.navigationButtons[i].selectedBackground:SetColorTexture(
+                unpack(optionsStyle.selectedNavigation)
+            )
         end
+        for i = 1, #pages do
+            local toggle = pages[i].moduleToggle
+            if toggle then
+                NSkin:CreateFlatBackground(toggle, nil, buttonStyle.background, buttonStyle.border)
+                toggle.check:SetColorTexture(unpack(optionsStyle.accent))
+            end
+        end
+        self:RefreshModuleNavigation()
         for i = 1, #pages do
             local page = pages[i].page
             if page and page.ApplyTheme then page:ApplyTheme() end
