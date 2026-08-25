@@ -6,7 +6,7 @@ NSkin.modules = NSkin.modules or {}
 NSkin.moduleDefinitions = {
     { key = "BlizzardProgressBars", label = "Progress Bars", defaultEnabled = false },
     { key = "EncounterJournal", label = "Adventure Journal", defaultEnabled = false },
-    { key = "ToyBox", label = "Collections (Toy Box and Heirlooms)", defaultEnabled = false },
+    { key = "Collections", label = "Collections", defaultEnabled = false },
     { key = "SpellBook", label = "Spellbook", defaultEnabled = false },
 }
 

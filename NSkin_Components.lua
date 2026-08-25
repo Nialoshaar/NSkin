@@ -105,16 +105,16 @@ function NSkin:SkinWindow(frame, backgroundAnchor)
     return background, border
 end
 
-function NSkin:SkinWindowHeader(owner, anchor)
-    if not owner or not anchor then return nil end
+function NSkin:SkinWindowHeader(frame)
+    if not frame then return nil end
 
     local style = self:GetStyle("window").header
-    local data = self:GetSkinData(owner, COMPONENT_STATE)
+    local data = self:GetSkinData(frame, COMPONENT_STATE)
     local background = data.windowHeaderBackground
     if not background then
-        background = owner:CreateTexture(nil, "BACKGROUND", nil, 7)
-        background:SetPoint("BOTTOMLEFT", anchor, "TOPLEFT", 0, 0)
-        background:SetPoint("BOTTOMRIGHT", anchor, "TOPRIGHT", 0, 0)
+        background = frame:CreateTexture(nil, "BACKGROUND", nil, 7)
+        background:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
+        background:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 0)
         data.windowHeaderBackground = background
     end
     background:SetHeight(style.height)

@@ -1,7 +1,7 @@
 local _, NSkin = ...
 
 local DEFAULT_PROFILE = "Default"
-local CURRENT_DATABASE_VERSION = 2
+local CURRENT_DATABASE_VERSION = 3
 local activeProfile
 
 local function CopyTable(source)
@@ -92,10 +92,24 @@ local function MigrateVersion2(database)
     end
 end
 
+local function MigrateVersion3(database)
+    for _, profile in pairs(database.profiles) do
+        local modules = profile.modules
+        if modules and modules.ToyBox ~= nil then
+            if modules.Collections == nil then
+                modules.Collections = modules.ToyBox
+            end
+            modules.ToyBox = nil
+            if not next(modules) then profile.modules = nil end
+        end
+    end
+end
+
 local function RunMigrations(database, activeProfileTable)
     local version = tonumber(database.version) or 0
     if version < 1 then MigrateVersion1(database, activeProfileTable) end
     if version < 2 then MigrateVersion2(database) end
+    if version < 3 then MigrateVersion3(database) end
     if version < CURRENT_DATABASE_VERSION then
         database.version = CURRENT_DATABASE_VERSION
     end

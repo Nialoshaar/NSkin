@@ -14,7 +14,7 @@ NSkin_Skin.lua
 NSkin_Components.lua
 Skins\NSkin_BlizzardProgressBars.lua
 Skins\NSkin_EncounterJournal.lua
-Skins\NSkin_ToyBox.lua
+Skins\NSkin_Collections.lua
 Skins\NSkin_SpellBook.lua
 Options\NSkin_General_Options.lua
 Options\NSkin_BlizzardProgressBars_Options.lua

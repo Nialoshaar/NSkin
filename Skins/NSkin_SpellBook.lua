@@ -126,7 +126,7 @@ local function SkinWindowButtons(playerSpells, spellBook)
     if closeButton then
         closeButton:SetSize(22, 22)
         closeButton:ClearAllPoints()
-        closeButton:SetPoint("BOTTOMRIGHT", spellBook, "TOPRIGHT", 0, 0)
+        closeButton:SetPoint("TOPRIGHT", playerSpells, "TOPRIGHT", 0, 0)
     end
     if expandFrame and closeButton then
         expandFrame:SetSize(22, 22)
@@ -170,12 +170,12 @@ local function SkinTitleBar(playerSpells, spellBook)
     if not playerSpells or not spellBook then return end
 
     if playerSpells.NineSlice then playerSpells.NineSlice:Hide() end
-    NSkin:SkinWindow(spellBook)
+    NSkin:SkinWindow(playerSpells)
     if playerSpells.TitleContainer and playerSpells.TitleContainer.TitleText then
         playerSpells.TitleContainer.TitleText:SetTextColor(unpack(NSkin:GetStyle("button").text))
     end
 
-    NSkin:SkinWindowHeader(playerSpells, spellBook)
+    NSkin:SkinWindowHeader(playerSpells)
 end
 
 local function RemoveSpellBookPortraitAndHelp(playerSpells, spellBook)
