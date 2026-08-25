@@ -29,7 +29,7 @@ NSkin.defaultTheme = {
         border = { 0.45, 0.45, 0.45, 1 },
         text = { 1, 1, 1, 1 },
         hoverAlpha = 0.10,
-        spacing = 0,
+        spacing = 4,
     },
 
     button = {

@@ -64,7 +64,9 @@ local function SkinSpellBookTabs()
 
     local style = NSkin:GetStyle("tab")
     NSkin:SkinTabSystem(spellBook.CategoryTabSystem, style)
+    NSkin:LayoutTabSystem(spellBook.CategoryTabSystem)
     NSkin:SkinTabSystem(playerSpells.TabSystem, style)
+    NSkin:LayoutTabSystem(playerSpells.TabSystem)
 end
 
 local function SkinSearchBox(searchBox)
@@ -420,6 +422,13 @@ function SpellBookSkin:Initialize()
     end
     if type(mixin.OnIconLeave) == "function" then
         _G.hooksecurefunc(mixin, "OnIconLeave", SkinSpellBookItem)
+    end
+
+    if type(playerSpells.UpdateTabs) == "function" then
+        _G.hooksecurefunc(playerSpells, "UpdateTabs", SkinSpellBookTabs)
+    end
+    if type(spellBook.UpdateAllSpellData) == "function" then
+        _G.hooksecurefunc(spellBook, "UpdateAllSpellData", SkinSpellBookTabs)
     end
 
     local pagedSpells = spellBook and spellBook.PagedSpellsFrame

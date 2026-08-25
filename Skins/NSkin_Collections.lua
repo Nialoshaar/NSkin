@@ -6,7 +6,6 @@ local TOYS_PER_PAGE = 18
 local BORDER_SIZE = 1
 local QUALITY_BORDER_KEY = "__NSkinCollectionQualityBorder"
 local COLLECTION_ITEM_STATE = "collectionItems"
-local DEFAULT_COLLECTION_TAB_COUNT = 6
 local WINDOW_BUTTON_TEXT_SIZE = 20
 local HEIRLOOM_QUALITY = _G.Enum and _G.Enum.ItemQuality and _G.Enum.ItemQuality.Heirloom or 7
 local Item = _G.C_Item
@@ -79,27 +78,47 @@ local function RemoveCollectionPageBackgrounds()
     end
 end
 
-local function SkinCollectionTabs()
+local function GetCollectionTabs(journal)
+    return {
+        journal.MountsTab,
+        journal.PetsTab,
+        journal.ToysTab,
+        journal.HeirloomsTab,
+        journal.WardrobeTab,
+        journal.WarbandScenesTab,
+    }
+end
+
+local function SkinCollectionTabs(selectedTab)
     local journal = _G.CollectionsJournal
     if not journal then return end
 
-    local selectedTab = _G.PanelTemplates_GetSelectedTab
-        and _G.PanelTemplates_GetSelectedTab(journal)
-    local tabCount = tonumber(journal.numTabs) or DEFAULT_COLLECTION_TAB_COUNT
+    selectedTab = selectedTab or (_G.PanelTemplates_GetSelectedTab
+        and _G.PanelTemplates_GetSelectedTab(journal))
+    local tabs = GetCollectionTabs(journal)
     local style = NSkin:GetStyle("tab")
-    for i = 1, tabCount do
-        local tab = _G["CollectionsJournalTab" .. i]
-        NSkin:SkinTab(tab, i == selectedTab, style)
-        if i > 1 and style.spacing ~= 0 then
-            NSkin:ApplyTabSpacing(tab,
-                _G["CollectionsJournalTab" .. (i - 1)], style.spacing)
-        end
+    for i = 1, #tabs do
+        NSkin:SkinTab(tabs[i], i == selectedTab, style)
     end
+    NSkin:LayoutTabGroup(tabs, {
+        orientation = "HORIZONTAL",
+        anchor = {
+            point = "TOPLEFT",
+            relativeTo = journal,
+            relativePoint = "BOTTOMLEFT",
+            x = 11,
+            y = 2,
+        },
+    })
 end
 
-function CollectionSkin:OnTabSet()
-    SkinCollectionTabs()
+function CollectionSkin:OnTabSet(_, selectedTab)
+    SkinCollectionTabs(selectedTab)
     RemoveCollectionPageBackgrounds()
+end
+
+function CollectionSkin:OnShow(selectedTab)
+    SkinCollectionTabs(selectedTab)
 end
 
 local function SkinCollectionsWindow()
@@ -200,6 +219,11 @@ function CollectionSkin:Initialize()
         _G.EventRegistry:RegisterCallback(
             "CollectionsJournal.TabSet",
             CollectionSkin.OnTabSet,
+            CollectionSkin
+        )
+        _G.EventRegistry:RegisterCallback(
+            "CollectionsJournal.OnShow",
+            CollectionSkin.OnShow,
             CollectionSkin
         )
         collectionsInitialized = true

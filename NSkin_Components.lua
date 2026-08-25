@@ -1,8 +1,6 @@
 local _, NSkin = ...
 
 local COMPONENT_STATE = "components"
-local TAB_SPACING_STATE = "tabSpacing"
-local spacedTabs = setmetatable({}, { __mode = "k" })
 
 -- Buttons Skinning
 local function ShowFlatButtonGlow(button)
@@ -151,82 +149,62 @@ function NSkin:SkinTab(tab, selected, style)
     if tab.Text then tab.Text:SetTextColor(unpack(style.text)) end
 end
 
-function NSkin:ApplyTabSpacing(tab, previousTab, spacing)
-    if type(spacing) ~= "number" or spacing == 0
-        or not tab or not previousTab or not tab.GetPoint or not tab.SetPoint
-        or (tab.IsForbidden and tab:IsForbidden())
-        or (tab.IsProtected and tab:IsProtected())
-        or (tab.GetNumPoints and tab:GetNumPoints() ~= 1)
+function NSkin:LayoutTabGroup(tabs, options)
+    if type(tabs) ~= "table" then return end
+    options = options or {}
+
+    local spacing = tonumber(options.spacing) or self:GetTabSpacing()
+    local vertical = options.orientation == "VERTICAL"
+    local anchor = options.anchor
+    local previous
+
+    for i = 1, #tabs do
+        local tab = tabs[i]
+        local usable = tab
+            and (not tab.IsShown or tab:IsShown())
+            and tab.ClearAllPoints and tab.SetPoint
+            and not (tab.IsForbidden and tab:IsForbidden())
+            and not (tab.IsProtected and tab:IsProtected())
+        if usable then
+            if not previous then
+                if anchor then
+                    tab:ClearAllPoints()
+                    tab:SetPoint(anchor.point, anchor.relativeTo,
+                        anchor.relativePoint, anchor.x or 0, anchor.y or 0)
+                end
+            else
+                tab:ClearAllPoints()
+                if vertical then
+                    tab:SetPoint("TOP", previous, "BOTTOM", 0, -spacing)
+                else
+                    tab:SetPoint("LEFT", previous, "RIGHT", spacing, 0)
+                end
+            end
+            previous = tab
+        end
+    end
+end
+
+function NSkin:LayoutTabSystem(tabSystem, options)
+    if not tabSystem or type(tabSystem.tabs) ~= "table"
+        or not tabSystem.MarkDirty
+        or (tabSystem.IsForbidden and tabSystem:IsForbidden())
+        or (tabSystem.IsProtected and tabSystem:IsProtected())
     then
         return
     end
 
-    local data = self:GetSkinData(tab, TAB_SPACING_STATE)
-    if not data.point then
-        local point, relativeTo, relativePoint, offsetX, offsetY = tab:GetPoint(1)
-        if relativeTo ~= previousTab then return end
-        data.point = point
-        data.relativeTo = relativeTo
-        data.relativePoint = relativePoint
-        data.offsetX = offsetX or 0
-        data.offsetY = offsetY or 0
-    elseif data.relativeTo ~= previousTab then
-        return
-    end
-
-    local offsetX = data.offsetX
-    local offsetY = data.offsetY
-    local point = data.point
-    local relativePoint = data.relativePoint
-    if point and relativePoint then
-        if point:find("LEFT", 1, true) and relativePoint:find("RIGHT", 1, true) then
-            offsetX = offsetX + spacing
-        elseif point:find("RIGHT", 1, true) and relativePoint:find("LEFT", 1, true) then
-            offsetX = offsetX - spacing
-        elseif point:find("TOP", 1, true) and relativePoint:find("BOTTOM", 1, true) then
-            offsetY = offsetY - spacing
-        elseif point:find("BOTTOM", 1, true) and relativePoint:find("TOP", 1, true) then
-            offsetY = offsetY + spacing
-        else
-            return
-        end
-    end
-
-    tab:ClearAllPoints()
-    tab:SetPoint(point, data.relativeTo, relativePoint, offsetX, offsetY)
-    spacedTabs[tab] = data
-end
-
-function NSkin:RestoreTabSpacing()
-    for tab, data in pairs(spacedTabs) do
-        if tab and data.point and tab.ClearAllPoints and tab.SetPoint
-            and not (tab.IsForbidden and tab:IsForbidden())
-            and not (tab.IsProtected and tab:IsProtected())
-        then
-            tab:ClearAllPoints()
-            tab:SetPoint(data.point, data.relativeTo, data.relativePoint,
-                data.offsetX, data.offsetY)
-        end
-        data.point = nil
-        data.relativeTo = nil
-        data.relativePoint = nil
-        data.offsetX = nil
-        data.offsetY = nil
-        spacedTabs[tab] = nil
-    end
+    tabSystem.spacing = tonumber(options and options.spacing) or self:GetTabSpacing()
+    tabSystem:MarkDirty()
 end
 
 function NSkin:SkinTabSystem(tabSystem, style)
     if not tabSystem or not tabSystem.tabs then return end
     style = style or self:GetStyle("tab")
-    local spacing = tonumber(style.spacing) or 0
 
     for i = 1, #tabSystem.tabs do
         local tab = tabSystem.tabs[i]
         local selected = tab and tab.IsSelected and tab:IsSelected()
         self:SkinTab(tab, selected, style)
-        if i > 1 and spacing ~= 0 then
-            self:ApplyTabSpacing(tab, tabSystem.tabs[i - 1], spacing)
-        end
     end
 end

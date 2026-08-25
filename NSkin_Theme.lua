@@ -94,17 +94,11 @@ function NSkin:SetTabSpacing(spacing)
     spacing = tonumber(spacing)
     if not spacing then return false end
     spacing = math.max(0, math.min(30, math.floor(spacing + 0.5)))
-    local changed = self:SetThemeOverride("tab.spacing", spacing)
-    if changed and spacing == 0 and self.RestoreTabSpacing then
-        self:RestoreTabSpacing()
-    end
-    return changed
+    return self:SetThemeOverride("tab.spacing", spacing)
 end
 
 function NSkin:ResetTabSpacing()
-    local changed = self:ResetThemeOverride("tab.spacing")
-    if changed and self.RestoreTabSpacing then self:RestoreTabSpacing() end
-    return changed
+    return self:ResetThemeOverride("tab.spacing")
 end
 
 function NSkin:InvalidateTheme()
