@@ -90,15 +90,32 @@ function NSkin:GetTabSpacing()
     return self:GetStyle("tab").spacing
 end
 
+local function RefreshTabLayouts()
+    NSkin:InvalidateTheme()
+    if NSkin.RefreshRegisteredTabGroups then NSkin:RefreshRegisteredTabGroups() end
+end
+
+local function SetTabLayoutOverride(path, value)
+    local defaultValue = GetPath(NSkin.defaultTheme, path, false)
+    local profile = NSkin:GetProfile()
+    profile.theme = profile.theme or {}
+    local _, parent, key = GetPath(profile.theme, path, true)
+    parent[key] = value == defaultValue and nil or value
+    PruneEmptyTables(profile.theme)
+    if not next(profile.theme) then profile.theme = nil end
+    RefreshTabLayouts()
+    return true
+end
+
 function NSkin:SetTabSpacing(spacing)
     spacing = tonumber(spacing)
     if not spacing then return false end
     spacing = math.max(-30, math.min(30, math.floor(spacing + 0.5)))
-    return self:SetThemeOverride("tab.spacing", spacing)
+    return SetTabLayoutOverride("tab.spacing", spacing)
 end
 
 function NSkin:ResetTabSpacing()
-    return self:ResetThemeOverride("tab.spacing")
+    return SetTabLayoutOverride("tab.spacing", self.defaultTheme.tab.spacing)
 end
 
 function NSkin:GetBottomTabAnchor()
@@ -145,7 +162,7 @@ function NSkin:SetBottomTabPlacement(placement)
     bottom.offsetY = edgeOffset == defaults.offsetY and nil or edgeOffset
     PruneEmptyTables(profile.theme)
     if not next(profile.theme) then profile.theme = nil end
-    self:RefreshTheme()
+    RefreshTabLayouts()
     return true
 end
 
@@ -153,28 +170,34 @@ function NSkin:SetBottomTabAnchor(anchor)
     if anchor ~= "LEFT" and anchor ~= "CENTER" and anchor ~= "RIGHT" then
         return false
     end
-    return self:SetThemeOverride("tab.bottom.anchor", anchor)
+    local placement = self:GetBottomTabPlacement()
+    placement.alignment = anchor
+    return self:SetBottomTabPlacement(placement)
 end
 
 function NSkin:SetBottomTabOffsetX(offset)
     offset = tonumber(offset)
     if not offset then return false end
-    offset = math.max(-100, math.min(100, math.floor(offset + 0.5)))
-    return self:SetThemeOverride("tab.bottom.offsetX", offset)
+    local placement = self:GetBottomTabPlacement()
+    placement.alongOffset = offset
+    return self:SetBottomTabPlacement(placement)
 end
 
 function NSkin:SetBottomTabOffsetY(offset)
     offset = tonumber(offset)
     if not offset then return false end
-    offset = math.max(-100, math.min(100, math.floor(offset + 0.5)))
-    return self:SetThemeOverride("tab.bottom.offsetY", offset)
+    local placement = self:GetBottomTabPlacement()
+    placement.edgeOffset = offset
+    return self:SetBottomTabPlacement(placement)
 end
 
 function NSkin:ResetBottomTabLayout()
-    local resetAnchor = self:ResetThemeOverride("tab.bottom.anchor")
-    local resetX = self:ResetThemeOverride("tab.bottom.offsetX")
-    local resetY = self:ResetThemeOverride("tab.bottom.offsetY")
-    return resetAnchor and resetX and resetY
+    local defaults = self.defaultTheme.tab.bottom
+    return self:SetBottomTabPlacement({
+        alignment = defaults.anchor,
+        alongOffset = defaults.offsetX,
+        edgeOffset = defaults.offsetY,
+    })
 end
 
 function NSkin:InvalidateTheme()

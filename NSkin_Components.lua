@@ -1,7 +1,24 @@
 local _, NSkin = ...
 
 local COMPONENT_STATE = "components"
-local editableTabGroups = {}
+local tabGroups = {}
+
+function NSkin:CreateOptionsSlider(parent, options)
+    if not parent then return nil end
+    options = options or {}
+    local slider = CreateFrame("Slider", nil, parent, "OptionsSliderTemplate")
+    slider:SetSize(options.width or 280, options.height or 18)
+    slider:SetMinMaxValues(options.min or 0, options.max or 100)
+    slider:SetValueStep(options.step or 1)
+    slider:SetObeyStepOnDrag(options.obeyStep ~= false)
+    if slider.Low then slider.Low:SetText(tostring(options.min or 0)) end
+    if slider.High then slider.High:SetText(tostring(options.max or 100)) end
+    if slider.Text then slider.Text:SetText(options.text or "") end
+    if type(options.onValueChanged) == "function" then
+        slider:SetScript("OnValueChanged", options.onValueChanged)
+    end
+    return slider
+end
 
 -- Buttons Skinning
 local function ShowFlatButtonGlow(button)
@@ -267,7 +284,7 @@ function NSkin:SkinTabSystem(tabSystem, style)
     end
 end
 
-function NSkin:RegisterEditableTabGroup(groupID, definition)
+function NSkin:RegisterTabGroup(groupID, definition)
     if type(groupID) ~= "string" or groupID == ""
         or type(definition) ~= "table"
         or not definition.owner
@@ -278,37 +295,32 @@ function NSkin:RegisterEditableTabGroup(groupID, definition)
         return false
     end
 
-    local group = editableTabGroups[groupID]
+    local group = tabGroups[groupID]
     if group then
         for key, value in pairs(definition) do group[key] = value end
     else
         group = definition
         group.id = groupID
-        editableTabGroups[groupID] = group
+        tabGroups[groupID] = group
     end
 
-    if self.OnEditableTabGroupRegistered then
-        self:OnEditableTabGroupRegistered(group)
+    if self.OnTabGroupRegistered then
+        self:OnTabGroupRegistered(group)
     end
     return true
 end
 
 function NSkin:GetTabGroup(groupID)
-    return editableTabGroups[groupID]
+    return tabGroups[groupID]
 end
 
 function NSkin:ForEachRegisteredTabGroup(callback)
     if type(callback) ~= "function" then return end
-    for _, group in pairs(editableTabGroups) do callback(group) end
-end
-
-function NSkin:SetTabGroupPlacement(groupID, placement)
-    if not editableTabGroups[groupID] or type(placement) ~= "table" then return false end
-    return self:SetBottomTabPlacement(placement)
+    for _, group in pairs(tabGroups) do callback(group) end
 end
 
 function NSkin:ApplyTabGroupLayout(groupID)
-    local group = editableTabGroups[groupID]
+    local group = tabGroups[groupID]
     if not group or (_G.InCombatLockdown and _G.InCombatLockdown()) then return false end
 
     local options = {
@@ -318,15 +330,21 @@ function NSkin:ApplyTabGroupLayout(groupID)
         spacing = self:GetTabSpacing(),
         placement = self:GetBottomTabPlacement(),
     }
+    local applied
     if group.container and group.container.MarkDirty then
-        return self:LayoutTabSystem(group.container, options) == true
+        applied = self:LayoutTabSystem(group.container, options) == true
+    else
+        applied = self:LayoutTabGroup(group.tabs, options) == true
     end
-    return self:LayoutTabGroup(group.tabs, options) == true
+    if applied and self.OnTabGroupLayoutApplied then
+        self:OnTabGroupLayoutApplied(group)
+    end
+    return applied
 end
 
 function NSkin:RefreshRegisteredTabGroups()
     if _G.InCombatLockdown and _G.InCombatLockdown() then return false end
-    for groupID in pairs(editableTabGroups) do
+    for groupID in pairs(tabGroups) do
         self:ApplyTabGroupLayout(groupID)
     end
     return true

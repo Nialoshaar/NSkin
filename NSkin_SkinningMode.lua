@@ -2,6 +2,7 @@ local _, NSkin = ...
 
 local controller
 local ALIGNMENT_ORDER = { "LEFT", "CENTER", "RIGHT" }
+local StopDrag
 
 local function CreateLabel(parent, text, point, relativeTo, relativePoint, x, y)
     local label = parent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -18,52 +19,32 @@ local function CreateButton(parent, text, width, callback)
     return button
 end
 
-local function SetControlsEnabled(enabled)
-    if not controller then return end
-    for i = 1, #controller.controls do
-        local control = controller.controls[i]
-        control:SetEnabled(enabled)
-        control:SetAlpha(enabled and 1 or 0.35)
+local function LoadEditorOptions(group)
+    for _, view in pairs(controller.optionViews) do
+        view:SetContext(nil)
+        view:Hide()
     end
-    controller.inspector.alongValue:SetAlpha(enabled and 1 or 0.35)
-    controller.inspector.edgeValue:SetAlpha(enabled and 1 or 0.35)
+    local id = group and group.editorOptions
+    if not id then return end
+    local view = controller.optionViews[id]
+    if not view then
+        view = NSkin:CreateOptionGroupView(controller.inspector, id, "COMPACT", group)
+        if not view then return end
+        view:SetPoint("TOPLEFT", controller.inspector, "TOPLEFT", 24, -70)
+        controller.optionViews[id] = view
+    else
+        view:SetContext(group)
+    end
+    view:Show()
 end
 
 local function RefreshInspector()
     if not controller then return end
     local group = controller.selectedGroup
-    if not group then
-        controller.inspector.selection:SetText("Select an element")
-        controller.inspector.alongValue:SetText("-")
-        controller.inspector.edgeValue:SetText("-")
-        controller.inspector.alignmentDropdown:SetDefaultText("Alignment")
-        SetControlsEnabled(false)
-        return
-    end
-
-    local placement = NSkin:GetBottomTabPlacement()
     controller.inspector.selection:SetText(
-        "Selected : " .. (group.label or group.id)
+        group and ("Selected : " .. (group.label or group.id)) or "Select an element"
     )
-    controller.inspector.alongValue:SetText(tostring(placement.alongOffset))
-    controller.inspector.edgeValue:SetText(tostring(placement.edgeOffset))
-    controller.inspector.alignmentDropdown:SetDefaultText(
-        placement.alignment:sub(1, 1) .. placement.alignment:sub(2):lower()
-    )
-    controller.refreshing = true
-    controller.inspector.alongSlider:SetValue(placement.alongOffset)
-    controller.inspector.edgeSlider:SetValue(placement.edgeOffset)
-    controller.refreshing = false
-    SetControlsEnabled(true)
-end
-
-local function ApplyPlacementChange(change)
-    local group = controller and controller.selectedGroup
-    if not group then return end
-    local placement = NSkin:GetBottomTabPlacement()
-    change(placement)
-    NSkin:SetTabGroupPlacement(group.id, placement)
-    RefreshInspector()
+    LoadEditorOptions(group)
 end
 
 local function DockInspector(group)
@@ -78,45 +59,21 @@ local function DockInspector(group)
     end
 end
 
-local function CreateAlignmentDropdown(parent)
-    local dropdown = CreateFrame("DropdownButton", nil, parent, "WowStyle1DropdownTemplate")
-    dropdown:SetSize(210, 24)
-    dropdown:SetDefaultText("Alignment")
-    dropdown:SetupMenu(function(_, rootDescription)
-        for i = 1, #ALIGNMENT_ORDER do
-            local alignment = ALIGNMENT_ORDER[i]
-            local label = alignment:sub(1, 1) .. alignment:sub(2):lower()
-            rootDescription:CreateRadio(
-                label,
-                function(value)
-                    return NSkin:GetBottomTabPlacement().alignment == value
-                end,
-                function(value)
-                    ApplyPlacementChange(function(placement)
-                        placement.alignment = value
-                    end)
-                end,
-                alignment
-            )
+local function DockWithoutSelection(excludedGroup)
+    controller.selectedGroup = nil
+    local visibleGroup
+    NSkin:ForEachRegisteredTabGroup(function(group)
+        if not visibleGroup and group ~= excludedGroup and group.owner:IsShown() then
+            visibleGroup = group
         end
     end)
-    return dropdown
-end
-
-local function CreateOffsetSlider(parent, callback)
-    local slider = CreateFrame("Slider", nil, parent, "OptionsSliderTemplate")
-    slider:SetSize(210, 18)
-    slider:SetMinMaxValues(-100, 100)
-    slider:SetValueStep(1)
-    slider:SetObeyStepOnDrag(true)
-    if slider.Low then slider.Low:SetText("-100") end
-    if slider.High then slider.High:SetText("100") end
-    if slider.Text then slider.Text:SetText("") end
-    slider:SetScript("OnValueChanged", function(_, value)
-        value = math.floor(value + 0.5)
-        if not controller.refreshing then callback(value) end
-    end)
-    return slider
+    if visibleGroup then
+        DockInspector(visibleGroup)
+    else
+        controller.inspector:ClearAllPoints()
+        controller.inspector:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+    end
+    RefreshInspector()
 end
 
 local function SelectGroup(group)
@@ -138,7 +95,7 @@ local function PointInFrame(x, y, frame)
         and x >= left and x <= right and y >= bottom and y <= top
 end
 
-local function StopDrag(apply)
+StopDrag = function(apply)
     if not controller.dragging then return end
     local alignment = controller.hoveredAlignment
     controller.dragging = false
@@ -149,10 +106,12 @@ local function StopDrag(apply)
     end
     controller.hoveredAlignment = nil
     if apply and alignment then
-        ApplyPlacementChange(function(placement)
-            placement.alignment = alignment
-            placement.alongOffset = 0
-        end)
+        local placement = NSkin:GetBottomTabPlacement()
+        placement.alignment = alignment
+        placement.alongOffset = 0
+        local group = controller.selectedGroup
+        local view = group and controller.optionViews[group.editorOptions]
+        if view then view:SetValues(placement) end
     end
 end
 
@@ -250,6 +209,14 @@ local function CreateOverlay(group)
         BeginDrag()
     end)
     overlay:SetScript("OnDragStop", function() StopDrag(true) end)
+    overlay:SetScript("OnHide", function()
+        if controller.enabled and controller.selectedGroup == group
+            and not group.owner:IsShown()
+        then
+            StopDrag(false)
+            DockWithoutSelection(group)
+        end
+    end)
     overlay:Hide()
     controller.overlays[group.id] = overlay
     return overlay
@@ -264,7 +231,7 @@ end
 
 local function CreateController()
     if controller then return controller end
-    controller = { controls = {}, overlays = {}, dropZones = {} }
+    controller = { optionViews = {}, overlays = {}, dropZones = {} }
 
     local inspector = CreateFrame("Frame", nil, UIParent)
     inspector:SetSize(250, 310)
@@ -277,44 +244,6 @@ local function CreateController()
     end)
     close:SetPoint("TOPRIGHT", inspector, "TOPRIGHT", 0, 0)
     inspector.selection = CreateLabel(inspector, "Select an element", "TOPLEFT", inspector, "TOPLEFT", 12, -34)
-
-    CreateLabel(inspector, "Alignment", "TOPLEFT", inspector, "TOPLEFT", 12, -72)
-    local alignmentDropdown = CreateAlignmentDropdown(inspector)
-    alignmentDropdown:SetPoint("TOPLEFT", inspector, "TOPLEFT", 12, -88)
-    controller.controls[#controller.controls + 1] = alignmentDropdown
-    inspector.alignmentDropdown = alignmentDropdown
-
-    CreateLabel(inspector, "X offset", "TOPLEFT", inspector, "TOPLEFT", 12, -132)
-    inspector.alongValue = CreateLabel(inspector, "-", "TOPRIGHT", inspector, "TOPRIGHT", -12, -132)
-    local alongSlider = CreateOffsetSlider(inspector, function(value)
-        ApplyPlacementChange(function(placement) placement.alongOffset = value end)
-    end)
-    alongSlider:SetPoint("TOPLEFT", inspector, "TOPLEFT", 20, -158)
-    controller.controls[#controller.controls + 1] = alongSlider
-    inspector.alongSlider = alongSlider
-
-    CreateLabel(inspector, "Y offset", "TOPLEFT", inspector, "TOPLEFT", 12, -202)
-    inspector.edgeValue = CreateLabel(inspector, "-", "TOPRIGHT", inspector, "TOPRIGHT", -12, -202)
-    local edgeSlider = CreateOffsetSlider(inspector, function(value)
-        ApplyPlacementChange(function(placement) placement.edgeOffset = value end)
-    end)
-    edgeSlider:SetPoint("TOPLEFT", inspector, "TOPLEFT", 20, -228)
-    controller.controls[#controller.controls + 1] = edgeSlider
-    inspector.edgeSlider = edgeSlider
-
-    local reset = CreateButton(inspector, "Reset", 58, function()
-        local group = controller.selectedGroup
-        if not group then return end
-        local defaults = NSkin.defaultTheme.tab.bottom
-        NSkin:SetTabGroupPlacement(group.id, {
-            alignment = defaults.anchor,
-            alongOffset = defaults.offsetX,
-            edgeOffset = defaults.offsetY,
-        })
-        RefreshInspector()
-    end)
-    reset:SetPoint("BOTTOM", inspector, "BOTTOM", 0, 12)
-    controller.controls[#controller.controls + 1] = reset
     controller.inspector = inspector
 
     local ghost = CreateFrame("Frame", nil, UIParent)
@@ -346,8 +275,19 @@ local function CreateController()
     return controller
 end
 
-function NSkin:OnEditableTabGroupRegistered(group)
+local function HandleTabGroupRegistered(group)
     ShowGroupOverlay(group)
+    if controller and controller.enabled and not controller.selectedGroup
+        and group.owner:IsShown()
+    then
+        DockInspector(group)
+    end
+end
+
+local function HandleTabGroupLayoutApplied(group)
+    if not controller then return end
+    local overlay = controller.overlays[group.id]
+    if overlay then AnchorOverlay(overlay, group) end
 end
 
 function NSkin:SetSkinningModeEnabled(enabled)
@@ -362,16 +302,17 @@ function NSkin:SetSkinningModeEnabled(enabled)
     if controller.enabled == enabled then return true end
     controller.enabled = enabled
     if enabled then
-        controller.selectedGroup = nil
-        controller.inspector:ClearAllPoints()
-        controller.inspector:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+        self.OnTabGroupRegistered = HandleTabGroupRegistered
+        self.OnTabGroupLayoutApplied = HandleTabGroupLayoutApplied
         controller.inspector:Show()
-        RefreshInspector()
+        DockWithoutSelection()
         self:ForEachRegisteredTabGroup(ShowGroupOverlay)
         controller.eventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
         self:Print("Skinning Mode enabled. Select a highlighted element.")
     else
         StopDrag(false)
+        self.OnTabGroupRegistered = nil
+        self.OnTabGroupLayoutApplied = nil
         controller.eventFrame:UnregisterAllEvents()
         for _, overlay in pairs(controller.overlays) do overlay:Hide() end
         controller.inspector:Hide()

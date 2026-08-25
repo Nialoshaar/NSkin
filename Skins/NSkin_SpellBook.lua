@@ -438,8 +438,9 @@ function SpellBookSkin:Initialize()
         _G.hooksecurefunc(spellBook, "UpdateAllSpellData", SkinSpellBookTabs)
     end
 
-    NSkin:RegisterEditableTabGroup(TAB_GROUP_ID, {
+    NSkin:RegisterTabGroup(TAB_GROUP_ID, {
         label = "Spellbook tabs",
+        editorOptions = "tabs.layout",
         owner = playerSpells,
         container = playerSpells.TabSystem,
         orientation = "HORIZONTAL",

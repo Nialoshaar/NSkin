@@ -220,8 +220,9 @@ function CollectionSkin:Initialize()
     if not canSkinCollections or (not canSkinToys and not canSkinHeirlooms) then return false end
 
     if not collectionsInitialized then
-        NSkin:RegisterEditableTabGroup(TAB_GROUP_ID, {
+        NSkin:RegisterTabGroup(TAB_GROUP_ID, {
             label = "Collections tabs",
+            editorOptions = "tabs.layout",
             owner = journal,
             tabs = GetCollectionTabs(journal),
             orientation = "HORIZONTAL",

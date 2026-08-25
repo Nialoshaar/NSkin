@@ -1,10 +1,10 @@
 ## Interface: 120007, 120100
 ## Title: NSkin
 ## Notes: Lightweight, modular skins for the Blizzard interface.
-## Author: Nialo
+## Author: Nialoshaar
 ## Version: 2.0.0
 ## SavedVariables: NSkinDB
-## IconTexture: Interface\AddOns\NialoSkin\Media\Icon.tga
+## IconTexture: Interface\AddOns\NSkin\Media\Icon.tga
 
 NSkin_Core.lua
 NSkin_Default.lua
@@ -12,6 +12,7 @@ NSkin_Database.lua
 NSkin_Theme.lua
 NSkin_Skin.lua
 NSkin_Components.lua
+NSkin_Options.lua
 NSkin_SkinningMode.lua
 Skins\NSkin_BlizzardProgressBars.lua
 Skins\NSkin_EncounterJournal.lua
