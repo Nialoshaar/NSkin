@@ -386,6 +386,47 @@ function NSkin:ForEachRegisteredSkinningElement(callback)
     for _, element in pairs(skinningElements) do callback(element) end
 end
 
+function NSkin:GetSkinningElement(elementID)
+    return skinningElements[elementID]
+end
+
+function NSkin:IsSkinningElementEditable(element)
+    if not element then return false end
+    return type(element.isEditable) ~= "function" or element.isEditable(element) == true
+end
+
+function NSkin:LayoutWindowElement(element, placement)
+    local target = element and element.target
+    local window = element and element.window
+    if not target or not window or type(placement) ~= "table"
+        or not target.ClearAllPoints or not target.SetPoint
+        or (target.IsProtected and target:IsProtected())
+        or (_G.InCombatLockdown and _G.InCombatLockdown())
+    then
+        return false
+    end
+    local edge = placement.edge
+    local side = placement.side
+    local alignment = placement.alignment
+    if (edge ~= "TOP" and edge ~= "BOTTOM")
+        or (side ~= "INSIDE" and side ~= "OUTSIDE")
+        or (alignment ~= "LEFT" and alignment ~= "CENTER" and alignment ~= "RIGHT")
+    then return false end
+    local point
+    if edge == "TOP" then point = side == "INSIDE" and "TOP" or "BOTTOM"
+    else point = side == "INSIDE" and "BOTTOM" or "TOP" end
+    local relativePoint = edge
+    if alignment ~= "CENTER" then
+        point = point .. alignment
+        relativePoint = relativePoint .. alignment
+    end
+    target:ClearAllPoints()
+    target:SetPoint(point, window, relativePoint,
+        tonumber(placement.alongOffset) or 0, tonumber(placement.edgeOffset) or 0)
+    self:NotifySkinningElementBoundsChanged(element.id)
+    return true
+end
+
 function NSkin:GetSkinningElementBounds(element)
     if not element then return end
     if type(element.getHighlightBounds) == "function" then

@@ -200,7 +200,8 @@ local function UpdateDrag()
 end
 
 local function BeginDrag(element)
-    if not element or element.kind ~= "TAB_GROUP" or controller.dragging then return end
+    if not element or (element.kind ~= "TAB_GROUP" and not element.draggable)
+        or controller.dragging then return end
     controller.dragging = true
     RefreshAllOverlayAppearances()
     local overlay = controller.overlays[element.id]
@@ -245,14 +246,15 @@ StopDrag = function(apply)
     controller.hoveredDropTarget = nil
     RefreshAllOverlayAppearances()
     if apply and target then
-        local placement = NSkin:GetTabPlacement()
+        local element = controller.selectedElement
+        local view = element and controller.optionViews[element.editorOptions]
+        local placement = view and view.definition.get(view.context)
+            or NSkin:GetTabPlacement()
         placement.edge = target.edge
         placement.side = target.side
         placement.alignment = target.alignment
         placement.alongOffset = 0
         placement.edgeOffset = 0
-        local element = controller.selectedElement
-        local view = element and controller.optionViews[element.editorOptions]
         if view then view:SetValues(placement) end
     end
 end
@@ -280,7 +282,7 @@ local function CreateOverlay(element)
         RefreshOverlayAppearance(element)
     end)
     overlay:SetScript("OnClick", function() SelectElement(element) end)
-    if element.kind == "TAB_GROUP" then
+    if element.kind == "TAB_GROUP" or element.draggable then
         overlay:RegisterForDrag("LeftButton")
         overlay:SetScript("OnDragStart", function()
             SelectElement(element)
@@ -308,6 +310,10 @@ end
 local function ShowElementOverlay(element)
     if not controller or not controller.enabled then return end
     local overlay = controller.overlays[element.id] or CreateOverlay(element)
+    if not NSkin:IsSkinningElementEditable(element) then
+        overlay:Hide()
+        return
+    end
     AnchorOverlay(overlay, element)
     RefreshOverlayAppearance(element)
     -- Keep it logically shown while its parent is hidden so its effective
@@ -323,6 +329,10 @@ end
 local function HandleElementBoundsChanged(_, element)
     local overlay = controller and controller.overlays[element.id]
     if not overlay then return end
+    if not NSkin:IsSkinningElementEditable(element) then
+        overlay:Hide()
+        return
+    end
     if AnchorOverlay(overlay, element) then overlay:Show() else overlay:Hide() end
 end
 
