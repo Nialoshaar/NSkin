@@ -130,26 +130,33 @@ function NSkin:GetBottomTabOffsetY()
     return self:GetStyle("tab").bottom.offsetY
 end
 
-function NSkin:GetBottomTabPlacement()
+function NSkin:GetTabPlacement()
     local layout = self:GetStyle("tab").bottom
     return {
+        edge = layout.edge or "BOTTOM",
+        side = layout.side or "OUTSIDE",
         alignment = layout.anchor,
         alongOffset = layout.offsetX,
         edgeOffset = layout.offsetY,
     }
 end
 
-function NSkin:SetBottomTabPlacement(placement)
+function NSkin:SetTabPlacement(placement)
     if type(placement) ~= "table" then return false end
     local alignment = placement.alignment
     if alignment ~= "LEFT" and alignment ~= "CENTER" and alignment ~= "RIGHT" then
         return false
     end
+    local current = self:GetTabPlacement()
+    local edge = placement.edge or current.edge
+    local side = placement.side or current.side
+    if edge ~= "TOP" and edge ~= "BOTTOM" then return false end
+    if side ~= "INSIDE" and side ~= "OUTSIDE" then return false end
     local alongOffset = tonumber(placement.alongOffset)
     local edgeOffset = tonumber(placement.edgeOffset)
     if not alongOffset or not edgeOffset then return false end
-    alongOffset = math.max(-100, math.min(100, math.floor(alongOffset + 0.5)))
-    edgeOffset = math.max(-100, math.min(100, math.floor(edgeOffset + 0.5)))
+    alongOffset = math.max(-500, math.min(500, math.floor(alongOffset + 0.5)))
+    edgeOffset = math.max(-200, math.min(200, math.floor(edgeOffset + 0.5)))
 
     local profile = self:GetProfile()
     profile.theme = profile.theme or {}
@@ -157,6 +164,8 @@ function NSkin:SetBottomTabPlacement(placement)
     profile.theme.tab.bottom = profile.theme.tab.bottom or {}
     local bottom = profile.theme.tab.bottom
     local defaults = self.defaultTheme.tab.bottom
+    bottom.edge = edge == defaults.edge and nil or edge
+    bottom.side = side == defaults.side and nil or side
     bottom.anchor = alignment == defaults.anchor and nil or alignment
     bottom.offsetX = alongOffset == defaults.offsetX and nil or alongOffset
     bottom.offsetY = edgeOffset == defaults.offsetY and nil or edgeOffset
@@ -166,38 +175,53 @@ function NSkin:SetBottomTabPlacement(placement)
     return true
 end
 
+function NSkin:GetBottomTabPlacement()
+    return self:GetTabPlacement()
+end
+
+function NSkin:SetBottomTabPlacement(placement)
+    return self:SetTabPlacement(placement)
+end
+
 function NSkin:SetBottomTabAnchor(anchor)
     if anchor ~= "LEFT" and anchor ~= "CENTER" and anchor ~= "RIGHT" then
         return false
     end
-    local placement = self:GetBottomTabPlacement()
+    local placement = self:GetTabPlacement()
     placement.alignment = anchor
-    return self:SetBottomTabPlacement(placement)
+    return self:SetTabPlacement(placement)
 end
 
 function NSkin:SetBottomTabOffsetX(offset)
     offset = tonumber(offset)
     if not offset then return false end
-    local placement = self:GetBottomTabPlacement()
+    local placement = self:GetTabPlacement()
     placement.alongOffset = offset
-    return self:SetBottomTabPlacement(placement)
+    return self:SetTabPlacement(placement)
 end
 
 function NSkin:SetBottomTabOffsetY(offset)
     offset = tonumber(offset)
     if not offset then return false end
-    local placement = self:GetBottomTabPlacement()
+    local placement = self:GetTabPlacement()
     placement.edgeOffset = offset
-    return self:SetBottomTabPlacement(placement)
+    return self:SetTabPlacement(placement)
 end
 
-function NSkin:ResetBottomTabLayout()
+function NSkin:ResetTabLayout()
     local defaults = self.defaultTheme.tab.bottom
-    return self:SetBottomTabPlacement({
+    return self:SetTabPlacement({
+        edge = defaults.edge,
+        side = defaults.side,
         alignment = defaults.anchor,
         alongOffset = defaults.offsetX,
         edgeOffset = defaults.offsetY,
     })
+end
+
+
+function NSkin:ResetBottomTabLayout()
+    return self:ResetTabLayout()
 end
 
 function NSkin:InvalidateTheme()

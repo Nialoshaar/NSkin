@@ -215,8 +215,10 @@ function NSkin:LayoutTabGroup(tabs, options)
     local edge = options.edge
     local previous
 
-    if owner and edge == "BOTTOM" then
+    if owner and not vertical and (edge == "BOTTOM" or edge == "TOP") then
         local layout = options.placement or self:GetStyle("tab").bottom
+        edge = layout.edge or edge
+        local side = layout.side or "OUTSIDE"
         local visibleCount = 0
         local totalWidth = 0
         for i = 1, #tabs do
@@ -227,17 +229,21 @@ function NSkin:LayoutTabGroup(tabs, options)
             end
         end
         totalWidth = totalWidth + math.max(0, visibleCount - 1) * spacing
-        local relativePoint = "BOTTOMLEFT"
+        local relativePoint = edge .. "LEFT"
         local alignment = layout.alignment or layout.anchor
         local startX = layout.alongOffset or layout.offsetX or 0
         if alignment == "CENTER" then
-            relativePoint = "BOTTOM"
+            relativePoint = edge
             startX = startX - totalWidth / 2
         elseif alignment == "RIGHT" then
-            relativePoint = "BOTTOMRIGHT"
+            relativePoint = edge .. "RIGHT"
             startX = startX - totalWidth
         end
-        anchorPoint = "TOPLEFT"
+        if edge == "TOP" then
+            anchorPoint = side == "INSIDE" and "TOPLEFT" or "BOTTOMLEFT"
+        else
+            anchorPoint = side == "INSIDE" and "BOTTOMLEFT" or "TOPLEFT"
+        end
         anchorRelativeTo = owner
         anchorRelativePoint = relativePoint
         anchorX = startX
@@ -284,19 +290,28 @@ function NSkin:LayoutTabSystem(tabSystem, options)
     tabSystem.spacing = tonumber(options and options.spacing) or self:GetTabSpacing()
     tabSystem:MarkDirty()
 
-    if options and options.owner and options.edge == "BOTTOM" then
+    if options and options.owner
+        and (options.edge == "BOTTOM" or options.edge == "TOP")
+    then
         local layout = options.placement or self:GetStyle("tab").bottom
+        local edge = layout.edge or options.edge
+        local side = layout.side or "OUTSIDE"
         local alignment = layout.alignment or layout.anchor
         local alongOffset = layout.alongOffset or layout.offsetX or 0
         local edgeOffset = layout.edgeOffset or layout.offsetY or 0
-        local point = "TOPLEFT"
-        local relativePoint = "BOTTOMLEFT"
+        local point
+        if edge == "TOP" then
+            point = side == "INSIDE" and "TOPLEFT" or "BOTTOMLEFT"
+        else
+            point = side == "INSIDE" and "BOTTOMLEFT" or "TOPLEFT"
+        end
+        local relativePoint = edge .. "LEFT"
         if alignment == "CENTER" then
-            point = "TOP"
-            relativePoint = "BOTTOM"
+            point = point:gsub("LEFT", "")
+            relativePoint = edge
         elseif alignment == "RIGHT" then
-            point = "TOPRIGHT"
-            relativePoint = "BOTTOMRIGHT"
+            point = point:gsub("LEFT", "RIGHT")
+            relativePoint = edge .. "RIGHT"
         end
         tabSystem:ClearAllPoints()
         tabSystem:SetPoint(point, options.owner, relativePoint,
@@ -321,7 +336,7 @@ function NSkin:RegisterTabGroup(groupID, definition)
         or type(definition) ~= "table"
         or not (definition.window or definition.owner)
         or definition.orientation ~= "HORIZONTAL"
-        or definition.edge ~= "BOTTOM"
+        or (definition.edge ~= "BOTTOM" and definition.edge ~= "TOP")
         or (not definition.container and type(definition.tabs) ~= "table")
     then
         return false
@@ -416,6 +431,32 @@ function NSkin:GetTabGroup(groupID)
     return tabGroups[groupID]
 end
 
+function NSkin:GetTabGroupPlacement(groupID)
+    local group = tabGroups[groupID]
+    if group and type(group.getPlacement) == "function" then
+        return group.getPlacement(group)
+    end
+    return self:GetTabPlacement()
+end
+
+function NSkin:SetTabGroupPlacement(groupID, placement)
+    local group = tabGroups[groupID]
+    if not group then return self:SetTabPlacement(placement) end
+    if type(group.setPlacement) == "function" then
+        return group.setPlacement(group, placement) == true
+    end
+    return self:SetTabPlacement(placement)
+end
+
+function NSkin:ResetTabGroupPlacement(groupID)
+    local group = tabGroups[groupID]
+    if not group then return self:ResetTabLayout() end
+    if type(group.resetPlacement) == "function" then
+        return group.resetPlacement(group) == true
+    end
+    return self:ResetTabLayout()
+end
+
 function NSkin:ForEachRegisteredTabGroup(callback)
     if type(callback) ~= "function" then return end
     for _, group in pairs(tabGroups) do callback(group) end
@@ -424,13 +465,16 @@ end
 function NSkin:ApplyTabGroupLayout(groupID)
     local group = tabGroups[groupID]
     if not group or (_G.InCombatLockdown and _G.InCombatLockdown()) then return false end
+    if type(group.hasPlacement) == "function" and not group.hasPlacement(group) then
+        return false
+    end
 
     local options = {
         owner = group.window,
         edge = group.edge,
         orientation = group.orientation,
         spacing = self:GetTabSpacing(),
-        placement = self:GetBottomTabPlacement(),
+        placement = self:GetTabGroupPlacement(groupID),
     }
     local applied
     if group.container and group.container.MarkDirty then

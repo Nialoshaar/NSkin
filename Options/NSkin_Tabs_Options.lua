@@ -4,8 +4,29 @@ NSkin:RegisterOptionGroup("tabs.layout", {
     controls = {
         {
             type = "DROPDOWN",
+            key = "edge",
+            label = "Window edge",
+            order = 1,
+            values = {
+                { value = "TOP", label = "Top" },
+                { value = "BOTTOM", label = "Bottom" },
+            },
+        },
+        {
+            type = "DROPDOWN",
+            key = "side",
+            label = "Border side",
+            order = 2,
+            values = {
+                { value = "INSIDE", label = "Inside" },
+                { value = "OUTSIDE", label = "Outside" },
+            },
+        },
+        {
+            type = "DROPDOWN",
             key = "alignment",
             label = "Alignment",
+            order = 3,
             values = {
                 { value = "LEFT", label = "Left" },
                 { value = "CENTER", label = "Center" },
@@ -16,21 +37,21 @@ NSkin:RegisterOptionGroup("tabs.layout", {
             type = "SLIDER",
             key = "alongOffset",
             label = "X offset",
-            min = -100,
-            max = 100,
+            min = -500,
+            max = 500,
             step = 1,
             suffix = " px",
-            order = 2,
+            order = 4,
         },
         {
             type = "SLIDER",
             key = "edgeOffset",
             label = "Y offset",
-            min = -100,
-            max = 100,
+            min = -200,
+            max = 200,
             step = 1,
             suffix = " px",
-            order = 3,
+            order = 5,
         },
         {
             type = "SLIDER",
@@ -40,35 +61,39 @@ NSkin:RegisterOptionGroup("tabs.layout", {
             max = 30,
             step = 1,
             suffix = " px",
-            order = 4,
+            order = 6,
         },
         { type = "RESET", label = "Reset Default", compactLabel = "Reset" },
     },
-    get = function()
-        local values = NSkin:GetBottomTabPlacement()
+    get = function(context)
+        local values = NSkin:GetTabGroupPlacement(context.id)
         values.spacing = NSkin:GetTabSpacing()
         return values
     end,
-    set = function(_, values)
-        local currentPlacement = NSkin:GetBottomTabPlacement()
+    set = function(context, values)
+        local currentPlacement = NSkin:GetTabGroupPlacement(context.id)
         local placementChanged = values.alignment ~= nil
-            and (values.alignment ~= currentPlacement.alignment
+            and (values.edge ~= currentPlacement.edge
+                or values.side ~= currentPlacement.side
+                or values.alignment ~= currentPlacement.alignment
                 or values.alongOffset ~= currentPlacement.alongOffset
                 or values.edgeOffset ~= currentPlacement.edgeOffset)
         local spacingChanged = values.spacing ~= nil
             and values.spacing ~= NSkin:GetTabSpacing()
         local changed
         if placementChanged then
-            changed = NSkin:SetBottomTabPlacement(values) or changed
+            changed = NSkin:SetTabGroupPlacement(context.id, values) or changed
         end
         if spacingChanged then
             changed = NSkin:SetTabSpacing(values.spacing) or changed
         end
         return changed == true
     end,
-    reset = function()
-        local changed = NSkin:ResetBottomTabLayout()
-        changed = NSkin:ResetTabSpacing() or changed
+    reset = function(context)
+        local changed = NSkin:ResetTabGroupPlacement(context.id)
+        if not context.independentPlacement then
+            changed = NSkin:ResetTabSpacing() or changed
+        end
         return changed == true
     end,
 })

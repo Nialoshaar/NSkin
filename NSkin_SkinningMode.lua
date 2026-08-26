@@ -2,6 +2,24 @@ local _, NSkin = ...
 
 local controller
 local ALIGNMENT_ORDER = { "LEFT", "CENTER", "RIGHT" }
+local EDGE_ORDER = { "TOP", "BOTTOM" }
+local SIDE_ORDER = { "INSIDE", "OUTSIDE" }
+local DROP_TARGETS = {}
+for edgeIndex = 1, #EDGE_ORDER do
+    for sideIndex = 1, #SIDE_ORDER do
+        for alignmentIndex = 1, #ALIGNMENT_ORDER do
+            local edge = EDGE_ORDER[edgeIndex]
+            local side = SIDE_ORDER[sideIndex]
+            local alignment = ALIGNMENT_ORDER[alignmentIndex]
+            DROP_TARGETS[#DROP_TARGETS + 1] = {
+                edge = edge,
+                side = side,
+                alignment = alignment,
+                label = edge .. " " .. side .. " " .. alignment,
+            }
+        end
+    end
+end
 local TRANSPARENT = { 0, 0, 0, 0 }
 local StopDrag
 
@@ -55,10 +73,16 @@ local function RefreshOverlayAppearance(element)
     if not overlay then return end
     local style = NSkin:GetStyle("skinningMode")
     local selected = controller.selectedElement == element
-    local visible = selected or overlay.hovered == true
+    local visible = selected or (not controller.dragging and overlay.hovered == true)
     overlay.texture:SetColorTexture(unpack(visible and style.highlight or TRANSPARENT))
     NSkin:SetPixelBorderColor(overlay.border, unpack(style.hover))
-    NSkin:SetPixelBorderShown(overlay.border, selected or overlay.hovered == true)
+    NSkin:SetPixelBorderShown(overlay.border, visible)
+end
+
+local function RefreshAllOverlayAppearances()
+    for _, element in pairs(controller.overlayElements) do
+        RefreshOverlayAppearance(element)
+    end
 end
 
 local function ResizeInspector(view)
@@ -152,20 +176,33 @@ local function UpdateDrag()
     local x, y = GetCursorUIPosition()
     controller.ghost:ClearAllPoints()
     controller.ghost:SetPoint("CENTER", UIParent, "BOTTOMLEFT", x, y)
-    controller.hoveredAlignment = nil
+    controller.hoveredDropTarget = nil
     local style = NSkin:GetStyle("skinningMode")
-    for i = 1, #ALIGNMENT_ORDER do
-        local alignment = ALIGNMENT_ORDER[i]
-        local zone = controller.dropZones[alignment]
+    local hoveredZone
+    local closestDistance
+    for i = 1, #DROP_TARGETS do
+        local target = DROP_TARGETS[i]
+        local zone = controller.dropZones[i]
         local hovered = PointInFrame(x, y, zone)
-        zone.texture:SetColorTexture(unpack(hovered and style.activeDropZone or style.dropZone))
-        if hovered then controller.hoveredAlignment = alignment end
+        zone.texture:SetColorTexture(unpack(style.dropZone))
+        if hovered then
+            local zoneX, zoneY = zone:GetCenter()
+            local distance = zoneX and zoneY
+                and ((x - zoneX) * (x - zoneX) + (y - zoneY) * (y - zoneY))
+            if distance and (not closestDistance or distance < closestDistance) then
+                closestDistance = distance
+                hoveredZone = zone
+                controller.hoveredDropTarget = target
+            end
+        end
     end
+    if hoveredZone then hoveredZone.texture:SetColorTexture(unpack(style.activeDropZone)) end
 end
 
 local function BeginDrag(element)
     if not element or element.kind ~= "TAB_GROUP" or controller.dragging then return end
     controller.dragging = true
+    RefreshAllOverlayAppearances()
     local overlay = controller.overlays[element.id]
     controller.ghost:SetSize(math.max(80, overlay and overlay:GetWidth() or 80),
         math.max(20, overlay and overlay:GetHeight() or 20))
@@ -173,18 +210,25 @@ local function BeginDrag(element)
     controller.ghost:Show()
 
     local window = element.window
-    local zoneWidth = (window:GetWidth() or 0) / 3
-    for i = 1, #ALIGNMENT_ORDER do
-        local alignment = ALIGNMENT_ORDER[i]
-        local zone = controller.dropZones[alignment]
-        zone:ClearAllPoints()
-        zone:SetSize(zoneWidth, math.max(28, controller.ghost:GetHeight() + 8))
-        if alignment == "LEFT" then
-            zone:SetPoint("TOPLEFT", window, "BOTTOMLEFT", 0, 0)
-        elseif alignment == "CENTER" then
-            zone:SetPoint("TOP", window, "BOTTOM", 0, 0)
+    local zoneWidth = controller.ghost:GetWidth()
+    local zoneHeight = controller.ghost:GetHeight()
+    for i = 1, #DROP_TARGETS do
+        local target = DROP_TARGETS[i]
+        local zone = controller.dropZones[i]
+        local verticalPoint
+        if target.edge == "TOP" then
+            verticalPoint = target.side == "INSIDE" and "TOP" or "BOTTOM"
         else
-            zone:SetPoint("TOPRIGHT", window, "BOTTOMRIGHT", 0, 0)
+            verticalPoint = target.side == "INSIDE" and "BOTTOM" or "TOP"
+        end
+        zone:ClearAllPoints()
+        zone:SetSize(zoneWidth, zoneHeight)
+        if target.alignment == "LEFT" then
+            zone:SetPoint(verticalPoint .. "LEFT", window, target.edge .. "LEFT", 0, 0)
+        elseif target.alignment == "CENTER" then
+            zone:SetPoint(verticalPoint, window, target.edge, 0, 0)
+        else
+            zone:SetPoint(verticalPoint .. "RIGHT", window, target.edge .. "RIGHT", 0, 0)
         end
         zone:Show()
     end
@@ -193,16 +237,20 @@ end
 
 StopDrag = function(apply)
     if not controller.dragging then return end
-    local alignment = controller.hoveredAlignment
+    local target = controller.hoveredDropTarget
     controller.dragging = false
     controller.dragFrame:SetScript("OnUpdate", nil)
     controller.ghost:Hide()
-    for i = 1, #ALIGNMENT_ORDER do controller.dropZones[ALIGNMENT_ORDER[i]]:Hide() end
-    controller.hoveredAlignment = nil
-    if apply and alignment then
-        local placement = NSkin:GetBottomTabPlacement()
-        placement.alignment = alignment
+    for i = 1, #DROP_TARGETS do controller.dropZones[i]:Hide() end
+    controller.hoveredDropTarget = nil
+    RefreshAllOverlayAppearances()
+    if apply and target then
+        local placement = NSkin:GetTabPlacement()
+        placement.edge = target.edge
+        placement.side = target.side
+        placement.alignment = target.alignment
         placement.alongOffset = 0
+        placement.edgeOffset = 0
         local element = controller.selectedElement
         local view = element and controller.optionViews[element.editorOptions]
         if view then view:SetValues(placement) end
@@ -253,6 +301,7 @@ local function CreateOverlay(element)
         end
     end)
     controller.overlays[element.id] = overlay
+    controller.overlayElements[element.id] = element
     return overlay
 end
 
@@ -279,7 +328,12 @@ end
 
 local function CreateController()
     if controller then return controller end
-    controller = { optionViews = {}, overlays = {}, dropZones = {} }
+    controller = {
+        optionViews = {},
+        overlays = {},
+        overlayElements = {},
+        dropZones = {},
+    }
 
     local inspector = CreateFrame("Frame", nil, UIParent)
     inspector:SetSize(250, 130)
@@ -318,13 +372,16 @@ local function CreateController()
     ghost:Hide()
     controller.ghost = ghost
 
-    for i = 1, #ALIGNMENT_ORDER do
+    for i = 1, #DROP_TARGETS do
         local zone = CreateFrame("Frame", nil, UIParent)
-        zone:SetFrameStrata("DIALOG")
+        zone:SetFrameStrata("TOOLTIP")
         zone.texture = zone:CreateTexture(nil, "BACKGROUND")
         zone.texture:SetAllPoints()
+        zone.label = zone:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        zone.label:SetPoint("CENTER")
+        zone.label:SetText(DROP_TARGETS[i].label)
         zone:Hide()
-        controller.dropZones[ALIGNMENT_ORDER[i]] = zone
+        controller.dropZones[i] = zone
     end
 
     controller.dragFrame = CreateFrame("Frame")

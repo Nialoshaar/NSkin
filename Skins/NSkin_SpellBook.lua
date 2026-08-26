@@ -17,7 +17,16 @@ local assistedCombatDivider
 local initialized = false
 local bottomTabLayout = { edge = "BOTTOM" }
 local TAB_GROUP_ID = "SpellBook.MainTabs"
+local CATEGORY_TAB_GROUP_ID = "SpellBook.CategoryTabs"
 local WINDOW_ELEMENT_ID = "SpellBook.Window"
+local categoryTabOriginalPoints
+local CATEGORY_TAB_DEFAULT = {
+    edge = "TOP",
+    side = "INSIDE",
+    alignment = "LEFT",
+    alongOffset = 0,
+    edgeOffset = 0,
+}
 
 function NSkin:GetSpellBookTextSize()
     local defaults = self.defaultModuleOptions.SpellBook
@@ -78,6 +87,83 @@ function NSkin:SetSpellBookAssistantHidden(hidden)
     return true
 end
 
+local function CopyPlacement(placement)
+    return {
+        edge = placement.edge,
+        side = placement.side,
+        alignment = placement.alignment,
+        alongOffset = placement.alongOffset,
+        edgeOffset = placement.edgeOffset,
+    }
+end
+
+local function GetCategoryTabPlacementOptions()
+    local options = NSkin:GetModuleOptions("SpellBook", false)
+    return options and options.categoryTabsPlacement
+end
+
+local function HasCategoryTabPlacement()
+    return GetCategoryTabPlacementOptions() ~= nil
+end
+
+local function GetCategoryTabPlacement()
+    return CopyPlacement(GetCategoryTabPlacementOptions() or CATEGORY_TAB_DEFAULT)
+end
+
+local function SetCategoryTabPlacement(_, placement)
+    if type(placement) ~= "table" then return false end
+    local edge = placement.edge
+    local side = placement.side
+    local alignment = placement.alignment
+    local alongOffset = tonumber(placement.alongOffset)
+    local edgeOffset = tonumber(placement.edgeOffset)
+    if (edge ~= "TOP" and edge ~= "BOTTOM")
+        or (side ~= "INSIDE" and side ~= "OUTSIDE")
+        or (alignment ~= "LEFT" and alignment ~= "CENTER" and alignment ~= "RIGHT")
+        or not alongOffset or not edgeOffset
+    then
+        return false
+    end
+    local options = NSkin:GetModuleOptions("SpellBook", true)
+    options.categoryTabsPlacement = {
+        edge = edge,
+        side = side,
+        alignment = alignment,
+        alongOffset = math.max(-500, math.min(500, math.floor(alongOffset + 0.5))),
+        edgeOffset = math.max(-200, math.min(200, math.floor(edgeOffset + 0.5))),
+    }
+    NSkin:ApplyTabGroupLayout(CATEGORY_TAB_GROUP_ID)
+    return true
+end
+
+local function RestoreCategoryTabAnchors(tabSystem)
+    if not tabSystem or not categoryTabOriginalPoints
+        or (_G.InCombatLockdown and _G.InCombatLockdown())
+    then
+        return false
+    end
+    tabSystem:ClearAllPoints()
+    for i = 1, #categoryTabOriginalPoints do
+        tabSystem:SetPoint(unpack(categoryTabOriginalPoints[i]))
+    end
+    if tabSystem.MarkDirty then tabSystem:MarkDirty() end
+    NSkin:NotifySkinningElementBoundsChanged(CATEGORY_TAB_GROUP_ID)
+    return true
+end
+
+local function ResetCategoryTabPlacement(group)
+    local options = NSkin:GetModuleOptions("SpellBook", false)
+    if options then
+        options.categoryTabsPlacement = nil
+        local profile = NSkin:GetProfile()
+        if not next(options) then profile.moduleOptions.SpellBook = nil end
+        if profile.moduleOptions and not next(profile.moduleOptions) then
+            profile.moduleOptions = nil
+        end
+    end
+    return RestoreCategoryTabAnchors(group.container)
+end
+
 local function SetFontSize(fontString, size)
     if not fontString or not size then return end
 
@@ -93,6 +179,9 @@ local function SkinSpellBookTabs()
     local style = NSkin:GetStyle("tab")
     NSkin:SkinTabSystem(spellBook.CategoryTabSystem, style)
     NSkin:LayoutTabSystem(spellBook.CategoryTabSystem)
+    if NSkin:GetTabGroup(CATEGORY_TAB_GROUP_ID) then
+        NSkin:ApplyTabGroupLayout(CATEGORY_TAB_GROUP_ID)
+    end
     NSkin:SkinTabSystem(playerSpells.TabSystem, style)
     if NSkin:GetTabGroup(TAB_GROUP_ID) then
         NSkin:ApplyTabGroupLayout(TAB_GROUP_ID)
@@ -500,6 +589,29 @@ function SpellBookSkin:Initialize()
         orientation = "HORIZONTAL",
         edge = "BOTTOM",
     })
+    local categoryTabSystem = spellBook.CategoryTabSystem
+    if categoryTabSystem and not categoryTabOriginalPoints then
+        categoryTabOriginalPoints = {}
+        for i = 1, categoryTabSystem:GetNumPoints() do
+            categoryTabOriginalPoints[i] = { categoryTabSystem:GetPoint(i) }
+        end
+    end
+    NSkin:RegisterTabGroup(CATEGORY_TAB_GROUP_ID, {
+        label = "Spellbook class tabs",
+        kind = "TAB_GROUP",
+        editorOptions = "tabs.layout",
+        independentPlacement = true,
+        window = playerSpells,
+        target = categoryTabSystem,
+        container = categoryTabSystem,
+        priority = 60,
+        orientation = "HORIZONTAL",
+        edge = "TOP",
+        hasPlacement = HasCategoryTabPlacement,
+        getPlacement = GetCategoryTabPlacement,
+        setPlacement = SetCategoryTabPlacement,
+        resetPlacement = ResetCategoryTabPlacement,
+    })
     NSkin:RegisterSkinningElement(WINDOW_ELEMENT_ID, {
         label = "Spellbook window",
         kind = "WINDOW",
@@ -529,6 +641,7 @@ function SpellBookSkin:RefreshTheme()
     if initialized then
         SkinActiveSpellBookItems()
         NSkin:ApplyTabGroupLayout(TAB_GROUP_ID)
+        NSkin:ApplyTabGroupLayout(CATEGORY_TAB_GROUP_ID)
     end
 end
 
