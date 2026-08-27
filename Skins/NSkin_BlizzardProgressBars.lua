@@ -158,11 +158,12 @@ end
 
 local function CreateBackdrop(bar)
     local style = NSkin:GetStyle("progressBar")
+    local borderColor = NSkin:GetWindowBorderColor()
     local data = NSkin:GetSkinData(bar, PROGRESS_STATE)
     if data.progressBackground then
         data.progressBackground:SetColorTexture(unpack(style.background))
         NSkin:SetPixelBorderColor(NSkin:GetPixelBorder(bar, PROGRESS_BORDER_KEY),
-            unpack(NSkin:GetBorderAccentColor()))
+            unpack(borderColor))
         return
     end
 
@@ -176,7 +177,7 @@ local function CreateBackdrop(bar)
         bar,
         PROGRESS_BORDER_KEY,
         BORDER_SIZE,
-        NSkin:GetBorderAccentColor(),
+        borderColor,
         true
     )
     if border then
@@ -201,14 +202,33 @@ local function CenterText(bar)
     for i = 1, #regions do Center(regions[i]) end
 end
 
+local ApplyStatusBarColor
+
+local function EnsureAccentColorHook(bar)
+    local data = NSkin:GetSkinData(bar, PROGRESS_STATE)
+    if data.accentColorHooked then return true end
+    if not hooksecurefunc then return false end
+
+    data.blizzardRed, data.blizzardGreen, data.blizzardBlue,
+        data.blizzardAlpha = bar:GetStatusBarColor()
+    local hooked = pcall(hooksecurefunc, bar, "SetStatusBarColor",
+        function(self, red, green, blue, alpha)
+            local hookedData = NSkin:GetSkinData(self, PROGRESS_STATE, false)
+            if not hookedData or hookedData.applyingColor then return end
+            hookedData.blizzardRed, hookedData.blizzardGreen = red, green
+            hookedData.blizzardBlue, hookedData.blizzardAlpha = blue, alpha
+            if NSkin:IsAccentColorEnabled() then ApplyStatusBarColor(self) end
+        end)
+    data.accentColorHooked = hooked == true
+    return data.accentColorHooked
+end
+
 local function ApplyTexture(bar)
     local data = NSkin:GetSkinData(bar, PROGRESS_STATE)
     if data.applyingTexture then return end
     data.applyingTexture = true
 
-    -- Preserve the tint selected by Blizzard for this specific widget (purple,
-    -- green, blue, and so on) while replacing only the texture.
-    local red, green, blue, alpha = bar:GetStatusBarColor()
+    -- Preserve Blizzard's tint unless the optional shared accent is active.
     bar:SetStatusBarTexture(NSkin:GetStatusBarTexture())
     local fill = bar:GetStatusBarTexture()
     if fill then
@@ -232,7 +252,9 @@ local function ApplyTexture(bar)
         end
     end
 
-    bar:SetStatusBarColor(red, green, blue, alpha)
+    if data.accentColorHooked or NSkin:IsAccentColorEnabled() then
+        ApplyStatusBarColor(bar)
+    end
     if data.progressBackground then data.progressBackground:Show() end
 
     data.applyingTexture = false
@@ -262,6 +284,29 @@ local function StyleBar(bar)
     StripWidgetArt(bar)
     ApplyTexture(bar)
     CenterText(bar)
+end
+
+ApplyStatusBarColor = function(bar)
+    local data = NSkin:GetSkinData(bar, PROGRESS_STATE)
+    local red, green, blue, alpha
+    if NSkin:IsAccentColorEnabled() then
+        if not EnsureAccentColorHook(bar) then return end
+        red, green, blue, alpha = unpack(NSkin:GetAccentColor())
+    else
+        red, green, blue, alpha = data.blizzardRed, data.blizzardGreen,
+            data.blizzardBlue, data.blizzardAlpha
+    end
+    if red == nil then return end
+
+    data.applyingColor = true
+    bar:SetStatusBarColor(red, green, blue, alpha)
+    data.applyingColor = false
+end
+
+function NSkin:SkinProgressBar(bar)
+    if not IsStatusBar(bar) then return false end
+    StyleBar(bar)
+    return true
 end
 
 local scenarioArtKeys = {

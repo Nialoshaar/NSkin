@@ -18,9 +18,10 @@ local function BuildBorderOptions(optionsFrame)
     description:SetPoint("RIGHT", optionsFrame, "RIGHT", -20, 0)
     description:SetJustifyH("LEFT")
     description:SetText(
-        "Choose the accent color used by NSkin windows, tabs, buttons, "
-        .. "search boxes, progress bars, and cards. Icon and item-quality "
-        .. "borders keep their own colors."
+        "Choose the shared border color used by NSkin. Optionally enable an "
+        .. "accent color for windows, tabs, search boxes, buttons, and "
+        .. "progress-bar fills and borders. "
+        .. "Icon and item-quality borders keep their own colors."
     )
 
     local colorLabel = page:CreateFontString(nil, "ARTWORK", "GameFontNormal")
@@ -35,6 +36,25 @@ local function BuildBorderOptions(optionsFrame)
     reset:SetSize(110, 24)
     reset:SetPoint("TOPLEFT", colorLabel, "BOTTOMLEFT", 0, -20)
     if reset:GetFontString() then reset:GetFontString():SetAlpha(0) end
+
+    local accentToggle = CreateFrame("CheckButton", nil, page, "UICheckButtonTemplate")
+    accentToggle:SetPoint("TOPLEFT", reset, "BOTTOMLEFT", -4, -18)
+    if accentToggle.Text then
+        accentToggle.Text:SetText("Use accent for shared controls and progress bars")
+    end
+
+    local accentLabel = page:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    accentLabel:SetPoint("TOPLEFT", accentToggle, "BOTTOMLEFT", 4, -16)
+    accentLabel:SetText("Accent color")
+
+    local accentSwatch = CreateFrame("Button", nil, page)
+    accentSwatch:SetSize(64, 24)
+    accentSwatch:SetPoint("LEFT", accentLabel, "RIGHT", 12, 0)
+
+    local resetAccent = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
+    resetAccent:SetSize(110, 24)
+    resetAccent:SetPoint("TOPLEFT", accentLabel, "BOTTOMLEFT", 0, -20)
+    if resetAccent:GetFontString() then resetAccent:GetFontString():SetAlpha(0) end
 
     local function ApplyPickerColor()
         local red, green, blue = ColorPickerFrame:GetColorRGB()
@@ -57,8 +77,39 @@ local function BuildBorderOptions(optionsFrame)
         ColorPickerFrame:SetupColorPickerAndShow(info)
     end)
 
+    local function ApplyAccentPickerColor()
+        local red, green, blue = ColorPickerFrame:GetColorRGB()
+        NSkin:SetAccentColor({ red, green, blue, 1 })
+        page:Refresh()
+    end
+
+    accentSwatch:SetScript("OnClick", function()
+        local previousColor = CopyColor(NSkin:GetAccentColor())
+        local info = {
+            r = previousColor[1],
+            g = previousColor[2],
+            b = previousColor[3],
+            swatchFunc = ApplyAccentPickerColor,
+            cancelFunc = function()
+                NSkin:SetAccentColor(previousColor)
+                page:Refresh()
+            end,
+        }
+        ColorPickerFrame:SetupColorPickerAndShow(info)
+    end)
+
+    accentToggle:SetScript("OnClick", function(self)
+        NSkin:SetAccentColorEnabled(self:GetChecked() == true)
+        page:Refresh()
+    end)
+
     reset:SetScript("OnClick", function()
         NSkin:ResetBorderAccentColor()
+        page:Refresh()
+    end)
+
+    resetAccent:SetScript("OnClick", function()
+        NSkin:ResetAccentColor()
         page:Refresh()
     end)
 
@@ -67,7 +118,11 @@ local function BuildBorderOptions(optionsFrame)
         local buttonStyle = NSkin:GetStyle("button")
         NSkin:CreateFlatBackground(swatch, "NSkinBorderColorSwatch",
             color, buttonStyle.border)
+        NSkin:CreateFlatBackground(accentSwatch, "NSkinAccentColorSwatch",
+            NSkin:GetAccentColor(), buttonStyle.border)
         NSkin:SkinFlatButton(reset, "Reset Default", nil, nil, 12)
+        NSkin:SkinFlatButton(resetAccent, "Reset Accent", nil, nil, 12)
+        accentToggle:SetChecked(NSkin:IsAccentColorEnabled())
     end
 
     function page:Refresh()

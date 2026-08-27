@@ -129,7 +129,7 @@ function NSkin:SkinFlatButton(button, label, backgroundColor, borderColor,
 
     local style = self:GetStyle("button")
     backgroundColor = backgroundColor or style.background
-    borderColor = borderColor or self:GetBorderAccentColor()
+    borderColor = borderColor or self:GetSharedBorderColor()
 
     local background = self:GetFlatBackground(button)
     if not background then
@@ -140,6 +140,56 @@ function NSkin:SkinFlatButton(button, label, backgroundColor, borderColor,
     self:CreateFlatButtonGlow(button, style.hoverAlpha)
     local text = self:SetFlatButtonLabel(button, label, labelSize, labelOffsetX, labelOffsetY)
     if text then text:SetTextColor(unpack(style.text)) end
+end
+
+function NSkin:SkinSearchBox(searchBox)
+    if not searchBox then return end
+
+    local searchIcon = searchBox.SearchIcon or searchBox.searchIcon
+    if not self:GetFlatBackground(searchBox) then
+        self:HideTextureRegions(searchBox, searchIcon)
+    end
+    local style = self:GetStyle("searchBox")
+    self:CreateFlatBackground(
+        searchBox, nil, style.background, self:GetSharedBorderColor()
+    )
+    if searchBox.SetTextColor then searchBox:SetTextColor(unpack(style.text)) end
+    local instructions = searchBox.Instructions or searchBox.instructions
+    if instructions then
+        instructions:SetTextColor(unpack(style.placeholderText))
+    end
+    if searchIcon then searchIcon:Show() end
+end
+
+local function RefreshPagingButton(button)
+    local data = NSkin:GetSkinData(button, COMPONENT_STATE, false)
+    if data and data.label then
+        local enabled = not button.IsEnabled or button:IsEnabled()
+        data.label:SetAlpha(enabled and 1 or 0.35)
+    end
+end
+
+local function SkinPagingButton(button, label, textSize)
+    if not button then return end
+    NSkin:SkinFlatButton(button, label, nil, nil, textSize)
+    local data = NSkin:GetSkinData(button, COMPONENT_STATE)
+    if not data.pagingStateHooked and button.HookScript then
+        button:HookScript("OnEnable", RefreshPagingButton)
+        button:HookScript("OnDisable", RefreshPagingButton)
+        data.pagingStateHooked = true
+    end
+    RefreshPagingButton(button)
+end
+
+function NSkin:SkinPagingControls(pagingControls, textSize)
+    if not pagingControls then return end
+
+    local previous = pagingControls.PrevPageButton or pagingControls.prevPageButton
+    local nextPage = pagingControls.NextPageButton or pagingControls.nextPageButton
+    local pageText = pagingControls.PageText or pagingControls.pageText
+    SkinPagingButton(previous, "<", textSize or 16)
+    SkinPagingButton(nextPage, ">", textSize or 16)
+    if pageText then pageText:SetTextColor(unpack(self:GetStyle("button").text)) end
 end
 
 -- Windows Skinning
@@ -159,10 +209,10 @@ function NSkin:SkinWindow(frame, backgroundAnchor)
     background:SetColorTexture(unpack(style.background))
 
     local border = self:CreatePixelBorder(
-        frame, "NSkinWindowBorder", style.borderSize, self:GetBorderAccentColor(), false, anchor
+        frame, "NSkinWindowBorder", style.borderSize, self:GetWindowBorderColor(), false, anchor
     )
     self:SetPixelBorderSize(border, style.borderSize)
-    self:SetPixelBorderColor(border, unpack(self:GetBorderAccentColor()))
+    self:SetPixelBorderColor(border, unpack(self:GetWindowBorderColor()))
     return background, border
 end
 
@@ -199,11 +249,13 @@ function NSkin:SkinTab(tab, selected, style)
             _G.hooksecurefunc(tab, "SetTabSelected", RefreshTabSelection)
         end
         self:HideTextureRegions(tab)
-        background = self:CreateFlatBackground(tab, nil, style.background, self:GetBorderAccentColor())
+        background = self:CreateFlatBackground(tab, nil, style.background,
+            self:GetSharedBorderColor())
     end
 
     self:CreateFlatButtonGlow(tab, style.hoverAlpha)
-    self:SetPixelBorderColor(self:GetPixelBorder(tab, "NSkinFlatBackgroundBorder"), unpack(self:GetBorderAccentColor()))
+    self:SetPixelBorderColor(self:GetPixelBorder(tab, "NSkinFlatBackgroundBorder"),
+        unpack(self:GetSharedBorderColor()))
     background:SetColorTexture(unpack(
         selected and style.selectedBackground or style.background
     ))

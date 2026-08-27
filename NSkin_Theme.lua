@@ -92,6 +92,36 @@ function NSkin:ResetBorderAccentColor()
     return self:ResetThemeOverride("window.border")
 end
 
+function NSkin:IsAccentColorEnabled()
+    return self:GetStyle("accent").enabled == true
+end
+
+function NSkin:GetAccentColor()
+    return self:GetStyle("accent").color
+end
+
+function NSkin:SetAccentColorEnabled(enabled)
+    return self:SetThemeOverride("accent.enabled", enabled == true)
+end
+
+function NSkin:SetAccentColor(color)
+    if type(color) ~= "table" then return false end
+    return self:SetThemeOverride("accent.color", color)
+end
+
+function NSkin:ResetAccentColor()
+    return self:ResetThemeOverride("accent.color")
+end
+
+function NSkin:GetSharedBorderColor()
+    if self:IsAccentColorEnabled() then return self:GetAccentColor() end
+    return self:GetBorderAccentColor()
+end
+
+function NSkin:GetWindowBorderColor()
+    return self:GetSharedBorderColor()
+end
+
 function NSkin:GetTabSpacing()
     return self:GetStyle("tab").spacing
 end

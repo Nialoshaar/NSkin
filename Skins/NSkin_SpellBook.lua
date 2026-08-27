@@ -475,47 +475,6 @@ local function SkinSpellBookTabs()
     end
 end
 
-local function SkinSearchBox(searchBox)
-    if not searchBox then return end
-
-    local searchIcon = searchBox.SearchIcon or searchBox.searchIcon
-    if not NSkin:GetFlatBackground(searchBox) then
-        NSkin:HideTextureRegions(searchBox, searchIcon)
-    end
-    local style = NSkin:GetStyle("searchBox")
-    NSkin:CreateFlatBackground(
-        searchBox, nil, style.background, NSkin:GetBorderAccentColor()
-    )
-    searchBox:SetTextColor(unpack(style.text))
-    if searchBox.Instructions then
-        searchBox.Instructions:SetTextColor(unpack(style.placeholderText))
-    end
-    if searchIcon then searchIcon:Show() end
-end
-
-local function SkinPagingControls(pagingControls)
-    if not pagingControls then return end
-
-    NSkin:SkinFlatButton(pagingControls.PrevPageButton, "<", nil, nil,
-        PAGING_BUTTON_TEXT_SIZE)
-    NSkin:SkinFlatButton(pagingControls.NextPageButton, ">", nil, nil,
-        PAGING_BUTTON_TEXT_SIZE)
-    if pagingControls.PageText then
-        pagingControls.PageText:SetTextColor(unpack(NSkin:GetStyle("button").text))
-    end
-
-    local previous = pagingControls.PrevPageButton
-    local nextPage = pagingControls.NextPageButton
-    local previousData = previous and NSkin:GetSkinData(previous, "components", false)
-    local nextData = nextPage and NSkin:GetSkinData(nextPage, "components", false)
-    if previousData and previousData.label then
-        previousData.label:SetAlpha(previous:IsEnabled() and 1 or 0.35)
-    end
-    if nextData and nextData.label then
-        nextData.label:SetAlpha(nextPage:IsEnabled() and 1 or 0.35)
-    end
-end
-
 local function SkinWindowButtons(playerSpells, spellBook)
     if not playerSpells or not spellBook then return end
 
@@ -648,8 +607,9 @@ local function SkinSpellBookControls()
     RemoveSpellBookPortraitAndHelp(playerSpells, spellBook)
     SkinTitleBar(playerSpells, spellBook)
     SkinSpellBookTabs()
-    SkinSearchBox(spellBook.SearchBox)
-    SkinPagingControls(pagedSpells and pagedSpells.PagingControls)
+    NSkin:SkinSearchBox(spellBook.SearchBox)
+    NSkin:SkinPagingControls(pagedSpells and pagedSpells.PagingControls,
+        PAGING_BUTTON_TEXT_SIZE)
     SkinAssistedCombat(spellBook.AssistedCombatRotationSpellFrame)
     SkinWindowButtons(playerSpells, spellBook)
 end
@@ -959,16 +919,35 @@ function SpellBookSkin:Initialize()
         end
     end
     RegisterMovableElement(PAGINATION_ELEMENT_ID, "Spellbook pagination", playerSpells,
-        pagingControls, "spellbook.pagination", defaultBottom, nil, 70)
+        pagingControls, "shared.pagination", defaultBottom, nil, 70)
     RegisterMovableElement(PREVIOUS_ELEMENT_ID, "Previous page button", playerSpells,
-        pagingControls and pagingControls.PrevPageButton, "spellbook.pagination", defaultBottom,
+        pagingControls and pagingControls.PrevPageButton, "shared.pagination", defaultBottom,
         function() return NSkin:GetSpellBookPaginationSeparateButtons() end, 90)
     RegisterMovableElement(NEXT_ELEMENT_ID, "Next page button", playerSpells,
-        pagingControls and pagingControls.NextPageButton, "spellbook.pagination", defaultBottom,
+        pagingControls and pagingControls.NextPageButton, "shared.pagination", defaultBottom,
         function() return NSkin:GetSpellBookPaginationSeparateButtons() end, 90)
     RegisterMovableElement(PAGE_TEXT_ELEMENT_ID, "Page text", playerSpells,
-        pagingControls and pagingControls.PageText, "spellbook.pagination", defaultBottom,
+        pagingControls and pagingControls.PageText, "shared.pagination", defaultBottom,
         function() return NSkin:GetSpellBookPaginationTextMode() == "INDEPENDENT" end, 100)
+    for _, id in ipairs({ PAGINATION_ELEMENT_ID, PREVIOUS_ELEMENT_ID,
+        NEXT_ELEMENT_ID, PAGE_TEXT_ELEMENT_ID })
+    do
+        local element = NSkin:GetSkinningElement(id)
+        if element then
+            element.getPaginationSeparateButtons = function()
+                return NSkin:GetSpellBookPaginationSeparateButtons()
+            end
+            element.setPaginationSeparateButtons = function(_, value)
+                return NSkin:SetSpellBookPaginationSeparateButtons(value)
+            end
+            element.getPaginationTextMode = function()
+                return NSkin:GetSpellBookPaginationTextMode()
+            end
+            element.setPaginationTextMode = function(_, mode)
+                return NSkin:SetSpellBookPaginationTextMode(mode)
+            end
+        end
+    end
     local movableOptions = NSkin:GetModuleOptions("SpellBook", false)
     if movableOptions and (movableOptions.separatePaginationButtons
         or movableOptions.paginationTextMode
@@ -995,6 +974,7 @@ end
 
 function SpellBookSkin:RefreshTheme()
     if initialized then
+        SkinSpellBookControls()
         SkinActiveSpellBookItems()
         NSkin:ApplyTabGroupLayout(TAB_GROUP_ID)
         NSkin:ApplyTabGroupLayout(CATEGORY_TAB_GROUP_ID)

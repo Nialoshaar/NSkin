@@ -292,7 +292,7 @@ local function CreateOptionsWindow()
             local toggle = pages[i].moduleToggle
             if toggle then
                 NSkin:CreateFlatBackground(toggle, nil, buttonStyle.background,
-                    NSkin:GetBorderAccentColor())
+                    NSkin:GetSharedBorderColor())
                 toggle.check:SetColorTexture(unpack(optionsStyle.accent))
             end
         end

@@ -66,6 +66,21 @@ end
 
 local function AnchorOverlay(overlay, element)
     overlay:ClearAllPoints()
+    if element and type(element.anchorHighlight) == "function"
+        and element.anchorHighlight(element, overlay) == true
+    then
+        return true
+    end
+    if element and element.kind ~= "TAB_GROUP"
+        and type(element.getHighlightBounds) ~= "function"
+        and element.target and element.target.IsShown and element.target:IsShown()
+    then
+        -- Ordinary movable elements already expose the exact frame to
+        -- highlight. Anchoring directly avoids applying a scaled window's
+        -- coordinate conversion twice.
+        overlay:SetAllPoints(element.target)
+        return true
+    end
     local left, right, bottom, top = GetElementBounds(element)
     if not left then return false end
     overlay:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top)
@@ -378,6 +393,10 @@ local function BeginDrag(element)
     local overlay = controller.overlays[element.id]
     controller.dragWidth = math.max(1, overlay and overlay:GetWidth() or 1)
     controller.dragHeight = math.max(1, overlay and overlay:GetHeight() or 1)
+    -- Keep the ghost in the edited window's coordinate space. A UIParent
+    -- ghost is the wrong size and offset when Blizzard scales the window.
+    controller.ghost:SetParent(window)
+    controller.ghost:SetScale(1)
     controller.ghost:SetSize(controller.dragWidth, controller.dragHeight)
     controller.ghost.texture:SetColorTexture(unpack(NSkin:GetStyle("skinningMode").ghost))
     controller.ghost:Hide()

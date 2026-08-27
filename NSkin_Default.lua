@@ -11,6 +11,11 @@ NSkin.defaultModuleOptions = {
 -- Immutable bundled design. Player changes belong in the active profile's
 -- theme table and are resolved over these values at runtime.
 NSkin.defaultTheme = {
+    accent = {
+        enabled = false,
+        color = { 0, 0.55, 0.82, 1 },
+    },
+
     window = {
         background = { 0, 0, 0, 0.80 },
         border = { 0.45, 0.45, 0.45, 1 },
