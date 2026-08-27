@@ -217,6 +217,13 @@ function NSkin:LayoutTabGroup(tabs, options)
 
     if owner and not vertical and (edge == "BOTTOM" or edge == "TOP") then
         local layout = options.placement or self:GetStyle("tab").bottom
+        if layout.mode == "GRID" then
+            anchorPoint = layout.point or "TOPLEFT"
+            anchorRelativeTo = owner
+            anchorRelativePoint = layout.relativePoint or "TOPLEFT"
+            anchorX = tonumber(layout.x) or 0
+            anchorY = tonumber(layout.y) or 0
+        else
         edge = layout.edge or edge
         local side = layout.side or "OUTSIDE"
         local visibleCount = 0
@@ -248,6 +255,7 @@ function NSkin:LayoutTabGroup(tabs, options)
         anchorRelativePoint = relativePoint
         anchorX = startX
         anchorY = layout.edgeOffset or layout.offsetY or 0
+        end
     end
 
     for i = 1, #tabs do
@@ -294,6 +302,23 @@ function NSkin:LayoutTabSystem(tabSystem, options)
         and (options.edge == "BOTTOM" or options.edge == "TOP")
     then
         local layout = options.placement or self:GetStyle("tab").bottom
+        if layout.mode == "GRID" then
+            tabSystem:ClearAllPoints()
+            tabSystem:SetPoint(layout.point or "TOPLEFT", options.owner,
+                layout.relativePoint or "TOPLEFT", tonumber(layout.x) or 0,
+                tonumber(layout.y) or 0)
+            return true
+        end
+        local relativeElement = layout.relativeTo and skinningElements[layout.relativeTo]
+        if relativeElement and relativeElement.snapTarget
+            and relativeElement.window == options.owner and relativeElement.target
+            and (not relativeElement.target.IsShown or relativeElement.target:IsShown())
+        then
+            tabSystem:ClearAllPoints()
+            tabSystem:SetPoint(layout.point, relativeElement.target, layout.relativePoint,
+                tonumber(layout.offsetX) or 0, tonumber(layout.offsetY) or 0)
+            return true
+        end
         local edge = layout.edge or options.edge
         local side = layout.side or "OUTSIDE"
         local alignment = layout.alignment or layout.anchor
@@ -405,6 +430,25 @@ function NSkin:LayoutWindowElement(element, placement)
     then
         return false
     end
+    if placement.mode == "GRID" then
+        target:ClearAllPoints()
+        target:SetPoint(placement.point or "TOPLEFT", window,
+            placement.relativePoint or "TOPLEFT", tonumber(placement.x) or 0,
+            tonumber(placement.y) or 0)
+        self:NotifySkinningElementBoundsChanged(element.id)
+        return true
+    end
+    local relativeElement = placement.relativeTo and skinningElements[placement.relativeTo]
+    if relativeElement and relativeElement.snapTarget and relativeElement.window == window
+        and relativeElement.target and (not relativeElement.target.IsShown
+            or relativeElement.target:IsShown())
+    then
+        target:ClearAllPoints()
+        target:SetPoint(placement.point, relativeElement.target, placement.relativePoint,
+            tonumber(placement.offsetX) or 0, tonumber(placement.offsetY) or 0)
+        self:NotifySkinningElementBoundsChanged(element.id)
+        return true
+    end
     local edge = placement.edge
     local side = placement.side
     local alignment = placement.alignment
@@ -425,6 +469,20 @@ function NSkin:LayoutWindowElement(element, placement)
         tonumber(placement.alongOffset) or 0, tonumber(placement.edgeOffset) or 0)
     self:NotifySkinningElementBoundsChanged(element.id)
     return true
+end
+
+function NSkin:WouldCreateSkinningPlacementCycle(elementID, relativeTo)
+    local visited = {}
+    local current = relativeTo
+    while current do
+        if current == elementID or visited[current] then return true end
+        visited[current] = true
+        local element = skinningElements[current]
+        if not element or type(element.getPlacement) ~= "function" then return false end
+        local placement = element.getPlacement(element)
+        current = placement and placement.relativeTo
+    end
+    return false
 end
 
 function NSkin:GetSkinningElementBounds(element)
@@ -482,6 +540,9 @@ end
 
 function NSkin:SetTabGroupPlacement(groupID, placement)
     local group = tabGroups[groupID]
+    if placement and placement.relativeTo
+        and self:WouldCreateSkinningPlacementCycle(groupID, placement.relativeTo)
+    then return false end
     if not group then return self:SetTabPlacement(placement) end
     if type(group.setPlacement) == "function" then
         return group.setPlacement(group, placement) == true
@@ -511,6 +572,7 @@ function NSkin:ApplyTabGroupLayout(groupID)
     end
 
     local options = {
+        element = group,
         owner = group.window,
         edge = group.edge,
         orientation = group.orientation,
@@ -518,7 +580,9 @@ function NSkin:ApplyTabGroupLayout(groupID)
         placement = self:GetTabGroupPlacement(groupID),
     }
     local applied
-    if group.container and group.container.MarkDirty then
+    if type(group.applyPlacement) == "function" then
+        applied = group.applyPlacement(group, options.placement, options) == true
+    elseif group.container and group.container.MarkDirty then
         applied = self:LayoutTabSystem(group.container, options) == true
     else
         applied = self:LayoutTabGroup(group.tabs, options) == true

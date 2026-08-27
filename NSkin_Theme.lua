@@ -133,6 +133,11 @@ end
 function NSkin:GetTabPlacement()
     local layout = self:GetStyle("tab").bottom
     return {
+        mode = layout.mode,
+        point = layout.point,
+        relativePoint = layout.relativePoint,
+        x = layout.x,
+        y = layout.y,
         edge = layout.edge or "BOTTOM",
         side = layout.side or "OUTSIDE",
         alignment = layout.anchor,
@@ -143,6 +148,23 @@ end
 
 function NSkin:SetTabPlacement(placement)
     if type(placement) ~= "table" then return false end
+    local profile = self:GetProfile()
+    profile.theme = profile.theme or {}
+    profile.theme.tab = profile.theme.tab or {}
+    profile.theme.tab.bottom = profile.theme.tab.bottom or {}
+    local bottom = profile.theme.tab.bottom
+    if placement.mode == "GRID" then
+        local x, y = tonumber(placement.x), tonumber(placement.y)
+        if not x or not y then return false end
+        bottom.mode = "GRID"
+        bottom.point = placement.point or "TOPLEFT"
+        bottom.relativePoint = placement.relativePoint or "TOPLEFT"
+        bottom.x = math.max(-2000, math.min(2000, x))
+        bottom.y = math.max(-2000, math.min(2000, y))
+        bottom.relativeTo = nil
+        RefreshTabLayouts()
+        return true
+    end
     local alignment = placement.alignment
     if alignment ~= "LEFT" and alignment ~= "CENTER" and alignment ~= "RIGHT" then
         return false
@@ -158,12 +180,8 @@ function NSkin:SetTabPlacement(placement)
     alongOffset = math.max(-500, math.min(500, math.floor(alongOffset + 0.5)))
     edgeOffset = math.max(-200, math.min(200, math.floor(edgeOffset + 0.5)))
 
-    local profile = self:GetProfile()
-    profile.theme = profile.theme or {}
-    profile.theme.tab = profile.theme.tab or {}
-    profile.theme.tab.bottom = profile.theme.tab.bottom or {}
-    local bottom = profile.theme.tab.bottom
     local defaults = self.defaultTheme.tab.bottom
+    bottom.mode, bottom.point, bottom.relativePoint, bottom.x, bottom.y = nil, nil, nil, nil, nil
     bottom.edge = edge == defaults.edge and nil or edge
     bottom.side = side == defaults.side and nil or side
     bottom.anchor = alignment == defaults.anchor and nil or alignment

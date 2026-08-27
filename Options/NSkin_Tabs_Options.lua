@@ -37,8 +37,8 @@ NSkin:RegisterOptionGroup("tabs.layout", {
             type = "SLIDER",
             key = "alongOffset",
             label = "X offset",
-            min = -500,
-            max = 500,
+            min = -2000,
+            max = 2000,
             step = 1,
             suffix = " px",
             order = 4,
@@ -47,8 +47,8 @@ NSkin:RegisterOptionGroup("tabs.layout", {
             type = "SLIDER",
             key = "edgeOffset",
             label = "Y offset",
-            min = -200,
-            max = 200,
+            min = -2000,
+            max = 2000,
             step = 1,
             suffix = " px",
             order = 5,
@@ -67,13 +67,27 @@ NSkin:RegisterOptionGroup("tabs.layout", {
     },
     get = function(context)
         local values = NSkin:GetTabGroupPlacement(context.id)
+        if values.mode == "GRID" then
+            values.alongOffset = values.x or 0
+            values.edgeOffset = values.y or 0
+        end
         values.spacing = NSkin:GetTabSpacing()
         return values
     end,
     set = function(context, values)
         local currentPlacement = NSkin:GetTabGroupPlacement(context.id)
+        if values.mode == "GRID" then
+            values.x = tonumber(values.alongOffset) or values.x or 0
+            values.y = tonumber(values.edgeOffset) or values.y or 0
+        end
         local placementChanged = values.alignment ~= nil
-            and (values.edge ~= currentPlacement.edge
+            and (values.mode ~= currentPlacement.mode
+                or values.x ~= currentPlacement.x
+                or values.y ~= currentPlacement.y
+                or values.relativeTo ~= currentPlacement.relativeTo
+                or values.point ~= currentPlacement.point
+                or values.relativePoint ~= currentPlacement.relativePoint
+                or values.edge ~= currentPlacement.edge
                 or values.side ~= currentPlacement.side
                 or values.alignment ~= currentPlacement.alignment
                 or values.alongOffset ~= currentPlacement.alongOffset

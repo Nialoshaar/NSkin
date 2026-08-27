@@ -11,9 +11,9 @@ local function PlacementControls(extra)
         { type = "DROPDOWN", key = "alignment", label = "Alignment", order = 3,
             values = { { value = "LEFT", label = "Left" }, { value = "CENTER", label = "Center" },
                 { value = "RIGHT", label = "Right" } } },
-        { type = "SLIDER", key = "alongOffset", label = "X offset", min = -500, max = 500,
+        { type = "SLIDER", key = "alongOffset", label = "X offset", min = -2000, max = 2000,
             step = 1, suffix = " px", order = 4 },
-        { type = "SLIDER", key = "edgeOffset", label = "Y offset", min = -200, max = 200,
+        { type = "SLIDER", key = "edgeOffset", label = "Y offset", min = -2000, max = 2000,
             step = 1, suffix = " px", order = 5 },
     }
     for i = 1, #(extra or {}) do controls[#controls + 1] = extra[i] end
@@ -23,8 +23,19 @@ end
 
 NSkin:RegisterOptionGroup("spellbook.movable", {
     controls = PlacementControls(),
-    get = function(context) return context.getPlacement(context) end,
-    set = function(context, values) return context.setPlacement(context, values) end,
+    get = function(context)
+        local values = context.getPlacement(context)
+        if values.mode == "GRID" then
+            values.alongOffset, values.edgeOffset = values.x or 0, values.y or 0
+        end
+        return values
+    end,
+    set = function(context, values)
+        if values.mode == "GRID" then
+            values.x, values.y = values.alongOffset, values.edgeOffset
+        end
+        return context.setPlacement(context, values)
+    end,
     reset = function(context) return context.resetPlacement(context) end,
 })
 
@@ -38,11 +49,17 @@ NSkin:RegisterOptionGroup("spellbook.pagination", {
     }),
     get = function(context)
         local values = context.getPlacement(context)
+        if values.mode == "GRID" then
+            values.alongOffset, values.edgeOffset = values.x or 0, values.y or 0
+        end
         values.separateButtons = NSkin:GetSpellBookPaginationSeparateButtons()
         values.textMode = NSkin:GetSpellBookPaginationTextMode()
         return values
     end,
     set = function(context, values)
+        if values.mode == "GRID" then
+            values.x, values.y = values.alongOffset, values.edgeOffset
+        end
         local changed = context.setPlacement(context, values)
         if values.separateButtons ~= NSkin:GetSpellBookPaginationSeparateButtons() then
             changed = NSkin:SetSpellBookPaginationSeparateButtons(values.separateButtons) or changed

@@ -1,27 +1,39 @@
 local _, NSkin = ...
 
 local controller
-local ALIGNMENT_ORDER = { "LEFT", "CENTER", "RIGHT" }
-local EDGE_ORDER = { "TOP", "BOTTOM" }
-local SIDE_ORDER = { "INSIDE", "OUTSIDE" }
-local DROP_TARGETS = {}
-for edgeIndex = 1, #EDGE_ORDER do
-    for sideIndex = 1, #SIDE_ORDER do
-        for alignmentIndex = 1, #ALIGNMENT_ORDER do
-            local edge = EDGE_ORDER[edgeIndex]
-            local side = SIDE_ORDER[sideIndex]
-            local alignment = ALIGNMENT_ORDER[alignmentIndex]
-            DROP_TARGETS[#DROP_TARGETS + 1] = {
-                edge = edge,
-                side = side,
-                alignment = alignment,
-                label = edge .. " " .. side .. " " .. alignment,
-            }
-        end
-    end
-end
+local GRID_SIZES = { 2, 4, 8, 16 }
+local VALID_GRID_SIZES = { [2] = true, [4] = true, [8] = true, [16] = true }
 local TRANSPARENT = { 0, 0, 0, 0 }
 local StopDrag
+local RefreshGrid
+
+function NSkin:GetSkinningGridSize()
+    local profile = self:GetProfile()
+    local size = profile.editor and tonumber(profile.editor.gridSize)
+    return VALID_GRID_SIZES[size] and size or 8
+end
+
+function NSkin:SetSkinningGridSize(size)
+    size = tonumber(size)
+    if not VALID_GRID_SIZES[size] then return false end
+    local profile = self:GetProfile()
+    if size == 8 then
+        if profile.editor then
+            profile.editor.gridSize = nil
+            if not next(profile.editor) then profile.editor = nil end
+        end
+    else
+        profile.editor = profile.editor or {}
+        profile.editor.gridSize = size
+    end
+    if controller and controller.gridDropdown and controller.gridDropdown.GenerateMenu then
+        controller.gridDropdown:GenerateMenu()
+    end
+    if controller and controller.dragging and controller.selectedElement then
+        RefreshGrid(controller.selectedElement.window)
+    end
+    return true
+end
 
 local function CreateLabel(parent, text, point, relativeTo, relativePoint, x, y)
     local label = parent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -42,13 +54,6 @@ local function GetCursorUIPosition()
     local scale = UIParent:GetEffectiveScale()
     local x, y = GetCursorPosition()
     return x / scale, y / scale
-end
-
-local function PointInFrame(x, y, frame)
-    local left, right = frame:GetLeft(), frame:GetRight()
-    local bottom, top = frame:GetBottom(), frame:GetTop()
-    return left and right and bottom and top
-        and x >= left and x <= right and y >= bottom and y <= top
 end
 
 local function GetElementBounds(element)
@@ -90,7 +95,7 @@ local function ResizeInspector(view)
     local contentHeight = view and view:GetHeight() or 1
     local screenHeight = UIParent:GetHeight() or 700
     local maximumHeight = math.max(180, math.min(600, screenHeight - 40))
-    inspector:SetHeight(math.min(maximumHeight, math.max(130, contentHeight + 92)))
+    inspector:SetHeight(math.min(maximumHeight, math.max(174, contentHeight + 136)))
     controller.scrollChild:SetHeight(math.max(1, contentHeight))
     controller.scrollFrame:SetVerticalScroll(0)
 end
@@ -172,31 +177,111 @@ local function SelectElement(element)
     RefreshInspector()
 end
 
-local function UpdateDrag()
-    local x, y = GetCursorUIPosition()
-    controller.ghost:ClearAllPoints()
-    controller.ghost:SetPoint("CENTER", UIParent, "BOTTOMLEFT", x, y)
-    controller.hoveredDropTarget = nil
-    local style = NSkin:GetStyle("skinningMode")
-    local hoveredZone
-    local closestDistance
-    for i = 1, #DROP_TARGETS do
-        local target = DROP_TARGETS[i]
-        local zone = controller.dropZones[i]
-        local hovered = PointInFrame(x, y, zone)
-        zone.texture:SetColorTexture(unpack(style.dropZone))
-        if hovered then
-            local zoneX, zoneY = zone:GetCenter()
-            local distance = zoneX and zoneY
-                and ((x - zoneX) * (x - zoneX) + (y - zoneY) * (y - zoneY))
-            if distance and (not closestDistance or distance < closestDistance) then
-                closestDistance = distance
-                hoveredZone = zone
-                controller.hoveredDropTarget = target
-            end
+local function RoundToGrid(value, size)
+    if value >= 0 then return math.floor(value / size + 0.5) * size end
+    return math.ceil(value / size - 0.5) * size
+end
+
+local function SnapToNearest(value, threshold, ...)
+    local best, bestDistance
+    for i = 1, select("#", ...) do
+        local candidate = select(i, ...)
+        local distance = math.abs(value - candidate)
+        if distance <= threshold and (not bestDistance or distance < bestDistance) then
+            best, bestDistance = candidate, distance
         end
     end
-    if hoveredZone then hoveredZone.texture:SetColorTexture(unpack(style.activeDropZone)) end
+    return best or value, best ~= nil
+end
+
+RefreshGrid = function(window)
+    local grid = controller.grid
+    local visualGridSize = 32
+    local width, height = window:GetWidth(), window:GetHeight()
+    local marginX, marginY = 30, 30
+    grid:ClearAllPoints()
+    grid:SetPoint("TOPLEFT", window, "TOPLEFT", -marginX, marginY)
+    grid:SetPoint("BOTTOMRIGHT", window, "BOTTOMRIGHT", marginX, -marginY)
+    local style = NSkin:GetStyle("skinningMode")
+    local firstX = math.ceil(-marginX / visualGridSize)
+    local lastX = math.floor((width + marginX) / visualGridSize)
+    local verticalCount = 0
+    for gridIndex = firstX, lastX do
+        verticalCount = verticalCount + 1
+        local line = controller.verticalGridLines[verticalCount]
+        if not line then
+            line = grid:CreateTexture(nil, "OVERLAY")
+            controller.verticalGridLines[verticalCount] = line
+        end
+        local x = gridIndex * visualGridSize
+        line:ClearAllPoints()
+        line:SetPoint("TOP", grid, "TOP", x - width / 2, 0)
+        line:SetPoint("BOTTOM", grid, "BOTTOM", x - width / 2, 0)
+        line:SetWidth(1)
+        line:SetColorTexture(unpack(style.activeDropZone))
+        line:Show()
+    end
+    for i = verticalCount + 1, #controller.verticalGridLines do
+        controller.verticalGridLines[i]:Hide()
+    end
+    local firstY = math.ceil(-marginY / visualGridSize)
+    local lastY = math.floor((height + marginY) / visualGridSize)
+    local horizontalCount = 0
+    for gridIndex = firstY, lastY do
+        horizontalCount = horizontalCount + 1
+        local line = controller.horizontalGridLines[horizontalCount]
+        if not line then
+            line = grid:CreateTexture(nil, "OVERLAY")
+            controller.horizontalGridLines[horizontalCount] = line
+        end
+        local y = -gridIndex * visualGridSize
+        line:ClearAllPoints()
+        line:SetPoint("LEFT", grid, "LEFT", 0, y + height / 2)
+        line:SetPoint("RIGHT", grid, "RIGHT", 0, y + height / 2)
+        line:SetHeight(1)
+        line:SetColorTexture(unpack(style.activeDropZone))
+        line:Show()
+    end
+    for i = horizontalCount + 1, #controller.horizontalGridLines do
+        controller.horizontalGridLines[i]:Hide()
+    end
+    controller.borderLeft:ClearAllPoints()
+    controller.borderRight:ClearAllPoints()
+    controller.borderTop:ClearAllPoints()
+    controller.borderBottom:ClearAllPoints()
+    controller.borderLeft:SetPoint("TOPLEFT", window, "TOPLEFT", 0, 0)
+    controller.borderLeft:SetPoint("BOTTOMLEFT", window, "BOTTOMLEFT", 0, 0)
+    controller.borderRight:SetPoint("TOPRIGHT", window, "TOPRIGHT", 0, 0)
+    controller.borderRight:SetPoint("BOTTOMRIGHT", window, "BOTTOMRIGHT", 0, 0)
+    controller.borderTop:SetPoint("TOPLEFT", window, "TOPLEFT", 0, 0)
+    controller.borderTop:SetPoint("TOPRIGHT", window, "TOPRIGHT", 0, 0)
+    controller.borderBottom:SetPoint("BOTTOMLEFT", window, "BOTTOMLEFT", 0, 0)
+    controller.borderBottom:SetPoint("BOTTOMRIGHT", window, "BOTTOMRIGHT", 0, 0)
+    grid:Show()
+end
+
+local function UpdateDrag()
+    local element = controller.selectedElement
+    local window = element and element.window
+    if not window then return end
+    local cursorX, cursorY = GetCursorUIPosition()
+    local localX = cursorX - controller.grabOffsetX - window:GetLeft()
+    local localY = cursorY + controller.grabOffsetY - window:GetTop()
+    if not IsShiftKeyDown() then
+        local size = NSkin:GetSkinningGridSize()
+        local width, height = window:GetWidth(), window:GetHeight()
+        local ghostWidth, ghostHeight = controller.ghost:GetWidth(), controller.ghost:GetHeight()
+        local threshold = math.max(6, size)
+        local snappedX, borderSnappedX = SnapToNearest(localX, threshold,
+            0, -ghostWidth, width, width - ghostWidth)
+        local snappedY, borderSnappedY = SnapToNearest(localY, threshold,
+            0, ghostHeight, -height, -height + ghostHeight)
+        localX = borderSnappedX and snappedX or RoundToGrid(localX, size)
+        localY = borderSnappedY and snappedY or RoundToGrid(localY, size)
+    end
+    controller.gridX, controller.gridY = localX, localY
+    controller.ghost:ClearAllPoints()
+    controller.ghost:SetPoint("TOPLEFT", window, "TOPLEFT", localX, localY)
 end
 
 local function BeginDrag(element)
@@ -209,53 +294,43 @@ local function BeginDrag(element)
         math.max(20, overlay and overlay:GetHeight() or 20))
     controller.ghost.texture:SetColorTexture(unpack(NSkin:GetStyle("skinningMode").ghost))
     controller.ghost:Show()
-
-    local window = element.window
-    local zoneWidth = controller.ghost:GetWidth()
-    local zoneHeight = controller.ghost:GetHeight()
-    for i = 1, #DROP_TARGETS do
-        local target = DROP_TARGETS[i]
-        local zone = controller.dropZones[i]
-        local verticalPoint
-        if target.edge == "TOP" then
-            verticalPoint = target.side == "INSIDE" and "TOP" or "BOTTOM"
-        else
-            verticalPoint = target.side == "INSIDE" and "BOTTOM" or "TOP"
-        end
-        zone:ClearAllPoints()
-        zone:SetSize(zoneWidth, zoneHeight)
-        if target.alignment == "LEFT" then
-            zone:SetPoint(verticalPoint .. "LEFT", window, target.edge .. "LEFT", 0, 0)
-        elseif target.alignment == "CENTER" then
-            zone:SetPoint(verticalPoint, window, target.edge, 0, 0)
-        else
-            zone:SetPoint(verticalPoint .. "RIGHT", window, target.edge .. "RIGHT", 0, 0)
-        end
-        zone:Show()
-    end
+    local cursorX, cursorY = GetCursorUIPosition()
+    local left = overlay and overlay:GetLeft() or cursorX
+    local top = overlay and overlay:GetTop() or cursorY
+    controller.grabOffsetX = cursorX - left
+    controller.grabOffsetY = top - cursorY
+    RefreshGrid(element.window)
+    UpdateDrag()
     controller.dragFrame:SetScript("OnUpdate", UpdateDrag)
 end
 
 StopDrag = function(apply)
     if not controller.dragging then return end
-    local target = controller.hoveredDropTarget
+    local gridX, gridY = controller.gridX, controller.gridY
     controller.dragging = false
     controller.dragFrame:SetScript("OnUpdate", nil)
     controller.ghost:Hide()
-    for i = 1, #DROP_TARGETS do controller.dropZones[i]:Hide() end
-    controller.hoveredDropTarget = nil
+    controller.grid:Hide()
     RefreshAllOverlayAppearances()
-    if apply and target then
+    if apply and gridX and gridY then
         local element = controller.selectedElement
         local view = element and controller.optionViews[element.editorOptions]
         local placement = view and view.definition.get(view.context)
             or NSkin:GetTabPlacement()
-        placement.edge = target.edge
-        placement.side = target.side
-        placement.alignment = target.alignment
-        placement.alongOffset = 0
-        placement.edgeOffset = 0
-        if view then view:SetValues(placement) end
+        placement.mode = "GRID"
+        placement.point = "TOPLEFT"
+        placement.relativePoint = "TOPLEFT"
+        placement.x, placement.y = gridX, gridY
+        placement.alongOffset, placement.edgeOffset = gridX, gridY
+        placement.relativeTo = nil
+        placement.offsetX, placement.offsetY = nil, nil
+        if view then
+            view:SetValues(placement)
+        elseif element and type(element.setPlacement) == "function" then
+            element.setPlacement(element, placement)
+        elseif element and type(element.applyPlacement) == "function" then
+            element.applyPlacement(element, placement)
+        end
     end
 end
 
@@ -342,7 +417,8 @@ local function CreateController()
         optionViews = {},
         overlays = {},
         overlayElements = {},
-        dropZones = {},
+        verticalGridLines = {},
+        horizontalGridLines = {},
     }
 
     local inspector = CreateFrame("Frame", nil, UIParent)
@@ -358,10 +434,32 @@ local function CreateController()
     inspector.selection = CreateLabel(
         inspector, "Select an element", "TOPLEFT", inspector, "TOPLEFT", 12, -34
     )
+    local gridLabel = CreateLabel(
+        inspector, "Grid size", "TOPLEFT", inspector, "TOPLEFT", 12, -58
+    )
+    local gridDropdown = CreateFrame(
+        "DropdownButton", nil, inspector, "WowStyle1DropdownTemplate"
+    )
+    gridDropdown:SetSize(110, 24)
+    gridDropdown:SetPoint("LEFT", gridLabel, "RIGHT", 8, 0)
+    gridDropdown:SetDefaultText("8 px")
+    gridDropdown:SetupMenu(function(_, rootDescription)
+        for i = 1, #GRID_SIZES do
+            local size = GRID_SIZES[i]
+            rootDescription:CreateRadio(size .. " px",
+                function(value) return NSkin:GetSkinningGridSize() == value end,
+                function(value) NSkin:SetSkinningGridSize(value) end, size)
+        end
+    end)
+    controller.gridDropdown = gridDropdown
+    local gridHint = CreateLabel(
+        inspector, "Hold Shift for free movement", "TOPLEFT", inspector, "TOPLEFT", 12, -84
+    )
+    gridHint:SetFontObject(GameFontHighlightSmall)
     controller.inspector = inspector
 
     local scrollFrame = CreateFrame("ScrollFrame", nil, inspector)
-    scrollFrame:SetPoint("TOPLEFT", inspector, "TOPLEFT", 24, -66)
+    scrollFrame:SetPoint("TOPLEFT", inspector, "TOPLEFT", 24, -110)
     scrollFrame:SetPoint("BOTTOMRIGHT", inspector, "BOTTOMRIGHT", -24, 14)
     scrollFrame:EnableMouseWheel(true)
     scrollFrame:SetScript("OnMouseWheel", function(self, delta)
@@ -377,22 +475,29 @@ local function CreateController()
 
     local ghost = CreateFrame("Frame", nil, UIParent)
     ghost:SetFrameStrata("TOOLTIP")
+    ghost:SetFrameLevel(101)
     ghost.texture = ghost:CreateTexture(nil, "BACKGROUND")
     ghost.texture:SetAllPoints()
     ghost:Hide()
     controller.ghost = ghost
 
-    for i = 1, #DROP_TARGETS do
-        local zone = CreateFrame("Frame", nil, UIParent)
-        zone:SetFrameStrata("TOOLTIP")
-        zone.texture = zone:CreateTexture(nil, "BACKGROUND")
-        zone.texture:SetAllPoints()
-        zone.label = zone:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        zone.label:SetPoint("CENTER")
-        zone.label:SetText(DROP_TARGETS[i].label)
-        zone:Hide()
-        controller.dropZones[i] = zone
+    local grid = CreateFrame("Frame", nil, UIParent)
+    grid:SetFrameStrata("TOOLTIP")
+    grid:SetFrameLevel(100)
+    grid:EnableMouse(false)
+    grid:Hide()
+    controller.grid = grid
+    local borderColor = NSkin:GetStyle("skinningMode").activeDropZone
+    local function CreateBorderLine(width, height)
+        local line = grid:CreateTexture(nil, "OVERLAY")
+        line:SetSize(width, height)
+        line:SetColorTexture(unpack(borderColor))
+        return line
     end
+    controller.borderLeft = CreateBorderLine(3, 1)
+    controller.borderRight = CreateBorderLine(3, 1)
+    controller.borderTop = CreateBorderLine(1, 3)
+    controller.borderBottom = CreateBorderLine(1, 3)
 
     controller.dragFrame = CreateFrame("Frame")
     controller.eventFrame = CreateFrame("Frame")

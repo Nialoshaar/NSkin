@@ -98,12 +98,67 @@ end
 
 local function CopyPlacement(placement)
     return {
+        mode = placement.mode,
         edge = placement.edge,
         side = placement.side,
         alignment = placement.alignment,
         alongOffset = placement.alongOffset,
         edgeOffset = placement.edgeOffset,
+        relativeTo = placement.relativeTo,
+        point = placement.point,
+        relativePoint = placement.relativePoint,
+        offsetX = placement.offsetX,
+        offsetY = placement.offsetY,
+        x = placement.x,
+        y = placement.y,
     }
+end
+
+local function GetMainTabPlacementOptions()
+    local options = NSkin:GetModuleOptions("SpellBook", false)
+    return options and options.mainTabsPlacement
+end
+
+local function GetMainTabPlacement()
+    return CopyPlacement(GetMainTabPlacementOptions() or NSkin:GetTabPlacement())
+end
+
+local function SetMainTabPlacement(_, placement)
+    if type(placement) ~= "table" then return false end
+    local saved = CopyPlacement(placement)
+    if placement.mode == "GRID" then
+        local x, y = tonumber(placement.x), tonumber(placement.y)
+        if not x or not y then return false end
+        saved.x = math.max(-2000, math.min(2000, x))
+        saved.y = math.max(-2000, math.min(2000, y))
+    else
+        if (placement.edge ~= "TOP" and placement.edge ~= "BOTTOM")
+            or (placement.side ~= "INSIDE" and placement.side ~= "OUTSIDE")
+            or (placement.alignment ~= "LEFT" and placement.alignment ~= "CENTER"
+                and placement.alignment ~= "RIGHT")
+        then return false end
+        saved.alongOffset = math.max(-2000, math.min(2000,
+            math.floor((tonumber(placement.alongOffset) or 0) + 0.5)))
+        saved.edgeOffset = math.max(-2000, math.min(2000,
+            math.floor((tonumber(placement.edgeOffset) or 0) + 0.5)))
+    end
+    local options = NSkin:GetModuleOptions("SpellBook", true)
+    options.mainTabsPlacement = saved
+    NSkin:ApplyTabGroupLayout(TAB_GROUP_ID)
+    return true
+end
+
+local function ResetMainTabPlacement()
+    local options = NSkin:GetModuleOptions("SpellBook", false)
+    if options then
+        options.mainTabsPlacement = nil
+        local profile = NSkin:GetProfile()
+        if not next(options) then profile.moduleOptions.SpellBook = nil end
+        if profile.moduleOptions and not next(profile.moduleOptions) then
+            profile.moduleOptions = nil
+        end
+    end
+    return NSkin:ApplyTabGroupLayout(TAB_GROUP_ID)
 end
 
 local function GetCategoryTabPlacementOptions()
@@ -121,6 +176,16 @@ end
 
 local function SetCategoryTabPlacement(_, placement)
     if type(placement) ~= "table" then return false end
+    if placement.mode == "GRID" then
+        local x, y = tonumber(placement.x), tonumber(placement.y)
+        if not x or not y then return false end
+        local options = NSkin:GetModuleOptions("SpellBook", true)
+        options.categoryTabsPlacement = CopyPlacement(placement)
+        options.categoryTabsPlacement.x = math.max(-2000, math.min(2000, x))
+        options.categoryTabsPlacement.y = math.max(-2000, math.min(2000, y))
+        NSkin:ApplyTabGroupLayout(CATEGORY_TAB_GROUP_ID)
+        return true
+    end
     local edge = placement.edge
     local side = placement.side
     local alignment = placement.alignment
@@ -140,6 +205,11 @@ local function SetCategoryTabPlacement(_, placement)
         alignment = alignment,
         alongOffset = math.max(-500, math.min(500, math.floor(alongOffset + 0.5))),
         edgeOffset = math.max(-200, math.min(200, math.floor(edgeOffset + 0.5))),
+        relativeTo = placement.relativeTo,
+        point = placement.point,
+        relativePoint = placement.relativePoint,
+        offsetX = placement.offsetX,
+        offsetY = placement.offsetY,
     }
     NSkin:ApplyTabGroupLayout(CATEGORY_TAB_GROUP_ID)
     return true
@@ -258,10 +328,16 @@ local function GetMovablePlacement(element)
 end
 
 local function SetMovablePlacement(element, placement)
+    if placement.relativeTo
+        and NSkin:WouldCreateSkinningPlacementCycle(element.id, placement.relativeTo)
+    then return false end
     local options = NSkin:GetModuleOptions("SpellBook", true)
     options.movablePlacements = options.movablePlacements or {}
     options.movablePlacements[element.id] = CopyPlacement(placement)
     EnsureMovablePersistenceWatcher()
+    if type(element.applyPlacement) == "function" then
+        return element.applyPlacement(element, placement)
+    end
     return NSkin:LayoutWindowElement(element, placement)
 end
 
@@ -293,7 +369,13 @@ local function ApplySavedMovablePlacements()
     for i = 1, #ids do
         local element = NSkin:GetSkinningElement(ids[i])
         local placement = GetSavedMovablePlacement(ids[i])
-        if element and placement then NSkin:LayoutWindowElement(element, placement) end
+        if element and placement then
+            if type(element.applyPlacement) == "function" then
+                element.applyPlacement(element, placement)
+            else
+                NSkin:LayoutWindowElement(element, placement)
+            end
+        end
     end
     RefreshPaginationElements()
 end
@@ -311,15 +393,19 @@ EnsureMovablePersistenceWatcher = function()
 end
 
 local function RegisterMovableElement(id, label, window, target, editorOptions,
-    defaultPlacement, isEditable, priority)
+    defaultPlacement, isEditable, priority, snapTarget)
     if not target then return end
     CaptureOriginalPoints(id, target)
     NSkin:RegisterSkinningElement(id, {
         label = label, kind = "MOVABLE", draggable = true, priority = priority or 80,
+        movable = true, snapTarget = snapTarget == true,
         window = window, target = target, editorOptions = editorOptions,
         defaultPlacement = defaultPlacement, isEditable = isEditable,
         getPlacement = GetMovablePlacement, setPlacement = SetMovablePlacement,
         resetPlacement = ResetMovablePlacement,
+        applyPlacement = function(element, placement)
+            return NSkin:LayoutWindowElement(element, placement)
+        end,
     })
     local element = NSkin:GetSkinningElement(id)
     local saved = GetSavedMovablePlacement(id)
@@ -745,12 +831,17 @@ function SpellBookSkin:Initialize()
         label = "Spellbook tabs",
         kind = "TAB_GROUP",
         editorOptions = "tabs.layout",
+        independentPlacement = true,
+        movable = true,
         window = playerSpells,
         target = playerSpells.TabSystem,
         container = playerSpells.TabSystem,
         priority = 50,
         orientation = "HORIZONTAL",
         edge = "BOTTOM",
+        getPlacement = GetMainTabPlacement,
+        setPlacement = SetMainTabPlacement,
+        resetPlacement = ResetMainTabPlacement,
     })
     local categoryTabSystem = spellBook.CategoryTabSystem
     if categoryTabSystem and not categoryTabOriginalPoints then
@@ -764,6 +855,9 @@ function SpellBookSkin:Initialize()
         kind = "TAB_GROUP",
         editorOptions = "tabs.layout",
         independentPlacement = true,
+        movable = true,
+        snapTarget = true,
+        supportedEdges = { "TOP", "BOTTOM" },
         window = playerSpells,
         target = categoryTabSystem,
         container = categoryTabSystem,
@@ -791,7 +885,7 @@ function SpellBookSkin:Initialize()
     local defaultBottom = { edge = "BOTTOM", side = "INSIDE", alignment = "RIGHT",
         alongOffset = -20, edgeOffset = 20 }
     RegisterMovableElement(SEARCH_ELEMENT_ID, "Spellbook search", playerSpells,
-        spellBook.SearchBox, "spellbook.movable", defaultTop)
+        spellBook.SearchBox, "spellbook.movable", defaultTop, nil, nil, true)
     RegisterMovableElement(PAGINATION_ELEMENT_ID, "Spellbook pagination", playerSpells,
         pagingControls, "spellbook.pagination", defaultBottom, nil, 70)
     RegisterMovableElement(PREVIOUS_ELEMENT_ID, "Previous page button", playerSpells,
