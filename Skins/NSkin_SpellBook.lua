@@ -37,6 +37,12 @@ local CATEGORY_TAB_DEFAULT = {
     edgeOffset = 0,
 }
 
+local function RoundOne(value)
+    value = tonumber(value) or 0
+    if value >= 0 then return math.floor(value * 10 + 0.5) / 10 end
+    return math.ceil(value * 10 - 0.5) / 10
+end
+
 function NSkin:GetSpellBookTextSize()
     local defaults = self.defaultModuleOptions.SpellBook
     local options = self:GetModuleOptions("SpellBook", false)
@@ -102,15 +108,15 @@ local function CopyPlacement(placement)
         edge = placement.edge,
         side = placement.side,
         alignment = placement.alignment,
-        alongOffset = placement.alongOffset,
-        edgeOffset = placement.edgeOffset,
+        alongOffset = placement.alongOffset ~= nil and RoundOne(placement.alongOffset) or nil,
+        edgeOffset = placement.edgeOffset ~= nil and RoundOne(placement.edgeOffset) or nil,
         relativeTo = placement.relativeTo,
         point = placement.point,
         relativePoint = placement.relativePoint,
         offsetX = placement.offsetX,
         offsetY = placement.offsetY,
-        x = placement.x,
-        y = placement.y,
+        x = placement.x ~= nil and RoundOne(placement.x) or nil,
+        y = placement.y ~= nil and RoundOne(placement.y) or nil,
     }
 end
 
@@ -129,8 +135,8 @@ local function SetMainTabPlacement(_, placement)
     if placement.mode == "GRID" then
         local x, y = tonumber(placement.x), tonumber(placement.y)
         if not x or not y then return false end
-        saved.x = math.max(-2000, math.min(2000, x))
-        saved.y = math.max(-2000, math.min(2000, y))
+        saved.x = math.max(-2000, math.min(2000, RoundOne(x)))
+        saved.y = math.max(-2000, math.min(2000, RoundOne(y)))
     else
         if (placement.edge ~= "TOP" and placement.edge ~= "BOTTOM")
             or (placement.side ~= "INSIDE" and placement.side ~= "OUTSIDE")
@@ -138,9 +144,9 @@ local function SetMainTabPlacement(_, placement)
                 and placement.alignment ~= "RIGHT")
         then return false end
         saved.alongOffset = math.max(-2000, math.min(2000,
-            math.floor((tonumber(placement.alongOffset) or 0) + 0.5)))
+            RoundOne(placement.alongOffset)))
         saved.edgeOffset = math.max(-2000, math.min(2000,
-            math.floor((tonumber(placement.edgeOffset) or 0) + 0.5)))
+            RoundOne(placement.edgeOffset)))
     end
     local options = NSkin:GetModuleOptions("SpellBook", true)
     options.mainTabsPlacement = saved
@@ -181,8 +187,8 @@ local function SetCategoryTabPlacement(_, placement)
         if not x or not y then return false end
         local options = NSkin:GetModuleOptions("SpellBook", true)
         options.categoryTabsPlacement = CopyPlacement(placement)
-        options.categoryTabsPlacement.x = math.max(-2000, math.min(2000, x))
-        options.categoryTabsPlacement.y = math.max(-2000, math.min(2000, y))
+        options.categoryTabsPlacement.x = math.max(-2000, math.min(2000, RoundOne(x)))
+        options.categoryTabsPlacement.y = math.max(-2000, math.min(2000, RoundOne(y)))
         NSkin:ApplyTabGroupLayout(CATEGORY_TAB_GROUP_ID)
         return true
     end
@@ -203,8 +209,8 @@ local function SetCategoryTabPlacement(_, placement)
         edge = edge,
         side = side,
         alignment = alignment,
-        alongOffset = math.max(-500, math.min(500, math.floor(alongOffset + 0.5))),
-        edgeOffset = math.max(-200, math.min(200, math.floor(edgeOffset + 0.5))),
+        alongOffset = math.max(-2000, math.min(2000, RoundOne(alongOffset))),
+        edgeOffset = math.max(-2000, math.min(2000, RoundOne(edgeOffset))),
         relativeTo = placement.relativeTo,
         point = placement.point,
         relativePoint = placement.relativePoint,
@@ -403,8 +409,8 @@ local function RegisterMovableElement(id, label, window, target, editorOptions,
         defaultPlacement = defaultPlacement, isEditable = isEditable,
         getPlacement = GetMovablePlacement, setPlacement = SetMovablePlacement,
         resetPlacement = ResetMovablePlacement,
-        applyPlacement = function(element, placement)
-            return NSkin:LayoutWindowElement(element, placement)
+        applyPlacement = function(element, placement, applyOptions)
+            return NSkin:LayoutWindowElement(element, placement, applyOptions)
         end,
     })
     local element = NSkin:GetSkinningElement(id)

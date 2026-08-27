@@ -375,6 +375,11 @@ function NSkin:RegisterTabGroup(groupID, definition)
         group.id = groupID
         tabGroups[groupID] = group
     end
+    if type(group.applyPlacement) ~= "function" then
+        group.applyPlacement = function(element, placement, applyOptions)
+            return NSkin:ApplyTabGroupPlacement(element, placement, applyOptions)
+        end
+    end
 
     self:RegisterSkinningElement(groupID, group)
     return true
@@ -420,7 +425,7 @@ function NSkin:IsSkinningElementEditable(element)
     return type(element.isEditable) ~= "function" or element.isEditable(element) == true
 end
 
-function NSkin:LayoutWindowElement(element, placement)
+function NSkin:LayoutWindowElement(element, placement, options)
     local target = element and element.target
     local window = element and element.window
     if not target or not window or type(placement) ~= "table"
@@ -435,7 +440,9 @@ function NSkin:LayoutWindowElement(element, placement)
         target:SetPoint(placement.point or "TOPLEFT", window,
             placement.relativePoint or "TOPLEFT", tonumber(placement.x) or 0,
             tonumber(placement.y) or 0)
-        self:NotifySkinningElementBoundsChanged(element.id)
+        if not (options and options.suppressNotify) then
+            self:NotifySkinningElementBoundsChanged(element.id)
+        end
         return true
     end
     local relativeElement = placement.relativeTo and skinningElements[placement.relativeTo]
@@ -446,7 +453,9 @@ function NSkin:LayoutWindowElement(element, placement)
         target:ClearAllPoints()
         target:SetPoint(placement.point, relativeElement.target, placement.relativePoint,
             tonumber(placement.offsetX) or 0, tonumber(placement.offsetY) or 0)
-        self:NotifySkinningElementBoundsChanged(element.id)
+        if not (options and options.suppressNotify) then
+            self:NotifySkinningElementBoundsChanged(element.id)
+        end
         return true
     end
     local edge = placement.edge
@@ -467,7 +476,9 @@ function NSkin:LayoutWindowElement(element, placement)
     target:ClearAllPoints()
     target:SetPoint(point, window, relativePoint,
         tonumber(placement.alongOffset) or 0, tonumber(placement.edgeOffset) or 0)
-    self:NotifySkinningElementBoundsChanged(element.id)
+    if not (options and options.suppressNotify) then
+        self:NotifySkinningElementBoundsChanged(element.id)
+    end
     return true
 end
 
@@ -564,31 +575,44 @@ function NSkin:ForEachRegisteredTabGroup(callback)
     for _, group in pairs(tabGroups) do callback(group) end
 end
 
+function NSkin:ApplyTabGroupPlacement(group, placement, applyOptions)
+    if not group or (_G.InCombatLockdown and _G.InCombatLockdown()) then return false end
+    local options = group.layoutOptions
+    if not options then
+        options = {}
+        group.layoutOptions = options
+    end
+    options.element = group
+    options.owner = group.window
+    options.edge = group.edge
+    options.orientation = group.orientation
+    options.spacing = self:GetTabSpacing()
+    options.placement = placement
+    local applied
+    if group.container and group.container.MarkDirty then
+        applied = self:LayoutTabSystem(group.container, options) == true
+    else
+        applied = self:LayoutTabGroup(group.tabs, options) == true
+    end
+    if applied and not (applyOptions and applyOptions.suppressNotify) then
+        FireComponentCallback("TabGroupLayoutApplied", group)
+    end
+    return applied
+end
+
 function NSkin:ApplyTabGroupLayout(groupID)
     local group = tabGroups[groupID]
     if not group or (_G.InCombatLockdown and _G.InCombatLockdown()) then return false end
     if type(group.hasPlacement) == "function" and not group.hasPlacement(group) then
         return false
     end
-
-    local options = {
-        element = group,
-        owner = group.window,
-        edge = group.edge,
-        orientation = group.orientation,
-        spacing = self:GetTabSpacing(),
-        placement = self:GetTabGroupPlacement(groupID),
-    }
-    local applied
+    local placement = self:GetTabGroupPlacement(groupID)
     if type(group.applyPlacement) == "function" then
-        applied = group.applyPlacement(group, options.placement, options) == true
-    elseif group.container and group.container.MarkDirty then
-        applied = self:LayoutTabSystem(group.container, options) == true
-    else
-        applied = self:LayoutTabGroup(group.tabs, options) == true
+        local applied = group.applyPlacement(group, placement, { suppressNotify = true }) == true
+        if applied then FireComponentCallback("TabGroupLayoutApplied", group) end
+        return applied
     end
-    if applied then FireComponentCallback("TabGroupLayoutApplied", group) end
-    return applied
+    return self:ApplyTabGroupPlacement(group, placement)
 end
 
 function NSkin:RefreshRegisteredTabGroups()

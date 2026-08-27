@@ -3,6 +3,12 @@ local _, NSkin = ...
 local optionGroups = {}
 local viewsByGroup = {}
 
+local function RoundValue(value, decimals)
+    local factor = 10 ^ decimals
+    if value >= 0 then return math.floor(value * factor + 0.5) / factor end
+    return math.ceil(value * factor - 0.5) / factor
+end
+
 local function CopyTable(source)
     local result = {}
     for key, value in pairs(source or {}) do result[key] = value end
@@ -88,8 +94,10 @@ local function CreateSlider(view, control, y)
         max = control.max,
         step = control.step,
         onValueChanged = function(_, value)
-            value = math.floor(value + 0.5)
-            valueLabel:SetText(value .. (control.suffix or ""))
+            local decimals = tonumber(control.decimals) or 0
+            value = RoundValue(value, decimals)
+            valueLabel:SetText(string.format("%." .. decimals .. "f", value)
+                .. (control.suffix or ""))
             if view.refreshing or not view.context then return end
             local current = CopyTable(view.definition.get(view.context))
             current[control.key] = value
@@ -224,8 +232,10 @@ function NSkin:CreateOptionGroupView(parent, id, layout, context)
                 if dropdown.GenerateMenu then dropdown:GenerateMenu() end
             elseif control.type == "SLIDER" then
                 if value ~= nil then self.controlByKey[control.key]:SetValue(value) end
+                local decimals = tonumber(control.decimals) or 0
                 self.valueByKey[control.key]:SetText(
-                    value ~= nil and (tostring(value) .. (control.suffix or "")) or "-"
+                    value ~= nil and (string.format("%." .. decimals .. "f", value)
+                        .. (control.suffix or "")) or "-"
                 )
             elseif control.type == "CHECKBOX" then
                 self.controlByKey[control.key]:SetChecked(value == true)

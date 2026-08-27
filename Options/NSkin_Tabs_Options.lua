@@ -39,7 +39,8 @@ NSkin:RegisterOptionGroup("tabs.layout", {
             label = "X offset",
             min = -2000,
             max = 2000,
-            step = 1,
+            step = 0.1,
+            decimals = 1,
             suffix = " px",
             order = 4,
         },
@@ -49,7 +50,8 @@ NSkin:RegisterOptionGroup("tabs.layout", {
             label = "Y offset",
             min = -2000,
             max = 2000,
-            step = 1,
+            step = 0.1,
+            decimals = 1,
             suffix = " px",
             order = 5,
         },
@@ -76,7 +78,14 @@ NSkin:RegisterOptionGroup("tabs.layout", {
     end,
     set = function(context, values)
         local currentPlacement = NSkin:GetTabGroupPlacement(context.id)
-        if values.mode == "GRID" then
+        local semanticChanged = values.edge ~= currentPlacement.edge
+            or values.side ~= currentPlacement.side
+            or values.alignment ~= currentPlacement.alignment
+        if currentPlacement.mode == "GRID" and semanticChanged then
+            values.mode, values.point, values.relativePoint = nil, nil, nil
+            values.x, values.y = nil, nil
+            values.alongOffset, values.edgeOffset = 0, 0
+        elseif values.mode == "GRID" then
             values.x = tonumber(values.alongOffset) or values.x or 0
             values.y = tonumber(values.edgeOffset) or values.y or 0
         end

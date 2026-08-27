@@ -12,13 +12,28 @@ local function PlacementControls(extra)
             values = { { value = "LEFT", label = "Left" }, { value = "CENTER", label = "Center" },
                 { value = "RIGHT", label = "Right" } } },
         { type = "SLIDER", key = "alongOffset", label = "X offset", min = -2000, max = 2000,
-            step = 1, suffix = " px", order = 4 },
+            step = 0.1, decimals = 1, suffix = " px", order = 4 },
         { type = "SLIDER", key = "edgeOffset", label = "Y offset", min = -2000, max = 2000,
-            step = 1, suffix = " px", order = 5 },
+            step = 0.1, decimals = 1, suffix = " px", order = 5 },
     }
     for i = 1, #(extra or {}) do controls[#controls + 1] = extra[i] end
     controls[#controls + 1] = { type = "RESET", label = "Reset Default", compactLabel = "Reset" }
     return controls
+end
+
+local function NormalizePlacementValues(context, values)
+    local current = context.getPlacement(context)
+    local semanticChanged = values.edge ~= current.edge
+        or values.side ~= current.side
+        or values.alignment ~= current.alignment
+    if current.mode == "GRID" and semanticChanged then
+        values.mode, values.point, values.relativePoint = nil, nil, nil
+        values.x, values.y = nil, nil
+        values.alongOffset, values.edgeOffset = 0, 0
+    elseif values.mode == "GRID" then
+        values.x, values.y = values.alongOffset, values.edgeOffset
+    end
+    return values
 end
 
 NSkin:RegisterOptionGroup("spellbook.movable", {
@@ -31,10 +46,7 @@ NSkin:RegisterOptionGroup("spellbook.movable", {
         return values
     end,
     set = function(context, values)
-        if values.mode == "GRID" then
-            values.x, values.y = values.alongOffset, values.edgeOffset
-        end
-        return context.setPlacement(context, values)
+        return context.setPlacement(context, NormalizePlacementValues(context, values))
     end,
     reset = function(context) return context.resetPlacement(context) end,
 })
@@ -57,9 +69,7 @@ NSkin:RegisterOptionGroup("spellbook.pagination", {
         return values
     end,
     set = function(context, values)
-        if values.mode == "GRID" then
-            values.x, values.y = values.alongOffset, values.edgeOffset
-        end
+        NormalizePlacementValues(context, values)
         local changed = context.setPlacement(context, values)
         if values.separateButtons ~= NSkin:GetSpellBookPaginationSeparateButtons() then
             changed = NSkin:SetSpellBookPaginationSeparateButtons(values.separateButtons) or changed

@@ -2,6 +2,12 @@ local _, NSkin = ...
 
 local resolvedStyles = {}
 
+local function RoundOne(value)
+    value = tonumber(value) or 0
+    if value >= 0 then return math.floor(value * 10 + 0.5) / 10 end
+    return math.ceil(value * 10 - 0.5) / 10
+end
+
 local function TablesEqual(left, right)
     if type(left) ~= type(right) then return false end
     if type(left) ~= "table" then return left == right end
@@ -159,8 +165,8 @@ function NSkin:SetTabPlacement(placement)
         bottom.mode = "GRID"
         bottom.point = placement.point or "TOPLEFT"
         bottom.relativePoint = placement.relativePoint or "TOPLEFT"
-        bottom.x = math.max(-2000, math.min(2000, x))
-        bottom.y = math.max(-2000, math.min(2000, y))
+        bottom.x = math.max(-2000, math.min(2000, RoundOne(x)))
+        bottom.y = math.max(-2000, math.min(2000, RoundOne(y)))
         bottom.relativeTo = nil
         RefreshTabLayouts()
         return true
@@ -177,8 +183,8 @@ function NSkin:SetTabPlacement(placement)
     local alongOffset = tonumber(placement.alongOffset)
     local edgeOffset = tonumber(placement.edgeOffset)
     if not alongOffset or not edgeOffset then return false end
-    alongOffset = math.max(-500, math.min(500, math.floor(alongOffset + 0.5)))
-    edgeOffset = math.max(-200, math.min(200, math.floor(edgeOffset + 0.5)))
+    alongOffset = math.max(-2000, math.min(2000, RoundOne(alongOffset)))
+    edgeOffset = math.max(-2000, math.min(2000, RoundOne(edgeOffset)))
 
     local defaults = self.defaultTheme.tab.bottom
     bottom.mode, bottom.point, bottom.relativePoint, bottom.x, bottom.y = nil, nil, nil, nil, nil

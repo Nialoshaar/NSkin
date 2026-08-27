@@ -6,6 +6,7 @@ local VALID_GRID_SIZES = { [2] = true, [4] = true, [8] = true, [16] = true }
 local TRANSPARENT = { 0, 0, 0, 0 }
 local StopDrag
 local RefreshGrid
+local HideGrid
 
 function NSkin:GetSkinningGridSize()
     local profile = self:GetProfile()
@@ -78,7 +79,8 @@ local function RefreshOverlayAppearance(element)
     if not overlay then return end
     local style = NSkin:GetStyle("skinningMode")
     local selected = controller.selectedElement == element
-    local visible = selected or (not controller.dragging and overlay.hovered == true)
+    local visible = not overlay.dragHidden
+        and (selected or (not controller.dragging and overlay.hovered == true))
     overlay.texture:SetColorTexture(unpack(visible and style.highlight or TRANSPARENT))
     NSkin:SetPixelBorderColor(overlay.border, unpack(style.hover))
     NSkin:SetPixelBorderShown(overlay.border, visible)
@@ -182,6 +184,33 @@ local function RoundToGrid(value, size)
     return math.ceil(value / size - 0.5) * size
 end
 
+local function RoundOne(value)
+    if value >= 0 then return math.floor(value * 10 + 0.5) / 10 end
+    return math.ceil(value * 10 - 0.5) / 10
+end
+
+local function CopyPlacement(source)
+    local copy = {}
+    for key, value in pairs(source or {}) do copy[key] = value end
+    return copy
+end
+
+local function GetElementPlacement(element)
+    if type(element.getPlacement) == "function" then
+        return element.getPlacement(element)
+    end
+    if element.kind == "TAB_GROUP" then
+        return NSkin:GetTabGroupPlacement(element.id)
+    end
+end
+
+local function ApplyElementPlacement(element, placement, applyOptions)
+    if type(element.applyPlacement) == "function" then
+        return element.applyPlacement(element, placement, applyOptions) == true
+    end
+    return false
+end
+
 local function SnapToNearest(value, threshold, ...)
     local best, bestDistance
     for i = 1, select("#", ...) do
@@ -194,70 +223,93 @@ local function SnapToNearest(value, threshold, ...)
     return best or value, best ~= nil
 end
 
+HideGrid = function()
+    local pool = controller and controller.activeGridPool
+    if not pool then return end
+    for i = 1, #pool.vertical do pool.vertical[i]:Hide() end
+    for i = 1, #pool.horizontal do pool.horizontal[i]:Hide() end
+    for i = 1, #pool.borders do pool.borders[i]:Hide() end
+    controller.activeGridPool = nil
+end
+
 RefreshGrid = function(window)
-    local grid = controller.grid
+    if controller.activeGridPool then HideGrid() end
+    local pool = controller.gridPools[window]
+    if not pool then
+        pool = { vertical = {}, horizontal = {}, borders = {} }
+        controller.gridPools[window] = pool
+    end
+    controller.activeGridPool = pool
     local visualGridSize = 32
     local width, height = window:GetWidth(), window:GetHeight()
     local marginX, marginY = 30, 30
-    grid:ClearAllPoints()
-    grid:SetPoint("TOPLEFT", window, "TOPLEFT", -marginX, marginY)
-    grid:SetPoint("BOTTOMRIGHT", window, "BOTTOMRIGHT", marginX, -marginY)
     local style = NSkin:GetStyle("skinningMode")
     local firstX = math.ceil(-marginX / visualGridSize)
     local lastX = math.floor((width + marginX) / visualGridSize)
     local verticalCount = 0
     for gridIndex = firstX, lastX do
         verticalCount = verticalCount + 1
-        local line = controller.verticalGridLines[verticalCount]
+        local line = pool.vertical[verticalCount]
         if not line then
-            line = grid:CreateTexture(nil, "OVERLAY")
-            controller.verticalGridLines[verticalCount] = line
+            line = window:CreateTexture(nil, "BORDER", nil, -8)
+            pool.vertical[verticalCount] = line
         end
         local x = gridIndex * visualGridSize
         line:ClearAllPoints()
-        line:SetPoint("TOP", grid, "TOP", x - width / 2, 0)
-        line:SetPoint("BOTTOM", grid, "BOTTOM", x - width / 2, 0)
+        line:SetPoint("TOP", window, "TOPLEFT", x, marginY)
+        line:SetPoint("BOTTOM", window, "BOTTOMLEFT", x, -marginY)
         line:SetWidth(1)
         line:SetColorTexture(unpack(style.activeDropZone))
         line:Show()
     end
-    for i = verticalCount + 1, #controller.verticalGridLines do
-        controller.verticalGridLines[i]:Hide()
+    for i = verticalCount + 1, #pool.vertical do
+        pool.vertical[i]:Hide()
     end
     local firstY = math.ceil(-marginY / visualGridSize)
     local lastY = math.floor((height + marginY) / visualGridSize)
     local horizontalCount = 0
     for gridIndex = firstY, lastY do
         horizontalCount = horizontalCount + 1
-        local line = controller.horizontalGridLines[horizontalCount]
+        local line = pool.horizontal[horizontalCount]
         if not line then
-            line = grid:CreateTexture(nil, "OVERLAY")
-            controller.horizontalGridLines[horizontalCount] = line
+            line = window:CreateTexture(nil, "BORDER", nil, -8)
+            pool.horizontal[horizontalCount] = line
         end
         local y = -gridIndex * visualGridSize
         line:ClearAllPoints()
-        line:SetPoint("LEFT", grid, "LEFT", 0, y + height / 2)
-        line:SetPoint("RIGHT", grid, "RIGHT", 0, y + height / 2)
+        line:SetPoint("LEFT", window, "TOPLEFT", -marginX, y)
+        line:SetPoint("RIGHT", window, "TOPRIGHT", marginX, y)
         line:SetHeight(1)
         line:SetColorTexture(unpack(style.activeDropZone))
         line:Show()
     end
-    for i = horizontalCount + 1, #controller.horizontalGridLines do
-        controller.horizontalGridLines[i]:Hide()
+    for i = horizontalCount + 1, #pool.horizontal do
+        pool.horizontal[i]:Hide()
     end
-    controller.borderLeft:ClearAllPoints()
-    controller.borderRight:ClearAllPoints()
-    controller.borderTop:ClearAllPoints()
-    controller.borderBottom:ClearAllPoints()
-    controller.borderLeft:SetPoint("TOPLEFT", window, "TOPLEFT", 0, 0)
-    controller.borderLeft:SetPoint("BOTTOMLEFT", window, "BOTTOMLEFT", 0, 0)
-    controller.borderRight:SetPoint("TOPRIGHT", window, "TOPRIGHT", 0, 0)
-    controller.borderRight:SetPoint("BOTTOMRIGHT", window, "BOTTOMRIGHT", 0, 0)
-    controller.borderTop:SetPoint("TOPLEFT", window, "TOPLEFT", 0, 0)
-    controller.borderTop:SetPoint("TOPRIGHT", window, "TOPRIGHT", 0, 0)
-    controller.borderBottom:SetPoint("BOTTOMLEFT", window, "BOTTOMLEFT", 0, 0)
-    controller.borderBottom:SetPoint("BOTTOMRIGHT", window, "BOTTOMRIGHT", 0, 0)
-    grid:Show()
+    if #pool.borders == 0 then
+        for i = 1, 4 do
+            pool.borders[i] = window:CreateTexture(nil, "BORDER", nil, -7)
+            pool.borders[i]:SetColorTexture(unpack(style.activeDropZone))
+        end
+        pool.borders[1]:SetWidth(3)
+        pool.borders[2]:SetWidth(3)
+        pool.borders[3]:SetHeight(3)
+        pool.borders[4]:SetHeight(3)
+    end
+    local left, right, top, bottom = unpack(pool.borders)
+    left:ClearAllPoints(); right:ClearAllPoints(); top:ClearAllPoints(); bottom:ClearAllPoints()
+    left:SetPoint("TOPLEFT", window, "TOPLEFT", 0, 0)
+    left:SetPoint("BOTTOMLEFT", window, "BOTTOMLEFT", 0, 0)
+    right:SetPoint("TOPRIGHT", window, "TOPRIGHT", 0, 0)
+    right:SetPoint("BOTTOMRIGHT", window, "BOTTOMRIGHT", 0, 0)
+    top:SetPoint("TOPLEFT", window, "TOPLEFT", 0, 0)
+    top:SetPoint("TOPRIGHT", window, "TOPRIGHT", 0, 0)
+    bottom:SetPoint("BOTTOMLEFT", window, "BOTTOMLEFT", 0, 0)
+    bottom:SetPoint("BOTTOMRIGHT", window, "BOTTOMRIGHT", 0, 0)
+    for i = 1, 4 do
+        pool.borders[i]:SetColorTexture(unpack(style.activeDropZone))
+        pool.borders[i]:Show()
+    end
 end
 
 local function UpdateDrag()
@@ -270,7 +322,7 @@ local function UpdateDrag()
     if not IsShiftKeyDown() then
         local size = NSkin:GetSkinningGridSize()
         local width, height = window:GetWidth(), window:GetHeight()
-        local ghostWidth, ghostHeight = controller.ghost:GetWidth(), controller.ghost:GetHeight()
+        local ghostWidth, ghostHeight = controller.dragWidth, controller.dragHeight
         local threshold = math.max(6, size)
         local snappedX, borderSnappedX = SnapToNearest(localX, threshold,
             0, -ghostWidth, width, width - ghostWidth)
@@ -280,20 +332,53 @@ local function UpdateDrag()
         localY = borderSnappedY and snappedY or RoundToGrid(localY, size)
     end
     controller.gridX, controller.gridY = localX, localY
-    controller.ghost:ClearAllPoints()
-    controller.ghost:SetPoint("TOPLEFT", window, "TOPLEFT", localX, localY)
+    if localX == controller.previewX and localY == controller.previewY then return end
+    controller.previewX, controller.previewY = localX, localY
+    local placement = controller.previewPlacement
+    placement.mode = "GRID"
+    placement.point = "TOPLEFT"
+    placement.relativePoint = "TOPLEFT"
+    placement.x, placement.y = localX, localY
+    placement.alongOffset, placement.edgeOffset = localX, localY
+    placement.relativeTo = nil
+    placement.offsetX, placement.offsetY = nil, nil
+    if element.livePreview ~= false
+        and ApplyElementPlacement(element, placement, controller.previewOptions)
+    then
+        controller.previewApplied = true
+        controller.ghost:Hide()
+        if AnchorOverlay(controller.dragHighlight, element) then
+            controller.dragHighlight:Show()
+        end
+    else
+        controller.previewApplied = nil
+        controller.ghost:ClearAllPoints()
+        controller.ghost:SetPoint("TOPLEFT", window, "TOPLEFT", localX, localY)
+        controller.ghost:Show()
+        controller.dragHighlight:ClearAllPoints()
+        controller.dragHighlight:SetAllPoints(controller.ghost)
+        controller.dragHighlight:Show()
+    end
 end
 
 local function BeginDrag(element)
     if not element or (element.kind ~= "TAB_GROUP" and not element.draggable)
         or controller.dragging then return end
     controller.dragging = true
-    RefreshAllOverlayAppearances()
     local overlay = controller.overlays[element.id]
-    controller.ghost:SetSize(math.max(80, overlay and overlay:GetWidth() or 80),
-        math.max(20, overlay and overlay:GetHeight() or 20))
+    controller.dragWidth = math.max(1, overlay and overlay:GetWidth() or 1)
+    controller.dragHeight = math.max(1, overlay and overlay:GetHeight() or 1)
+    controller.ghost:SetSize(controller.dragWidth, controller.dragHeight)
     controller.ghost.texture:SetColorTexture(unpack(NSkin:GetStyle("skinningMode").ghost))
-    controller.ghost:Show()
+    controller.ghost:Hide()
+    controller.originalPlacement = CopyPlacement(GetElementPlacement(element))
+    controller.previewPlacement = CopyPlacement(controller.originalPlacement)
+    controller.previewX, controller.previewY = nil, nil
+    if overlay then
+        overlay.hovered = nil
+        overlay.dragHidden = true
+    end
+    RefreshAllOverlayAppearances()
     local cursorX, cursorY = GetCursorUIPosition()
     local left = overlay and overlay:GetLeft() or cursorX
     local top = overlay and overlay:GetTop() or cursorY
@@ -301,22 +386,35 @@ local function BeginDrag(element)
     controller.grabOffsetY = top - cursorY
     RefreshGrid(element.window)
     UpdateDrag()
+    controller.dragFrame:EnableKeyboard(true)
+    controller.dragFrame:SetPropagateKeyboardInput(true)
+    controller.dragFrame:SetScript("OnKeyDown", function(self, key)
+        if key == "ESCAPE" then
+            self:SetPropagateKeyboardInput(false)
+            StopDrag(false)
+        else
+            self:SetPropagateKeyboardInput(true)
+        end
+    end)
     controller.dragFrame:SetScript("OnUpdate", UpdateDrag)
 end
 
 StopDrag = function(apply)
     if not controller.dragging then return end
-    local gridX, gridY = controller.gridX, controller.gridY
+    local gridX = controller.gridX and RoundOne(controller.gridX)
+    local gridY = controller.gridY and RoundOne(controller.gridY)
     controller.dragging = false
     controller.dragFrame:SetScript("OnUpdate", nil)
+    controller.dragFrame:SetScript("OnKeyDown", nil)
+    controller.dragFrame:EnableKeyboard(false)
     controller.ghost:Hide()
-    controller.grid:Hide()
-    RefreshAllOverlayAppearances()
-    if apply and gridX and gridY then
-        local element = controller.selectedElement
+    controller.dragHighlight:Hide()
+    HideGrid()
+    local element = controller.selectedElement
+    local overlay = element and controller.overlays[element.id]
+    if apply and gridX and gridY and element then
         local view = element and controller.optionViews[element.editorOptions]
-        local placement = view and view.definition.get(view.context)
-            or NSkin:GetTabPlacement()
+        local placement = controller.previewPlacement
         placement.mode = "GRID"
         placement.point = "TOPLEFT"
         placement.relativePoint = "TOPLEFT"
@@ -324,14 +422,33 @@ StopDrag = function(apply)
         placement.alongOffset, placement.edgeOffset = gridX, gridY
         placement.relativeTo = nil
         placement.offsetX, placement.offsetY = nil, nil
+        local persisted
         if view then
-            view:SetValues(placement)
+            persisted = view:SetValues(placement)
         elseif element and type(element.setPlacement) == "function" then
-            element.setPlacement(element, placement)
-        elseif element and type(element.applyPlacement) == "function" then
-            element.applyPlacement(element, placement)
+            persisted = element.setPlacement(element, placement) == true
+        end
+        if not persisted and controller.originalPlacement then
+            ApplyElementPlacement(element, controller.originalPlacement)
+        end
+    elseif element and controller.originalPlacement then
+        local restored = ApplyElementPlacement(element, controller.originalPlacement)
+        if not restored and _G.InCombatLockdown and _G.InCombatLockdown() then
+            controller.pendingRollback = {
+                element = element,
+                placement = CopyPlacement(controller.originalPlacement),
+            }
         end
     end
+    if overlay then
+        overlay.dragHidden = nil
+        AnchorOverlay(overlay, element)
+    end
+    controller.originalPlacement = nil
+    controller.previewPlacement = nil
+    controller.previewApplied = nil
+    controller.previewX, controller.previewY = nil, nil
+    RefreshAllOverlayAppearances()
 end
 
 local function CreateOverlay(element)
@@ -417,8 +534,8 @@ local function CreateController()
         optionViews = {},
         overlays = {},
         overlayElements = {},
-        verticalGridLines = {},
-        horizontalGridLines = {},
+        gridPools = setmetatable({}, { __mode = "k" }),
+        previewOptions = { preview = true, suppressNotify = true },
     }
 
     local inspector = CreateFrame("Frame", nil, UIParent)
@@ -481,28 +598,27 @@ local function CreateController()
     ghost:Hide()
     controller.ghost = ghost
 
-    local grid = CreateFrame("Frame", nil, UIParent)
-    grid:SetFrameStrata("TOOLTIP")
-    grid:SetFrameLevel(100)
-    grid:EnableMouse(false)
-    grid:Hide()
-    controller.grid = grid
-    local borderColor = NSkin:GetStyle("skinningMode").activeDropZone
-    local function CreateBorderLine(width, height)
-        local line = grid:CreateTexture(nil, "OVERLAY")
-        line:SetSize(width, height)
-        line:SetColorTexture(unpack(borderColor))
-        return line
-    end
-    controller.borderLeft = CreateBorderLine(3, 1)
-    controller.borderRight = CreateBorderLine(3, 1)
-    controller.borderTop = CreateBorderLine(1, 3)
-    controller.borderBottom = CreateBorderLine(1, 3)
+    local dragHighlight = CreateFrame("Frame", nil, UIParent)
+    dragHighlight:SetFrameStrata("TOOLTIP")
+    dragHighlight:SetFrameLevel(103)
+    dragHighlight.border = NSkin:CreatePixelBorder(
+        dragHighlight, "NSkinSkinningModeDragHighlight", 1,
+        { 1, 1, 1, 1 }, true, dragHighlight
+    )
+    dragHighlight:Hide()
+    controller.dragHighlight = dragHighlight
 
     controller.dragFrame = CreateFrame("Frame")
     controller.eventFrame = CreateFrame("Frame")
-    controller.eventFrame:SetScript("OnEvent", function(_, event)
-        if event == "PLAYER_REGEN_DISABLED" then NSkin:SetSkinningModeEnabled(false) end
+    controller.eventFrame:SetScript("OnEvent", function(self, event)
+        if event == "PLAYER_REGEN_DISABLED" then
+            NSkin:SetSkinningModeEnabled(false)
+        elseif event == "PLAYER_REGEN_ENABLED" and controller.pendingRollback then
+            local rollback = controller.pendingRollback
+            controller.pendingRollback = nil
+            ApplyElementPlacement(rollback.element, rollback.placement)
+            self:UnregisterEvent("PLAYER_REGEN_ENABLED")
+        end
     end)
     inspector:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
     inspector:Hide()
@@ -539,6 +655,9 @@ function NSkin:SetSkinningModeEnabled(enabled)
         StopDrag(false)
         self:UnregisterComponentCallbacks(controller)
         controller.eventFrame:UnregisterAllEvents()
+        if controller.pendingRollback then
+            controller.eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+        end
         for _, overlay in pairs(controller.overlays) do overlay:Hide() end
         controller.inspector:Hide()
         controller.selectedElement = nil
