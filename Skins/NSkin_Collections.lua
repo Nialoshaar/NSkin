@@ -221,6 +221,7 @@ function CollectionSkin:Initialize()
 
     if not collectionsInitialized then
         NSkin:RegisterTabGroup(TAB_GROUP_ID, {
+            module = "Collections",
             label = "Collections tabs",
             kind = "TAB_GROUP",
             editorOptions = "tabs.layout",

@@ -25,10 +25,9 @@ local PAGINATION_ELEMENT_ID = "SpellBook.Pagination"
 local PREVIOUS_ELEMENT_ID = "SpellBook.Pagination.Previous"
 local NEXT_ELEMENT_ID = "SpellBook.Pagination.Next"
 local PAGE_TEXT_ELEMENT_ID = "SpellBook.Pagination.Text"
-local movableOriginalPoints = {}
 local GetSavedMovablePlacement
-local movablePersistenceWatcher
-local EnsureMovablePersistenceWatcher
+local spellBookStateWatcher
+local EnsureSpellBookStateWatcher
 local RestoreCategoryTabAnchors
 local categoryTabOriginalPoints
 local CATEGORY_TAB_DEFAULT = {
@@ -182,8 +181,6 @@ function NSkin:ResetSpellBookTabPlacements()
             profile.moduleOptions = nil
         end
     end
-    self:ResetTabLayout()
-    self:ResetTabSpacing()
     local category = self:GetTabGroup(CATEGORY_TAB_GROUP_ID)
     if category then RestoreCategoryTabAnchors(category.container) end
     self:ApplyTabGroupLayout(TAB_GROUP_ID)
@@ -313,12 +310,7 @@ local function ApplySearchPlacement(element, placement, applyOptions)
 end
 
 local function RestoreOriginalPoints(id)
-    local element = NSkin:GetSkinningElement(id)
-    local points = movableOriginalPoints[id]
-    if not element or not points then return false end
-    element.target:ClearAllPoints()
-    for i = 1, #points do element.target:SetPoint(unpack(points[i])) end
-    return true
+    return NSkin:RestoreMovableElementOriginal(id, true)
 end
 
 local function RefreshSearchElements()
@@ -351,7 +343,11 @@ function NSkin:SetSpellBookSearchCogMode(mode)
     end
     local options = self:GetModuleOptions("SpellBook", true)
     options.searchCogMode = mode == "GROUPED" and nil or mode
-    if mode ~= "GROUPED" then EnsureMovablePersistenceWatcher() end
+    if options.searchCogMode or options.separatePaginationButtons or options.paginationTextMode then
+        EnsureSpellBookStateWatcher()
+    elseif spellBookStateWatcher then
+        spellBookStateWatcher:Hide()
+    end
     RefreshSearchElements()
     return true
 end
@@ -381,11 +377,8 @@ local function RefreshPaginationElements()
         local saved = GetSavedMovablePlacement and GetSavedMovablePlacement(id)
         if independent and saved then
             NSkin:LayoutWindowElement(element, saved)
-        elseif not independent and movableOriginalPoints[id] then
-            element.target:ClearAllPoints()
-            for i = 1, #movableOriginalPoints[id] do
-                element.target:SetPoint(unpack(movableOriginalPoints[id][i]))
-            end
+        elseif not independent then
+            NSkin:RestoreMovableElementOriginal(element, true)
         end
     end
     ApplyMode(PREVIOUS_ELEMENT_ID, separateButtons)
@@ -400,10 +393,11 @@ end
 function NSkin:SetSpellBookPaginationSeparateButtons(value)
     local options = self:GetModuleOptions("SpellBook", true)
     options.separatePaginationButtons = value == true and true or nil
-    if value == true then EnsureMovablePersistenceWatcher()
-    elseif not options.paginationTextMode and not options.movablePlacements
-        and movablePersistenceWatcher
-    then movablePersistenceWatcher:Hide() end
+    if options.searchCogMode or options.separatePaginationButtons or options.paginationTextMode then
+        EnsureSpellBookStateWatcher()
+    elseif spellBookStateWatcher then
+        spellBookStateWatcher:Hide()
+    end
     RefreshPaginationElements()
     return true
 end
@@ -412,115 +406,46 @@ function NSkin:SetSpellBookPaginationTextMode(mode)
     if mode ~= "GROUPED" and mode ~= "INDEPENDENT" and mode ~= "HIDDEN" then return false end
     local options = self:GetModuleOptions("SpellBook", true)
     options.paginationTextMode = mode == "GROUPED" and nil or mode
-    if mode ~= "GROUPED" then EnsureMovablePersistenceWatcher()
-    elseif not options.separatePaginationButtons and not options.movablePlacements
-        and movablePersistenceWatcher
-    then movablePersistenceWatcher:Hide() end
+    if options.searchCogMode or options.separatePaginationButtons or options.paginationTextMode then
+        EnsureSpellBookStateWatcher()
+    elseif spellBookStateWatcher then
+        spellBookStateWatcher:Hide()
+    end
     RefreshPaginationElements()
     return true
 end
 
-local function CaptureOriginalPoints(id, target)
-    if movableOriginalPoints[id] or not target then return end
-    local points = {}
-    for i = 1, target:GetNumPoints() do points[i] = { target:GetPoint(i) } end
-    movableOriginalPoints[id] = points
-end
-
 GetSavedMovablePlacement = function(id)
-    local options = NSkin:GetModuleOptions("SpellBook", false)
-    return options and options.movablePlacements and options.movablePlacements[id]
+    return NSkin:GetSavedMovableElementPlacement(id)
 end
 
-local function GetMovablePlacement(element)
-    return CopyPlacement(GetSavedMovablePlacement(element.id) or element.defaultPlacement)
-end
-
-local function SetMovablePlacement(element, placement)
-    if placement.relativeTo
-        and NSkin:WouldCreateSkinningPlacementCycle(element.id, placement.relativeTo)
-    then return false end
-    local options = NSkin:GetModuleOptions("SpellBook", true)
-    options.movablePlacements = options.movablePlacements or {}
-    options.movablePlacements[element.id] = CopyPlacement(placement)
-    EnsureMovablePersistenceWatcher()
-    if type(element.applyPlacement) == "function" then
-        return element.applyPlacement(element, placement)
-    end
-    return NSkin:LayoutWindowElement(element, placement)
-end
-
-local function ResetMovablePlacement(element)
-    local options = NSkin:GetModuleOptions("SpellBook", false)
-    if options and options.movablePlacements then
-        options.movablePlacements[element.id] = nil
-        if not next(options.movablePlacements) then
-            options.movablePlacements = nil
-            if movablePersistenceWatcher then movablePersistenceWatcher:Hide() end
-        end
-    end
-    local points = movableOriginalPoints[element.id]
-    if not points then return false end
-    element.target:ClearAllPoints()
-    for i = 1, #points do element.target:SetPoint(unpack(points[i])) end
-    NSkin:NotifySkinningElementBoundsChanged(element.id)
-    return true
-end
-
-local function ApplySavedMovablePlacements()
-    local ids = {
-        SEARCH_ELEMENT_ID,
-        SEARCH_COG_ELEMENT_ID,
-        PAGINATION_ELEMENT_ID,
-        PREVIOUS_ELEMENT_ID,
-        NEXT_ELEMENT_ID,
-        PAGE_TEXT_ELEMENT_ID,
-    }
-    for i = 1, #ids do
-        local element = NSkin:GetSkinningElement(ids[i])
-        local placement = GetSavedMovablePlacement(ids[i])
-        if element and placement then
-            if type(element.applyPlacement) == "function" then
-                element.applyPlacement(element, placement)
-            else
-                NSkin:LayoutWindowElement(element, placement)
-            end
-        end
-    end
+local function RefreshSpellBookComponentStates()
     RefreshSearchElements()
     RefreshPaginationElements()
 end
 
-EnsureMovablePersistenceWatcher = function()
+EnsureSpellBookStateWatcher = function()
     local playerSpells = _G.PlayerSpellsFrame
     if not playerSpells then return false end
-    if not movablePersistenceWatcher then
-        movablePersistenceWatcher = CreateFrame("Frame", nil, playerSpells)
-        movablePersistenceWatcher:Hide()
-        movablePersistenceWatcher:SetScript("OnShow", ApplySavedMovablePlacements)
+    if not spellBookStateWatcher then
+        spellBookStateWatcher = CreateFrame("Frame", nil, playerSpells)
+        spellBookStateWatcher:Hide()
+        spellBookStateWatcher:SetScript("OnShow", RefreshSpellBookComponentStates)
     end
-    movablePersistenceWatcher:Show()
+    spellBookStateWatcher:Show()
     return true
 end
 
 local function RegisterMovableElement(id, label, window, target, editorOptions,
     defaultPlacement, isEditable, priority, snapTarget)
     if not target then return end
-    CaptureOriginalPoints(id, target)
-    NSkin:RegisterSkinningElement(id, {
+    NSkin:RegisterMovableElement({
+        id = id, module = "SpellBook",
         label = label, kind = "MOVABLE", draggable = true, priority = priority or 80,
         movable = true, snapTarget = snapTarget == true,
         window = window, target = target, editorOptions = editorOptions,
         defaultPlacement = defaultPlacement, isEditable = isEditable,
-        getPlacement = GetMovablePlacement, setPlacement = SetMovablePlacement,
-        resetPlacement = ResetMovablePlacement,
-        applyPlacement = function(element, placement, applyOptions)
-            return NSkin:LayoutWindowElement(element, placement, applyOptions)
-        end,
     })
-    local element = NSkin:GetSkinningElement(id)
-    local saved = GetSavedMovablePlacement(id)
-    if saved then NSkin:LayoutWindowElement(element, saved) end
 end
 
 local function SetFontSize(fontString, size)
@@ -1022,12 +947,13 @@ function SpellBookSkin:Initialize()
         function() return NSkin:GetSpellBookSearchCogMode() == "INDEPENDENT" end, 90)
     local searchElement = NSkin:GetSkinningElement(SEARCH_ELEMENT_ID)
     if searchElement then
+        local genericReset = searchElement.resetPlacement
         searchElement.searchCog = spellBook.SettingsDropdown
         searchElement.getHighlightBounds = GetSearchBounds
         searchElement.applyPlacement = ApplySearchPlacement
         searchElement.resetPlacement = function(element)
             RestoreOriginalPoints(SEARCH_COG_ELEMENT_ID)
-            local reset = ResetMovablePlacement(element)
+            local reset = genericReset(element)
             RefreshSearchElements()
             return reset
         end
@@ -1044,13 +970,11 @@ function SpellBookSkin:Initialize()
         pagingControls and pagingControls.PageText, "spellbook.pagination", defaultBottom,
         function() return NSkin:GetSpellBookPaginationTextMode() == "INDEPENDENT" end, 100)
     local movableOptions = NSkin:GetModuleOptions("SpellBook", false)
-    if movableOptions and ((movableOptions.movablePlacements
-            and next(movableOptions.movablePlacements))
-        or movableOptions.separatePaginationButtons
+    if movableOptions and (movableOptions.separatePaginationButtons
         or movableOptions.paginationTextMode
         or movableOptions.searchCogMode)
     then
-        EnsureMovablePersistenceWatcher()
+        EnsureSpellBookStateWatcher()
     end
     RefreshSearchElements()
     RefreshPaginationElements()

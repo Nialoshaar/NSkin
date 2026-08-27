@@ -67,7 +67,7 @@ commands.resettabs = function()
     if type(NSkin.ResetSpellBookTabPlacements) == "function"
         and NSkin:ResetSpellBookTabPlacements()
     then
-        NSkin:Print("Spellbook tabs reset to their defaults.")
+        NSkin:Print("Spellbook tab placement overrides cleared.")
     else
         NSkin:Print("Spellbook tab reset is unavailable.")
     end

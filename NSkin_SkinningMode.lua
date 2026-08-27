@@ -51,8 +51,8 @@ local function CreateButton(parent, text, width, callback)
     return button
 end
 
-local function GetCursorUIPosition()
-    local scale = UIParent:GetEffectiveScale()
+local function GetCursorPositionForWindow(window)
+    local scale = window and window:GetEffectiveScale() or UIParent:GetEffectiveScale()
     local x, y = GetCursorPosition()
     return x / scale, y / scale
 end
@@ -154,9 +154,10 @@ local function DockWithoutSelection(excludedWindow)
     local previous = controller.selectedElement
     controller.selectedElement = nil
     if previous then RefreshOverlayAppearance(previous) end
+    local activeWindow = NSkin:GetMostRecentVisibleSkinningWindow(excludedWindow)
     local visibleElement
     NSkin:ForEachRegisteredSkinningElement(function(element)
-        if not visibleElement and element.window ~= excludedWindow and element.window:IsShown() then
+        if not visibleElement and element.window == activeWindow then
             visibleElement = element
         end
     end)
@@ -171,6 +172,7 @@ end
 
 local function SelectElement(element)
     if not element then return end
+    NSkin:MarkSkinningWindowActive(element.window)
     local previous = controller.selectedElement
     controller.selectedElement = element
     if previous and previous ~= element then RefreshOverlayAppearance(previous) end
@@ -324,7 +326,7 @@ local function UpdateDrag()
     local element = controller.selectedElement
     local window = element and element.window
     if not window then return end
-    local cursorX, cursorY = GetCursorUIPosition()
+    local cursorX, cursorY = GetCursorPositionForWindow(window)
     local localX = cursorX - controller.grabOffsetX - window:GetLeft()
     local localY = cursorY + controller.grabOffsetY - window:GetTop()
     if not IsShiftKeyDown() then
@@ -387,7 +389,7 @@ local function BeginDrag(element)
         overlay.dragHidden = true
     end
     RefreshAllOverlayAppearances()
-    local cursorX, cursorY = GetCursorUIPosition()
+    local cursorX, cursorY = GetCursorPositionForWindow(element.window)
     local left = overlay and overlay:GetLeft() or cursorX
     local top = overlay and overlay:GetTop() or cursorY
     controller.grabOffsetX = cursorX - left
@@ -491,6 +493,9 @@ local function CreateOverlay(element)
         overlay:SetScript("OnDragStop", function() StopDrag(true) end)
     end
     overlay:SetScript("OnShow", function(self)
+        if not controller.activatingOverlays then
+            NSkin:MarkSkinningWindowActive(element.window)
+        end
         AnchorOverlay(self, element)
         RefreshOverlayAppearance(element)
     end)
@@ -659,7 +664,9 @@ function NSkin:SetSkinningModeEnabled(enabled)
         )
         controller.inspector:Show()
         DockWithoutSelection()
+        controller.activatingOverlays = true
         self:ForEachRegisteredSkinningElement(ShowElementOverlay)
+        controller.activatingOverlays = nil
         controller.eventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
         self:Print("Skinning Mode enabled. Select a highlighted element.")
     else

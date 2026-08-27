@@ -4,6 +4,17 @@ local COMPONENT_STATE = "components"
 local tabGroups = {}
 local skinningElements = {}
 local componentCallbacks = {}
+local movableOriginalPoints = {}
+local movableElementsByWindow = setmetatable({}, { __mode = "k" })
+local movableWatchers = setmetatable({}, { __mode = "k" })
+local registeredWindows = setmetatable({}, { __mode = "k" })
+local windowSequence = 0
+
+local function CopyPlacement(placement)
+    local copy = {}
+    for key, value in pairs(placement or {}) do copy[key] = value end
+    return copy
+end
 
 function NSkin:RegisterComponentCallback(event, callback, owner)
     if type(event) ~= "string" or type(callback) ~= "function" then return false end
@@ -380,6 +391,43 @@ function NSkin:RegisterTabGroup(groupID, definition)
             return NSkin:ApplyTabGroupPlacement(element, placement, applyOptions)
         end
     end
+    if type(group.module) == "string" and not group.getPlacement then
+        group.getPlacement = function(element)
+            local moduleOptions = NSkin:GetModuleOptions(element.module, false)
+            local saved = moduleOptions and moduleOptions.tabPlacements
+                and moduleOptions.tabPlacements[element.id]
+            return CopyPlacement(saved or NSkin:GetTabPlacement())
+        end
+        group.setPlacement = function(element, placement)
+            if not NSkin:ApplyTabGroupPlacement(element, placement,
+                { suppressNotify = true })
+            then
+                return false
+            end
+            local moduleOptions = NSkin:GetModuleOptions(element.module, true)
+            moduleOptions.tabPlacements = moduleOptions.tabPlacements or {}
+            moduleOptions.tabPlacements[element.id] = CopyPlacement(placement)
+            FireComponentCallback("TabGroupLayoutApplied", element)
+            return true
+        end
+        group.resetPlacement = function(element)
+            local placement = NSkin:GetTabPlacement()
+            if not NSkin:ApplyTabGroupPlacement(element, placement,
+                { suppressNotify = true })
+            then
+                return false
+            end
+            local moduleOptions = NSkin:GetModuleOptions(element.module, false)
+            if moduleOptions and moduleOptions.tabPlacements then
+                moduleOptions.tabPlacements[element.id] = nil
+                if not next(moduleOptions.tabPlacements) then
+                    moduleOptions.tabPlacements = nil
+                end
+            end
+            FireComponentCallback("TabGroupLayoutApplied", element)
+            return true
+        end
+    end
 
     self:RegisterSkinningElement(groupID, group)
     return true
@@ -398,6 +446,10 @@ function NSkin:RegisterSkinningElement(elementID, definition)
     definition.owner = nil
     definition.priority = tonumber(definition.priority) or 0
     definition.highlightPadding = tonumber(definition.highlightPadding) or 0
+    if not registeredWindows[definition.window] then
+        windowSequence = windowSequence + 1
+        registeredWindows[definition.window] = windowSequence
+    end
 
     local element = skinningElements[elementID]
     if element then
@@ -409,6 +461,25 @@ function NSkin:RegisterSkinningElement(elementID, definition)
     end
     FireComponentCallback("SkinningElementRegistered", element)
     return true
+end
+
+function NSkin:MarkSkinningWindowActive(window)
+    if not window then return false end
+    windowSequence = windowSequence + 1
+    registeredWindows[window] = windowSequence
+    return true
+end
+
+function NSkin:GetMostRecentVisibleSkinningWindow(excludedWindow)
+    local bestWindow, bestSequence
+    for window, sequence in pairs(registeredWindows) do
+        if window ~= excludedWindow and window.IsShown and window:IsShown()
+            and (not bestSequence or sequence > bestSequence)
+        then
+            bestWindow, bestSequence = window, sequence
+        end
+    end
+    return bestWindow
 end
 
 function NSkin:ForEachRegisteredSkinningElement(callback)
@@ -478,6 +549,118 @@ function NSkin:LayoutWindowElement(element, placement, options)
         tonumber(placement.alongOffset) or 0, tonumber(placement.edgeOffset) or 0)
     if not (options and options.suppressNotify) then
         self:NotifySkinningElementBoundsChanged(element.id)
+    end
+    return true
+end
+
+local function GetSavedMovablePlacement(element)
+    local options = NSkin:GetModuleOptions(element.module, false)
+    return options and options.movablePlacements
+        and options.movablePlacements[element.id]
+end
+
+local function EnsureMovableWatcher(window)
+    local watcher = movableWatchers[window]
+    if not watcher then
+        watcher = CreateFrame("Frame", nil, window)
+        watcher:Hide()
+        watcher:SetScript("OnShow", function()
+            local elements = movableElementsByWindow[window]
+            for i = 1, #(elements or {}) do
+                local element = elements[i]
+                local placement = GetSavedMovablePlacement(element)
+                if placement and NSkin:IsSkinningElementEditable(element) then
+                    element.applyPlacement(element, placement)
+                end
+            end
+        end)
+        movableWatchers[window] = watcher
+    end
+    watcher:Show()
+end
+
+function NSkin:GetSavedMovableElementPlacement(elementID)
+    local element = skinningElements[elementID]
+    local placement = element and element.module and GetSavedMovablePlacement(element)
+    return placement and CopyPlacement(placement) or nil
+end
+
+function NSkin:RestoreMovableElementOriginal(elementOrID, suppressNotify)
+    local element = type(elementOrID) == "table"
+        and elementOrID or skinningElements[elementOrID]
+    local points = element and movableOriginalPoints[element.id]
+    if not element or not points or not element.target then return false end
+    element.target:ClearAllPoints()
+    for i = 1, #points do element.target:SetPoint(unpack(points[i])) end
+    if not suppressNotify then self:NotifySkinningElementBoundsChanged(element.id) end
+    return true
+end
+
+function NSkin:RegisterMovableElement(definition)
+    if type(definition) ~= "table" or type(definition.id) ~= "string"
+        or type(definition.module) ~= "string" or not definition.window
+        or not definition.target or type(definition.defaultPlacement) ~= "table"
+    then return false end
+    local id = definition.id
+    if not movableOriginalPoints[id] then
+        local points = {}
+        for i = 1, definition.target:GetNumPoints() do
+            points[i] = { definition.target:GetPoint(i) }
+        end
+        movableOriginalPoints[id] = points
+    end
+    local customApply = definition.applyPlacement
+    definition.kind = definition.kind or "MOVABLE"
+    definition.draggable = definition.draggable ~= false
+    definition.movable = true
+    definition.getPlacement = definition.getPlacement or function(element)
+        return CopyPlacement(GetSavedMovablePlacement(element) or element.defaultPlacement)
+    end
+    definition.applyPlacement = customApply or function(element, placement, applyOptions)
+        return NSkin:LayoutWindowElement(element, placement, applyOptions)
+    end
+    definition.setPlacement = definition.setPlacement or function(element, placement)
+        if placement.relativeTo
+            and NSkin:WouldCreateSkinningPlacementCycle(element.id, placement.relativeTo)
+        then return false end
+        if not element.applyPlacement(element, placement) then return false end
+        local options = NSkin:GetModuleOptions(element.module, true)
+        options.movablePlacements = options.movablePlacements or {}
+        options.movablePlacements[element.id] = CopyPlacement(placement)
+        EnsureMovableWatcher(element.window)
+        return true
+    end
+    definition.resetPlacement = definition.resetPlacement or function(element)
+        if not NSkin:RestoreMovableElementOriginal(element) then return false end
+        local options = NSkin:GetModuleOptions(element.module, false)
+        if options and options.movablePlacements then
+            options.movablePlacements[element.id] = nil
+            if not next(options.movablePlacements) then options.movablePlacements = nil end
+            if not next(options) then
+                local profile = NSkin:GetProfile()
+                if profile.moduleOptions then
+                    profile.moduleOptions[element.module] = nil
+                    if not next(profile.moduleOptions) then profile.moduleOptions = nil end
+                end
+            end
+        end
+        return true
+    end
+    self:RegisterSkinningElement(id, definition)
+    local element = skinningElements[id]
+    local elements = movableElementsByWindow[element.window]
+    if not elements then
+        elements = {}
+        movableElementsByWindow[element.window] = elements
+    end
+    local alreadyRegistered
+    for i = 1, #elements do
+        if elements[i] == element then alreadyRegistered = true break end
+    end
+    if not alreadyRegistered then elements[#elements + 1] = element end
+    local saved = GetSavedMovablePlacement(element)
+    if saved and self:IsSkinningElementEditable(element) then
+        if element.applyPlacement(element, saved) then EnsureMovableWatcher(element.window) end
     end
     return true
 end
