@@ -59,6 +59,20 @@ end
 
 commands.edit = commands.skinning
 
+commands.resettabs = function()
+    if _G.InCombatLockdown and _G.InCombatLockdown() then
+        NSkin:Print("Spellbook tabs cannot be reset during combat.")
+        return
+    end
+    if type(NSkin.ResetSpellBookTabPlacements) == "function"
+        and NSkin:ResetSpellBookTabPlacements()
+    then
+        NSkin:Print("Spellbook tabs reset to their defaults.")
+    else
+        NSkin:Print("Spellbook tab reset is unavailable.")
+    end
+end
+
 local function HandleSlashCommand(message)
     local command = (message or ""):lower():match("^%s*(.-)%s*$")
     if command == "" then
@@ -76,7 +90,7 @@ local function HandleSlashCommand(message)
         return
     end
 
-    NSkin:Print("commands: /nskin, /nskin edit, /nskin skinning, /nskin rescan, /nskin debug, /nskin journaldebug")
+    NSkin:Print("commands: /nskin, /nskin edit, /nskin skinning, /nskin resettabs, /nskin rescan, /nskin debug, /nskin journaldebug")
 end
 
 SLASH_NSKIN1 = "/nskin"

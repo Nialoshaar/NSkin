@@ -244,6 +244,7 @@ RefreshGrid = function(window)
     local width, height = window:GetWidth(), window:GetHeight()
     local marginX, marginY = 30, 30
     local style = NSkin:GetStyle("skinningMode")
+    local gridAlpha = tonumber(style.gridAlpha) or 0.4
     local firstX = math.ceil(-marginX / visualGridSize)
     local lastX = math.floor((width + marginX) / visualGridSize)
     local verticalCount = 0
@@ -259,7 +260,9 @@ RefreshGrid = function(window)
         line:SetPoint("TOP", window, "TOPLEFT", x, marginY)
         line:SetPoint("BOTTOM", window, "BOTTOMLEFT", x, -marginY)
         line:SetWidth(1)
-        line:SetColorTexture(unpack(style.activeDropZone))
+        line:SetColorTexture(style.activeDropZone[1], style.activeDropZone[2],
+            style.activeDropZone[3], 1)
+        line:SetAlpha(gridAlpha)
         line:Show()
     end
     for i = verticalCount + 1, #pool.vertical do
@@ -280,7 +283,9 @@ RefreshGrid = function(window)
         line:SetPoint("LEFT", window, "TOPLEFT", -marginX, y)
         line:SetPoint("RIGHT", window, "TOPRIGHT", marginX, y)
         line:SetHeight(1)
-        line:SetColorTexture(unpack(style.activeDropZone))
+        line:SetColorTexture(style.activeDropZone[1], style.activeDropZone[2],
+            style.activeDropZone[3], 1)
+        line:SetAlpha(gridAlpha)
         line:Show()
     end
     for i = horizontalCount + 1, #pool.horizontal do
@@ -289,7 +294,8 @@ RefreshGrid = function(window)
     if #pool.borders == 0 then
         for i = 1, 4 do
             pool.borders[i] = window:CreateTexture(nil, "BORDER", nil, -7)
-            pool.borders[i]:SetColorTexture(unpack(style.activeDropZone))
+            pool.borders[i]:SetColorTexture(style.activeDropZone[1],
+                style.activeDropZone[2], style.activeDropZone[3], 1)
         end
         pool.borders[1]:SetWidth(3)
         pool.borders[2]:SetWidth(3)
@@ -307,7 +313,9 @@ RefreshGrid = function(window)
     bottom:SetPoint("BOTTOMLEFT", window, "BOTTOMLEFT", 0, 0)
     bottom:SetPoint("BOTTOMRIGHT", window, "BOTTOMRIGHT", 0, 0)
     for i = 1, 4 do
-        pool.borders[i]:SetColorTexture(unpack(style.activeDropZone))
+        pool.borders[i]:SetColorTexture(style.activeDropZone[1],
+            style.activeDropZone[2], style.activeDropZone[3], 1)
+        pool.borders[i]:SetAlpha(gridAlpha)
         pool.borders[i]:Show()
     end
 end
@@ -523,6 +531,9 @@ local function HandleElementBoundsChanged(_, element)
     if not overlay then return end
     if not NSkin:IsSkinningElementEditable(element) then
         overlay:Hide()
+        if controller.selectedElement == element then
+            DockWithoutSelection()
+        end
         return
     end
     if AnchorOverlay(overlay, element) then overlay:Show() else overlay:Hide() end
