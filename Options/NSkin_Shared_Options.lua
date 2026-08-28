@@ -12,10 +12,10 @@ function NSkin:CreateSharedPlacementControls(extra)
             values = { { value = "LEFT", label = "Left" },
                 { value = "CENTER", label = "Center" },
                 { value = "RIGHT", label = "Right" } } },
-        { type = "SLIDER", key = "alongOffset", label = "X offset", min = -2000,
-            max = 2000, step = 0.1, decimals = 1, suffix = " px", order = 4 },
-        { type = "SLIDER", key = "edgeOffset", label = "Y offset", min = -2000,
-            max = 2000, step = 0.1, decimals = 1, suffix = " px", order = 5 },
+        { type = "SLIDER", key = "alongOffset", label = "X offset", min = -200,
+            max = 200, step = 0.1, decimals = 1, suffix = " px", order = 4 },
+        { type = "SLIDER", key = "edgeOffset", label = "Y offset", min = -200,
+            max = 200, step = 0.1, decimals = 1, suffix = " px", order = 5 },
     }
     for i = 1, #(extra or {}) do controls[#controls + 1] = extra[i] end
     controls[#controls + 1] = {
@@ -61,7 +61,10 @@ NSkin:RegisterOptionGroup("shared.pagination", {
         { type = "CHECKBOX", key = "separateButtons",
             label = "Move buttons independently", order = 6 },
         { type = "DROPDOWN", key = "textMode", label = "Page text", order = 7,
-            values = { { value = "GROUPED", label = "Grouped" },
+            values = { { value = "GROUPED", label = "Grouped",
+                    isEnabled = function(context)
+                        return context and not context.getPaginationSeparateButtons(context)
+                    end },
                 { value = "INDEPENDENT", label = "Independent" },
                 { value = "HIDDEN", label = "Hidden" } } },
     }),
@@ -77,12 +80,24 @@ NSkin:RegisterOptionGroup("shared.pagination", {
     set = function(context, values)
         NSkin:NormalizeSharedPlacementValues(context, values)
         local changed = context.setPlacement(context, values)
-        if values.separateButtons ~= context.getPaginationSeparateButtons(context) then
+        local separateButtons = context.getPaginationSeparateButtons(context)
+        local separateChanged = values.separateButtons ~= nil
+            and values.separateButtons ~= separateButtons
+        if separateChanged then
             changed = context.setPaginationSeparateButtons(context,
                 values.separateButtons) or changed
+            separateButtons = values.separateButtons == true
         end
-        if values.textMode ~= context.getPaginationTextMode(context) then
-            changed = context.setPaginationTextMode(context, values.textMode) or changed
+        local textMode = values.textMode
+        if separateChanged and separateButtons then
+            textMode = "INDEPENDENT"
+        elseif separateButtons and textMode == "GROUPED" then
+            textMode = nil
+        end
+        if (textMode == "GROUPED" or textMode == "INDEPENDENT" or textMode == "HIDDEN")
+            and textMode ~= context.getPaginationTextMode(context)
+        then
+            changed = context.setPaginationTextMode(context, textMode) or changed
         end
         return changed == true
     end,
@@ -90,6 +105,40 @@ NSkin:RegisterOptionGroup("shared.pagination", {
         local changed = context.resetPlacement(context)
         changed = context.setPaginationSeparateButtons(context, false) or changed
         changed = context.setPaginationTextMode(context, "GROUPED") or changed
+        return changed == true
+    end,
+})
+
+NSkin:RegisterOptionGroup("shared.search", {
+    controls = NSkin:CreateSharedPlacementControls({
+        { type = "DROPDOWN", key = "accessoryMode", label = "Search accessory", order = 6,
+            values = { { value = "GROUPED", label = "Grouped" },
+                { value = "INDEPENDENT", label = "Independent" },
+                { value = "HIDDEN", label = "Hidden" } } },
+    }),
+    get = function(context)
+        local values = context.getPlacement(context)
+        if values.mode == "GRID" then
+            values.alongOffset, values.edgeOffset = values.x or 0, values.y or 0
+        end
+        values.accessoryMode = context.getSearchAccessoryMode(context)
+        return values
+    end,
+    set = function(context, values)
+        NSkin:NormalizeSharedPlacementValues(context, values)
+        local changed = context.setPlacement(context, values)
+        local accessoryMode = values.accessoryMode
+        if (accessoryMode == "GROUPED" or accessoryMode == "INDEPENDENT"
+            or accessoryMode == "HIDDEN")
+            and accessoryMode ~= context.getSearchAccessoryMode(context)
+        then
+            changed = context.setSearchAccessoryMode(context, accessoryMode) or changed
+        end
+        return changed == true
+    end,
+    reset = function(context)
+        local changed = context.resetPlacement(context)
+        changed = context.setSearchAccessoryMode(context, "GROUPED") or changed
         return changed == true
     end,
 })

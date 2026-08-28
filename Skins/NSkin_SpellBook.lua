@@ -359,7 +359,11 @@ end
 
 function NSkin:GetSpellBookPaginationTextMode()
     local options = GetPaginationOptions()
-    return options and options.paginationTextMode or "GROUPED"
+    local mode = options and options.paginationTextMode or "GROUPED"
+    if mode == "GROUPED" and self:GetSpellBookPaginationSeparateButtons() then
+        return "INDEPENDENT"
+    end
+    return mode
 end
 
 local function RefreshPaginationElements()
@@ -393,6 +397,9 @@ end
 function NSkin:SetSpellBookPaginationSeparateButtons(value)
     local options = self:GetModuleOptions("SpellBook", true)
     options.separatePaginationButtons = value == true and true or nil
+    if options.separatePaginationButtons then
+        options.paginationTextMode = "INDEPENDENT"
+    end
     if options.searchCogMode or options.separatePaginationButtons or options.paginationTextMode then
         EnsureSpellBookStateWatcher()
     elseif spellBookStateWatcher then
@@ -404,6 +411,7 @@ end
 
 function NSkin:SetSpellBookPaginationTextMode(mode)
     if mode ~= "GROUPED" and mode ~= "INDEPENDENT" and mode ~= "HIDDEN" then return false end
+    if mode == "GROUPED" and self:GetSpellBookPaginationSeparateButtons() then return false end
     local options = self:GetModuleOptions("SpellBook", true)
     options.paginationTextMode = mode == "GROUPED" and nil or mode
     if options.searchCogMode or options.separatePaginationButtons or options.paginationTextMode then
@@ -901,9 +909,9 @@ function SpellBookSkin:Initialize()
     local defaultBottom = { edge = "BOTTOM", side = "INSIDE", alignment = "RIGHT",
         alongOffset = -20, edgeOffset = 20 }
     RegisterMovableElement(SEARCH_ELEMENT_ID, "Spellbook search", playerSpells,
-        spellBook.SearchBox, "spellbook.search", defaultSearch, nil, nil, true)
+        spellBook.SearchBox, "shared.search", defaultSearch, nil, nil, true)
     RegisterMovableElement(SEARCH_COG_ELEMENT_ID, "Spellbook search cog", playerSpells,
-        spellBook.SettingsDropdown, "spellbook.search", defaultCog,
+        spellBook.SettingsDropdown, "shared.search", defaultCog,
         function() return NSkin:GetSpellBookSearchCogMode() == "INDEPENDENT" end, 90)
     local searchElement = NSkin:GetSkinningElement(SEARCH_ELEMENT_ID)
     if searchElement then
@@ -918,8 +926,20 @@ function SpellBookSkin:Initialize()
             return reset
         end
     end
+    for _, id in ipairs({ SEARCH_ELEMENT_ID, SEARCH_COG_ELEMENT_ID }) do
+        local element = NSkin:GetSkinningElement(id)
+        if element then
+            element.getSearchAccessoryMode = function()
+                return NSkin:GetSpellBookSearchCogMode()
+            end
+            element.setSearchAccessoryMode = function(_, mode)
+                return NSkin:SetSpellBookSearchCogMode(mode)
+            end
+        end
+    end
     RegisterMovableElement(PAGINATION_ELEMENT_ID, "Spellbook pagination", playerSpells,
-        pagingControls, "shared.pagination", defaultBottom, nil, 70)
+        pagingControls, "shared.pagination", defaultBottom,
+        function() return not NSkin:GetSpellBookPaginationSeparateButtons() end, 70)
     RegisterMovableElement(PREVIOUS_ELEMENT_ID, "Previous page button", playerSpells,
         pagingControls and pagingControls.PrevPageButton, "shared.pagination", defaultBottom,
         function() return NSkin:GetSpellBookPaginationSeparateButtons() end, 90)

@@ -391,8 +391,14 @@ local function BeginDrag(element)
         or controller.dragging then return end
     controller.dragging = true
     local overlay = controller.overlays[element.id]
-    controller.dragWidth = math.max(1, overlay and overlay:GetWidth() or 1)
-    controller.dragHeight = math.max(1, overlay and overlay:GetHeight() or 1)
+    local coordinateScale = 1
+    if overlay and overlay.usesAbsoluteBounds then
+        coordinateScale = UIParent:GetEffectiveScale() / element.window:GetEffectiveScale()
+    end
+    controller.dragWidth = math.max(1,
+        (overlay and overlay:GetWidth() or 1) * coordinateScale)
+    controller.dragHeight = math.max(1,
+        (overlay and overlay:GetHeight() or 1) * coordinateScale)
     -- Keep the ghost in the edited window's coordinate space. A UIParent
     -- ghost is the wrong size and offset when Blizzard scales the window.
     controller.ghost:SetParent(window)
@@ -409,8 +415,10 @@ local function BeginDrag(element)
     end
     RefreshAllOverlayAppearances()
     local cursorX, cursorY = GetCursorPositionForWindow(element.window)
-    local left = overlay and overlay:GetLeft() or cursorX
-    local top = overlay and overlay:GetTop() or cursorY
+    local left = overlay and overlay:GetLeft()
+    local top = overlay and overlay:GetTop()
+    left = left and left * coordinateScale or cursorX
+    top = top and top * coordinateScale or cursorY
     controller.grabOffsetX = cursorX - left
     controller.grabOffsetY = top - cursorY
     RefreshGrid(element.window)
@@ -442,7 +450,6 @@ StopDrag = function(apply)
     local element = controller.selectedElement
     local overlay = element and controller.overlays[element.id]
     if apply and gridX and gridY and element then
-        local view = element and controller.optionViews[element.editorOptions]
         local placement = controller.previewPlacement
         placement.mode = "GRID"
         placement.point = "TOPLEFT"
@@ -451,11 +458,10 @@ StopDrag = function(apply)
         placement.alongOffset, placement.edgeOffset = gridX, gridY
         placement.relativeTo = nil
         placement.offsetX, placement.offsetY = nil, nil
-        local persisted
-        if view then
-            persisted = view:SetValues(placement)
-        elseif element and type(element.setPlacement) == "function" then
-            persisted = element.setPlacement(element, placement) == true
+        local persisted = type(element.setPlacement) == "function"
+            and element.setPlacement(element, placement) == true
+        if persisted and element.editorOptions then
+            NSkin:NotifyOptionGroupChanged(element.editorOptions)
         end
         if not persisted and controller.originalPlacement then
             ApplyElementPlacement(element, controller.originalPlacement)
@@ -481,7 +487,11 @@ StopDrag = function(apply)
 end
 
 local function CreateOverlay(element)
-    local overlay = CreateFrame("Button", nil, element.window)
+    local usesAbsoluteBounds = element.kind == "TAB_GROUP"
+        or type(element.getHighlightBounds) == "function"
+    local overlay = CreateFrame("Button", nil,
+        usesAbsoluteBounds and UIParent or element.window)
+    overlay.usesAbsoluteBounds = usesAbsoluteBounds
     overlay:SetFrameStrata("DIALOG")
     overlay:SetFrameLevel(math.max(1,
         (element.window:GetFrameLevel() or 0) + 10 + (element.priority or 0)))
@@ -526,6 +536,30 @@ local function CreateOverlay(element)
             DockWithoutSelection(element.window)
         end
     end)
+    if usesAbsoluteBounds then
+        local visibilityWatcher = CreateFrame("Frame", nil, element.window)
+        visibilityWatcher:SetScript("OnShow", function()
+            if controller.enabled and NSkin:IsSkinningElementEditable(element) then
+                AnchorOverlay(overlay, element)
+                overlay:Show()
+            end
+        end)
+        visibilityWatcher:SetScript("OnHide", function() overlay:Hide() end)
+        visibilityWatcher:Show()
+        overlay.visibilityWatcher = visibilityWatcher
+        local refresh = function()
+            if controller.enabled and element.window:IsShown()
+                and NSkin:IsSkinningElementEditable(element)
+            then
+                if AnchorOverlay(overlay, element) then overlay:Show() else overlay:Hide() end
+            end
+        end
+        for _, method in ipairs({ "SetPoint", "SetScale", "SetSize", "StopMovingOrSizing" }) do
+            if type(element.window[method]) == "function" then
+                hooksecurefunc(element.window, method, refresh)
+            end
+        end
+    end
     controller.overlays[element.id] = overlay
     controller.overlayElements[element.id] = element
     return overlay
@@ -540,9 +574,9 @@ local function ShowElementOverlay(element)
     end
     AnchorOverlay(overlay, element)
     RefreshOverlayAppearance(element)
-    -- Keep it logically shown while its parent is hidden so its effective
-    -- OnShow can re-anchor after Blizzard lays out the window.
-    overlay:Show()
+    -- Window-parented overlays can remain logically shown and inherit window
+    -- visibility. UIParent overlays must be hidden explicitly with the window.
+    overlay:SetShown(not overlay.usesAbsoluteBounds or element.window:IsShown())
     if not controller.selectedElement and element.window:IsShown() then DockInspector(element) end
 end
 
@@ -553,7 +587,9 @@ end
 local function HandleElementBoundsChanged(_, element)
     local overlay = controller and controller.overlays[element.id]
     if not overlay then return end
-    if not NSkin:IsSkinningElementEditable(element) then
+    if not NSkin:IsSkinningElementEditable(element)
+        or (overlay.usesAbsoluteBounds and not element.window:IsShown())
+    then
         overlay:Hide()
         if controller.selectedElement == element then
             DockWithoutSelection()

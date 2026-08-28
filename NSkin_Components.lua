@@ -731,11 +731,33 @@ function NSkin:WouldCreateSkinningPlacementCycle(elementID, relativeTo)
     return false
 end
 
+function NSkin:GetUIParentNormalizedBounds(region, left, right, bottom, top)
+    if not region or not region.GetEffectiveScale or not UIParent
+        or not UIParent.GetEffectiveScale
+    then
+        return
+    end
+    left = left or (region.GetLeft and region:GetLeft())
+    right = right or (region.GetRight and region:GetRight())
+    bottom = bottom or (region.GetBottom and region:GetBottom())
+    top = top or (region.GetTop and region:GetTop())
+    if not left or not right or not bottom or not top then return end
+    local parentScale = UIParent:GetEffectiveScale()
+    local regionScale = region:GetEffectiveScale()
+    if not parentScale or parentScale == 0 or not regionScale then return end
+    local scale = regionScale / parentScale
+    return left * scale, right * scale, bottom * scale, top * scale
+end
+
 function NSkin:GetSkinningElementBounds(element)
     if not element then return end
     if type(element.getHighlightBounds) == "function" then
         local ok, left, right, bottom, top = pcall(element.getHighlightBounds, element)
-        if ok and left and right and bottom and top then return left, right, bottom, top end
+        if ok and left and right and bottom and top then
+            return self:GetUIParentNormalizedBounds(
+                element.target or element.window, left, right, bottom, top
+            )
+        end
     end
 
     if element.kind == "TAB_GROUP" then
@@ -748,6 +770,10 @@ function NSkin:GetSkinningElementBounds(element)
                     local tabLeft, tabRight = tab:GetLeft(), tab:GetRight()
                     local tabBottom, tabTop = tab:GetBottom(), tab:GetTop()
                     if tabLeft and tabRight and tabBottom and tabTop then
+                        tabLeft, tabRight, tabBottom, tabTop =
+                            self:GetUIParentNormalizedBounds(
+                                tab, tabLeft, tabRight, tabBottom, tabTop
+                            )
                         left = not left and tabLeft or math.min(left, tabLeft)
                         right = not right and tabRight or math.max(right, tabRight)
                         bottom = not bottom and tabBottom or math.min(bottom, tabBottom)
@@ -762,7 +788,7 @@ function NSkin:GetSkinningElementBounds(element)
     local target = element.target
     if not target or (target.IsShown and not target:IsShown()) then return end
     if not target.GetLeft then return end
-    return target:GetLeft(), target:GetRight(), target:GetBottom(), target:GetTop()
+    return self:GetUIParentNormalizedBounds(target)
 end
 
 function NSkin:NotifySkinningElementBoundsChanged(elementID)

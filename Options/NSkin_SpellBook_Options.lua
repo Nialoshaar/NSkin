@@ -2,36 +2,6 @@ local _, NSkin = ...
 
 local defaults = NSkin.defaultModuleOptions.SpellBook
 
-NSkin:RegisterOptionGroup("spellbook.search", {
-    controls = NSkin:CreateSharedPlacementControls({
-        { type = "DROPDOWN", key = "cogMode", label = "Search cog", order = 6,
-            values = { { value = "GROUPED", label = "Grouped" },
-                { value = "INDEPENDENT", label = "Independent" },
-                { value = "HIDDEN", label = "Hidden" } } },
-    }),
-    get = function(context)
-        local values = context.getPlacement(context)
-        if values.mode == "GRID" then
-            values.alongOffset, values.edgeOffset = values.x or 0, values.y or 0
-        end
-        values.cogMode = NSkin:GetSpellBookSearchCogMode()
-        return values
-    end,
-    set = function(context, values)
-        NSkin:NormalizeSharedPlacementValues(context, values)
-        local changed = context.setPlacement(context, values)
-        if values.cogMode ~= NSkin:GetSpellBookSearchCogMode() then
-            changed = NSkin:SetSpellBookSearchCogMode(values.cogMode) or changed
-        end
-        return changed == true
-    end,
-    reset = function(context)
-        local changed = context.resetPlacement(context)
-        changed = NSkin:SetSpellBookSearchCogMode("GROUPED") or changed
-        return changed == true
-    end,
-})
-
 NSkin:RegisterOptionGroup("spellbook.window", {
     controls = {
         {

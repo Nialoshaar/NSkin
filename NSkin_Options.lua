@@ -58,7 +58,7 @@ local function CreateDropdown(view, control, y)
     dropdown:SetupMenu(function(_, rootDescription)
         for i = 1, #control.values do
             local choice = control.values[i]
-            rootDescription:CreateRadio(
+            local description = rootDescription:CreateRadio(
                 choice.label,
                 function(value)
                     if not view.context then return false end
@@ -73,6 +73,11 @@ local function CreateDropdown(view, control, y)
                 end,
                 choice.value
             )
+            if type(choice.isEnabled) == "function"
+                and description and description.SetEnabled
+            then
+                description:SetEnabled(choice.isEnabled(view.context) == true)
+            end
         end
     end)
     view.controls[#view.controls + 1] = dropdown
