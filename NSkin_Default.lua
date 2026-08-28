@@ -53,6 +53,8 @@ NSkin.defaultTheme = {
 
     icon = {
         border = { 0, 0, 0, 1 },
+        crop = 0.06,
+        qualityColor = true,
     },
 
     searchBox = {
@@ -64,8 +66,13 @@ NSkin.defaultTheme = {
 
     progressBar = {
         texture = "Interface\\Buttons\\WHITE8X8",
+        height = 16,
         background = { 0.06, 0.06, 0.06, 0.90 },
         border = { 0, 0, 0, 1 },
+        useCustomColor = false,
+        color = { 1, 1, 1, 1 },
+        useCustomTextColor = false,
+        text = { 1, 1, 1, 1 },
     },
 
     encounterCard = {

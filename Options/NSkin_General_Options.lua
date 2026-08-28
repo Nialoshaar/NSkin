@@ -1,7 +1,8 @@
 local _, NSkin = ...
 
 local CONTENT_LEFT = 180
-local NAV_TOP = -102
+local CONTENT_TOP = -102
+local CONTENT_BOTTOM = 52
 local options
 local definitionsByModule = {}
 local definitionsByKey = {}
@@ -80,51 +81,58 @@ local function SkinOptionsWindow(frame)
     end
 end
 
-local function CreateGeneralPage(frame)
-    local page = CreateFrame("Frame", nil, frame)
-    page:SetAllPoints(frame)
+local function CreateGeneralPage(parent)
+    local page = NSkin:CreateOptionsPage(parent)
 
     local title = page:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
-    title:SetPoint("TOPLEFT", frame, "TOPLEFT", CONTENT_LEFT, -102)
+    title:SetPoint("TOPLEFT")
     title:SetText(NSkin.displayName)
     local description = page:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    description:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -8)
-    description:SetWidth(frame:GetWidth() - CONTENT_LEFT - 20)
+    description:SetPoint("TOPLEFT", page, "TOPLEFT", 0, -28)
+    description:SetPoint("TOPRIGHT", page, "TOPRIGHT", 0, -28)
     description:SetJustifyH("LEFT")
     description:SetText(
         "Use the button beside each module tab to enable or disable it. "
         .. "Disabled modules install no hooks or events after reloading the UI."
     )
+    page:SetContentHeight(90)
     return page
 end
 
-local function CreateEmptyModulePage(frame, info)
-    local page = CreateFrame("Frame", nil, frame)
-    page:SetAllPoints(frame)
+local function CreateEmptyModulePage(parent, info)
+    local page = NSkin:CreateOptionsPage(parent)
 
     local title = page:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
-    title:SetPoint("TOPLEFT", frame, "TOPLEFT", CONTENT_LEFT, -102)
+    title:SetPoint("TOPLEFT")
     title:SetText(info.label)
     local description = page:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     description:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -8)
     description:SetText("This module has no additional settings.")
+    page:SetContentHeight(80)
     return page
 end
 
 local function CreateOptionsWindow()
     if options then return options end
     local frame = CreateFrame("Frame", "NSkinOptions", UIParent, "BasicFrameTemplateWithInset")
-    frame:SetSize(700, 460)
+    local width, height, maximumWidth, maximumHeight = NSkin:GetOptionsWindowSize()
+    frame:SetSize(width, height)
     frame:SetPoint("CENTER")
     frame:SetFrameStrata("DIALOG")
     frame:SetClampedToScreen(true)
     frame:EnableMouse(true)
     frame:SetMovable(true)
+    frame:SetResizable(true)
+    if frame.SetResizeBounds then
+        frame:SetResizeBounds(640, 420, maximumWidth, maximumHeight)
+    else
+        frame:SetMinResize(640, 420)
+        frame:SetMaxResize(maximumWidth, maximumHeight)
+    end
     frame:RegisterForDrag("LeftButton")
     frame:SetScript("OnDragStart", frame.StartMoving)
     frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
     frame:Hide()
-    frame.NSkinContentLeft = CONTENT_LEFT
     SkinOptionsWindow(frame)
 
     local logo = frame:CreateTexture(nil, "ARTWORK")
@@ -144,6 +152,52 @@ local function CreateOptionsWindow()
     frame.navigationDivider:SetPoint("TOPLEFT", CONTENT_LEFT - 14, -96)
     frame.navigationDivider:SetPoint("BOTTOMLEFT", CONTENT_LEFT - 14, 24)
     frame.navigationDivider:SetWidth(1)
+
+    local contentScroll = CreateFrame("ScrollFrame", nil, frame, "UIPanelScrollFrameTemplate")
+    contentScroll:SetPoint("TOPLEFT", frame, "TOPLEFT", CONTENT_LEFT, CONTENT_TOP)
+    contentScroll:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -28, CONTENT_BOTTOM)
+    contentScroll:EnableMouseWheel(true)
+    contentScroll:SetScript("OnMouseWheel", function(self, delta)
+        local value = self:GetVerticalScroll() - delta * 36
+        self:SetVerticalScroll(math.max(0, math.min(self:GetVerticalScrollRange(), value)))
+    end)
+    local contentHost = CreateFrame("Frame", nil, contentScroll)
+    contentHost:SetSize(math.max(1, contentScroll:GetWidth()), 1)
+    contentScroll:SetScrollChild(contentHost)
+    contentScroll:SetScript("OnSizeChanged", function(_, newWidth)
+        contentHost:SetWidth(math.max(1, newWidth))
+    end)
+
+    local navigationScroll = CreateFrame(
+        "ScrollFrame", nil, frame, "UIPanelScrollFrameTemplate"
+    )
+    navigationScroll:SetPoint("TOPLEFT", frame, "TOPLEFT", 12, -96)
+    navigationScroll:SetPoint("BOTTOMRIGHT", frame, "BOTTOMLEFT", CONTENT_LEFT - 28, 40)
+    navigationScroll:EnableMouseWheel(true)
+    navigationScroll:SetScript("OnMouseWheel", function(self, delta)
+        local value = self:GetVerticalScroll() - delta * 32
+        self:SetVerticalScroll(math.max(0, math.min(self:GetVerticalScrollRange(), value)))
+    end)
+    local navigationHost = CreateFrame("Frame", nil, navigationScroll)
+    navigationHost:SetSize(132, 1)
+    navigationScroll:SetScrollChild(navigationHost)
+
+    local resizeGrip = CreateFrame("Button", nil, frame)
+    resizeGrip:SetSize(18, 18)
+    resizeGrip:SetPoint("BOTTOMRIGHT", -3, 3)
+    for i = 1, 3 do
+        local line = resizeGrip:CreateTexture(nil, "ARTWORK")
+        line:SetColorTexture(0.55, 0.55, 0.55, 0.9)
+        line:SetSize(2 + i * 3, 1)
+        line:SetPoint("BOTTOMRIGHT", -2, 2 + (i - 1) * 3)
+    end
+    resizeGrip:SetScript("OnMouseDown", function(_, button)
+        if button == "LeftButton" then frame:StartSizing("BOTTOMRIGHT") end
+    end)
+    resizeGrip:SetScript("OnMouseUp", function()
+        frame:StopMovingOrSizing()
+        NSkin:SetOptionsWindowSize(frame:GetWidth(), frame:GetHeight())
+    end)
 
     local notice = frame:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
     notice:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", CONTENT_LEFT, 22)
@@ -188,7 +242,9 @@ local function CreateOptionsWindow()
         return left.label < right.label
     end)
 
-    local pages = { { key = "general", label = "General", page = CreateGeneralPage(frame) } }
+    local pages = {
+        { key = "general", label = "General", page = CreateGeneralPage(contentHost) },
+    }
     local byKey = { general = pages[1] }
     for i = 1, #modulePages do
         local info = modulePages[i]
@@ -201,9 +257,9 @@ local function CreateOptionsWindow()
 
         local page
         if info.builder then
-            page = info.builder(frame)
+            page = info.builder(contentHost)
         else
-            page = CreateEmptyModulePage(frame, info)
+            page = CreateEmptyModulePage(contentHost, info)
         end
         if not page then return nil end
         page:Hide()
@@ -216,9 +272,9 @@ local function CreateOptionsWindow()
     local navigationRow = 0
     local activeGroup
     local function AddNavigationButton(info, indent)
-        local button = CreateFrame("Button", nil, frame)
+        local button = CreateFrame("Button", nil, navigationHost)
         button:SetSize(132, 16)
-        button:SetPoint("TOPLEFT", indent and 27 or 12, NAV_TOP - navigationRow * 16)
+        button:SetPoint("TOPLEFT", indent and 15 or 0, -navigationRow * 16)
         button.label = button:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
         button.label:SetPoint("LEFT")
         button.label:SetPoint("RIGHT", info.module and -22 or 0, 0)
@@ -255,13 +311,16 @@ local function CreateOptionsWindow()
         if info.group ~= activeGroup then
             activeGroup = info.group
             local group = optionGroups[activeGroup]
-            local heading = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-            heading:SetPoint("TOPLEFT", 12, NAV_TOP - navigationRow * 16)
+            local heading = navigationHost:CreateFontString(
+                nil, "ARTWORK", "GameFontHighlightSmall"
+            )
+            heading:SetPoint("TOPLEFT", 0, -navigationRow * 16)
             heading:SetText(group.label)
             navigationRow = navigationRow + 1
         end
         AddNavigationButton(info, true)
     end
+    navigationHost:SetHeight(math.max(1, navigationRow * 16))
 
     function frame:RefreshModuleNavigation()
         local style = NSkin:GetStyle("options")
@@ -299,6 +358,7 @@ local function CreateOptionsWindow()
         self:RefreshModuleNavigation()
         for i = 1, #pages do
             local page = pages[i].page
+            if page and page.ApplyStructureTheme then page:ApplyStructureTheme() end
             if page and page.ApplyTheme then page:ApplyTheme() end
         end
     end
@@ -310,6 +370,9 @@ local function CreateOptionsWindow()
             selectedPage = selectedInfo.page
         end
         self.selectedPageKey = selectedInfo.key
+        contentHost.activePage = selectedPage
+        contentHost:SetHeight(selectedPage.contentHeight or selectedPage:GetHeight() or 1)
+        contentScroll:SetVerticalScroll(0)
         for i = 1, #pages do
             local info = pages[i]
             local selected = info == selectedInfo
@@ -321,6 +384,10 @@ local function CreateOptionsWindow()
     frame:SetScript("OnShow", function(self)
         self:ApplyTheme()
         self:SelectOptionsPage(self.selectedPageKey or "general")
+    end)
+    frame:SetScript("OnHide", function(self)
+        self:StopMovingOrSizing()
+        NSkin:SetOptionsWindowSize(self:GetWidth(), self:GetHeight())
     end)
     options = frame
     return frame

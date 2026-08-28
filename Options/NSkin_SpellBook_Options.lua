@@ -1,8 +1,13 @@
 local _, NSkin = ...
 
 local defaults = NSkin.defaultModuleOptions.SpellBook
+local WINDOW_ID = "SpellBook"
 
-NSkin:RegisterOptionGroup("spellbook.window", {
+local function CopyColor(color)
+    return { color[1], color[2], color[3], color[4] or 1 }
+end
+
+NSkin:RegisterOptionGroup("spellbook.settings", {
     controls = {
         {
             type = "SLIDER",
@@ -45,27 +50,64 @@ NSkin:RegisterOptionGroup("spellbook.window", {
     end,
 })
 
-local function BuildSpellBookOptions(optionsFrame)
-    local page = CreateFrame("Frame", nil, optionsFrame)
-    page:SetAllPoints(optionsFrame)
+NSkin:RegisterOptionGroup("spellbook.appearance", {
+    controls = {
+        { type = "COLOR", key = "searchBackground", label = "Search background" },
+        { type = "SLIDER", key = "searchOpacity", label = "Background opacity",
+            min = 0, max = 1, step = 0.05, decimals = 2 },
+        { type = "RESET", label = "Use Shared Default" },
+    },
+    get = function()
+        local style = NSkin:GetAppearanceStyle("searchBox", WINDOW_ID)
+        return { searchBackground = CopyColor(style.background),
+            searchOpacity = style.background[4] or 1 }
+    end,
+    set = function(_, values)
+        local color = CopyColor(values.searchBackground)
+        color[4] = values.searchOpacity
+        return NSkin:SetWindowAppearanceOverride(
+            WINDOW_ID, "searchBox.background", color
+        )
+    end,
+    reset = function()
+        return NSkin:ResetWindowAppearanceOverride(WINDOW_ID, "searchBox.background")
+    end,
+})
+
+local function BuildSpellBookOptions(parent)
+    local page = NSkin:CreateOptionsPage(parent)
 
     local title = page:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
-    title:SetPoint("TOPLEFT", optionsFrame, "TOPLEFT",
-        optionsFrame.NSkinContentLeft or 180, -102)
+    title:SetPoint("TOPLEFT")
     title:SetText("Spellbook")
 
-    local view = NSkin:CreateOptionGroupView(page, "spellbook.window", "FULL", page)
-    view:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -18)
+    NSkin:CreateOptionsSection(page, "Module settings", 38)
+    local settingsView = NSkin:CreateOptionGroupView(
+        page, "spellbook.settings", "FULL", page
+    )
+    settingsView:SetPoint("TOPLEFT", page, "TOPLEFT", 0, -70)
+    local appearanceY = 90 + settingsView:GetHeight()
+    local _, appearanceContentY = NSkin:CreateOptionsSection(
+        page, "Appearance override", appearanceY
+    )
+    local appearanceView = NSkin:CreateOptionGroupView(
+        page, "spellbook.appearance", "FULL", page
+    )
+    appearanceView:SetPoint("TOPLEFT", page, "TOPLEFT", 0, -appearanceContentY)
 
     function page:ApplyTheme()
-        if view.ApplyTheme then view:ApplyTheme() end
+        settingsView:ApplyTheme()
+        appearanceView:ApplyTheme()
     end
 
     function page:Refresh()
-        view:SetContext(NSkin:IsModuleEnabled("SpellBook") and page or nil)
+        local context = NSkin:IsModuleEnabled("SpellBook") and page or nil
+        settingsView:SetContext(context)
+        appearanceView:SetContext(context)
         self:ApplyTheme()
     end
 
+    page:SetContentHeight(appearanceContentY + appearanceView:GetHeight() + 20)
     return page
 end
 

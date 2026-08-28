@@ -2,6 +2,82 @@ local _, NSkin = ...
 
 local optionGroups = {}
 local viewsByGroup = {}
+local DEFAULT_OPTIONS_WIDTH = 760
+local DEFAULT_OPTIONS_HEIGHT = 560
+local MIN_OPTIONS_WIDTH = 640
+local MIN_OPTIONS_HEIGHT = 420
+
+local function Clamp(value, minimum, maximum)
+    return math.max(minimum, math.min(maximum, value))
+end
+
+function NSkin:GetOptionsWindowSize()
+    local profile = self:GetProfile()
+    local editor = profile.editor
+    local width = editor and tonumber(editor.optionsWidth) or DEFAULT_OPTIONS_WIDTH
+    local height = editor and tonumber(editor.optionsHeight) or DEFAULT_OPTIONS_HEIGHT
+    local maximumWidth = math.max(MIN_OPTIONS_WIDTH, (UIParent:GetWidth() or 1920) - 40)
+    local maximumHeight = math.max(MIN_OPTIONS_HEIGHT, (UIParent:GetHeight() or 1080) - 40)
+    return Clamp(width, MIN_OPTIONS_WIDTH, maximumWidth),
+        Clamp(height, MIN_OPTIONS_HEIGHT, maximumHeight),
+        maximumWidth, maximumHeight
+end
+
+function NSkin:SetOptionsWindowSize(width, height)
+    width, height = tonumber(width), tonumber(height)
+    if not width or not height then return false end
+    local _, _, maximumWidth, maximumHeight = self:GetOptionsWindowSize()
+    width = math.floor(Clamp(width, MIN_OPTIONS_WIDTH, maximumWidth) + 0.5)
+    height = math.floor(Clamp(height, MIN_OPTIONS_HEIGHT, maximumHeight) + 0.5)
+
+    local profile = self:GetProfile()
+    profile.editor = profile.editor or {}
+    profile.editor.optionsWidth = width == DEFAULT_OPTIONS_WIDTH and nil or width
+    profile.editor.optionsHeight = height == DEFAULT_OPTIONS_HEIGHT and nil or height
+    if not next(profile.editor) then profile.editor = nil end
+    return true
+end
+
+
+function NSkin:CreateOptionsPage(parent)
+    if not parent then return nil end
+    local page = CreateFrame("Frame", nil, parent)
+    page:SetPoint("TOPLEFT")
+    page:SetPoint("TOPRIGHT")
+    page:SetHeight(1)
+    page.sectionDividers = {}
+
+    function page:SetContentHeight(height)
+        height = math.max(1, math.ceil(tonumber(height) or 1))
+        self.contentHeight = height
+        self:SetHeight(height)
+        if parent.activePage == self then parent:SetHeight(height) end
+    end
+
+    function page:ApplyStructureTheme()
+        local color = NSkin:GetStyle("window").header.divider
+        for i = 1, #self.sectionDividers do
+            self.sectionDividers[i]:SetColorTexture(unpack(color))
+        end
+    end
+
+    return page
+end
+
+function NSkin:CreateOptionsSection(page, title, offset)
+    if not page or type(title) ~= "string" then return nil, offset end
+    offset = math.max(0, tonumber(offset) or 0)
+    local heading = page:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    heading:SetPoint("TOPLEFT", page, "TOPLEFT", 0, -offset)
+    heading:SetText(title)
+    local divider = page:CreateTexture(nil, "ARTWORK")
+    divider:SetPoint("TOPLEFT", heading, "BOTTOMLEFT", 0, -6)
+    divider:SetPoint("RIGHT", page, "RIGHT", 0, 0)
+    divider:SetHeight(1)
+    divider:SetColorTexture(unpack(self:GetStyle("window").header.divider))
+    page.sectionDividers[#page.sectionDividers + 1] = divider
+    return heading, offset + 30
+end
 
 local function RoundValue(value, decimals)
     local factor = 10 ^ decimals
@@ -131,6 +207,41 @@ local function CreateCheckbox(view, control, y)
     return 42
 end
 
+local function CreateColor(view, control, y)
+    local label = view:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    label:SetPoint("TOPLEFT", view, "TOPLEFT", 0, y)
+    label:SetText(control.label)
+    local swatch = CreateFrame("Button", nil, view)
+    swatch:SetSize(view.presentation == "FULL" and 72 or 58, 24)
+    swatch:SetPoint("TOPLEFT", label, "BOTTOMLEFT", 0, -4)
+    swatch:SetScript("OnClick", function()
+        if not view.context then return end
+        local current = view.definition.get(view.context)
+        local previous = current and current[control.key]
+        if type(previous) ~= "table" then return end
+        previous = { previous[1], previous[2], previous[3], previous[4] or 1 }
+
+        local function ApplyPickerColor(color)
+            if not view.context then return end
+            local red, green, blue = ColorPickerFrame:GetColorRGB()
+            local values = CopyTable(view.definition.get(view.context))
+            values[control.key] = color or { red, green, blue, previous[4] }
+            CommitValues(view, values)
+        end
+        ColorPickerFrame:SetupColorPickerAndShow({
+            r = previous[1],
+            g = previous[2],
+            b = previous[3],
+            swatchFunc = ApplyPickerColor,
+            cancelFunc = function() ApplyPickerColor(previous) end,
+        })
+    end)
+    view.controls[#view.controls + 1] = swatch
+    view.controlByKey[control.key] = swatch
+    view.colorByKey[control.key] = swatch
+    return 58
+end
+
 local function CreateReset(view, control, y)
     local button = CreateFrame("Button", nil, view)
     button:SetSize(view.presentation == "FULL" and 110 or 58, 24)
@@ -193,6 +304,7 @@ function NSkin:CreateOptionGroupView(parent, id, layout, context)
     view.valueLabels = {}
     view.controlByKey = {}
     view.valueByKey = {}
+    view.colorByKey = {}
 
     local y = 0
     for i = 1, #definition.orderedControls do
@@ -204,6 +316,8 @@ function NSkin:CreateOptionGroupView(parent, id, layout, context)
             height = CreateSlider(view, control, y)
         elseif control.type == "CHECKBOX" then
             height = CreateCheckbox(view, control, y)
+        elseif control.type == "COLOR" then
+            height = CreateColor(view, control, y)
         elseif control.type == "RESET" then
             height = CreateReset(view, control, y)
         end
@@ -244,6 +358,13 @@ function NSkin:CreateOptionGroupView(parent, id, layout, context)
                 )
             elseif control.type == "CHECKBOX" then
                 self.controlByKey[control.key]:SetChecked(value == true)
+            elseif control.type == "COLOR" and type(value) == "table" then
+                NSkin:CreateFlatBackground(
+                    self.colorByKey[control.key],
+                    "NSkinOptionColor",
+                    value,
+                    NSkin:GetSharedBorderColor()
+                )
             end
         end
         self.refreshing = false
@@ -251,6 +372,15 @@ function NSkin:CreateOptionGroupView(parent, id, layout, context)
     end
 
     function view:ApplyTheme()
+        local values = self.context and self.definition.get(self.context)
+        for key, swatch in pairs(self.colorByKey) do
+            local color = values and values[key]
+            if type(color) == "table" then
+                NSkin:CreateFlatBackground(
+                    swatch, "NSkinOptionColor", color, NSkin:GetSharedBorderColor()
+                )
+            end
+        end
         if self.resetButton then
             local label = self.presentation == "COMPACT"
                 and self.resetControl.compactLabel or self.resetControl.label

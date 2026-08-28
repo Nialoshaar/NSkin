@@ -355,7 +355,9 @@ SkinCollectionsWindow = function()
         local filterDropdown = toyBox.FilterDropdown
         local pagingControls = toyBox.PagingControls or toyBox.PagingFrame
             or toyBox.pagingFrame
-        NSkin:SkinSearchBox(searchBox)
+        NSkin:SkinSearchBox(searchBox, NSkin:GetAppearanceStyle(
+            "searchBox", "Collections", TOY_SEARCH_ELEMENT_ID
+        ))
         SkinToyFilterButton(filterDropdown)
         if searchBox and filterDropdown then
             filterDropdown:SetHeight(searchBox:GetHeight())
@@ -393,6 +395,7 @@ SkinCollectionsWindow = function()
                 primaryPriority = 81, accessoryPriority = 91,
                 legacyOptionKey = "searchAccessoryMode",
                 visibilityFrame = toyBox,
+                elements = { accessory = { editorOptions = "shared.movable" } },
                 anchorGrouped = AnchorToySearchAccessory,
             })
         else
@@ -439,11 +442,15 @@ local function UpdateIconBorder(button, knownQuality)
         if not border then return end
     end
 
-    if data.qualityItemID ~= itemID then
+    local qualityColorEnabled = NSkin:GetStyle("icon").qualityColor ~= false
+    if data.qualityItemID ~= itemID
+        or data.qualityColorEnabled ~= qualityColorEnabled
+    then
         local quality = knownQuality or Item.GetItemQualityByID(itemID)
         if not NSkin:SetQualityBorder(border, quality) then return end
 
         data.qualityItemID = itemID
+        data.qualityColorEnabled = qualityColorEnabled
     else
         NSkin:SetPixelBorderShown(border, true)
     end
@@ -544,7 +551,14 @@ function CollectionSkin:Initialize()
 end
 
 function CollectionSkin:RefreshTheme()
-    if collectionsInitialized then SkinCollectionsWindow() end
+    if not collectionsInitialized then return end
+    SkinCollectionsWindow()
+    local iconsFrame = _G.ToyBox and _G.ToyBox.iconsFrame
+    if toysInitialized and iconsFrame then
+        for i = 1, TOYS_PER_PAGE do
+            SkinCollectionButton(iconsFrame["spellButton" .. i])
+        end
+    end
 end
 
 NSkin:RegisterWindowSkin({

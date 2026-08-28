@@ -79,6 +79,102 @@ function NSkin:GetStyle(name)
     return cached
 end
 
+-- Appearance resolves from the bundled/shared theme through optional window
+-- and element layers. Each saved layer remains sparse, so reset means removal.
+function NSkin:GetAppearanceStyle(name, windowID, elementID)
+    local style = self:GetStyle(name)
+    if not style then return nil end
+    local profile = self:GetProfile()
+    local overrides = profile.appearanceOverrides
+    local windowOverride = windowID and overrides and overrides.windows
+        and overrides.windows[windowID]
+    if windowOverride and windowOverride[name] then
+        style = CopyWithOverrides(style, windowOverride[name])
+    end
+    local elementOverride = elementID and overrides and overrides.elements
+        and overrides.elements[elementID]
+    if elementOverride and elementOverride[name] then
+        style = CopyWithOverrides(style, elementOverride[name])
+    end
+    return style
+end
+
+local function GetAppearanceParentValue(scope, id, windowID, path)
+    local styleName, relativePath = path:match("^([^.]+)%.(.+)$")
+    if not styleName then return nil end
+    local style
+    if scope == "windows" then
+        style = NSkin:GetStyle(styleName)
+    else
+        style = NSkin:GetAppearanceStyle(styleName, windowID)
+    end
+    return style and GetPath(style, relativePath, false), styleName, relativePath
+end
+
+local function SetAppearanceOverride(scope, id, windowID, path, value)
+    if (scope ~= "windows" and scope ~= "elements")
+        or type(id) ~= "string" or id == ""
+        or type(path) ~= "string" or path == ""
+    then
+        return false
+    end
+    local parentValue, styleName, relativePath =
+        GetAppearanceParentValue(scope, id, windowID, path)
+    if parentValue == nil or type(parentValue) ~= type(value) then return false end
+
+    local profile = NSkin:GetProfile()
+    profile.appearanceOverrides = profile.appearanceOverrides or {}
+    local scopes = profile.appearanceOverrides
+    scopes[scope] = scopes[scope] or {}
+    scopes[scope][id] = scopes[scope][id] or {}
+    scopes[scope][id][styleName] = scopes[scope][id][styleName] or {}
+    local styleOverrides = scopes[scope][id][styleName]
+    local _, parent, key = GetPath(styleOverrides, relativePath, true)
+    parent[key] = TablesEqual(value, parentValue) and nil or value
+    PruneEmptyTables(profile.appearanceOverrides)
+    if not next(profile.appearanceOverrides) then profile.appearanceOverrides = nil end
+    NSkin:RefreshTheme()
+    return true
+end
+
+local function ResetAppearanceOverride(scope, id, path)
+    if type(id) ~= "string" or id == "" then return false end
+    local profile = NSkin:GetProfile()
+    local scopes = profile.appearanceOverrides
+    local overrides = scopes and scopes[scope] and scopes[scope][id]
+    if not overrides then return true end
+    if path == nil then
+        scopes[scope][id] = nil
+    else
+        local styleName, relativePath = path:match("^([^.]+)%.(.+)$")
+        local styleOverrides = styleName and overrides[styleName]
+        if styleOverrides then
+            local _, parent, key = GetPath(styleOverrides, relativePath, false)
+            if parent then parent[key] = nil end
+        end
+    end
+    PruneEmptyTables(profile.appearanceOverrides)
+    if not next(profile.appearanceOverrides) then profile.appearanceOverrides = nil end
+    NSkin:RefreshTheme()
+    return true
+end
+
+function NSkin:SetWindowAppearanceOverride(windowID, path, value)
+    return SetAppearanceOverride("windows", windowID, nil, path, value)
+end
+
+function NSkin:ResetWindowAppearanceOverride(windowID, path)
+    return ResetAppearanceOverride("windows", windowID, path)
+end
+
+function NSkin:SetElementAppearanceOverride(elementID, windowID, path, value)
+    return SetAppearanceOverride("elements", elementID, windowID, path, value)
+end
+
+function NSkin:ResetElementAppearanceOverride(elementID, path)
+    return ResetAppearanceOverride("elements", elementID, path)
+end
+
 function NSkin:GetBorderAccentColor()
     return self:GetStyle("window").border
 end
@@ -116,6 +212,44 @@ end
 function NSkin:GetSharedBorderColor()
     if self:IsAccentColorEnabled() then return self:GetAccentColor() end
     return self:GetBorderAccentColor()
+end
+
+function NSkin:GetComponentBorderSetting(styleName, style)
+    local profile = self:GetProfile()
+    local override = profile.theme and profile.theme[styleName]
+        and profile.theme[styleName].border
+    if override ~= nil then
+        style = style or self:GetStyle(styleName)
+        if style and style.border then return style.border end
+    end
+    return self:GetBorderAccentColor()
+end
+
+function NSkin:GetComponentBorderColor(styleName, style)
+    if self:IsAccentColorEnabled() then return self:GetAccentColor() end
+    return self:GetComponentBorderSetting(styleName, style)
+end
+
+function NSkin:SetComponentBorderColor(styleName, color)
+    local defaults = self.defaultTheme and self.defaultTheme[styleName]
+    if type(color) ~= "table" or type(defaults) ~= "table"
+        or type(defaults.border) ~= "table"
+    then
+        return false
+    end
+    local profile = self:GetProfile()
+    profile.theme = profile.theme or {}
+    profile.theme[styleName] = profile.theme[styleName] or {}
+    profile.theme[styleName].border = TablesEqual(color, self:GetBorderAccentColor())
+        and nil or color
+    PruneEmptyTables(profile.theme)
+    if not next(profile.theme) then profile.theme = nil end
+    self:RefreshTheme()
+    return true
+end
+
+function NSkin:ResetComponentBorderColor(styleName)
+    return self:ResetThemeOverride(styleName .. ".border")
 end
 
 function NSkin:GetWindowBorderColor()

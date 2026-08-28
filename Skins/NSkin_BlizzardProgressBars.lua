@@ -2,8 +2,6 @@ local _, NSkin = ...
 
 local ProgressBars = NSkin:NewModule("BlizzardProgressBars")
 
--- Feature-specific settings live here until a user-facing options panel exists.
-local BAR_HEIGHT = 16
 local BORDER_SIZE = 1
 local PROGRESS_BORDER_KEY = "__NSkinProgressBorder"
 local PROGRESS_STATE = "progressBars"
@@ -189,10 +187,22 @@ local function CreateBackdrop(bar)
 end
 
 local function CenterText(bar)
+    local style = NSkin:GetStyle("progressBar")
     local function Center(region)
         if region and region.IsObjectType and region:IsObjectType("FontString") then
             region:ClearAllPoints()
             region:SetPoint("CENTER", bar, "CENTER", 0, 1)
+            local data = NSkin:GetSkinData(region, PROGRESS_STATE)
+            if style.useCustomTextColor then
+                if data.blizzardTextRed == nil and region.GetTextColor then
+                    data.blizzardTextRed, data.blizzardTextGreen,
+                        data.blizzardTextBlue, data.blizzardTextAlpha = region:GetTextColor()
+                end
+                region:SetTextColor(unpack(style.text))
+            elseif data.blizzardTextRed ~= nil then
+                region:SetTextColor(data.blizzardTextRed, data.blizzardTextGreen,
+                    data.blizzardTextBlue, data.blizzardTextAlpha)
+            end
         end
     end
 
@@ -217,7 +227,10 @@ local function EnsureAccentColorHook(bar)
             if not hookedData or hookedData.applyingColor then return end
             hookedData.blizzardRed, hookedData.blizzardGreen = red, green
             hookedData.blizzardBlue, hookedData.blizzardAlpha = blue, alpha
-            if NSkin:IsAccentColorEnabled() then ApplyStatusBarColor(self) end
+            local style = NSkin:GetStyle("progressBar")
+            if NSkin:IsAccentColorEnabled() or style.useCustomColor then
+                ApplyStatusBarColor(self)
+            end
         end)
     data.accentColorHooked = hooked == true
     return data.accentColorHooked
@@ -252,7 +265,9 @@ local function ApplyTexture(bar)
         end
     end
 
-    if data.accentColorHooked or NSkin:IsAccentColorEnabled() then
+    if data.accentColorHooked or NSkin:IsAccentColorEnabled()
+        or NSkin:GetStyle("progressBar").useCustomColor
+    then
         ApplyStatusBarColor(bar)
     end
     if data.progressBackground then data.progressBackground:Show() end
@@ -270,9 +285,6 @@ local function StyleBar(bar)
 
         StripRegions(bar)
         StripWidgetArt(bar)
-        if BAR_HEIGHT > 0 then bar:SetHeight(BAR_HEIGHT) end
-        CreateBackdrop(bar)
-
         if hooksecurefunc then
             pcall(hooksecurefunc, bar, "SetStatusBarTexture", function(self)
                 local data = NSkin:GetSkinData(self, PROGRESS_STATE, false)
@@ -281,6 +293,9 @@ local function StyleBar(bar)
         end
     end
 
+    local height = NSkin:GetStyle("progressBar").height
+    if height and height > 0 then bar:SetHeight(height) end
+    CreateBackdrop(bar)
     StripWidgetArt(bar)
     ApplyTexture(bar)
     CenterText(bar)
@@ -289,7 +304,11 @@ end
 ApplyStatusBarColor = function(bar)
     local data = NSkin:GetSkinData(bar, PROGRESS_STATE)
     local red, green, blue, alpha
-    if NSkin:IsAccentColorEnabled() then
+    local style = NSkin:GetStyle("progressBar")
+    if style.useCustomColor then
+        if not EnsureAccentColorHook(bar) then return end
+        red, green, blue, alpha = unpack(style.color)
+    elseif NSkin:IsAccentColorEnabled() then
         if not EnsureAccentColorHook(bar) then return end
         red, green, blue, alpha = unpack(NSkin:GetAccentColor())
     else
@@ -502,10 +521,7 @@ end
 
 function ProgressBars:RefreshTheme()
     for bar in pairs(styledBars) do
-        if IsStatusBar(bar) then
-            CreateBackdrop(bar)
-            ApplyTexture(bar)
-        end
+        if IsStatusBar(bar) then StyleBar(bar) end
     end
 end
 

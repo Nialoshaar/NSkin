@@ -130,7 +130,14 @@ end
 
 function NSkin:SetQualityBorder(border, quality)
     local item = _G.C_Item
-    if not border or quality == nil or not item or not item.GetItemQualityColor then
+    if not border then return false end
+    local style = self:GetStyle("icon")
+    if style and style.qualityColor == false then
+        self:SetPixelBorderColor(border, unpack(style.border))
+        self:SetPixelBorderShown(border, true)
+        return true
+    end
+    if quality == nil or not item or not item.GetItemQualityColor then
         self:SetPixelBorderShown(border, false)
         return false
     end

@@ -4,28 +4,28 @@ local function CopyColor(color)
     return { color[1], color[2], color[3], color[4] or 1 }
 end
 
-local function BuildBorderOptions(optionsFrame)
-    local page = CreateFrame("Frame", nil, optionsFrame)
-    page:SetAllPoints(optionsFrame)
+local function BuildBorderOptions(parent)
+    local page = NSkin:CreateOptionsPage(parent)
 
     local title = page:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
-    title:SetPoint("TOPLEFT", optionsFrame, "TOPLEFT",
-        optionsFrame.NSkinContentLeft or 180, -102)
+    title:SetPoint("TOPLEFT")
     title:SetText("Border")
 
     local description = page:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    description:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -8)
-    description:SetPoint("RIGHT", optionsFrame, "RIGHT", -20, 0)
+    description:SetPoint("TOPLEFT", page, "TOPLEFT", 0, -28)
+    description:SetPoint("TOPRIGHT", page, "TOPRIGHT", 0, -28)
     description:SetJustifyH("LEFT")
     description:SetText(
-        "Choose the shared border color used by NSkin. Optionally enable an "
+        "Choose the border inherited by NSkin components without their own override. "
+        .. "Optionally enable an "
         .. "accent color for windows, tabs, search boxes, buttons, and "
         .. "progress-bar fills and borders. "
         .. "Icon and item-quality borders keep their own colors."
     )
 
+    NSkin:CreateOptionsSection(page, "Shared border", 82)
     local colorLabel = page:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    colorLabel:SetPoint("TOPLEFT", description, "BOTTOMLEFT", 0, -18)
+    colorLabel:SetPoint("TOPLEFT", page, "TOPLEFT", 0, -114)
     colorLabel:SetText("Color")
 
     local swatch = CreateFrame("Button", nil, page)
@@ -34,11 +34,12 @@ local function BuildBorderOptions(optionsFrame)
 
     local reset = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
     reset:SetSize(110, 24)
-    reset:SetPoint("TOPLEFT", colorLabel, "BOTTOMLEFT", 0, -20)
+    reset:SetPoint("TOPLEFT", colorLabel, "BOTTOMLEFT", 0, -18)
     if reset:GetFontString() then reset:GetFontString():SetAlpha(0) end
 
+    NSkin:CreateOptionsSection(page, "Accent", 170)
     local accentToggle = CreateFrame("CheckButton", nil, page, "UICheckButtonTemplate")
-    accentToggle:SetPoint("TOPLEFT", reset, "BOTTOMLEFT", -4, -18)
+    accentToggle:SetPoint("TOPLEFT", page, "TOPLEFT", -4, -202)
     if accentToggle.Text then
         accentToggle.Text:SetText("Use accent for shared controls and progress bars")
     end
@@ -129,6 +130,7 @@ local function BuildBorderOptions(optionsFrame)
         self:ApplyTheme()
     end
 
+    page:SetContentHeight(330)
     return page
 end
 

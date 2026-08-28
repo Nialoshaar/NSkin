@@ -1,7 +1,7 @@
 local _, NSkin = ...
 
-NSkin:RegisterOptionGroup("tabs.layout", {
-    controls = {
+local function CreateTabControls(includeSpacing)
+    local controls = {
         {
             type = "DROPDOWN",
             key = "edge",
@@ -55,7 +55,9 @@ NSkin:RegisterOptionGroup("tabs.layout", {
             suffix = " px",
             order = 5,
         },
-        {
+    }
+    if includeSpacing then
+        controls[#controls + 1] = {
             type = "SLIDER",
             key = "spacing",
             label = "Spacing",
@@ -64,74 +66,99 @@ NSkin:RegisterOptionGroup("tabs.layout", {
             step = 1,
             suffix = " px",
             order = 6,
-        },
-        { type = "RESET", label = "Reset Default", compactLabel = "Reset" },
-    },
-    get = function(context)
-        local values = NSkin:GetTabGroupPlacement(context.id)
-        if values.mode == "GRID" then
-            values.alongOffset = values.x or 0
-            values.edgeOffset = values.y or 0
-        end
-        values.spacing = NSkin:GetTabSpacing()
-        return values
-    end,
-    set = function(context, values)
-        local currentPlacement = NSkin:GetTabGroupPlacement(context.id)
-        local semanticChanged = values.edge ~= currentPlacement.edge
+        }
+    end
+    controls[#controls + 1] = {
+        type = "RESET", label = "Reset Default", compactLabel = "Reset",
+    }
+    return controls
+end
+
+local function GetValues(context, includeSpacing)
+    local values = NSkin:GetTabGroupPlacement(context.id)
+    if values.mode == "GRID" then
+        values.alongOffset = values.x or 0
+        values.edgeOffset = values.y or 0
+    end
+    if includeSpacing then values.spacing = NSkin:GetTabSpacing() end
+    return values
+end
+
+local function SetValues(context, values, includeSpacing)
+    local currentPlacement = NSkin:GetTabGroupPlacement(context.id)
+    local semanticChanged = values.edge ~= currentPlacement.edge
+        or values.side ~= currentPlacement.side
+        or values.alignment ~= currentPlacement.alignment
+    if currentPlacement.mode == "GRID" and semanticChanged then
+        values.mode, values.point, values.relativePoint = nil, nil, nil
+        values.x, values.y = nil, nil
+        values.alongOffset, values.edgeOffset = 0, 0
+    elseif values.mode == "GRID" then
+        values.x = tonumber(values.alongOffset) or values.x or 0
+        values.y = tonumber(values.edgeOffset) or values.y or 0
+    end
+    local placementChanged = values.alignment ~= nil
+        and (values.mode ~= currentPlacement.mode
+            or values.x ~= currentPlacement.x
+            or values.y ~= currentPlacement.y
+            or values.relativeTo ~= currentPlacement.relativeTo
+            or values.point ~= currentPlacement.point
+            or values.relativePoint ~= currentPlacement.relativePoint
+            or values.edge ~= currentPlacement.edge
             or values.side ~= currentPlacement.side
             or values.alignment ~= currentPlacement.alignment
-        if currentPlacement.mode == "GRID" and semanticChanged then
-            values.mode, values.point, values.relativePoint = nil, nil, nil
-            values.x, values.y = nil, nil
-            values.alongOffset, values.edgeOffset = 0, 0
-        elseif values.mode == "GRID" then
-            values.x = tonumber(values.alongOffset) or values.x or 0
-            values.y = tonumber(values.edgeOffset) or values.y or 0
-        end
-        local placementChanged = values.alignment ~= nil
-            and (values.mode ~= currentPlacement.mode
-                or values.x ~= currentPlacement.x
-                or values.y ~= currentPlacement.y
-                or values.relativeTo ~= currentPlacement.relativeTo
-                or values.point ~= currentPlacement.point
-                or values.relativePoint ~= currentPlacement.relativePoint
-                or values.edge ~= currentPlacement.edge
-                or values.side ~= currentPlacement.side
-                or values.alignment ~= currentPlacement.alignment
-                or values.alongOffset ~= currentPlacement.alongOffset
-                or values.edgeOffset ~= currentPlacement.edgeOffset)
-        local spacingChanged = values.spacing ~= nil
-            and values.spacing ~= NSkin:GetTabSpacing()
-        local changed
-        if placementChanged then
-            changed = NSkin:SetTabGroupPlacement(context.id, values) or changed
-        end
-        if spacingChanged then
-            changed = NSkin:SetTabSpacing(values.spacing) or changed
-        end
-        return changed == true
+            or values.alongOffset ~= currentPlacement.alongOffset
+            or values.edgeOffset ~= currentPlacement.edgeOffset)
+    local spacingChanged = includeSpacing and values.spacing ~= nil
+        and values.spacing ~= NSkin:GetTabSpacing()
+    local changed
+    if placementChanged then
+        changed = NSkin:SetTabGroupPlacement(context.id, values) or changed
+    end
+    if spacingChanged then
+        changed = NSkin:SetTabSpacing(values.spacing) or changed
+    end
+    return changed == true
+end
+
+NSkin:RegisterOptionGroup("tabs.layout", {
+    controls = CreateTabControls(false),
+    get = function(context)
+        return GetValues(context, false)
+    end,
+    set = function(context, values)
+        return SetValues(context, values, false)
+    end,
+    reset = function(context)
+        return NSkin:ResetTabGroupPlacement(context.id)
+    end,
+})
+
+NSkin:RegisterOptionGroup("tabs.defaults", {
+    controls = CreateTabControls(true),
+    get = function(context)
+        return GetValues(context, true)
+    end,
+    set = function(context, values)
+        return SetValues(context, values, true)
     end,
     reset = function(context)
         local changed = NSkin:ResetTabGroupPlacement(context.id)
-        if not context.independentPlacement then
-            changed = NSkin:ResetTabSpacing() or changed
-        end
+        changed = NSkin:ResetTabSpacing() or changed
         return changed == true
     end,
 })
 
-local function BuildTabsOptions(optionsFrame)
-    local page = CreateFrame("Frame", nil, optionsFrame)
-    page:SetAllPoints(optionsFrame)
+local function BuildTabsOptions(parent)
+    local page = NSkin:CreateOptionsPage(parent)
 
     local title = page:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
-    title:SetPoint("TOPLEFT", optionsFrame, "TOPLEFT",
-        optionsFrame.NSkinContentLeft or 180, -102)
+    title:SetPoint("TOPLEFT")
     title:SetText("Tabs")
 
-    local layoutView = NSkin:CreateOptionGroupView(page, "tabs.layout", "FULL", page)
-    layoutView:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -18)
+    NSkin:CreateOptionsSection(page, "Shared defaults", 38)
+    local layoutView = NSkin:CreateOptionGroupView(page, "tabs.defaults", "FULL", page)
+    layoutView:SetPoint("TOPLEFT", page, "TOPLEFT", 0, -70)
 
     function page:ApplyTheme()
         if layoutView.ApplyTheme then layoutView:ApplyTheme() end
@@ -142,6 +169,7 @@ local function BuildTabsOptions(optionsFrame)
         self:ApplyTheme()
     end
 
+    page:SetContentHeight(90 + layoutView:GetHeight())
     return page
 end
 

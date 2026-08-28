@@ -5,7 +5,6 @@ local SpellBookSkin = NSkin:NewModule("SpellBook")
 local BORDER_SIZE = 1
 local CIRCLE_MASK_ATLAS = "talents-node-circle-mask"
 local ICON_SIZE = 50
-local ICON_CROP = 0.06
 local PAGING_BUTTON_TEXT_SIZE = 16
 local SPELL_BOOK_BORDER_KEY = "NSkinSpellBookItemBorder"
 local SPELL_BOOK_STATE = "spellBook"
@@ -426,7 +425,8 @@ local function SkinSpellBookControls()
     RemoveSpellBookPortraitAndHelp(playerSpells, spellBook)
     SkinTitleBar(playerSpells, spellBook)
     SkinSpellBookTabs()
-    NSkin:SkinSearchBox(spellBook.SearchBox)
+    NSkin:SkinSearchBox(spellBook.SearchBox,
+        NSkin:GetAppearanceStyle("searchBox", "SpellBook", SEARCH_ELEMENT_ID))
     NSkin:SkinPagingControls(pagedSpells and pagedSpells.PagingControls,
         PAGING_BUTTON_TEXT_SIZE)
     SkinAssistedCombat(spellBook.AssistedCombatRotationSpellFrame)
@@ -457,7 +457,8 @@ local function SkinSpellBookItem(item)
     if not icon then return end
 
     icon:SetSize(ICON_SIZE, ICON_SIZE)
-    icon:SetTexCoord(ICON_CROP, 1 - ICON_CROP, ICON_CROP, 1 - ICON_CROP)
+    local iconCrop = NSkin:GetStyle("icon").crop
+    icon:SetTexCoord(iconCrop, 1 - iconCrop, iconCrop, 1 - iconCrop)
 
     local spellInfo = item.spellBookItemInfo
     local isPassive = spellInfo and spellInfo.isPassive
@@ -705,7 +706,6 @@ function SpellBookSkin:Initialize()
     NSkin:RegisterSkinningElement(WINDOW_ELEMENT_ID, {
         label = "Spellbook window",
         kind = "WINDOW",
-        editorOptions = "spellbook.window",
         window = playerSpells,
         target = playerSpells,
         priority = 0,
@@ -727,6 +727,7 @@ function SpellBookSkin:Initialize()
         primaryPlacement = defaultSearch, accessoryPlacement = defaultCog,
         legacyOptionKey = "searchCogMode", snapTarget = true,
         visibilityFrame = spellBook,
+        elements = { accessory = { editorOptions = "shared.movable" } },
         anchorGrouped = function(searchBox, cog)
             cog:ClearAllPoints()
             cog:SetPoint("LEFT", searchBox, "RIGHT", 5, 0)

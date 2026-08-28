@@ -1,5 +1,15 @@
 local _, NSkin = ...
 
+local function CopyColor(color)
+    return { color[1], color[2], color[3], color[4] or 1 }
+end
+
+local function ColorsEqual(left, right)
+    return left and right
+        and left[1] == right[1] and left[2] == right[2]
+        and left[3] == right[3] and (left[4] or 1) == (right[4] or 1)
+end
+
 function NSkin:CreateSharedPlacementControls(extra)
     local controls = {
         { type = "DROPDOWN", key = "edge", label = "Window edge", order = 1,
@@ -115,6 +125,11 @@ NSkin:RegisterOptionGroup("shared.search", {
             values = { { value = "GROUPED", label = "Grouped" },
                 { value = "INDEPENDENT", label = "Independent" },
                 { value = "HIDDEN", label = "Hidden" } } },
+        { type = "COLOR", key = "backgroundColor",
+            label = "Element background", order = 7 },
+        { type = "SLIDER", key = "backgroundOpacity",
+            label = "Background opacity", min = 0, max = 1,
+            step = 0.05, decimals = 2, order = 8 },
     }),
     get = function(context)
         local values = context.getPlacement(context)
@@ -122,6 +137,9 @@ NSkin:RegisterOptionGroup("shared.search", {
             values.alongOffset, values.edgeOffset = values.x or 0, values.y or 0
         end
         values.accessoryMode = context.getSearchAccessoryMode(context)
+        local style = NSkin:GetAppearanceStyle("searchBox", context.module, context.id)
+        values.backgroundColor = CopyColor(style.background)
+        values.backgroundOpacity = style.background[4] or 1
         return values
     end,
     set = function(context, values)
@@ -134,11 +152,24 @@ NSkin:RegisterOptionGroup("shared.search", {
         then
             changed = context.setSearchAccessoryMode(context, accessoryMode) or changed
         end
+        local background = CopyColor(values.backgroundColor)
+        background[4] = values.backgroundOpacity
+        local current = NSkin:GetAppearanceStyle(
+            "searchBox", context.module, context.id
+        ).background
+        if not ColorsEqual(background, current) then
+            changed = NSkin:SetElementAppearanceOverride(
+                context.id, context.module, "searchBox.background", background
+            ) or changed
+        end
         return changed == true
     end,
     reset = function(context)
         local changed = context.resetPlacement(context)
         changed = context.setSearchAccessoryMode(context, "GROUPED") or changed
+        changed = NSkin:ResetElementAppearanceOverride(
+            context.id, "searchBox.background"
+        ) or changed
         return changed == true
     end,
 })

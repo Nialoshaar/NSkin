@@ -38,40 +38,28 @@ local function FindName(textures, path)
     return "Custom texture"
 end
 
-local function BuildProgressBarOptions(frame)
-    local page = CreateFrame("Frame", nil, frame)
-    page:SetAllPoints(frame)
-    local label = page:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    label:SetPoint("TOPLEFT", frame, "TOPLEFT", frame.NSkinContentLeft or 180, -102)
-    label:SetText("Texture")
+local function BuildProgressBarOptions(parent)
+    local page = NSkin:CreateOptionsPage(parent)
+    local title = page:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+    title:SetPoint("TOPLEFT")
+    title:SetText("Progress Bars")
+    NSkin:CreateOptionsSection(page, "Texture", 38)
 
     local selected = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
-    selected:SetPoint("TOPLEFT", label, "BOTTOMLEFT", 0, -8)
-    selected:SetPoint("RIGHT", frame, "RIGHT", -20, 0)
+    selected:SetPoint("TOPLEFT", page, "TOPLEFT", 0, -70)
+    selected:SetPoint("RIGHT", page, "RIGHT", 0, 0)
     selected:SetHeight(28)
     local list = CreateFrame("Frame", nil, page, "BackdropTemplate")
     list:SetPoint("TOPLEFT", selected, "BOTTOMLEFT", 0, -6)
-    list:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -20, 52)
+    list:SetPoint("RIGHT", page, "RIGHT", 0, 0)
+    list:SetHeight(1)
     list:SetBackdrop({
         bgFile = "Interface\\Buttons\\WHITE8X8",
         edgeFile = "Interface\\Buttons\\WHITE8X8",
         edgeSize = 1,
     })
-    local scroll = CreateFrame("ScrollFrame", nil, list, "UIPanelScrollFrameTemplate")
-    scroll:SetPoint("TOPLEFT", 4, -4)
-    scroll:SetPoint("BOTTOMRIGHT", -27, 4)
-    scroll:EnableMouseWheel(true)
-    local content = CreateFrame("Frame", nil, scroll)
-    content:SetSize(1, 1)
-    scroll:SetScrollChild(content)
-    scroll:SetScript("OnSizeChanged", function(_, width) content:SetWidth(width) end)
-    scroll:SetScript("OnMouseWheel", function(self, delta)
-        local value = self:GetVerticalScroll() - delta * ROW_HEIGHT * 3
-        self:SetVerticalScroll(math.max(0, math.min(self:GetVerticalScrollRange(), value)))
-    end)
     local reset = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
     reset:SetSize(110, 24)
-    reset:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -20, 14)
     page.rows = {}
 
     function page:ApplyTheme()
@@ -91,14 +79,15 @@ local function BuildProgressBarOptions(frame)
     function page:Rebuild()
         for i = 1, #self.rows do self.rows[i]:Hide() end
         self.textures = CollectTextures()
-        content:SetHeight(math.max(1, #self.textures * ROW_HEIGHT))
+        local listHeight = math.max(1, #self.textures * ROW_HEIGHT + 8)
+        list:SetHeight(listHeight)
         local active = NSkin:GetStatusBarTexture()
         local style = NSkin:GetStyle("options")
         for i = 1, #self.textures do
             local texture = self.textures[i]
             local row = self.rows[i]
             if not row then
-                row = CreateFrame("Button", nil, content)
+                row = CreateFrame("Button", nil, list)
                 row:SetHeight(ROW_HEIGHT)
                 row.background = row:CreateTexture(nil, "BACKGROUND")
                 row.background:SetAllPoints()
@@ -119,8 +108,8 @@ local function BuildProgressBarOptions(frame)
                 self.rows[i] = row
             end
             row:ClearAllPoints()
-            row:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -(i - 1) * ROW_HEIGHT)
-            row:SetPoint("RIGHT", content, "RIGHT")
+            row:SetPoint("TOPLEFT", list, "TOPLEFT", 4, -4 - (i - 1) * ROW_HEIGHT)
+            row:SetPoint("RIGHT", list, "RIGHT", -4, 0)
             row.preview:SetTexture(texture.path)
             row.name:SetText(texture.name)
             row.textureName = texture.name
@@ -133,12 +122,22 @@ local function BuildProgressBarOptions(frame)
         local name = FindName(self.textures, active)
         selected:SetText(name)
         NSkin:SetFlatButtonLabel(selected, name, 12)
+        reset:ClearAllPoints()
+        reset:SetPoint("TOPRIGHT", list, "BOTTOMRIGHT", 0, -14)
+        self:SetContentHeight(122 + listHeight + 50)
         self:ApplyTheme()
-        scroll:SetVerticalScroll(0)
     end
 
     selected:SetScript("OnClick", function()
-        if list:IsShown() then list:Hide() else page:Rebuild() list:Show() end
+        if list:IsShown() then
+            list:Hide()
+            reset:ClearAllPoints()
+            reset:SetPoint("TOPRIGHT", selected, "BOTTOMRIGHT", 0, -14)
+            page:SetContentHeight(160)
+        else
+            page:Rebuild()
+            list:Show()
+        end
     end)
     reset:SetScript("OnClick", function()
         NSkin:ResetStatusBarTexture()
@@ -152,6 +151,7 @@ local function BuildProgressBarOptions(frame)
     end
     if selected:GetFontString() then selected:GetFontString():SetAlpha(0) end
     if reset:GetFontString() then reset:GetFontString():SetAlpha(0) end
+    page:SetContentHeight(160)
     return page
 end
 

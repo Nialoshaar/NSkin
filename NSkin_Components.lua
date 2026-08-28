@@ -130,7 +130,7 @@ function NSkin:SkinFlatButton(button, label, backgroundColor, borderColor,
 
     local style = self:GetStyle("button")
     backgroundColor = backgroundColor or style.background
-    borderColor = borderColor or self:GetSharedBorderColor()
+    borderColor = borderColor or self:GetComponentBorderColor("button", style)
 
     local background = self:GetFlatBackground(button)
     if not background then
@@ -143,16 +143,16 @@ function NSkin:SkinFlatButton(button, label, backgroundColor, borderColor,
     if text then text:SetTextColor(unpack(style.text)) end
 end
 
-function NSkin:SkinSearchBox(searchBox)
+function NSkin:SkinSearchBox(searchBox, style)
     if not searchBox then return end
 
     local searchIcon = searchBox.SearchIcon or searchBox.searchIcon
     if not self:GetFlatBackground(searchBox) then
         self:HideTextureRegions(searchBox, searchIcon)
     end
-    local style = self:GetStyle("searchBox")
+    style = style or self:GetStyle("searchBox")
     self:CreateFlatBackground(
-        searchBox, nil, style.background, self:GetSharedBorderColor()
+        searchBox, nil, style.background, self:GetComponentBorderColor("searchBox", style)
     )
     if searchBox.SetTextColor then searchBox:SetTextColor(unpack(style.text)) end
     local instructions = searchBox.Instructions or searchBox.instructions
@@ -251,12 +251,12 @@ function NSkin:SkinTab(tab, selected, style)
         end
         self:HideTextureRegions(tab)
         background = self:CreateFlatBackground(tab, nil, style.background,
-            self:GetSharedBorderColor())
+            self:GetComponentBorderColor("tab", style))
     end
 
     self:CreateFlatButtonGlow(tab, style.hoverAlpha)
     self:SetPixelBorderColor(self:GetPixelBorder(tab, "NSkinFlatBackgroundBorder"),
-        unpack(self:GetSharedBorderColor()))
+        unpack(self:GetComponentBorderColor("tab", style)))
     background:SetColorTexture(unpack(
         selected and style.selectedBackground or style.background
     ))
@@ -1106,7 +1106,7 @@ function NSkin:RegisterAccessoryGroup(definition)
     local editorOptions = definition.editorOptions or "shared.search"
     local accessory = RegisterControllerElement(controller, definition.ids.accessory,
         definition.accessoryLabel or "Search accessory", definition.accessory, {
-            editorOptions = editorOptions,
+            editorOptions = accessoryDefinition.editorOptions or editorOptions,
             defaultPlacement = accessoryDefinition.defaultPlacement
                 or definition.accessoryPlacement,
             priority = accessoryDefinition.priority or definition.accessoryPriority or 90,
@@ -1117,7 +1117,7 @@ function NSkin:RegisterAccessoryGroup(definition)
         })
     local primary = RegisterControllerElement(controller, definition.ids.primary,
         definition.primaryLabel or "Search", definition.primary, {
-            editorOptions = editorOptions,
+            editorOptions = primaryDefinition.editorOptions or editorOptions,
             defaultPlacement = primaryDefinition.defaultPlacement or definition.primaryPlacement,
             priority = primaryDefinition.priority or definition.primaryPriority or 80,
             snapTarget = definition.snapTarget,
