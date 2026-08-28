@@ -18,6 +18,14 @@ local TOY_PAGE_TEXT_ELEMENT_ID = "Collections.ToyBox.Pagination.Text"
 local WINDOW_BUTTON_TEXT_SIZE = 20
 local HEIRLOOM_QUALITY = _G.Enum and _G.Enum.ItemQuality and _G.Enum.ItemQuality.Heirloom or 7
 local Item = _G.C_Item
+local TOY_PROGRESS_BAR_STYLE = {
+    height = 16,
+    stripArtwork = true,
+    useThemeTexture = true,
+    background = true,
+    centerText = true,
+    textOffsetY = 1,
+}
 
 local collectionsInitialized = false
 local toysInitialized = false
@@ -371,7 +379,7 @@ SkinCollectionsWindow = function()
         end
         NSkin:SkinPagingControls(pagingControls or toyBox)
         local progressBar = toyBox.ProgressBar or toyBox.progressBar
-        NSkin:SkinProgressBar(progressBar)
+        NSkin:SkinProgressBar(progressBar, TOY_PROGRESS_BAR_STYLE)
         RegisterToyMovableElement(
             TOY_PROGRESS_ELEMENT_ID, "Toy Box progress bar", journal, progressBar, 80
         )

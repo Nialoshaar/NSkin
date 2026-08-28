@@ -718,6 +718,85 @@ function NSkin:RegisterMovableElement(definition)
     return true
 end
 
+local PROGRESS_COMPONENT_STATE = "progressBarComponent"
+local PROGRESS_BACKGROUND_KEY = "NSkinProgressBarBackground"
+
+local function HideProgressBarArtwork(region, fill)
+    if region == fill or not region or not region.IsObjectType
+        or not region:IsObjectType("Texture")
+    then return end
+    region:SetAlpha(0)
+    region:SetTexture(nil)
+    region:Hide()
+end
+
+local function CenterProgressBarText(bar, region, offsetX, offsetY)
+    if not region or not region.IsObjectType or not region:IsObjectType("FontString") then
+        return
+    end
+    region:ClearAllPoints()
+    region:SetPoint("CENTER", bar, "CENTER", offsetX, offsetY)
+end
+
+function NSkin:SkinProgressBar(bar, options)
+    if not bar or not bar.GetObjectType or bar:GetObjectType() ~= "StatusBar"
+        or not bar.SetStatusBarTexture or (bar.IsForbidden and bar:IsForbidden())
+    then return false end
+    options = options or {}
+    local data = self:GetSkinData(bar, PROGRESS_COMPONENT_STATE)
+    local height = tonumber(options.height)
+    if height and height > 0 then bar:SetHeight(height) end
+
+    local fill = bar:GetStatusBarTexture()
+    if type(options.artworkRegions) == "table" then
+        for i = 1, #options.artworkRegions do
+            HideProgressBarArtwork(options.artworkRegions[i], fill)
+        end
+    elseif options.stripArtwork and not data.artworkStripped and bar.GetRegions then
+        local regions = { bar:GetRegions() }
+        for i = 1, #regions do HideProgressBarArtwork(regions[i], fill) end
+        data.artworkStripped = true
+    end
+
+    local texture = options.texture
+    if options.useThemeTexture then texture = self:GetStatusBarTexture() end
+    if type(texture) == "string" and texture ~= "" then
+        bar:SetStatusBarTexture(texture)
+        fill = bar:GetStatusBarTexture()
+        if fill then
+            fill:Show()
+            if fill.SetHorizTile then fill:SetHorizTile(false) end
+            if fill.SetVertTile then fill:SetVertTile(false) end
+        end
+    end
+
+    if options.background then
+        local style = self:GetStyle("progressBar")
+        self:CreateFlatBackground(bar, PROGRESS_BACKGROUND_KEY,
+            options.backgroundColor or style.background,
+            options.borderColor or self:GetWindowBorderColor())
+    end
+
+    if options.centerText then
+        local offsetX = tonumber(options.textOffsetX) or 0
+        local offsetY = tonumber(options.textOffsetY) or 0
+        if type(options.textRegions) == "table" then
+            for i = 1, #options.textRegions do
+                CenterProgressBarText(bar, options.textRegions[i], offsetX, offsetY)
+            end
+        else
+            CenterProgressBarText(bar, bar.Label, offsetX, offsetY)
+            if bar.GetRegions then
+                local regions = { bar:GetRegions() }
+                for i = 1, #regions do
+                    CenterProgressBarText(bar, regions[i], offsetX, offsetY)
+                end
+            end
+        end
+    end
+    return true
+end
+
 local function GetCurrentWindowPlacement(window, target)
     local windowLeft, windowTop = window:GetLeft(), window:GetTop()
     local targetLeft, targetTop = target:GetLeft(), target:GetTop()
@@ -739,11 +818,18 @@ local function GetControllerState(module, id, create)
     return states[id], options
 end
 
-local function PruneControllerState(options, id)
+local function PruneControllerState(module, options, id)
     local states = options and options.componentStates
     local state = states and states[id]
     if state and not next(state) then states[id] = nil end
     if states and not next(states) then options.componentStates = nil end
+    if options and not next(options) then
+        local profile = NSkin:GetProfile()
+        if profile.moduleOptions then
+            profile.moduleOptions[module] = nil
+            if not next(profile.moduleOptions) then profile.moduleOptions = nil end
+        end
+    end
 end
 
 local function RegisterControllerElement(controller, id, label, target, options)
@@ -837,12 +923,13 @@ function NSkin:RegisterPaginationGroup(definition)
         if self.watcher then self.watcher:SetShown(not not active) end
     end
     function controller:SetSeparateButtons(value)
+        local textMode = value == true and "INDEPENDENT" or self:GetTextMode()
         local state, options = GetControllerState(self.module, self.id, true)
         state.separateButtons = value == true and true or nil
-        if state.separateButtons then state.textMode = "INDEPENDENT" end
+        state.textMode = textMode == "GROUPED" and nil or textMode
         if legacySeparateKey then options[legacySeparateKey] = nil end
         if legacyTextKey then options[legacyTextKey] = nil end
-        PruneControllerState(options, self.id)
+        PruneControllerState(self.module, options, self.id)
         self:UpdateWatcher()
         self:Refresh()
         return true
@@ -854,7 +941,7 @@ function NSkin:RegisterPaginationGroup(definition)
         local state, options = GetControllerState(self.module, self.id, true)
         state.textMode = mode == "GROUPED" and nil or mode
         if legacyTextKey then options[legacyTextKey] = nil end
-        PruneControllerState(options, self.id)
+        PruneControllerState(self.module, options, self.id)
         self:UpdateWatcher()
         self:Refresh()
         return true
@@ -1005,7 +1092,7 @@ function NSkin:RegisterAccessoryGroup(definition)
         local state, options = GetControllerState(self.module, self.id, true)
         state.mode = mode == "GROUPED" and nil or mode
         if legacyOptionKey then options[legacyOptionKey] = nil end
-        PruneControllerState(options, self.id)
+        PruneControllerState(self.module, options, self.id)
         self:UpdateWatcher()
         self:Refresh()
         return true

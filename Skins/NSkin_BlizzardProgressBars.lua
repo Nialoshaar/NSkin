@@ -303,12 +303,6 @@ ApplyStatusBarColor = function(bar)
     data.applyingColor = false
 end
 
-function NSkin:SkinProgressBar(bar)
-    if not IsStatusBar(bar) then return false end
-    StyleBar(bar)
-    return true
-end
-
 local scenarioArtKeys = {
     "GlowTexture", "HeaderIconGlow", "HeaderBackground", "Background",
     "BackgroundTexture", "FinalBG",
