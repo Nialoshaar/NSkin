@@ -72,6 +72,8 @@ local function AnchorOverlay(overlay, element)
         return true
     end
     if element and element.kind ~= "TAB_GROUP"
+        and type(element.highlightRegions) ~= "table"
+        and type(element.highlightRegions) ~= "function"
         and type(element.getHighlightBounds) ~= "function"
         and element.target and element.target.IsShown and element.target:IsShown()
     then
@@ -157,7 +159,8 @@ local function DockInspector(element)
     local window = element.window
     inspector:ClearAllPoints()
     local screenRight = UIParent:GetRight() or GetScreenWidth()
-    local roomOnRight = screenRight - (window:GetRight() or 0)
+    local _, windowRight = NSkin:GetUIParentNormalizedBounds(window)
+    local roomOnRight = screenRight - (windowRight or 0)
     if roomOnRight >= inspector:GetWidth() + 12 then
         inspector:SetPoint("TOPLEFT", window, "TOPRIGHT", 8, 0)
     else
@@ -486,8 +489,46 @@ StopDrag = function(apply)
     RefreshAllOverlayAppearances()
 end
 
+local function RefreshAbsoluteWindowOverlays(window)
+    if not controller.enabled or not window:IsShown() then return end
+    for id, element in pairs(controller.overlayElements) do
+        local overlay = controller.overlays[id]
+        if element.window == window and overlay and overlay.usesAbsoluteBounds then
+            if NSkin:IsSkinningElementEditable(element)
+                and AnchorOverlay(overlay, element)
+            then
+                overlay:Show()
+            else
+                overlay:Hide()
+            end
+        end
+    end
+end
+
+local function EnsureAbsoluteWindowLifecycle(window)
+    if controller.absoluteWindowLifecycles[window] then return end
+    local watcher = CreateFrame("Frame", nil, window)
+    watcher:SetScript("OnShow", function() RefreshAbsoluteWindowOverlays(window) end)
+    watcher:SetScript("OnHide", function()
+        for id, element in pairs(controller.overlayElements) do
+            local overlay = controller.overlays[id]
+            if element.window == window and overlay and overlay.usesAbsoluteBounds then
+                overlay:Hide()
+            end
+        end
+    end)
+    watcher:Show()
+    controller.absoluteWindowLifecycles[window] = watcher
+    local refresh = function() RefreshAbsoluteWindowOverlays(window) end
+    for _, method in ipairs({ "SetPoint", "SetScale", "SetSize", "StopMovingOrSizing" }) do
+        if type(window[method]) == "function" then hooksecurefunc(window, method, refresh) end
+    end
+end
+
 local function CreateOverlay(element)
     local usesAbsoluteBounds = element.kind == "TAB_GROUP"
+        or type(element.highlightRegions) == "table"
+        or type(element.highlightRegions) == "function"
         or type(element.getHighlightBounds) == "function"
     local overlay = CreateFrame("Button", nil,
         usesAbsoluteBounds and UIParent or element.window)
@@ -536,32 +577,9 @@ local function CreateOverlay(element)
             DockWithoutSelection(element.window)
         end
     end)
-    if usesAbsoluteBounds then
-        local visibilityWatcher = CreateFrame("Frame", nil, element.window)
-        visibilityWatcher:SetScript("OnShow", function()
-            if controller.enabled and NSkin:IsSkinningElementEditable(element) then
-                AnchorOverlay(overlay, element)
-                overlay:Show()
-            end
-        end)
-        visibilityWatcher:SetScript("OnHide", function() overlay:Hide() end)
-        visibilityWatcher:Show()
-        overlay.visibilityWatcher = visibilityWatcher
-        local refresh = function()
-            if controller.enabled and element.window:IsShown()
-                and NSkin:IsSkinningElementEditable(element)
-            then
-                if AnchorOverlay(overlay, element) then overlay:Show() else overlay:Hide() end
-            end
-        end
-        for _, method in ipairs({ "SetPoint", "SetScale", "SetSize", "StopMovingOrSizing" }) do
-            if type(element.window[method]) == "function" then
-                hooksecurefunc(element.window, method, refresh)
-            end
-        end
-    end
     controller.overlays[element.id] = overlay
     controller.overlayElements[element.id] = element
+    if usesAbsoluteBounds then EnsureAbsoluteWindowLifecycle(element.window) end
     return overlay
 end
 
@@ -606,6 +624,7 @@ local function CreateController()
         overlays = {},
         overlayElements = {},
         gridPools = setmetatable({}, { __mode = "k" }),
+        absoluteWindowLifecycles = setmetatable({}, { __mode = "k" }),
         previewOptions = { preview = true, suppressNotify = true },
     }
 

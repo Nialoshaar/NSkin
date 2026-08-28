@@ -25,9 +25,8 @@ local PAGINATION_ELEMENT_ID = "SpellBook.Pagination"
 local PREVIOUS_ELEMENT_ID = "SpellBook.Pagination.Previous"
 local NEXT_ELEMENT_ID = "SpellBook.Pagination.Next"
 local PAGE_TEXT_ELEMENT_ID = "SpellBook.Pagination.Text"
-local GetSavedMovablePlacement
-local spellBookStateWatcher
-local EnsureSpellBookStateWatcher
+local spellBookPaginationController
+local spellBookSearchController
 local RestoreCategoryTabAnchors
 local categoryTabOriginalPoints
 local CATEGORY_TAB_DEFAULT = {
@@ -37,7 +36,6 @@ local CATEGORY_TAB_DEFAULT = {
     alongOffset = 0,
     edgeOffset = 0,
 }
-local suppressBoundsNotification = { suppressNotify = true }
 
 local function RoundOne(value)
     value = tonumber(value) or 0
@@ -269,193 +267,6 @@ local function ResetCategoryTabPlacement(group)
     return RestoreCategoryTabAnchors(group.container)
 end
 
-local function GetPaginationOptions()
-    return NSkin:GetModuleOptions("SpellBook", false)
-end
-
-function NSkin:GetSpellBookSearchCogMode()
-    local options = self:GetModuleOptions("SpellBook", false)
-    return options and options.searchCogMode or "GROUPED"
-end
-
-local function GetSearchBounds(element)
-    local target = element.target
-    local left, right, bottom, top = target:GetLeft(), target:GetRight(),
-        target:GetBottom(), target:GetTop()
-    if NSkin:GetSpellBookSearchCogMode() == "GROUPED" then
-        local cog = element.searchCog
-        if cog and cog:IsShown() and cog:GetLeft() then
-            left = math.min(left, cog:GetLeft())
-            right = math.max(right, cog:GetRight())
-            bottom = math.min(bottom, cog:GetBottom())
-            top = math.max(top, cog:GetTop())
-        end
-    end
-    return left, right, bottom, top
-end
-
-local function ApplySearchPlacement(element, placement, applyOptions)
-    if not NSkin:LayoutWindowElement(element, placement, suppressBoundsNotification) then
-        return false
-    end
-    local cog = element.searchCog
-    if cog and NSkin:GetSpellBookSearchCogMode() == "GROUPED" then
-        cog:ClearAllPoints()
-        cog:SetPoint("LEFT", element.target, "RIGHT", 5, 0)
-    end
-    if not (applyOptions and applyOptions.suppressNotify) then
-        NSkin:NotifySkinningElementBoundsChanged(element.id)
-    end
-    return true
-end
-
-local function RestoreOriginalPoints(id)
-    return NSkin:RestoreMovableElementOriginal(id, true)
-end
-
-local function RefreshSearchElements()
-    local spellBook = _G.PlayerSpellsFrame and _G.PlayerSpellsFrame.SpellBookFrame
-    local cog = spellBook and spellBook.SettingsDropdown
-    local searchElement = NSkin:GetSkinningElement(SEARCH_ELEMENT_ID)
-    local cogElement = NSkin:GetSkinningElement(SEARCH_COG_ELEMENT_ID)
-    if not cog or not searchElement then return end
-    local mode = NSkin:GetSpellBookSearchCogMode()
-    cog:SetShown(mode ~= "HIDDEN")
-    if mode == "GROUPED" then
-        local placement = GetSavedMovablePlacement and GetSavedMovablePlacement(SEARCH_ELEMENT_ID)
-        if placement then
-            ApplySearchPlacement(searchElement, placement)
-        else
-            RestoreOriginalPoints(SEARCH_COG_ELEMENT_ID)
-            RestoreOriginalPoints(SEARCH_ELEMENT_ID)
-        end
-    elseif mode == "INDEPENDENT" then
-        local placement = GetSavedMovablePlacement and GetSavedMovablePlacement(SEARCH_COG_ELEMENT_ID)
-        if placement and cogElement then NSkin:LayoutWindowElement(cogElement, placement) end
-    end
-    NSkin:NotifySkinningElementBoundsChanged(SEARCH_ELEMENT_ID)
-    NSkin:NotifySkinningElementBoundsChanged(SEARCH_COG_ELEMENT_ID)
-end
-
-function NSkin:SetSpellBookSearchCogMode(mode)
-    if mode ~= "GROUPED" and mode ~= "INDEPENDENT" and mode ~= "HIDDEN" then
-        return false
-    end
-    local options = self:GetModuleOptions("SpellBook", true)
-    options.searchCogMode = mode == "GROUPED" and nil or mode
-    if options.searchCogMode or options.separatePaginationButtons or options.paginationTextMode then
-        EnsureSpellBookStateWatcher()
-    elseif spellBookStateWatcher then
-        spellBookStateWatcher:Hide()
-    end
-    RefreshSearchElements()
-    return true
-end
-
-function NSkin:GetSpellBookPaginationSeparateButtons()
-    local options = GetPaginationOptions()
-    return options and options.separatePaginationButtons == true or false
-end
-
-function NSkin:GetSpellBookPaginationTextMode()
-    local options = GetPaginationOptions()
-    local mode = options and options.paginationTextMode or "GROUPED"
-    if mode == "GROUPED" and self:GetSpellBookPaginationSeparateButtons() then
-        return "INDEPENDENT"
-    end
-    return mode
-end
-
-local function RefreshPaginationElements()
-    local spellBook = _G.PlayerSpellsFrame and _G.PlayerSpellsFrame.SpellBookFrame
-    local controls = spellBook and spellBook.PagedSpellsFrame
-        and spellBook.PagedSpellsFrame.PagingControls
-    if controls and controls.PageText then
-        controls.PageText:SetShown(NSkin:GetSpellBookPaginationTextMode() ~= "HIDDEN")
-    end
-    local separateButtons = NSkin:GetSpellBookPaginationSeparateButtons()
-    local textMode = NSkin:GetSpellBookPaginationTextMode()
-    local function ApplyMode(id, independent)
-        local element = NSkin:GetSkinningElement(id)
-        if not element then return end
-        local saved = GetSavedMovablePlacement and GetSavedMovablePlacement(id)
-        if independent and saved then
-            NSkin:LayoutWindowElement(element, saved)
-        elseif not independent then
-            NSkin:RestoreMovableElementOriginal(element, true)
-        end
-    end
-    ApplyMode(PREVIOUS_ELEMENT_ID, separateButtons)
-    ApplyMode(NEXT_ELEMENT_ID, separateButtons)
-    ApplyMode(PAGE_TEXT_ELEMENT_ID, textMode == "INDEPENDENT")
-    NSkin:NotifySkinningElementBoundsChanged(PAGINATION_ELEMENT_ID)
-    NSkin:NotifySkinningElementBoundsChanged(PREVIOUS_ELEMENT_ID)
-    NSkin:NotifySkinningElementBoundsChanged(NEXT_ELEMENT_ID)
-    NSkin:NotifySkinningElementBoundsChanged(PAGE_TEXT_ELEMENT_ID)
-end
-
-function NSkin:SetSpellBookPaginationSeparateButtons(value)
-    local options = self:GetModuleOptions("SpellBook", true)
-    options.separatePaginationButtons = value == true and true or nil
-    if options.separatePaginationButtons then
-        options.paginationTextMode = "INDEPENDENT"
-    end
-    if options.searchCogMode or options.separatePaginationButtons or options.paginationTextMode then
-        EnsureSpellBookStateWatcher()
-    elseif spellBookStateWatcher then
-        spellBookStateWatcher:Hide()
-    end
-    RefreshPaginationElements()
-    return true
-end
-
-function NSkin:SetSpellBookPaginationTextMode(mode)
-    if mode ~= "GROUPED" and mode ~= "INDEPENDENT" and mode ~= "HIDDEN" then return false end
-    if mode == "GROUPED" and self:GetSpellBookPaginationSeparateButtons() then return false end
-    local options = self:GetModuleOptions("SpellBook", true)
-    options.paginationTextMode = mode == "GROUPED" and nil or mode
-    if options.searchCogMode or options.separatePaginationButtons or options.paginationTextMode then
-        EnsureSpellBookStateWatcher()
-    elseif spellBookStateWatcher then
-        spellBookStateWatcher:Hide()
-    end
-    RefreshPaginationElements()
-    return true
-end
-
-GetSavedMovablePlacement = function(id)
-    return NSkin:GetSavedMovableElementPlacement(id)
-end
-
-local function RefreshSpellBookComponentStates()
-    RefreshSearchElements()
-    RefreshPaginationElements()
-end
-
-EnsureSpellBookStateWatcher = function()
-    local playerSpells = _G.PlayerSpellsFrame
-    if not playerSpells then return false end
-    if not spellBookStateWatcher then
-        spellBookStateWatcher = CreateFrame("Frame", nil, playerSpells)
-        spellBookStateWatcher:Hide()
-        spellBookStateWatcher:SetScript("OnShow", RefreshSpellBookComponentStates)
-    end
-    spellBookStateWatcher:Show()
-    return true
-end
-
-local function RegisterMovableElement(id, label, window, target, editorOptions,
-    defaultPlacement, isEditable, priority, snapTarget)
-    if not target then return end
-    NSkin:RegisterMovableElement({
-        id = id, module = "SpellBook",
-        label = label, kind = "MOVABLE", draggable = true, priority = priority or 80,
-        movable = true, snapTarget = snapTarget == true,
-        window = window, target = target, editorOptions = editorOptions,
-        defaultPlacement = defaultPlacement, isEditable = isEditable,
-    })
-end
-
 local function SetFontSize(fontString, size)
     if not fontString or not size then return end
 
@@ -610,7 +421,7 @@ local function SkinSpellBookControls()
     local spellBook = playerSpells and playerSpells.SpellBookFrame
     local pagedSpells = spellBook and spellBook.PagedSpellsFrame
     if not spellBook then return end
-    RefreshPaginationElements()
+    if spellBookPaginationController then spellBookPaginationController:Refresh() end
 
     RemoveSpellBookPortraitAndHelp(playerSpells, spellBook)
     SkinTitleBar(playerSpells, spellBook)
@@ -908,75 +719,31 @@ function SpellBookSkin:Initialize()
         alongOffset = -35 - (spellBook.SettingsDropdown:GetWidth() or 0), edgeOffset = -17 }
     local defaultBottom = { edge = "BOTTOM", side = "INSIDE", alignment = "RIGHT",
         alongOffset = -20, edgeOffset = 20 }
-    RegisterMovableElement(SEARCH_ELEMENT_ID, "Spellbook search", playerSpells,
-        spellBook.SearchBox, "shared.search", defaultSearch, nil, nil, true)
-    RegisterMovableElement(SEARCH_COG_ELEMENT_ID, "Spellbook search cog", playerSpells,
-        spellBook.SettingsDropdown, "shared.search", defaultCog,
-        function() return NSkin:GetSpellBookSearchCogMode() == "INDEPENDENT" end, 90)
-    local searchElement = NSkin:GetSkinningElement(SEARCH_ELEMENT_ID)
-    if searchElement then
-        local genericReset = searchElement.resetPlacement
-        searchElement.searchCog = spellBook.SettingsDropdown
-        searchElement.getHighlightBounds = GetSearchBounds
-        searchElement.applyPlacement = ApplySearchPlacement
-        searchElement.resetPlacement = function(element)
-            RestoreOriginalPoints(SEARCH_COG_ELEMENT_ID)
-            local reset = genericReset(element)
-            RefreshSearchElements()
-            return reset
-        end
-    end
-    for _, id in ipairs({ SEARCH_ELEMENT_ID, SEARCH_COG_ELEMENT_ID }) do
-        local element = NSkin:GetSkinningElement(id)
-        if element then
-            element.getSearchAccessoryMode = function()
-                return NSkin:GetSpellBookSearchCogMode()
-            end
-            element.setSearchAccessoryMode = function(_, mode)
-                return NSkin:SetSpellBookSearchCogMode(mode)
-            end
-        end
-    end
-    RegisterMovableElement(PAGINATION_ELEMENT_ID, "Spellbook pagination", playerSpells,
-        pagingControls, "shared.pagination", defaultBottom,
-        function() return not NSkin:GetSpellBookPaginationSeparateButtons() end, 70)
-    RegisterMovableElement(PREVIOUS_ELEMENT_ID, "Previous page button", playerSpells,
-        pagingControls and pagingControls.PrevPageButton, "shared.pagination", defaultBottom,
-        function() return NSkin:GetSpellBookPaginationSeparateButtons() end, 90)
-    RegisterMovableElement(NEXT_ELEMENT_ID, "Next page button", playerSpells,
-        pagingControls and pagingControls.NextPageButton, "shared.pagination", defaultBottom,
-        function() return NSkin:GetSpellBookPaginationSeparateButtons() end, 90)
-    RegisterMovableElement(PAGE_TEXT_ELEMENT_ID, "Page text", playerSpells,
-        pagingControls and pagingControls.PageText, "shared.pagination", defaultBottom,
-        function() return NSkin:GetSpellBookPaginationTextMode() == "INDEPENDENT" end, 100)
-    for _, id in ipairs({ PAGINATION_ELEMENT_ID, PREVIOUS_ELEMENT_ID,
-        NEXT_ELEMENT_ID, PAGE_TEXT_ELEMENT_ID })
-    do
-        local element = NSkin:GetSkinningElement(id)
-        if element then
-            element.getPaginationSeparateButtons = function()
-                return NSkin:GetSpellBookPaginationSeparateButtons()
-            end
-            element.setPaginationSeparateButtons = function(_, value)
-                return NSkin:SetSpellBookPaginationSeparateButtons(value)
-            end
-            element.getPaginationTextMode = function()
-                return NSkin:GetSpellBookPaginationTextMode()
-            end
-            element.setPaginationTextMode = function(_, mode)
-                return NSkin:SetSpellBookPaginationTextMode(mode)
-            end
-        end
-    end
-    local movableOptions = NSkin:GetModuleOptions("SpellBook", false)
-    if movableOptions and (movableOptions.separatePaginationButtons
-        or movableOptions.paginationTextMode
-        or movableOptions.searchCogMode)
-    then
-        EnsureSpellBookStateWatcher()
-    end
-    RefreshSearchElements()
-    RefreshPaginationElements()
+    spellBookSearchController = NSkin:RegisterAccessoryGroup({
+        module = "SpellBook", window = playerSpells,
+        ids = { primary = SEARCH_ELEMENT_ID, accessory = SEARCH_COG_ELEMENT_ID },
+        primary = spellBook.SearchBox, accessory = spellBook.SettingsDropdown,
+        primaryLabel = "Spellbook search", accessoryLabel = "Spellbook search cog",
+        primaryPlacement = defaultSearch, accessoryPlacement = defaultCog,
+        optionKey = "searchCogMode", snapTarget = true,
+        visibilityFrame = spellBook,
+        anchorGrouped = function(searchBox, cog)
+            cog:ClearAllPoints()
+            cog:SetPoint("LEFT", searchBox, "RIGHT", 5, 0)
+            return true
+        end,
+    })
+    spellBookPaginationController = NSkin:RegisterPaginationGroup({
+        module = "SpellBook", window = playerSpells,
+        ids = { group = PAGINATION_ELEMENT_ID, previous = PREVIOUS_ELEMENT_ID,
+            next = NEXT_ELEMENT_ID, text = PAGE_TEXT_ELEMENT_ID },
+        controls = { group = pagingControls,
+            previous = pagingControls and pagingControls.PrevPageButton,
+            next = pagingControls and pagingControls.NextPageButton,
+            text = pagingControls and pagingControls.PageText },
+        groupLabel = "Spellbook pagination", defaultPlacement = defaultBottom,
+        visibilityFrame = spellBook,
+    })
     local pagedContentMixin = _G.PagedContentFrameBaseMixin
     local pagedContentEvent = pagedContentMixin and pagedContentMixin.Event
         and pagedContentMixin.Event.OnUpdate

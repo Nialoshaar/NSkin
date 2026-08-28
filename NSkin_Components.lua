@@ -9,6 +9,7 @@ local movableElementsByWindow = setmetatable({}, { __mode = "k" })
 local movableWatchers = setmetatable({}, { __mode = "k" })
 local registeredWindows = setmetatable({}, { __mode = "k" })
 local windowSequence = 0
+local SUPPRESS_NOTIFICATION = { suppressNotify = true }
 
 local function CopyPlacement(placement)
     local copy = {}
@@ -717,6 +718,278 @@ function NSkin:RegisterMovableElement(definition)
     return true
 end
 
+local function GetCurrentWindowPlacement(window, target)
+    local windowLeft, windowTop = window:GetLeft(), window:GetTop()
+    local targetLeft, targetTop = target:GetLeft(), target:GetTop()
+    if windowLeft and windowTop and targetLeft and targetTop then
+        return { mode = "GRID", point = "TOPLEFT", relativePoint = "TOPLEFT",
+            x = targetLeft - windowLeft, y = targetTop - windowTop }
+    end
+    return { edge = "TOP", side = "INSIDE", alignment = "CENTER",
+        alongOffset = 0, edgeOffset = -46 }
+end
+
+local function RegisterControllerElement(controller, id, label, target, options)
+    if not id or not target then return end
+    options = options or {}
+    NSkin:RegisterMovableElement({
+        id = id,
+        module = controller.module,
+        label = label,
+        window = controller.window,
+        target = target,
+        editorOptions = options.editorOptions,
+        defaultPlacement = CopyPlacement(options.defaultPlacement
+            or GetCurrentWindowPlacement(controller.window, target)),
+        priority = options.priority,
+        anchorHighlight = options.anchorHighlight,
+        highlightRegions = options.highlightRegions,
+        isEditable = options.isEditable,
+        applyPlacement = options.applyPlacement,
+        snapTarget = options.snapTarget,
+    })
+    return skinningElements[id]
+end
+
+function NSkin:RegisterPaginationGroup(definition)
+    if type(definition) ~= "table" or type(definition.module) ~= "string"
+        or not definition.window or type(definition.ids) ~= "table"
+        or type(definition.controls) ~= "table"
+    then return end
+    local ids, controls = definition.ids, definition.controls
+    if not ids.group or not ids.previous or not ids.next or not ids.text
+        or not controls.group or not controls.previous or not controls.next
+        or not controls.text
+    then return end
+    local controller = { module = definition.module, window = definition.window,
+        ids = ids, controls = controls }
+    local separateKey = definition.separateOptionKey or "separatePaginationButtons"
+    local textKey = definition.textOptionKey or "paginationTextMode"
+
+    function controller:GetSeparateButtons()
+        local options = NSkin:GetModuleOptions(self.module, false)
+        return options and options[separateKey] == true or false
+    end
+    function controller:GetTextMode()
+        local options = NSkin:GetModuleOptions(self.module, false)
+        local mode = options and options[textKey] or "GROUPED"
+        return mode == "GROUPED" and self:GetSeparateButtons() and "INDEPENDENT" or mode
+    end
+    function controller:NotifyBounds()
+        NSkin:NotifySkinningElementBoundsChanged(self.ids.group)
+        NSkin:NotifySkinningElementBoundsChanged(self.ids.previous)
+        NSkin:NotifySkinningElementBoundsChanged(self.ids.next)
+        NSkin:NotifySkinningElementBoundsChanged(self.ids.text)
+    end
+    function controller:Refresh()
+        self.controls.text:SetShown(self:GetTextMode() ~= "HIDDEN")
+        local function ApplyMode(id, independent)
+            local element = skinningElements[id]
+            if not element then return end
+            local saved = GetSavedMovablePlacement(element)
+            if independent and saved then
+                NSkin:LayoutWindowElement(element, saved, SUPPRESS_NOTIFICATION)
+            elseif not independent then
+                NSkin:RestoreMovableElementOriginal(element, true)
+            end
+        end
+        local separate = self:GetSeparateButtons()
+        ApplyMode(self.ids.previous, separate)
+        ApplyMode(self.ids.next, separate)
+        ApplyMode(self.ids.text, self:GetTextMode() == "INDEPENDENT")
+        self:NotifyBounds()
+    end
+    function controller:UpdateWatcher()
+        local options = NSkin:GetModuleOptions(self.module, false)
+        local active = options and (options[separateKey] or options[textKey])
+        if active and not self.watcher then
+            self.watcher = CreateFrame("Frame", nil,
+                definition.visibilityFrame or self.controls.group)
+            self.watcher:Hide()
+            self.watcher:SetScript("OnShow", function() self:Refresh() end)
+        end
+        if self.watcher then self.watcher:SetShown(active ~= nil) end
+    end
+    function controller:SetSeparateButtons(value)
+        local options = NSkin:GetModuleOptions(self.module, true)
+        options[separateKey] = value == true and true or nil
+        if options[separateKey] then options[textKey] = "INDEPENDENT" end
+        self:UpdateWatcher()
+        self:Refresh()
+        return true
+    end
+    function controller:SetTextMode(mode)
+        if mode ~= "GROUPED" and mode ~= "INDEPENDENT" and mode ~= "HIDDEN"
+            or (mode == "GROUPED" and self:GetSeparateButtons())
+        then return false end
+        local options = NSkin:GetModuleOptions(self.module, true)
+        options[textKey] = mode == "GROUPED" and nil or mode
+        self:UpdateWatcher()
+        self:Refresh()
+        return true
+    end
+
+    local editorOptions = definition.editorOptions or "shared.pagination"
+    local defaultPlacement = definition.defaultPlacement
+    local group = RegisterControllerElement(controller, ids.group,
+        definition.groupLabel or "Pagination", controls.group, {
+            editorOptions = editorOptions, defaultPlacement = defaultPlacement,
+            priority = definition.groupPriority or 70,
+            anchorHighlight = definition.anchorHighlight,
+            isEditable = function() return not controller:GetSeparateButtons() end,
+        })
+    local previous = RegisterControllerElement(controller, ids.previous,
+        definition.previousLabel or "Previous page button", controls.previous, {
+            editorOptions = editorOptions, defaultPlacement = definition.previousPlacement
+                or defaultPlacement, priority = definition.buttonPriority or 90,
+            isEditable = function() return controller:GetSeparateButtons() end,
+        })
+    local nextPage = RegisterControllerElement(controller, ids.next,
+        definition.nextLabel or "Next page button", controls.next, {
+            editorOptions = editorOptions, defaultPlacement = definition.nextPlacement
+                or defaultPlacement, priority = definition.buttonPriority or 90,
+            isEditable = function() return controller:GetSeparateButtons() end,
+        })
+    local text = RegisterControllerElement(controller, ids.text,
+        definition.textLabel or "Page text", controls.text, {
+            editorOptions = editorOptions, defaultPlacement = definition.textPlacement
+                or defaultPlacement, priority = definition.textPriority or 100,
+            isEditable = function() return controller:GetTextMode() == "INDEPENDENT" end,
+        })
+    for _, element in ipairs({ group, previous, nextPage, text }) do
+        if element then
+            element.getPaginationSeparateButtons = function() return controller:GetSeparateButtons() end
+            element.setPaginationSeparateButtons = function(_, value)
+                return controller:SetSeparateButtons(value)
+            end
+            element.getPaginationTextMode = function() return controller:GetTextMode() end
+            element.setPaginationTextMode = function(_, mode)
+                return controller:SetTextMode(mode)
+            end
+        end
+    end
+    controller:UpdateWatcher()
+    controller:Refresh()
+    return controller
+end
+
+function NSkin:RegisterAccessoryGroup(definition)
+    if type(definition) ~= "table" or type(definition.module) ~= "string"
+        or not definition.window or not definition.primary or not definition.accessory
+        or type(definition.ids) ~= "table" or not definition.ids.primary
+        or not definition.ids.accessory or type(definition.anchorGrouped) ~= "function"
+    then return end
+    local controller = { module = definition.module, window = definition.window,
+        ids = definition.ids, primary = definition.primary, accessory = definition.accessory }
+    local optionKey = definition.optionKey or "searchAccessoryMode"
+    function controller:GetMode()
+        local options = NSkin:GetModuleOptions(self.module, false)
+        return options and options[optionKey] or "GROUPED"
+    end
+    function controller:AnchorGrouped()
+        return definition.anchorGrouped(self.primary, self.accessory) == true
+    end
+    function controller:ApplyPrimary(element, placement, applyOptions)
+        if not NSkin:LayoutWindowElement(element, placement, SUPPRESS_NOTIFICATION) then
+            return false
+        end
+        if self:GetMode() == "GROUPED" then self:AnchorGrouped() end
+        if not (applyOptions and applyOptions.suppressNotify) then
+            NSkin:NotifySkinningElementBoundsChanged(element.id)
+        end
+        return true
+    end
+    function controller:NotifyBounds()
+        NSkin:NotifySkinningElementBoundsChanged(self.ids.primary)
+        NSkin:NotifySkinningElementBoundsChanged(self.ids.accessory)
+    end
+    function controller:Refresh()
+        local mode = self:GetMode()
+        self.accessory:SetShown(mode ~= "HIDDEN")
+        if mode == "GROUPED" then
+            local primaryElement = skinningElements[self.ids.primary]
+            local saved = primaryElement and GetSavedMovablePlacement(primaryElement)
+            if saved then
+                self:ApplyPrimary(primaryElement, saved, SUPPRESS_NOTIFICATION)
+            else
+                NSkin:RestoreMovableElementOriginal(self.ids.accessory, true)
+                NSkin:RestoreMovableElementOriginal(self.ids.primary, true)
+                self:AnchorGrouped()
+            end
+        elseif mode == "INDEPENDENT" then
+            local element = skinningElements[self.ids.accessory]
+            local saved = element and GetSavedMovablePlacement(element)
+            if saved then NSkin:LayoutWindowElement(element, saved, SUPPRESS_NOTIFICATION) end
+        end
+        self:NotifyBounds()
+    end
+    function controller:UpdateWatcher()
+        local options = NSkin:GetModuleOptions(self.module, false)
+        local active = options and options[optionKey]
+        if active and not self.watcher then
+            self.watcher = CreateFrame("Frame", nil,
+                definition.visibilityFrame or self.primary:GetParent() or self.window)
+            self.watcher:Hide()
+            self.watcher:SetScript("OnShow", function() self:Refresh() end)
+        end
+        if self.watcher then self.watcher:SetShown(active ~= nil) end
+    end
+    function controller:SetMode(mode)
+        if mode ~= "GROUPED" and mode ~= "INDEPENDENT" and mode ~= "HIDDEN" then
+            return false
+        end
+        local options = NSkin:GetModuleOptions(self.module, true)
+        options[optionKey] = mode == "GROUPED" and nil or mode
+        self:UpdateWatcher()
+        self:Refresh()
+        return true
+    end
+
+    controller.groupedHighlightRegions = { controller.primary, controller.accessory }
+    controller.primaryHighlightRegion = { controller.primary }
+    local editorOptions = definition.editorOptions or "shared.search"
+    local accessory = RegisterControllerElement(controller, definition.ids.accessory,
+        definition.accessoryLabel or "Search accessory", definition.accessory, {
+            editorOptions = editorOptions,
+            defaultPlacement = definition.accessoryPlacement,
+            priority = definition.accessoryPriority or 90,
+            isEditable = function() return controller:GetMode() == "INDEPENDENT" end,
+        })
+    local primary = RegisterControllerElement(controller, definition.ids.primary,
+        definition.primaryLabel or "Search", definition.primary, {
+            editorOptions = editorOptions,
+            defaultPlacement = definition.primaryPlacement,
+            priority = definition.primaryPriority or 80,
+            snapTarget = definition.snapTarget,
+            applyPlacement = function(element, placement, applyOptions)
+                return controller:ApplyPrimary(element, placement, applyOptions)
+            end,
+            highlightRegions = function()
+                return controller:GetMode() == "GROUPED"
+                    and controller.groupedHighlightRegions
+                    or controller.primaryHighlightRegion
+            end,
+        })
+    for _, element in ipairs({ primary, accessory }) do
+        if element then
+            element.getSearchAccessoryMode = function() return controller:GetMode() end
+            element.setSearchAccessoryMode = function(_, mode) return controller:SetMode(mode) end
+        end
+    end
+    if primary then
+        local resetPrimary = primary.resetPlacement
+        primary.resetPlacement = function(element)
+            NSkin:RestoreMovableElementOriginal(controller.ids.accessory, true)
+            local reset = resetPrimary(element)
+            controller:Refresh()
+            return reset
+        end
+    end
+    controller:UpdateWatcher()
+    controller:Refresh()
+    return controller
+end
+
 function NSkin:WouldCreateSkinningPlacementCycle(elementID, relativeTo)
     local visited = {}
     local current = relativeTo
@@ -751,6 +1024,25 @@ end
 
 function NSkin:GetSkinningElementBounds(element)
     if not element then return end
+    local regions = element.highlightRegions
+    if type(regions) == "function" then regions = regions(element) end
+    if type(regions) == "table" then
+        local left, right, bottom, top
+        for i = 1, #regions do
+            local region = regions[i]
+            if region and (not region.IsShown or region:IsShown()) then
+                local regionLeft, regionRight, regionBottom, regionTop =
+                    self:GetUIParentNormalizedBounds(region)
+                if regionLeft then
+                    left = not left and regionLeft or math.min(left, regionLeft)
+                    right = not right and regionRight or math.max(right, regionRight)
+                    bottom = not bottom and regionBottom or math.min(bottom, regionBottom)
+                    top = not top and regionTop or math.max(top, regionTop)
+                end
+            end
+        end
+        if left then return left, right, bottom, top end
+    end
     if type(element.getHighlightBounds) == "function" then
         local ok, left, right, bottom, top = pcall(element.getHighlightBounds, element)
         if ok and left and right and bottom and top then

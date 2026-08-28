@@ -18,16 +18,16 @@ local TOY_PAGE_TEXT_ELEMENT_ID = "Collections.ToyBox.Pagination.Text"
 local WINDOW_BUTTON_TEXT_SIZE = 20
 local HEIRLOOM_QUALITY = _G.Enum and _G.Enum.ItemQuality and _G.Enum.ItemQuality.Heirloom or 7
 local Item = _G.C_Item
-local suppressBoundsNotification = { suppressNotify = true }
 
 local collectionsInitialized = false
 local toysInitialized = false
 local heirloomsInitialized = false
 local toyMovablesRegistered = {}
-local toyPaginationWatcher
-local toySearchWatcher
+local toyPaginationController
+local toySearchController
 local toySearchGroupedAnchor
 local collectionTabs
+local SkinCollectionsWindow
 local filterMenuHooked = false
 local toyFilterDropdown
 local toyFilterMenu
@@ -168,93 +168,6 @@ local function AnchorToyPaginationHighlight(element, overlay)
     return true
 end
 
-local function GetToyPaginationSeparateButtons()
-    local options = NSkin:GetModuleOptions("Collections", false)
-    return options and options.separatePaginationButtons == true or false
-end
-
-local function GetToyPaginationTextMode()
-    local options = NSkin:GetModuleOptions("Collections", false)
-    local mode = options and options.paginationTextMode or "GROUPED"
-    if mode == "GROUPED" and GetToyPaginationSeparateButtons() then
-        return "INDEPENDENT"
-    end
-    return mode
-end
-
-local function RefreshToyPaginationElements()
-    local paging = _G.ToyBox and _G.ToyBox.PagingFrame
-    local pageText = paging and (paging.PageText or paging.pageText)
-    if pageText then pageText:SetShown(GetToyPaginationTextMode() ~= "HIDDEN") end
-    local function ApplyMode(id, independent)
-        local element = NSkin:GetSkinningElement(id)
-        if not element then return end
-        local saved = NSkin:GetSavedMovableElementPlacement(id)
-        if independent and saved then
-            NSkin:LayoutWindowElement(element, saved)
-        elseif not independent then
-            NSkin:RestoreMovableElementOriginal(element, true)
-        end
-        NSkin:NotifySkinningElementBoundsChanged(id)
-    end
-    ApplyMode(TOY_PREVIOUS_ELEMENT_ID, GetToyPaginationSeparateButtons())
-    ApplyMode(TOY_NEXT_ELEMENT_ID, GetToyPaginationSeparateButtons())
-    ApplyMode(TOY_PAGE_TEXT_ELEMENT_ID, GetToyPaginationTextMode() == "INDEPENDENT")
-    NSkin:NotifySkinningElementBoundsChanged(TOY_PAGINATION_ELEMENT_ID)
-end
-
-local function EnsureToyPaginationWatcher()
-    local toyBox = _G.ToyBox
-    if not toyBox then return end
-    if not toyPaginationWatcher then
-        toyPaginationWatcher = CreateFrame("Frame", nil, toyBox)
-        toyPaginationWatcher:Hide()
-        toyPaginationWatcher:SetScript("OnShow", RefreshToyPaginationElements)
-    end
-    toyPaginationWatcher:Show()
-end
-
-local function SetToyPaginationSeparateButtons(value)
-    local options = NSkin:GetModuleOptions("Collections", true)
-    options.separatePaginationButtons = value == true and true or nil
-    if options.separatePaginationButtons then
-        options.paginationTextMode = "INDEPENDENT"
-    end
-    if options.separatePaginationButtons or options.paginationTextMode then
-        EnsureToyPaginationWatcher()
-    elseif toyPaginationWatcher then
-        toyPaginationWatcher:Hide()
-    end
-    RefreshToyPaginationElements()
-    return true
-end
-
-local function SetToyPaginationTextMode(mode)
-    if mode ~= "GROUPED" and mode ~= "INDEPENDENT" and mode ~= "HIDDEN" then return false end
-    if mode == "GROUPED" and GetToyPaginationSeparateButtons() then return false end
-    local options = NSkin:GetModuleOptions("Collections", true)
-    options.paginationTextMode = mode == "GROUPED" and nil or mode
-    if options.separatePaginationButtons or options.paginationTextMode then
-        EnsureToyPaginationWatcher()
-    elseif toyPaginationWatcher then
-        toyPaginationWatcher:Hide()
-    end
-    RefreshToyPaginationElements()
-    return true
-end
-
-local function ConfigureToyPaginationElement(element)
-    if not element then return end
-    element.getPaginationSeparateButtons = GetToyPaginationSeparateButtons
-    element.setPaginationSeparateButtons = function(_, value)
-        return SetToyPaginationSeparateButtons(value)
-    end
-    element.getPaginationTextMode = GetToyPaginationTextMode
-    element.setPaginationTextMode = function(_, mode)
-        return SetToyPaginationTextMode(mode)
-    end
-end
-
 local function RegisterToyMovableElement(id, label, journal, target, priority,
     anchorHighlight, editorOptions, isEditable)
     if toyMovablesRegistered[id] or not journal or not target then return end
@@ -295,11 +208,6 @@ local function RegisterToyMovableElement(id, label, journal, target, priority,
     return NSkin:GetSkinningElement(id)
 end
 
-local function GetToySearchAccessoryMode()
-    local options = NSkin:GetModuleOptions("Collections", false)
-    return options and options.searchAccessoryMode or "GROUPED"
-end
-
 local function AnchorToySearchAccessory(searchBox, filterDropdown)
     if not searchBox or not filterDropdown or not toySearchGroupedAnchor then return false end
     if filterDropdown.IsProtected and filterDropdown:IsProtected() then return false end
@@ -309,97 +217,6 @@ local function AnchorToySearchAccessory(searchBox, filterDropdown)
         toySearchGroupedAnchor.relativePoint, toySearchGroupedAnchor.x,
         toySearchGroupedAnchor.y)
     return true
-end
-
-local function GetToySearchBounds(element)
-    local target = element.target
-    local left, right, bottom, top = target:GetLeft(), target:GetRight(),
-        target:GetBottom(), target:GetTop()
-    if GetToySearchAccessoryMode() == "GROUPED" then
-        local filter = element.searchAccessory
-        if filter and filter:IsShown() and filter:GetLeft() then
-            left = math.min(left, filter:GetLeft())
-            right = math.max(right, filter:GetRight())
-            bottom = math.min(bottom, filter:GetBottom())
-            top = math.max(top, filter:GetTop())
-        end
-    end
-    return left, right, bottom, top
-end
-
-local function ApplyToySearchPlacement(element, placement, applyOptions)
-    if not NSkin:LayoutWindowElement(element, placement, suppressBoundsNotification) then
-        return false
-    end
-    if GetToySearchAccessoryMode() == "GROUPED" then
-        AnchorToySearchAccessory(element.target, element.searchAccessory)
-    end
-    if not (applyOptions and applyOptions.suppressNotify) then
-        NSkin:NotifySkinningElementBoundsChanged(element.id)
-    end
-    return true
-end
-
-local function RefreshToySearchElements()
-    local toyBox = _G.ToyBox
-    local searchBox = toyBox and (toyBox.SearchBox or toyBox.searchBox)
-    local filter = toyBox and toyBox.FilterDropdown
-    local searchElement = NSkin:GetSkinningElement(TOY_SEARCH_ELEMENT_ID)
-    local filterElement = NSkin:GetSkinningElement(TOY_FILTER_ELEMENT_ID)
-    if not searchBox or not filter or not searchElement then return end
-    local mode = GetToySearchAccessoryMode()
-    filter:SetShown(mode ~= "HIDDEN")
-    if mode == "GROUPED" then
-        local placement = NSkin:GetSavedMovableElementPlacement(TOY_SEARCH_ELEMENT_ID)
-        if placement then
-            ApplyToySearchPlacement(searchElement, placement)
-        else
-            NSkin:RestoreMovableElementOriginal(TOY_FILTER_ELEMENT_ID, true)
-            NSkin:RestoreMovableElementOriginal(TOY_SEARCH_ELEMENT_ID, true)
-        end
-        AnchorToySearchAccessory(searchBox, filter)
-    elseif mode == "INDEPENDENT" then
-        local placement = NSkin:GetSavedMovableElementPlacement(TOY_FILTER_ELEMENT_ID)
-        if placement and filterElement then
-            NSkin:LayoutWindowElement(filterElement, placement)
-        end
-    end
-    NSkin:NotifySkinningElementBoundsChanged(TOY_SEARCH_ELEMENT_ID)
-    NSkin:NotifySkinningElementBoundsChanged(TOY_FILTER_ELEMENT_ID)
-end
-
-local function EnsureToySearchWatcher()
-    local toyBox = _G.ToyBox
-    if not toyBox then return end
-    if not toySearchWatcher then
-        toySearchWatcher = CreateFrame("Frame", nil, toyBox)
-        toySearchWatcher:Hide()
-        toySearchWatcher:SetScript("OnShow", RefreshToySearchElements)
-    end
-    toySearchWatcher:Show()
-end
-
-local function SetToySearchAccessoryMode(mode)
-    if mode ~= "GROUPED" and mode ~= "INDEPENDENT" and mode ~= "HIDDEN" then
-        return false
-    end
-    local options = NSkin:GetModuleOptions("Collections", true)
-    options.searchAccessoryMode = mode == "GROUPED" and nil or mode
-    if options.searchAccessoryMode then
-        EnsureToySearchWatcher()
-    elseif toySearchWatcher then
-        toySearchWatcher:Hide()
-    end
-    RefreshToySearchElements()
-    return true
-end
-
-local function ConfigureToySearchElement(element)
-    if not element then return end
-    element.getSearchAccessoryMode = GetToySearchAccessoryMode
-    element.setSearchAccessoryMode = function(_, mode)
-        return SetToySearchAccessoryMode(mode)
-    end
 end
 
 local function HideBackgroundTexture(texture)
@@ -504,10 +321,11 @@ function CollectionSkin:OnTabSet(_, selectedTab)
 end
 
 function CollectionSkin:OnShow(selectedTab)
-    SkinCollectionTabs(selectedTab)
+    self:InitializeOptionalAdapters()
+    SkinCollectionsWindow()
 end
 
-local function SkinCollectionsWindow()
+SkinCollectionsWindow = function()
     local journal = _G.CollectionsJournal
     if not journal then return end
 
@@ -547,19 +365,21 @@ local function SkinCollectionsWindow()
         SkinToyFilterButton(filterDropdown)
         if searchBox and filterDropdown then
             filterDropdown:SetHeight(searchBox:GetHeight())
-            local searchLeft, searchRight = searchBox:GetLeft(), searchBox:GetRight()
-            local filterLeft, filterRight = filterDropdown:GetLeft(), filterDropdown:GetRight()
-            local _, searchY = searchBox:GetCenter()
-            local _, filterY = filterDropdown:GetCenter()
-            if searchLeft and searchRight and filterLeft and filterRight
-                and searchY and filterY
-            then
-                if filterRight <= searchLeft then
-                    toySearchGroupedAnchor = { point = "RIGHT", relativePoint = "LEFT",
-                        x = filterRight - searchLeft, y = filterY - searchY }
-                else
-                    toySearchGroupedAnchor = { point = "LEFT", relativePoint = "RIGHT",
-                        x = filterLeft - searchRight, y = filterY - searchY }
+            if not toySearchGroupedAnchor then
+                local searchLeft, searchRight = searchBox:GetLeft(), searchBox:GetRight()
+                local filterLeft, filterRight = filterDropdown:GetLeft(), filterDropdown:GetRight()
+                local _, searchY = searchBox:GetCenter()
+                local _, filterY = filterDropdown:GetCenter()
+                if searchLeft and searchRight and filterLeft and filterRight
+                    and searchY and filterY
+                then
+                    if filterRight <= searchLeft then
+                        toySearchGroupedAnchor = { point = "RIGHT", relativePoint = "LEFT",
+                            x = filterRight - searchLeft, y = filterY - searchY }
+                    else
+                        toySearchGroupedAnchor = { point = "LEFT", relativePoint = "RIGHT",
+                            x = filterLeft - searchRight, y = filterY - searchY }
+                    end
                 end
             end
         end
@@ -569,67 +389,40 @@ local function SkinCollectionsWindow()
         RegisterToyMovableElement(
             TOY_PROGRESS_ELEMENT_ID, "Toy Box progress bar", journal, progressBar, 80
         )
-        local searchElement = RegisterToyMovableElement(
-            TOY_SEARCH_ELEMENT_ID, "Toy Box search bar", journal, searchBox, 81,
-            nil, "shared.search"
-        )
-        local filterElement = RegisterToyMovableElement(
-            TOY_FILTER_ELEMENT_ID, "Toy Box filter", journal, filterDropdown, 91,
-            nil, "shared.search",
-            function() return GetToySearchAccessoryMode() == "INDEPENDENT" end
-        )
-        ConfigureToySearchElement(searchElement)
-        ConfigureToySearchElement(filterElement)
-        if searchElement then
-            local genericReset = searchElement.resetPlacement
-            searchElement.searchAccessory = filterDropdown
-            searchElement.getHighlightBounds = GetToySearchBounds
-            searchElement.applyPlacement = ApplyToySearchPlacement
-            searchElement.resetPlacement = function(element)
-                NSkin:RestoreMovableElementOriginal(TOY_FILTER_ELEMENT_ID, true)
-                local reset = genericReset(element)
-                RefreshToySearchElements()
-                return reset
-            end
+        if not toySearchController then
+            toySearchController = NSkin:RegisterAccessoryGroup({
+                module = "Collections", window = journal,
+                ids = { primary = TOY_SEARCH_ELEMENT_ID,
+                    accessory = TOY_FILTER_ELEMENT_ID },
+                primary = searchBox, accessory = filterDropdown,
+                primaryLabel = "Toy Box search bar", accessoryLabel = "Toy Box filter",
+                primaryPriority = 81, accessoryPriority = 91,
+                visibilityFrame = toyBox,
+                anchorGrouped = AnchorToySearchAccessory,
+            })
+        else
+            toySearchController:Refresh()
         end
-        local paginationElement = RegisterToyMovableElement(
-            TOY_PAGINATION_ELEMENT_ID, "Toy Box pagination", journal, pagingControls, 82,
-            AnchorToyPaginationHighlight, "shared.pagination",
-            function() return not GetToyPaginationSeparateButtons() end
-        )
-        local previousElement = RegisterToyMovableElement(
-            TOY_PREVIOUS_ELEMENT_ID, "Previous page button", journal,
-            pagingControls and (pagingControls.PrevPageButton
-                or pagingControls.prevPageButton), 90, nil, "shared.pagination",
-            GetToyPaginationSeparateButtons
-        )
-        local nextElement = RegisterToyMovableElement(
-            TOY_NEXT_ELEMENT_ID, "Next page button", journal,
-            pagingControls and (pagingControls.NextPageButton
-                or pagingControls.nextPageButton), 90, nil, "shared.pagination",
-            GetToyPaginationSeparateButtons
-        )
-        local textElement = RegisterToyMovableElement(
-            TOY_PAGE_TEXT_ELEMENT_ID, "Page text", journal,
-            pagingControls and (pagingControls.PageText or pagingControls.pageText),
-            100, nil, "shared.pagination",
-            function() return GetToyPaginationTextMode() == "INDEPENDENT" end
-        )
-        ConfigureToyPaginationElement(paginationElement)
-        ConfigureToyPaginationElement(previousElement)
-        ConfigureToyPaginationElement(nextElement)
-        ConfigureToyPaginationElement(textElement)
-        local paginationOptions = NSkin:GetModuleOptions("Collections", false)
-        if paginationOptions and (paginationOptions.separatePaginationButtons
-            or paginationOptions.paginationTextMode)
-        then
-            EnsureToyPaginationWatcher()
+        if not toyPaginationController then
+            toyPaginationController = NSkin:RegisterPaginationGroup({
+                module = "Collections", window = journal,
+                ids = { group = TOY_PAGINATION_ELEMENT_ID,
+                    previous = TOY_PREVIOUS_ELEMENT_ID, next = TOY_NEXT_ELEMENT_ID,
+                    text = TOY_PAGE_TEXT_ELEMENT_ID },
+                controls = { group = pagingControls,
+                    previous = pagingControls and (pagingControls.PrevPageButton
+                        or pagingControls.prevPageButton),
+                    next = pagingControls and (pagingControls.NextPageButton
+                        or pagingControls.nextPageButton),
+                    text = pagingControls and (pagingControls.PageText
+                        or pagingControls.pageText) },
+                groupLabel = "Toy Box pagination", groupPriority = 82,
+                anchorHighlight = AnchorToyPaginationHighlight,
+                visibilityFrame = toyBox,
+            })
+        else
+            toyPaginationController:Refresh()
         end
-        if paginationOptions and paginationOptions.searchAccessoryMode then
-            EnsureToySearchWatcher()
-        end
-        RefreshToySearchElements()
-        RefreshToyPaginationElements()
     end
 end
 
@@ -682,24 +475,45 @@ local function SkinCollectionButton(button, knownQuality)
     UpdateIconBorder(button, knownQuality)
 end
 
+function CollectionSkin:InitializeOptionalAdapters()
+    if not _G.hooksecurefunc then return end
+    local toyBox = _G.ToyBox
+    local iconsFrame = toyBox and toyBox.iconsFrame
+    if not toysInitialized and iconsFrame
+        and type(_G.ToySpellButton_UpdateButton) == "function"
+    then
+        _G.hooksecurefunc("ToySpellButton_UpdateButton", SkinCollectionButton)
+        toysInitialized = true
+        for i = 1, TOYS_PER_PAGE do
+            SkinCollectionButton(iconsFrame["spellButton" .. i])
+        end
+    end
+    local heirloomsJournal = _G.HeirloomsJournal
+    if not heirloomsInitialized and heirloomsJournal
+        and type(heirloomsJournal.UpdateButton) == "function"
+    then
+        _G.hooksecurefunc(heirloomsJournal, "UpdateButton", function(_, button)
+            SkinCollectionButton(button, HEIRLOOM_QUALITY)
+        end)
+        heirloomsInitialized = true
+    end
+end
+
 function CollectionSkin:Initialize()
-    if collectionsInitialized and toysInitialized and heirloomsInitialized then return true end
+    if collectionsInitialized then
+        self:InitializeOptionalAdapters()
+        return true
+    end
     if not NSkin:IsModuleEnabled("Collections") then return false end
 
     if not _G.hooksecurefunc then return false end
 
     local journal = _G.CollectionsJournal
-    local toyBox = _G.ToyBox
-    local iconsFrame = toyBox and toyBox.iconsFrame
-    local canSkinToys = iconsFrame and type(_G.ToySpellButton_UpdateButton) == "function"
-    local heirloomsJournal = _G.HeirloomsJournal
-    local canSkinHeirlooms = heirloomsJournal
-        and type(heirloomsJournal.UpdateButton) == "function"
     local canSkinCollections = journal
         and type(_G.PanelTemplates_GetSelectedTab) == "function"
         and _G.EventRegistry
         and type(_G.EventRegistry.RegisterCallback) == "function"
-    if not canSkinCollections or (not canSkinToys and not canSkinHeirlooms) then return false end
+    if not canSkinCollections then return false end
 
     if not collectionsInitialized then
         NSkin:RegisterTabGroup(TAB_GROUP_ID, {
@@ -729,22 +543,8 @@ function CollectionSkin:Initialize()
         RemoveCollectionPageBackgrounds()
     end
 
-    if canSkinToys and not toysInitialized then
-        _G.hooksecurefunc("ToySpellButton_UpdateButton", SkinCollectionButton)
-        toysInitialized = true
-        for i = 1, TOYS_PER_PAGE do
-            SkinCollectionButton(iconsFrame["spellButton" .. i])
-        end
-    end
-
-    if canSkinHeirlooms and not heirloomsInitialized then
-        _G.hooksecurefunc(heirloomsJournal, "UpdateButton", function(_, button)
-            SkinCollectionButton(button, HEIRLOOM_QUALITY)
-        end)
-        heirloomsInitialized = true
-    end
-
-    return collectionsInitialized and toysInitialized and heirloomsInitialized
+    self:InitializeOptionalAdapters()
+    return collectionsInitialized
 end
 
 function CollectionSkin:RefreshTheme()
