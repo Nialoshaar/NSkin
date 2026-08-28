@@ -725,7 +725,7 @@ function SpellBookSkin:Initialize()
         primary = spellBook.SearchBox, accessory = spellBook.SettingsDropdown,
         primaryLabel = "Spellbook search", accessoryLabel = "Spellbook search cog",
         primaryPlacement = defaultSearch, accessoryPlacement = defaultCog,
-        optionKey = "searchCogMode", snapTarget = true,
+        legacyOptionKey = "searchCogMode", snapTarget = true,
         visibilityFrame = spellBook,
         anchorGrouped = function(searchBox, cog)
             cog:ClearAllPoints()
@@ -742,6 +742,8 @@ function SpellBookSkin:Initialize()
             next = pagingControls and pagingControls.NextPageButton,
             text = pagingControls and pagingControls.PageText },
         groupLabel = "Spellbook pagination", defaultPlacement = defaultBottom,
+        legacySeparateOptionKey = "separatePaginationButtons",
+        legacyTextOptionKey = "paginationTextMode",
         visibilityFrame = spellBook,
     })
     local pagedContentMixin = _G.PagedContentFrameBaseMixin

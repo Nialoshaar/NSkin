@@ -404,7 +404,7 @@ local function BeginDrag(element)
         (overlay and overlay:GetHeight() or 1) * coordinateScale)
     -- Keep the ghost in the edited window's coordinate space. A UIParent
     -- ghost is the wrong size and offset when Blizzard scales the window.
-    controller.ghost:SetParent(window)
+    controller.ghost:SetParent(element.window)
     controller.ghost:SetScale(1)
     controller.ghost:SetSize(controller.dragWidth, controller.dragHeight)
     controller.ghost.texture:SetColorTexture(unpack(NSkin:GetStyle("skinningMode").ghost))
@@ -491,6 +491,7 @@ end
 
 local function RefreshAbsoluteWindowOverlays(window)
     if not controller.enabled or not window:IsShown() then return end
+    local selectionLost
     for id, element in pairs(controller.overlayElements) do
         local overlay = controller.overlays[id]
         if element.window == window and overlay and overlay.usesAbsoluteBounds then
@@ -500,9 +501,11 @@ local function RefreshAbsoluteWindowOverlays(window)
                 overlay:Show()
             else
                 overlay:Hide()
+                if controller.selectedElement == element then selectionLost = true end
             end
         end
     end
+    if selectionLost then DockWithoutSelection() end
 end
 
 local function EnsureAbsoluteWindowLifecycle(window)
@@ -590,11 +593,12 @@ local function ShowElementOverlay(element)
         overlay:Hide()
         return
     end
-    AnchorOverlay(overlay, element)
+    local anchored = AnchorOverlay(overlay, element)
     RefreshOverlayAppearance(element)
     -- Window-parented overlays can remain logically shown and inherit window
     -- visibility. UIParent overlays must be hidden explicitly with the window.
-    overlay:SetShown(not overlay.usesAbsoluteBounds or element.window:IsShown())
+    overlay:SetShown(anchored
+        and (not overlay.usesAbsoluteBounds or element.window:IsShown()))
     if not controller.selectedElement and element.window:IsShown() then DockInspector(element) end
 end
 
@@ -614,7 +618,12 @@ local function HandleElementBoundsChanged(_, element)
         end
         return
     end
-    if AnchorOverlay(overlay, element) then overlay:Show() else overlay:Hide() end
+    if AnchorOverlay(overlay, element) then
+        overlay:Show()
+    else
+        overlay:Hide()
+        if controller.selectedElement == element then DockWithoutSelection() end
+    end
 end
 
 local function CreateController()

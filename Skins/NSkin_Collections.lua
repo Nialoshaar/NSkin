@@ -109,9 +109,8 @@ local function HookFilterMenu()
         if not menu then return end
         toyFilterMenu = menu
 
-        -- Leave Blizzard's protected menu construction before changing any
-        -- generated regions. This zero-delay dispatch is a taint boundary,
-        -- not a timing gate.
+        -- Defer until Blizzard has finished constructing the generated menu
+        -- regions; this is ordering, not a timing or taint boundary.
         C_Timer.After(0, function()
             if menu:IsShown() then SkinFilterMenu(menu) end
         end)
@@ -153,19 +152,6 @@ local function SkinToyFilterButton(button)
     arrow:Show()
 
     HookFilterMenu()
-end
-
-local function AnchorToyPaginationHighlight(element, overlay)
-    local paging = element and element.target
-    local pageText = paging and (paging.PageText or paging.pageText)
-    local previous = paging and (paging.PrevPageButton or paging.prevPageButton)
-    local nextPage = paging and (paging.NextPageButton or paging.nextPageButton)
-    if not pageText or not previous or not nextPage then return false end
-    overlay:SetPoint("LEFT", pageText, "LEFT", 0, 0)
-    overlay:SetPoint("RIGHT", nextPage, "RIGHT", 0, 0)
-    overlay:SetPoint("TOP", previous, "TOP", 0, 0)
-    overlay:SetPoint("BOTTOM", previous, "BOTTOM", 0, 0)
-    return true
 end
 
 local function RegisterToyMovableElement(id, label, journal, target, priority,
@@ -397,6 +383,7 @@ SkinCollectionsWindow = function()
                 primary = searchBox, accessory = filterDropdown,
                 primaryLabel = "Toy Box search bar", accessoryLabel = "Toy Box filter",
                 primaryPriority = 81, accessoryPriority = 91,
+                legacyOptionKey = "searchAccessoryMode",
                 visibilityFrame = toyBox,
                 anchorGrouped = AnchorToySearchAccessory,
             })
@@ -417,7 +404,8 @@ SkinCollectionsWindow = function()
                     text = pagingControls and (pagingControls.PageText
                         or pagingControls.pageText) },
                 groupLabel = "Toy Box pagination", groupPriority = 82,
-                anchorHighlight = AnchorToyPaginationHighlight,
+                legacySeparateOptionKey = "separatePaginationButtons",
+                legacyTextOptionKey = "paginationTextMode",
                 visibilityFrame = toyBox,
             })
         else
