@@ -2,19 +2,8 @@ local _, NSkin = ...
 
 local function CreateTabControls(includeSpacing)
     local controls = {
-        { type = "DROPDOWN_PAIR", order = 1,
-            left = { key = "edge", label = "Window edge", values = {
-                { value = "TOP", label = "Top" },
-                { value = "BOTTOM", label = "Bottom" } } },
-            right = { key = "side", label = "Border side", values = {
-                { value = "INSIDE", label = "Inside" },
-                { value = "OUTSIDE", label = "Outside" } } } },
-        { type = "DROPDOWN_PAIR", order = 2,
-            left = { key = "alignment", label = "Alignment", values = {
-                { value = "LEFT", label = "Left" },
-                { value = "CENTER", label = "Center" },
-                { value = "RIGHT", label = "Right" } } } },
-        { type = "SLIDER_PAIR", order = 3,
+        { type = "SLIDER_PAIR", order = 1, centerReset = true,
+            resetTooltip = "Reset X and Y offsets",
             left = { key = "alongOffset", label = "X offset", min = -200,
                 max = 200, step = 0.1, decimals = 1, suffix = " px" },
             right = { key = "edgeOffset", label = "Y offset", min = -200,
@@ -32,32 +21,24 @@ local function CreateTabControls(includeSpacing)
             order = 6,
         }
     end
-    controls[#controls + 1] = {
-        type = "RESET", label = "Reset Default", compactLabel = "Reset",
-    }
+    if includeSpacing then
+        controls[#controls + 1] = {
+            type = "RESET", label = "Reset Default", compactLabel = "Reset",
+        }
+    end
     return controls
 end
 
 local function GetValues(context, includeSpacing)
     local values = NSkin:GetTabGroupPlacement(context.id)
-    if values.mode == "GRID" then
-        values.alongOffset = values.x or 0
-        values.edgeOffset = values.y or 0
-    end
+    NSkin:NormalizeGridPlacementForEditor(context, values)
     if includeSpacing then values.spacing = NSkin:GetTabSpacing() end
     return values
 end
 
 local function SetValues(context, values, includeSpacing)
     local currentPlacement = NSkin:GetTabGroupPlacement(context.id)
-    local semanticChanged = values.edge ~= currentPlacement.edge
-        or values.side ~= currentPlacement.side
-        or values.alignment ~= currentPlacement.alignment
-    if currentPlacement.mode == "GRID" and semanticChanged then
-        values.mode, values.point, values.relativePoint = nil, nil, nil
-        values.x, values.y = nil, nil
-        values.alongOffset, values.edgeOffset = 0, 0
-    elseif values.mode == "GRID" then
+    if values.mode == "GRID" then
         values.x = tonumber(values.alongOffset) or values.x or 0
         values.y = tonumber(values.edgeOffset) or values.y or 0
     end

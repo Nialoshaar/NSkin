@@ -924,10 +924,9 @@ function SpellBookSkin:Initialize()
         legacyOptionKey = "searchCogMode", snapTarget = true,
         visibilityFrame = spellBook,
         editorOptions = {
-            { id = "shared.searchBoxAppearance", label = "Search Box" },
+            { id = "shared.searchBoxAppearance", label = "Search Box", inline = true },
             { id = "shared.searchTextAppearance", label = "Search Text" },
             { id = "shared.placeholderTextAppearance", label = "Placeholder Text" },
-            { id = "shared.searchLayout", label = "Layout" },
             { id = "shared.searchPosition", label = "Position" },
         },
         elements = { accessory = { editorOptions = "shared.movable" } },

@@ -128,9 +128,17 @@ end
 function NSkin:GetResolvedAppearanceColor(style, key)
     local color = style and style[key]
     if type(color) ~= "table" then return color end
-    if style[key .. "Mode"] ~= "ACCENT" then return color end
-    local accent = self:GetAccentColor()
-    return { accent[1], accent[2], accent[3], color[4] or accent[4] or 1 }
+    local mode = style[key .. "Mode"]
+    local resolved
+    if mode == "ACCENT" then
+        resolved = self:GetAccentColor()
+    elseif mode == "CLASS" then
+        local _, class = UnitClass("player")
+        resolved = class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
+    end
+    if not resolved then return color end
+    return { resolved.r or resolved[1], resolved.g or resolved[2],
+        resolved.b or resolved[3], color[4] or resolved.a or resolved[4] or 1 }
 end
 
 local function GetAppearanceParentValue(scope, id, windowID, path)
@@ -471,6 +479,7 @@ function NSkin:RefreshTheme()
     self:InvalidateTheme()
 
     if self.RefreshOptionsTheme then self:RefreshOptionsTheme() end
+    if self.RefreshSkinningModeTheme then self:RefreshSkinningModeTheme() end
     for _, module in pairs(self.modules) do
         if self:IsModuleEnabled(module.name) and type(module.RefreshTheme) == "function" then
             module:RefreshTheme()

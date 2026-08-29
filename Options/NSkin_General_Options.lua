@@ -265,6 +265,7 @@ local function CreateOptionsWindow()
         page:Hide()
         info.page = page
         if page.ApplyTheme then page:ApplyTheme() end
+        NSkin:ApplyGlobalTypography(page)
         return page
     end
 
@@ -361,6 +362,7 @@ local function CreateOptionsWindow()
             if page and page.ApplyStructureTheme then page:ApplyStructureTheme() end
             if page and page.ApplyTheme then page:ApplyTheme() end
         end
+        NSkin:ApplyGlobalTypography(self)
     end
     function frame:SelectOptionsPage(key)
         local selectedInfo = byKey[key] or byKey.general

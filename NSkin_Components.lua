@@ -50,17 +50,68 @@ end
 function NSkin:CreateOptionsSlider(parent, options)
     if not parent then return nil end
     options = options or {}
-    local slider = CreateFrame("Slider", nil, parent, "OptionsSliderTemplate")
+    local slider = CreateFrame("Slider", nil, parent)
     slider:SetSize(options.width or 280, options.height or 18)
+    slider:SetOrientation("HORIZONTAL")
     slider:SetMinMaxValues(options.min or 0, options.max or 100)
     slider:SetValueStep(options.step or 1)
     slider:SetObeyStepOnDrag(options.obeyStep ~= false)
-    if slider.Low then slider.Low:SetText(tostring(options.min or 0)) end
-    if slider.High then slider.High:SetText(tostring(options.max or 100)) end
-    if slider.Text then slider.Text:SetText(options.text or "") end
-    if type(options.onValueChanged) == "function" then
-        slider:SetScript("OnValueChanged", options.onValueChanged)
+    local track = slider:CreateTexture(nil, "BACKGROUND")
+    track:SetPoint("LEFT", slider, "LEFT", 0, 0)
+    track:SetPoint("RIGHT", slider, "RIGHT", 0, 0)
+    track:SetHeight(2)
+    track:SetColorTexture(0.35, 0.35, 0.35, 1)
+
+    local accent = self:GetAccentColor()
+    local fillGlows = {}
+    local glowHeights = { 12, 8, 4 }
+    local glowAlphas = { 0.10, 0.18, 0.34 }
+    for i = 1, 3 do
+        local glow = slider:CreateTexture(nil, "ARTWORK", nil, -2 + i)
+        glow:SetPoint("LEFT", slider, "LEFT", 0, 0)
+        glow:SetHeight(glowHeights[i])
+        glow:SetBlendMode("ADD")
+        glow:SetColorTexture(accent[1], accent[2], accent[3], glowAlphas[i])
+        fillGlows[i] = glow
     end
+
+    local fill = slider:CreateTexture(nil, "ARTWORK")
+    fill:SetPoint("LEFT", slider, "LEFT", 0, 0)
+    fill:SetHeight(2)
+    fill:SetColorTexture(unpack(accent))
+
+    slider:SetThumbTexture("Interface\\Buttons\\WHITE8X8")
+    local marker = slider:GetThumbTexture()
+    marker:SetSize(3, 14)
+    marker:SetColorTexture(unpack(accent))
+    local markerGlowOuter = slider:CreateTexture(nil, "ARTWORK")
+    markerGlowOuter:SetPoint("CENTER", marker, "CENTER", 0, 0)
+    markerGlowOuter:SetSize(7, 17)
+    markerGlowOuter:SetBlendMode("ADD")
+    markerGlowOuter:SetColorTexture(accent[1], accent[2], accent[3], 0.12)
+    local markerGlowInner = slider:CreateTexture(nil, "ARTWORK", nil, 1)
+    markerGlowInner:SetPoint("CENTER", marker, "CENTER", 0, 0)
+    markerGlowInner:SetSize(3, 13)
+    markerGlowInner:SetBlendMode("ADD")
+    markerGlowInner:SetColorTexture(accent[1], accent[2], accent[3], 0.30)
+
+    local minimum, maximum = options.min or 0, options.max or 100
+    local function RefreshSliderVisual(value)
+        local range = maximum - minimum
+        local ratio = range > 0 and math.max(0, math.min(1,
+            ((tonumber(value) or minimum) - minimum) / range)) or 0
+        local width = math.max(0.001, slider:GetWidth() * ratio)
+        fill:SetWidth(width)
+        for i = 1, 3 do fillGlows[i]:SetWidth(width) end
+    end
+    local function RefreshSlider(_, value)
+        RefreshSliderVisual(value)
+        if type(options.onValueChanged) == "function" then
+            options.onValueChanged(slider, value)
+        end
+    end
+    slider:SetScript("OnValueChanged", RefreshSlider)
+    RefreshSliderVisual(slider:GetValue())
     return slider
 end
 
@@ -146,11 +197,27 @@ end
 function NSkin:SkinSearchBox(searchBox, style, borderColor)
     if not searchBox then return end
 
+    local searchData = self:GetSkinData(searchBox, COMPONENT_STATE)
     local searchIcon = searchBox.SearchIcon or searchBox.searchIcon
     if not self:GetFlatBackground(searchBox) then
         self:HideTextureRegions(searchBox, searchIcon)
     end
     style = style or self:GetStyle("searchBox")
+    local configuredWidth, configuredHeight = tonumber(style.width), tonumber(style.height)
+    configuredWidth = configuredWidth and configuredWidth > 0 and configuredWidth or nil
+    configuredHeight = configuredHeight and configuredHeight > 0 and configuredHeight or nil
+    if configuredWidth or configuredHeight then
+        if not searchData.searchOriginalSize then
+            searchData.searchOriginalSize = { searchBox:GetWidth(), searchBox:GetHeight() }
+        end
+        local originalSize = searchData.searchOriginalSize
+        searchBox:SetSize(configuredWidth or originalSize[1],
+            configuredHeight or originalSize[2])
+    elseif searchData.searchOriginalSize then
+        searchBox:SetSize(searchData.searchOriginalSize[1],
+            searchData.searchOriginalSize[2])
+        searchData.searchOriginalSize = nil
+    end
     self:CreateFlatBackground(
         searchBox, nil, self:GetResolvedAppearanceColor(style, "background"),
         borderColor or self:GetResolvedAppearanceColor(style, "border")
@@ -165,6 +232,16 @@ function NSkin:SkinSearchBox(searchBox, style, borderColor)
     end
     local font, size, outline = self:GetResolvedTypography(style)
     if searchBox.SetFont and font and size then searchBox:SetFont(font, size, outline) end
+    if searchBox.GetTextInsets and searchBox.SetTextInsets then
+        if not searchData.searchTextInsets then
+            searchData.searchTextInsets = { searchBox:GetTextInsets() }
+        end
+        local insets = searchData.searchTextInsets
+        local offsetX, offsetY = style.textOffsetX or 0, style.textOffsetY or 0
+        searchBox:SetTextInsets((insets[1] or 0) + offsetX,
+            (insets[2] or 0) - offsetX, (insets[3] or 0) - offsetY,
+            (insets[4] or 0) + offsetY)
+    end
     local instructions = searchBox.Instructions or searchBox.instructions
     if instructions then
         instructions:SetTextColor(unpack(
@@ -224,6 +301,35 @@ function NSkin:SkinPagingControls(pagingControls, textSize)
 end
 
 -- Windows Skinning
+
+function NSkin:ApplyGlobalTypography(frame)
+    if not frame then return end
+    local typography = self:GetStyle("typography")
+    local font, size, outline = typography.font, typography.size, typography.outline
+    if not font or not size then return end
+
+    local function Apply(target)
+        if target.GetObjectType and target:GetObjectType() == "FontString" then
+            target:SetFont(font, size, outline)
+        elseif target.GetObjectType and target:GetObjectType() == "EditBox"
+            and target.SetFont
+        then
+            target:SetFont(font, size, outline)
+        end
+        if target.GetRegions then
+            for _, region in ipairs({ target:GetRegions() }) do
+                if region.GetObjectType and region:GetObjectType() == "FontString" then
+                    region:SetFont(font, size, outline)
+                end
+            end
+        end
+        if target.GetChildren then
+            for _, child in ipairs({ target:GetChildren() }) do Apply(child) end
+        end
+    end
+
+    Apply(frame)
+end
 
 function NSkin:SkinWindow(frame, backgroundAnchor, style, borderColor)
     if not frame then return nil end
@@ -1083,6 +1189,12 @@ function NSkin:RegisterAccessoryGroup(definition)
         return definition.anchorGrouped(self.primary, self.accessory) == true
     end
     function controller:ApplyPrimary(element, placement, applyOptions)
+        if self:GetMode() == "GROUPED"
+            and (placement.relativeTo == self.ids.accessory
+                or placement.relativeTo == self.ids.primary)
+        then
+            placement = CopyPlacement(definition.primaryPlacement)
+        end
         if not NSkin:LayoutWindowElement(element, placement, SUPPRESS_NOTIFICATION) then
             return false
         end
@@ -1106,8 +1218,10 @@ function NSkin:RegisterAccessoryGroup(definition)
                 primaryElement.applyPlacement(primaryElement, saved, SUPPRESS_NOTIFICATION)
             else
                 NSkin:RestoreMovableElementOriginal(self.ids.accessory, true)
-                NSkin:RestoreMovableElementOriginal(self.ids.primary, true)
-                self:AnchorGrouped()
+                if primaryElement then
+                    primaryElement.applyPlacement(primaryElement,
+                        CopyPlacement(definition.primaryPlacement), SUPPRESS_NOTIFICATION)
+                end
             end
         elseif mode == "INDEPENDENT" then
             local element = skinningElements[self.ids.accessory]
@@ -1147,10 +1261,9 @@ function NSkin:RegisterAccessoryGroup(definition)
     controller.groupedHighlightRegions = { controller.primary, controller.accessory }
     controller.primaryHighlightRegion = { controller.primary }
     local editorOptions = definition.editorOptions or {
-        { id = "shared.searchBoxAppearance", label = "Search Box" },
+        { id = "shared.searchBoxAppearance", label = "Search Box", inline = true },
         { id = "shared.searchTextAppearance", label = "Search Text" },
         { id = "shared.placeholderTextAppearance", label = "Placeholder Text" },
-        { id = "shared.searchLayout", label = "Layout" },
         { id = "shared.searchPosition", label = "Position" },
     }
     local accessory = RegisterControllerElement(controller, definition.ids.accessory,

@@ -163,7 +163,10 @@ local function LoadEditorOptions(element)
         local definition = groups[i]
         local label = type(definition) == "table" and definition.label
         local id = type(definition) == "table" and definition.id or definition
-        if type(id) == "string" and (label == "Layout" or label == "Position") then
+        local inline = type(definition) == "table" and definition.inline == true
+        if type(id) == "string"
+            and (inline or label == "Layout" or label == "Position")
+        then
             local view = controller.optionViews[id]
             if not view then
                 view = NSkin:CreateOptionGroupView(
@@ -174,9 +177,9 @@ local function LoadEditorOptions(element)
             end
             if view then
                 view:ClearAllPoints()
-                view:SetPoint("TOPLEFT", controller.scrollChild, "TOPLEFT", 24, -y)
+                view:SetPoint("TOPLEFT", controller.scrollChild, "TOPLEFT", 8, -y)
                 view:Show()
-                y = y + view:GetHeight() + 8
+                y = y + view:GetHeight() - 1
             end
         end
     end
@@ -185,12 +188,15 @@ local function LoadEditorOptions(element)
         local definition = groups[i]
         local label = type(definition) == "table" and definition.label
         local id = type(definition) == "table" and definition.id or definition
-        if type(id) == "string" and label ~= "Layout" and label ~= "Position" then
+        local inline = type(definition) == "table" and definition.inline == true
+        if type(id) == "string" and not inline
+            and label ~= "Layout" and label ~= "Position"
+        then
             sectionIndex = sectionIndex + 1
             local section = controller.editorSections[sectionIndex]
             if not section then
                 section = CreateFrame("Button", nil, controller.scrollChild)
-                section:SetHeight(40)
+                section:SetHeight(48)
                 section.label = section:CreateFontString(nil, "OVERLAY", "GameFontNormal")
                 section.label:SetPoint("LEFT", section, "LEFT", 12, 0)
                 section.icon = section:CreateTexture(nil, "OVERLAY")
@@ -220,7 +226,7 @@ local function LoadEditorOptions(element)
             section:SetPoint("TOPLEFT", controller.scrollChild, "TOPLEFT", 0, -y)
             section:SetPoint("RIGHT", controller.scrollChild, "RIGHT", 0, 0)
             section:Show()
-            y = y + 39
+            y = y + 47
 
             if expanded then
                 local view = controller.optionViews[id]
@@ -233,9 +239,9 @@ local function LoadEditorOptions(element)
                 end
                 if view then
                     view:ClearAllPoints()
-                    view:SetPoint("TOPLEFT", controller.scrollChild, "TOPLEFT", 24, -y - 8)
+                    view:SetPoint("TOPLEFT", controller.scrollChild, "TOPLEFT", 8, -y)
                     view:Show()
-                    y = y + view:GetHeight() + 16
+                    y = y + view:GetHeight() - 1
                 end
             end
         end
@@ -250,6 +256,7 @@ RefreshInspector = function()
         element and ("Selected: " .. (element.label or element.id)) or "Select an element"
     )
     LoadEditorOptions(element)
+    NSkin:ApplyGlobalTypography(controller.inspector)
     SetInspectorTextWhite(controller.inspector)
 end
 
@@ -342,12 +349,36 @@ local function SnapToNearest(value, threshold, ...)
     return best or value, best ~= nil
 end
 
+local function SetSemanticPlacementFromLocal(placement, window, localX, localY,
+    elementWidth, elementHeight, alignmentIndex)
+    local windowWidth, windowHeight = window:GetWidth(), window:GetHeight()
+    local centerY = localY - elementHeight / 2
+    local edge = centerY > -windowHeight / 2 and "TOP" or "BOTTOM"
+    local side = centerY <= 0 and centerY >= -windowHeight and "INSIDE" or "OUTSIDE"
+    local alignment = alignmentIndex == 1 and "LEFT"
+        or (alignmentIndex == 2 and "CENTER" or "RIGHT")
+    local alongOffset = alignment == "LEFT" and localX
+        or (alignment == "CENTER" and localX + elementWidth / 2 - windowWidth / 2
+            or localX + elementWidth - windowWidth)
+    local edgeOffset = edge == "TOP"
+        and (side == "INSIDE" and localY or localY - elementHeight)
+        or (side == "INSIDE" and localY - elementHeight + windowHeight
+            or localY + windowHeight)
+    placement.mode = nil
+    placement.point, placement.relativePoint = nil, nil
+    placement.x, placement.y, placement.relativeTo = nil, nil, nil
+    placement.offsetX, placement.offsetY = nil, nil
+    placement.edge, placement.side, placement.alignment = edge, side, alignment
+    placement.alongOffset, placement.edgeOffset = alongOffset, edgeOffset
+end
+
 HideGrid = function()
     local pool = controller and controller.activeGridPool
     if not pool then return end
     for i = 1, #pool.vertical do pool.vertical[i]:Hide() end
     for i = 1, #pool.horizontal do pool.horizontal[i]:Hide() end
     for i = 1, #pool.borders do pool.borders[i]:Hide() end
+    for i = 1, #(pool.alignmentZones or {}) do pool.alignmentZones[i]:Hide() end
     controller.activeGridPool = nil
 end
 
@@ -355,7 +386,7 @@ RefreshGrid = function(window)
     if controller.activeGridPool then HideGrid() end
     local pool = controller.gridPools[window]
     if not pool then
-        pool = { vertical = {}, horizontal = {}, borders = {} }
+        pool = { vertical = {}, horizontal = {}, borders = {}, alignmentZones = {} }
         controller.gridPools[window] = pool
     end
     controller.activeGridPool = pool
@@ -364,6 +395,29 @@ RefreshGrid = function(window)
     local marginX, marginY = 30, 30
     local style = NSkin:GetStyle("skinningMode")
     local gridAlpha = tonumber(style.gridAlpha) or 0.4
+    if #pool.alignmentZones == 0 then
+        local labels = { "LEFT", "CENTER", "RIGHT" }
+        for i = 1, 3 do
+            local zone = CreateFrame("Frame", nil, window)
+            zone:SetFrameLevel(window:GetFrameLevel() + 20)
+            zone.texture = zone:CreateTexture(nil, "OVERLAY")
+            zone.texture:SetAllPoints()
+            zone.label = zone:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+            zone.label:SetPoint("CENTER")
+            zone.label:SetText(labels[i])
+            zone.label:SetTextColor(1, 1, 1, 0.85)
+            pool.alignmentZones[i] = zone
+        end
+    end
+    for i = 1, 3 do
+        local zone = pool.alignmentZones[i]
+        zone:ClearAllPoints()
+        zone:SetPoint("TOPLEFT", window, "TOPLEFT", (i - 1) * width / 3, 0)
+        zone:SetPoint("BOTTOMRIGHT", window, "BOTTOMLEFT", i * width / 3, 0)
+        zone.texture:SetColorTexture(style.activeDropZone[1],
+            style.activeDropZone[2], style.activeDropZone[3], 0.05)
+        zone:Show()
+    end
     local firstX = math.ceil(-marginX / visualGridSize)
     local lastX = math.floor((width + marginX) / visualGridSize)
     local verticalCount = 0
@@ -452,23 +506,31 @@ local function UpdateDrag()
         local ghostWidth, ghostHeight = controller.dragWidth, controller.dragHeight
         local threshold = math.max(6, size)
         local snappedX, borderSnappedX = SnapToNearest(localX, threshold,
-            0, -ghostWidth, width, width - ghostWidth)
+            0, -ghostWidth, (width - ghostWidth) / 2, width, width - ghostWidth)
         local snappedY, borderSnappedY = SnapToNearest(localY, threshold,
             0, ghostHeight, -height, -height + ghostHeight)
         localX = borderSnappedX and snappedX or RoundToGrid(localX, size)
         localY = borderSnappedY and snappedY or RoundToGrid(localY, size)
     end
     controller.gridX, controller.gridY = localX, localY
+    local centerX = localX + controller.dragWidth / 2
+    local alignmentIndex = centerX < window:GetWidth() / 3 and 1
+        or (centerX < window:GetWidth() * 2 / 3 and 2 or 3)
+    controller.dropAlignmentIndex = alignmentIndex
+    if controller.activeGridPool then
+        for i = 1, 3 do
+            local zone = controller.activeGridPool.alignmentZones[i]
+            local alpha = i == alignmentIndex and 0.22 or 0.05
+            local color = NSkin:GetStyle("skinningMode").activeDropZone
+            zone.texture:SetColorTexture(color[1], color[2], color[3], alpha)
+            zone.label:SetAlpha(i == alignmentIndex and 1 or 0.45)
+        end
+    end
     if localX == controller.previewX and localY == controller.previewY then return end
     controller.previewX, controller.previewY = localX, localY
     local placement = controller.previewPlacement
-    placement.mode = "GRID"
-    placement.point = "TOPLEFT"
-    placement.relativePoint = "TOPLEFT"
-    placement.x, placement.y = localX, localY
-    placement.alongOffset, placement.edgeOffset = localX, localY
-    placement.relativeTo = nil
-    placement.offsetX, placement.offsetY = nil, nil
+    SetSemanticPlacementFromLocal(placement, window, localX, localY,
+        controller.dragWidth, controller.dragHeight, alignmentIndex)
     if element.livePreview ~= false
         and ApplyElementPlacement(element, placement, controller.previewOptions)
     then
@@ -553,13 +615,11 @@ StopDrag = function(apply)
     local overlay = element and controller.overlays[element.id]
     if apply and gridX and gridY and element then
         local placement = controller.previewPlacement
-        placement.mode = "GRID"
-        placement.point = "TOPLEFT"
-        placement.relativePoint = "TOPLEFT"
-        placement.x, placement.y = gridX, gridY
-        placement.alongOffset, placement.edgeOffset = gridX, gridY
-        placement.relativeTo = nil
-        placement.offsetX, placement.offsetY = nil, nil
+        SetSemanticPlacementFromLocal(placement, element.window, gridX, gridY,
+            controller.dragWidth, controller.dragHeight,
+            controller.dropAlignmentIndex or 1)
+        placement.alongOffset = RoundOne(placement.alongOffset)
+        placement.edgeOffset = RoundOne(placement.edgeOffset)
         local persisted = type(element.setPlacement) == "function"
             and element.setPlacement(element, placement) == true
         if persisted and element.editorOptions then
@@ -583,6 +643,7 @@ StopDrag = function(apply)
     end
     controller.originalPlacement = nil
     controller.previewPlacement = nil
+    controller.dropAlignmentIndex = nil
     controller.previewApplied = nil
     controller.previewX, controller.previewY = nil, nil
     RefreshAllOverlayAppearances()
@@ -739,12 +800,9 @@ local function CreateController()
     }
 
     local inspector = CreateFrame("Frame", nil, UIParent)
-    inspector:SetSize(480, 130)
+    inspector:SetSize(520, 130)
     inspector:SetFrameStrata("DIALOG")
-    local inspectorBackground = NSkin:SkinWindow(inspector)
-    if inspectorBackground then
-        inspectorBackground:SetColorTexture(0.025, 0.055, 0.10, 1)
-    end
+    NSkin:SkinWindow(inspector)
     NSkin:SkinWindowHeader(inspector)
     CreateLabel(inspector, "Skinning Mode", "TOPLEFT", inspector, "TOPLEFT", 12, -5)
     local close = CreateButton(inspector, "x", 22, function()
@@ -760,7 +818,7 @@ local function CreateController()
     scrollFrame:SetPoint("TOPLEFT", inspector, "TOPLEFT", 1, -58)
     scrollFrame:SetPoint("BOTTOMRIGHT", inspector, "BOTTOMRIGHT", -1, 1)
     local scrollChild = CreateFrame("Frame", nil, scrollFrame)
-    scrollChild:SetSize(478, 1)
+    scrollChild:SetSize(518, 1)
     scrollFrame:SetScrollChild(scrollChild)
     controller.scrollFrame = scrollFrame
     controller.scrollChild = scrollChild
@@ -800,6 +858,14 @@ local function CreateController()
     return controller
 end
 
+function NSkin:RefreshSkinningModeTheme()
+    if not controller or not controller.enabled then return end
+    self:SkinWindow(controller.inspector)
+    self:SkinWindowHeader(controller.inspector)
+    self:ApplyGlobalTypography(controller.inspector)
+    SetInspectorTextWhite(controller.inspector)
+end
+
 function NSkin:SetSkinningModeEnabled(enabled)
     enabled = enabled == true
     if enabled and _G.InCombatLockdown and _G.InCombatLockdown() then
@@ -812,6 +878,7 @@ function NSkin:SetSkinningModeEnabled(enabled)
     if controller.enabled == enabled then return true end
     controller.enabled = enabled
     if enabled then
+        self:RefreshSkinningModeTheme()
         self:RegisterComponentCallback(
             "SkinningElementRegistered", HandleSkinningElementRegistered, controller
         )
