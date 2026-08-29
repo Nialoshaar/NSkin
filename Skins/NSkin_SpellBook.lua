@@ -802,10 +802,10 @@ function SpellBookSkin:Initialize()
         label = "Spellbook tabs",
         kind = "TAB_GROUP",
         editorOptions = {
-            { id = "shared.tabTextAppearance", label = "Tab Text" },
-            { id = "shared.tabBorderAppearance", label = "Border" },
-            { id = "shared.tabBackgroundAppearance", label = "Background" },
             { id = "tabs.layout", label = "Position" },
+            { id = "shared.tabTextAppearance", label = "Tab Text" },
+            { id = "shared.tabSurfaceAppearance", label = "Tab appearance",
+                inline = true },
         },
         independentPlacement = true,
         movable = true,
@@ -830,10 +830,10 @@ function SpellBookSkin:Initialize()
         label = "Spellbook class tabs",
         kind = "TAB_GROUP",
         editorOptions = {
-            { id = "shared.tabTextAppearance", label = "Tab Text" },
-            { id = "shared.tabBorderAppearance", label = "Border" },
-            { id = "shared.tabBackgroundAppearance", label = "Background" },
             { id = "tabs.layout", label = "Position" },
+            { id = "shared.tabTextAppearance", label = "Tab Text" },
+            { id = "shared.tabSurfaceAppearance", label = "Tab appearance",
+                inline = true },
         },
         independentPlacement = true,
         movable = true,
@@ -857,10 +857,10 @@ function SpellBookSkin:Initialize()
         target = playerSpells,
         priority = 0,
         editorOptions = {
-            { id = "shared.windowBorderAppearance", label = "Border" },
-            { id = "shared.windowBackgroundAppearance", label = "Background" },
-            { id = "shared.windowHeaderAppearance", label = "Header" },
             { id = "spellbook.iconDisposition", label = "Layout" },
+            { id = "shared.windowSurfaceAppearance", label = "Window appearance",
+                inline = true },
+            { id = "shared.windowHeaderAppearance", label = "Header" },
         },
     })
 
@@ -874,9 +874,9 @@ function SpellBookSkin:Initialize()
         priority = 70,
         draggable = false,
         editorOptions = {
+            { id = "shared.sectionHeaderPlacement", label = "Position" },
             { id = "shared.headerTextAppearance", label = "Header Text" },
             { id = "shared.headerUnderlineAppearance", label = "Underline" },
-            { id = "shared.sectionHeaderPlacement", label = "Position" },
         },
         highlightRegions = function()
             local regions = {}
@@ -924,10 +924,10 @@ function SpellBookSkin:Initialize()
         legacyOptionKey = "searchCogMode", snapTarget = true,
         visibilityFrame = spellBook,
         editorOptions = {
+            { id = "shared.searchPosition", label = "Position" },
             { id = "shared.searchBoxAppearance", label = "Search Box", inline = true },
             { id = "shared.searchTextAppearance", label = "Search Text" },
             { id = "shared.placeholderTextAppearance", label = "Placeholder Text" },
-            { id = "shared.searchPosition", label = "Position" },
         },
         elements = { accessory = { editorOptions = "shared.movable" } },
         anchorGrouped = function(searchBox, cog)

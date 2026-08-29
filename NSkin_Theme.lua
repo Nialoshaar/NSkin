@@ -165,14 +165,22 @@ local function SetAppearanceOverride(scope, id, windowID, path, value)
     if parentValue == nil or type(parentValue) ~= type(value) then return false end
 
     local profile = NSkin:GetProfile()
-    profile.appearanceOverrides = profile.appearanceOverrides or {}
     local scopes = profile.appearanceOverrides
+    local styleOverrides = scopes and scopes[scope] and scopes[scope][id]
+        and scopes[scope][id][styleName]
+    local currentValue = styleOverrides
+        and GetPath(styleOverrides, relativePath, false) or nil
+    local newValue = TablesEqual(value, parentValue) and nil or value
+    if TablesEqual(currentValue, newValue) then return false end
+
+    profile.appearanceOverrides = profile.appearanceOverrides or {}
+    scopes = profile.appearanceOverrides
     scopes[scope] = scopes[scope] or {}
     scopes[scope][id] = scopes[scope][id] or {}
     scopes[scope][id][styleName] = scopes[scope][id][styleName] or {}
-    local styleOverrides = scopes[scope][id][styleName]
+    styleOverrides = scopes[scope][id][styleName]
     local _, parent, key = GetPath(styleOverrides, relativePath, true)
-    parent[key] = TablesEqual(value, parentValue) and nil or value
+    parent[key] = newValue
     PruneEmptyTables(profile.appearanceOverrides)
     if not next(profile.appearanceOverrides) then profile.appearanceOverrides = nil end
     NSkin:RefreshTheme()

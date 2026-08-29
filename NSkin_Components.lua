@@ -109,7 +109,20 @@ function NSkin:CreateOptionsSlider(parent, options)
         if type(options.onValueChanged) == "function" then
             options.onValueChanged(slider, value)
         end
+        if not slider.nskinDragging
+            and type(options.onValueCommitted) == "function"
+        then
+            options.onValueCommitted(slider, value)
+        end
     end
+    slider:SetScript("OnMouseDown", function(self) self.nskinDragging = true end)
+    slider:SetScript("OnMouseUp", function(self)
+        if not self.nskinDragging then return end
+        self.nskinDragging = nil
+        if type(options.onValueCommitted) == "function" then
+            options.onValueCommitted(self, self:GetValue())
+        end
+    end)
     slider:SetScript("OnValueChanged", RefreshSlider)
     RefreshSliderVisual(slider:GetValue())
     return slider
@@ -223,10 +236,9 @@ function NSkin:SkinSearchBox(searchBox, style, borderColor)
         borderColor or self:GetResolvedAppearanceColor(style, "border")
             or self:GetComponentBorderColor("searchBox", style)
     )
-    self:SetPixelBorderSize(
-        self:GetPixelBorder(searchBox, "NSkinFlatBackgroundBorder"),
-        style.borderSize or 1
-    )
+    local searchBorder = self:GetPixelBorder(searchBox, "NSkinFlatBackgroundBorder")
+    self:SetPixelBorderSize(searchBorder, style.borderSize or 1)
+    self:SetPixelBorderPadding(searchBorder, style.borderPadding or 0)
     if searchBox.SetTextColor then
         searchBox:SetTextColor(unpack(self:GetResolvedAppearanceColor(style, "text")))
     end
@@ -350,6 +362,7 @@ function NSkin:SkinWindow(frame, backgroundAnchor, style, borderColor)
         borderColor or self:GetWindowBorderColor(), false, anchor
     )
     self:SetPixelBorderSize(border, style.borderSize)
+    self:SetPixelBorderPadding(border, style.borderPadding or 0)
     self:SetPixelBorderColor(border, unpack(borderColor or self:GetWindowBorderColor()))
     return background, border
 end
@@ -373,13 +386,33 @@ end
 
 -- Tab Skinning
 
+local function ApplyTabDimensions(tab, style, data)
+    local configuredWidth, configuredHeight = tonumber(style.width), tonumber(style.height)
+    configuredWidth = configuredWidth and configuredWidth > 0 and configuredWidth or nil
+    configuredHeight = configuredHeight and configuredHeight > 0 and configuredHeight or nil
+    if configuredWidth or configuredHeight then
+        if not data.tabOriginalSize then
+            data.tabOriginalSize = { tab:GetWidth(), tab:GetHeight() }
+        end
+        tab:SetSize(configuredWidth or data.tabOriginalSize[1],
+            configuredHeight or data.tabOriginalSize[2])
+    elseif data.tabOriginalSize then
+        tab:SetSize(data.tabOriginalSize[1], data.tabOriginalSize[2])
+        data.tabOriginalSize = nil
+    end
+end
+
 local function RefreshTabSelection(tab, selected)
-    NSkin:SkinTab(tab, selected)
+    local data = NSkin:GetSkinData(tab, COMPONENT_STATE, false)
+    NSkin:SkinTab(tab, selected, data and data.tabStyle, data and data.tabBorderColor)
 end
 
 function NSkin:SkinTab(tab, selected, style, borderColor)
     if not tab then return end
     style = style or self:GetStyle("tab")
+    local data = self:GetSkinData(tab, COMPONENT_STATE)
+    data.tabStyle, data.tabBorderColor = style, borderColor
+    ApplyTabDimensions(tab, style, data)
 
     local background = self:GetFlatBackground(tab)
     if not background then
@@ -396,8 +429,9 @@ function NSkin:SkinTab(tab, selected, style, borderColor)
     self:SetPixelBorderColor(self:GetPixelBorder(tab, "NSkinFlatBackgroundBorder"),
         unpack(borderColor or self:GetResolvedAppearanceColor(style, "border")
             or self:GetComponentBorderColor("tab", style)))
-    self:SetPixelBorderSize(self:GetPixelBorder(tab, "NSkinFlatBackgroundBorder"),
-        style.borderSize or 1)
+    local tabBorder = self:GetPixelBorder(tab, "NSkinFlatBackgroundBorder")
+    self:SetPixelBorderSize(tabBorder, style.borderSize or 1)
+    self:SetPixelBorderPadding(tabBorder, style.borderPadding or 0)
     background:SetColorTexture(unpack(
         selected and self:GetResolvedAppearanceColor(style, "selectedBackground")
             or self:GetResolvedAppearanceColor(style, "background")
@@ -1101,8 +1135,8 @@ function NSkin:RegisterPaginationGroup(definition)
     controller.groupedRegions = { controls.previous, controls.next }
     controller.groupedRegionsWithText = { controls.previous, controls.text, controls.next }
     local editorOptions = definition.editorOptions or {
-        { id = "shared.paginationLayout", label = "Layout" },
         { id = "shared.paginationPosition", label = "Position" },
+        { id = "shared.paginationLayout", label = "Layout" },
     }
     local defaultPlacement = definition.defaultPlacement
     local group = RegisterControllerElement(controller, ids.group,
@@ -1261,10 +1295,10 @@ function NSkin:RegisterAccessoryGroup(definition)
     controller.groupedHighlightRegions = { controller.primary, controller.accessory }
     controller.primaryHighlightRegion = { controller.primary }
     local editorOptions = definition.editorOptions or {
+        { id = "shared.searchPosition", label = "Position" },
         { id = "shared.searchBoxAppearance", label = "Search Box", inline = true },
         { id = "shared.searchTextAppearance", label = "Search Text" },
         { id = "shared.placeholderTextAppearance", label = "Placeholder Text" },
-        { id = "shared.searchPosition", label = "Position" },
     }
     local accessory = RegisterControllerElement(controller, definition.ids.accessory,
         definition.accessoryLabel or "Search accessory", definition.accessory, {
@@ -1473,13 +1507,24 @@ function NSkin:ApplyTabGroupPlacement(group, placement, applyOptions)
     options.owner = group.window
     options.edge = group.edge
     options.orientation = group.orientation
-    options.spacing = self:GetTabSpacing()
+    local tabStyle = self:GetAppearanceStyle("tab", group.module, group.id)
+    options.spacing = tonumber(tabStyle and tabStyle.spacing) or self:GetTabSpacing()
     options.placement = placement
     local applied
     if group.container and group.container.MarkDirty then
         applied = self:LayoutTabSystem(group.container, options) == true
     else
         applied = self:LayoutTabGroup(group.tabs, options) == true
+    end
+    local tabs = group.container and group.container.tabs or group.tabs
+    if applied and type(tabs) == "table" then
+        for i = 1, #tabs do
+            local tab = tabs[i]
+            if tab then
+                ApplyTabDimensions(tab, tabStyle,
+                    self:GetSkinData(tab, COMPONENT_STATE))
+            end
+        end
     end
     if applied and not (applyOptions and applyOptions.suppressNotify) then
         FireComponentCallback("TabGroupLayoutApplied", group)

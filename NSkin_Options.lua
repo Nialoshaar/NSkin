@@ -137,6 +137,9 @@ end
 local function CommitValues(view, values)
     if not view.context or type(values) ~= "table" then return false end
     if view.definition.set(view.context, CopyTable(values)) == true then
+        if view.context.id and NSkin.NotifySkinningElementBoundsChanged then
+            NSkin:NotifySkinningElementBoundsChanged(view.context.id)
+        end
         NSkin:NotifyOptionGroupChanged(view.id)
         return true
     end
@@ -227,6 +230,10 @@ local function CreateSlider(view, control, y)
             local decimals = tonumber(control.decimals) or 0
             value = RoundValue(value, decimals)
             valueLabel:SetText(string.format("%." .. decimals .. "f", value))
+        end,
+        onValueCommitted = function(_, value)
+            local decimals = tonumber(control.decimals) or 0
+            value = RoundValue(value, decimals)
             if view.refreshing or not view.context then return end
             local current = CopyTable(view.definition.get(view.context))
             current[control.key] = value
@@ -399,17 +406,22 @@ local function CreateControlPairItem(view, control, x, width, y, mirrored)
         CreateDropdownPairItem(view, control, x, width, y, mirrored)
     elseif control.type == "CHECKBOX" then
         local checkbox = CreateFrame("CheckButton", nil, view, "UICheckButtonTemplate")
+        checkbox:SetSize(24, 24)
+        local label = view:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        label:SetSize(math.max(1, width - 40), COMPACT_GRID_HEIGHT - 8)
+        label:SetWordWrap(true)
+        if label.SetNonSpaceWrap then label:SetNonSpaceWrap(true) end
+        label:SetJustifyH("CENTER")
+        label:SetJustifyV("MIDDLE")
+        label:SetText(control.label)
         if mirrored then
-            checkbox:SetPoint("TOPRIGHT", view, "TOPLEFT", x + width + 4, y + 5)
-            if checkbox.Text then
-                checkbox.Text:ClearAllPoints()
-                checkbox.Text:SetPoint("RIGHT", checkbox, "LEFT", -2, 0)
-                checkbox.Text:SetJustifyH("RIGHT")
-            end
+            checkbox:SetPoint("LEFT", view, "TOPLEFT", x, y)
+            label:SetPoint("RIGHT", view, "TOPLEFT", x + width, y)
         else
-            checkbox:SetPoint("TOPLEFT", view, "TOPLEFT", x - 4, y + 5)
+            checkbox:SetPoint("RIGHT", view, "TOPLEFT", x + width, y)
+            label:SetPoint("LEFT", view, "TOPLEFT", x, y)
         end
-        if checkbox.Text then checkbox.Text:SetText(control.label) end
+        if checkbox.Text then checkbox.Text:SetText("") end
         checkbox:SetScript("OnClick", function(self)
             if view.refreshing or not view.context then return end
             local current = CopyTable(view.definition.get(view.context))
@@ -516,6 +528,9 @@ local function CreateTypographySizeSlider(view, control, parent)
         onValueChanged = function(_, value)
             value = RoundValue(value, 0)
             valueLabel:SetText(string.format("%.0f", value))
+        end,
+        onValueCommitted = function(_, value)
+            value = RoundValue(value, 0)
             if view.refreshing or not view.context then return end
             local current = CopyTable(view.definition.get(view.context))
             current[definition.key] = value
@@ -805,6 +820,10 @@ local function CreateSliderPairItem(view, definition, x, width, y, mirroredSide,
             local decimals = tonumber(definition.decimals) or 0
             value = RoundValue(value, decimals)
             valueLabel:SetText(string.format("%." .. decimals .. "f", value))
+        end,
+        onValueCommitted = function(_, value)
+            local decimals = tonumber(definition.decimals) or 0
+            value = RoundValue(value, decimals)
             if view.refreshing or not view.context then return end
             local current = CopyTable(view.definition.get(view.context))
             current[definition.key] = value
@@ -870,8 +889,8 @@ local function CreateSliderPair(view, control, y)
         reset:SetScript("OnClick", function()
             if view.refreshing or not view.context then return end
             local values = CopyTable(view.definition.get(view.context))
-            values[control.left.key] = 0
-            values[control.right.key] = 0
+            values[control.left.key] = control.left.resetValue or 0
+            values[control.right.key] = control.right.resetValue or 0
             CommitValues(view, values)
         end)
         reset:SetScript("OnEnter", function(self)
@@ -1095,6 +1114,17 @@ function NSkin:CreateOptionGroupView(parent, id, layout, context)
 
     function view:SetValues(values)
         return CommitValues(self, values)
+    end
+
+    function view:SetPreviewValue(key, value, decimals)
+        local slider, valueLabel = self.controlByKey[key], self.valueByKey[key]
+        if not slider or not valueLabel or value == nil then return false end
+        local wasRefreshing = self.refreshing
+        self.refreshing = true
+        slider:SetValue(value)
+        valueLabel:SetText(string.format("%." .. (tonumber(decimals) or 0) .. "f", value))
+        self.refreshing = wasRefreshing
+        return true
     end
 
     function view:Refresh()

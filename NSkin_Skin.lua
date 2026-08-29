@@ -89,7 +89,8 @@ function NSkin:CreatePixelBorder(frame, key, size, color, outside, anchor)
     left:SetWidth(size)
     right:SetWidth(size)
 
-    local border = { top = top, bottom = bottom, left = left, right = right }
+    local border = { top = top, bottom = bottom, left = left, right = right,
+        anchor = anchor, outside = outside == true }
     if key then data.borders[key] = border end
     return border
 end
@@ -120,6 +121,24 @@ function NSkin:SetPixelBorderSize(border, size)
     border.bottom:SetHeight(size)
     border.left:SetWidth(size)
     border.right:SetWidth(size)
+end
+
+function NSkin:SetPixelBorderPadding(border, padding)
+    if not border or not border.anchor then return end
+    padding = tonumber(padding) or 0
+    local anchor = border.anchor
+    for _, edge in ipairs({ border.top, border.bottom, border.left, border.right }) do
+        edge:ClearAllPoints()
+    end
+    border.top:SetPoint("TOPLEFT", anchor, "TOPLEFT", -padding, padding)
+    border.top:SetPoint("TOPRIGHT", anchor, "TOPRIGHT", padding, padding)
+    border.bottom:SetPoint("BOTTOMLEFT", anchor, "BOTTOMLEFT", -padding, -padding)
+    border.bottom:SetPoint("BOTTOMRIGHT", anchor, "BOTTOMRIGHT", padding, -padding)
+    border.left:SetPoint("TOPLEFT", anchor, "TOPLEFT", -padding, padding)
+    border.left:SetPoint("BOTTOMLEFT", anchor, "BOTTOMLEFT", -padding, -padding)
+    border.right:SetPoint("TOPRIGHT", anchor, "TOPRIGHT", padding, padding)
+    border.right:SetPoint("BOTTOMRIGHT", anchor, "BOTTOMRIGHT", padding, -padding)
+    border.padding = padding
 end
 
 function NSkin:CreateQualityBorder(frame, anchor, key, size, outside)

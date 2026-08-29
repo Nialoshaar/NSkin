@@ -349,6 +349,25 @@ local function SnapToNearest(value, threshold, ...)
     return best or value, best ~= nil
 end
 
+local function RefreshDragInspectorOffsets(element, placement)
+    if not controller or not element or not placement then return end
+    local x = RoundOne(tonumber(placement.alongOffset) or 0)
+    local y = RoundOne(tonumber(placement.edgeOffset) or 0)
+    for _, view in pairs(controller.optionViews) do
+        if view.context == element and view.SetPreviewValue then
+            view:SetPreviewValue("alongOffset", x, 1)
+            view:SetPreviewValue("edgeOffset", y, 1)
+        end
+    end
+end
+
+local function RefreshElementInspectorViews(element)
+    if not controller or not element then return end
+    for _, view in pairs(controller.optionViews) do
+        if view.context == element and view.Refresh then view:Refresh() end
+    end
+end
+
 local function SetSemanticPlacementFromLocal(placement, window, localX, localY,
     elementWidth, elementHeight, alignmentIndex)
     local windowWidth, windowHeight = window:GetWidth(), window:GetHeight()
@@ -531,6 +550,7 @@ local function UpdateDrag()
     local placement = controller.previewPlacement
     SetSemanticPlacementFromLocal(placement, window, localX, localY,
         controller.dragWidth, controller.dragHeight, alignmentIndex)
+    RefreshDragInspectorOffsets(element, placement)
     if element.livePreview ~= false
         and ApplyElementPlacement(element, placement, controller.previewOptions)
     then
@@ -646,6 +666,7 @@ StopDrag = function(apply)
     controller.dropAlignmentIndex = nil
     controller.previewApplied = nil
     controller.previewX, controller.previewY = nil, nil
+    RefreshElementInspectorViews(element)
     RefreshAllOverlayAppearances()
 end
 

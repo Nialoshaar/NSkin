@@ -245,10 +245,36 @@ local function ResetElementPaths(context, paths)
     return changed == true
 end
 
-local tabAppearanceControls = {
-    { type = "SLIDER", key = "borderSize", label = "Border size", min = 1,
-        max = 4, step = 1, suffix = " px", order = 13 },
+local function CreateBorderGeometryControls(order)
+    return { type = "SLIDER_PAIR", order = order, centerReset = true,
+        resetTooltip = "Reset border size and padding",
+        left = { key = "borderSize", label = "Border size", min = 1,
+            max = 4, step = 1, decimals = 0, suffix = " px", resetValue = 1 },
+        right = { key = "borderPadding", label = "Border padding", min = -10,
+            max = 20, step = 1, decimals = 0, suffix = " px", resetValue = 0 } }
+end
+
+local tabBorderGeometryControls = CreateBorderGeometryControls(13)
+local tabSizeControls = {
+    type = "SLIDER_PAIR", order = 2, centerReset = true,
+    resetTooltip = "Reset tab width and height",
+    left = { key = "width", label = "Width", min = 40, max = 300,
+        step = 1, decimals = 0, suffix = " px", resetValue = 0 },
+    right = { key = "height", label = "Height", min = 16, max = 80,
+        step = 1, decimals = 0, suffix = " px", resetValue = 0 },
 }
+local tabSpacingControl = { type = "SLIDER", key = "spacing", label = "Spacing",
+    min = -30, max = 30, step = 1, decimals = 0, suffix = " px", order = 3 }
+local tabAppearanceControls = {
+    tabSizeControls, tabSpacingControl, tabBorderGeometryControls,
+}
+local function GetFirstTabSize(context)
+    local group = context and NSkin:GetTabGroup(context.id)
+    local tabs = group and ((group.container and group.container.tabs) or group.tabs)
+    local tab = type(tabs) == "table" and tabs[1]
+    return tab and tab.GetWidth and tab:GetWidth() or 40,
+        tab and tab.GetHeight and tab:GetHeight() or 16
+end
 AddTypographyControls(tabAppearanceControls,
     { useGlobal = "useGlobal", font = "font", size = "textSize", outline = "outline" },
     "Tab Text", 1, { type = "COLOR", key = "text", modeKey = "textMode",
@@ -271,10 +297,17 @@ NSkin:RegisterOptionGroup("shared.tabAppearance", {
     controls = tabAppearanceControls,
     get = function(context)
         local style = NSkin:GetAppearanceStyle("tab", context.module, context.id)
+        local currentWidth, currentHeight = GetFirstTabSize(context)
         local values = { background = CopyColor(style.background),
             selectedBackground = CopyColor(style.selectedBackground),
             border = CopyColor(style.border), text = CopyColor(style.text),
             textMode = style.textMode, borderSize = style.borderSize,
+            borderPadding = style.borderPadding,
+            width = tonumber(style.width) and style.width > 0
+                and style.width or currentWidth,
+            height = tonumber(style.height) and style.height > 0
+                and style.height or currentHeight,
+            spacing = style.spacing,
             backgroundMode = style.backgroundMode,
             selectedBackgroundMode = style.selectedBackgroundMode,
             borderMode = style.borderMode }
@@ -286,7 +319,8 @@ NSkin:RegisterOptionGroup("shared.tabAppearance", {
         local changed = SetElementTypography(context, "tab", values,
             { font = "font", size = "textSize", outline = "outline" })
         for _, key in ipairs({ "text", "textMode", "background", "backgroundMode", "selectedBackground",
-            "selectedBackgroundMode", "border", "borderMode", "borderSize" }) do
+            "selectedBackgroundMode", "border", "borderMode", "borderSize",
+            "borderPadding", "width", "height", "spacing" }) do
             if values[key] ~= nil then
                 changed = SetElementValue(context, "tab." .. key, values[key]) or changed
             end
@@ -298,17 +332,18 @@ NSkin:RegisterOptionGroup("shared.tabAppearance", {
             "tab.outlineMode", "tab.font", "tab.textSize", "tab.outline",
             "tab.text", "tab.textMode", "tab.background", "tab.backgroundMode", "tab.selectedBackground",
             "tab.selectedBackgroundMode", "tab.border", "tab.borderMode",
-            "tab.borderSize" })
+            "tab.borderSize", "tab.borderPadding", "tab.width", "tab.height",
+            "tab.spacing" })
     end,
 })
 
 local searchAppearanceControls = {}
 AddTypographyControls(searchAppearanceControls,
     { useGlobal = "useGlobal", font = "font", size = "textSize", outline = "outline" },
-    "Search Text", 1, { type = "COLOR", key = "text", modeKey = "textMode",
+    "Search Text", 2, { type = "COLOR", key = "text", modeKey = "textMode",
         label = "Color" })
 searchAppearanceControls[#searchAppearanceControls + 1] = {
-    type = "SLIDER_PAIR", order = 2, centerReset = true,
+    type = "SLIDER_PAIR", order = 1, centerReset = true,
     resetTooltip = "Reset search text offsets",
     left = { key = "textOffsetX", label = "X offset", min = -50,
         max = 50, step = 0.1, decimals = 1, suffix = " px" },
@@ -318,11 +353,11 @@ searchAppearanceControls[#searchAppearanceControls + 1] = {
 AddTypographyControls(searchAppearanceControls,
     { useGlobal = "placeholderUseGlobal", font = "placeholderFont",
         size = "placeholderSize", outline = "placeholderOutline" },
-    "Placeholder Text", 10,
+    "Placeholder Text", 11,
     { type = "COLOR", key = "placeholderText", modeKey = "placeholderTextMode",
         label = "Color" })
 searchAppearanceControls[#searchAppearanceControls + 1] = {
-    type = "SLIDER_PAIR", order = 11, centerReset = true,
+    type = "SLIDER_PAIR", order = 10, centerReset = true,
     resetTooltip = "Reset placeholder text offsets",
     left = { key = "placeholderOffsetX", label = "X offset", min = -50,
         max = 50, step = 0.1, decimals = 1, suffix = " px" },
@@ -339,12 +374,10 @@ searchAppearanceControls[#searchAppearanceControls + 1] = {
     right = { type = "COLOR", key = "background", modeKey = "backgroundMode",
         label = "Background" },
 }
-searchAppearanceControls[#searchAppearanceControls + 1] = {
-    type = "SLIDER", key = "borderSize", label = "Border size", min = 1,
-    max = 4, step = 1, suffix = " px", order = 22,
-}
+local searchBorderGeometryControls = CreateBorderGeometryControls(21)
+searchAppearanceControls[#searchAppearanceControls + 1] = searchBorderGeometryControls
 local searchSizeControls = {
-    type = "SLIDER_PAIR", order = 23, centerReset = true,
+    type = "SLIDER_PAIR", order = 20, centerReset = true,
     resetTooltip = "Reset search box width and height",
     left = { key = "width", label = "Width", min = 80,
         max = 600, step = 1, decimals = 0, suffix = " px" },
@@ -352,10 +385,8 @@ local searchSizeControls = {
         max = 80, step = 1, decimals = 0, suffix = " px" },
 }
 searchAppearanceControls[#searchAppearanceControls + 1] = searchSizeControls
-local searchBorderAccessoryControls = {
-    type = "SLIDER_DROPDOWN_PAIR", order = 22,
-    left = { key = "borderSize", label = "Border size", min = 1,
-        max = 4, step = 1, decimals = 0, suffix = " px" },
+local searchAccessoryControls = {
+    type = "DROPDOWN_PAIR", order = 22,
     right = { key = "accessoryMode", label = "Search accessory",
         labelWidth = 100, dropdownReduction = 0,
         values = { { value = "GROUPED", label = "Grouped" },
@@ -370,7 +401,7 @@ NSkin:RegisterOptionGroup("shared.searchAppearance", {
             text = CopyColor(style.text), textMode = style.textMode,
             placeholderText = CopyColor(style.placeholderText),
             placeholderTextMode = style.placeholderTextMode,
-            borderSize = style.borderSize,
+            borderSize = style.borderSize, borderPadding = style.borderPadding,
             width = tonumber(style.width) and style.width > 0 and style.width
                 or (context.target and context.target.GetWidth
                     and context.target:GetWidth()),
@@ -399,6 +430,7 @@ NSkin:RegisterOptionGroup("shared.searchAppearance", {
         local mapping = {
             background = "background", backgroundMode = "backgroundMode",
             border = "border", borderMode = "borderMode", borderSize = "borderSize",
+            borderPadding = "borderPadding",
             width = "width", height = "height",
             text = "text", textMode = "textMode",
             textOffsetX = "textOffsetX", textOffsetY = "textOffsetY",
@@ -431,7 +463,8 @@ NSkin:RegisterOptionGroup("shared.searchAppearance", {
             "searchBox.placeholderOutline", "searchBox.placeholderText",
             "searchBox.placeholderTextMode", "searchBox.background",
             "searchBox.backgroundMode", "searchBox.border", "searchBox.borderMode",
-            "searchBox.borderSize", "searchBox.width", "searchBox.height",
+            "searchBox.borderSize", "searchBox.borderPadding",
+            "searchBox.width", "searchBox.height",
             "searchBox.placeholderOffsetX", "searchBox.placeholderOffsetY" })
     end,
 })
@@ -439,8 +472,7 @@ NSkin:RegisterOptionGroup("shared.searchAppearance", {
 local windowAppearanceControls = {
     { type = "SLIDER", key = "backgroundOpacity", label = "Background opacity",
         min = 0, max = 1, step = 0.05, decimals = 2, order = 3 },
-    { type = "SLIDER", key = "borderSize", label = "Border size", min = 1,
-        max = 4, step = 1, suffix = " px", order = 4 },
+    CreateBorderGeometryControls(4),
     { type = "SLIDER", key = "headerOpacity", label = "Header opacity",
         min = 0, max = 1, step = 0.05, decimals = 2, order = 22 },
 }
@@ -470,7 +502,7 @@ NSkin:RegisterOptionGroup("shared.windowAppearance", {
         local values = { background = CopyColor(style.background),
             backgroundOpacity = style.background[4] or 1,
             border = CopyColor(style.border), borderMode = style.borderMode,
-            borderSize = style.borderSize,
+            borderSize = style.borderSize, borderPadding = style.borderPadding,
             headerBackground = CopyColor(style.header.background),
             headerText = CopyColor(style.header.text),
             headerTextMode = style.header.textMode,
@@ -489,6 +521,7 @@ NSkin:RegisterOptionGroup("shared.windowAppearance", {
             ["window.border"] = values.border,
             ["window.borderMode"] = values.borderMode,
             ["window.borderSize"] = values.borderSize,
+            ["window.borderPadding"] = values.borderPadding,
             ["window.header.backgroundMode"] = values.headerBackgroundMode,
             ["window.header.text"] = values.headerText,
             ["window.header.textMode"] = values.headerTextMode,
@@ -514,6 +547,7 @@ NSkin:RegisterOptionGroup("shared.windowAppearance", {
     reset = function(context)
         return ResetElementPaths(context, { "window.background", "window.backgroundMode",
             "window.border", "window.borderMode", "window.borderSize",
+            "window.borderPadding",
             "window.header.background", "window.header.backgroundMode",
             "window.header.text", "window.header.textMode",
             "window.header.fontMode",
@@ -605,12 +639,22 @@ NSkin:RegisterOptionGroupSubset("shared.tabTextAppearance", "shared.tabAppearanc
     FindControl(tabAppearanceControls, "TYPOGRAPHY", nil, "Tab Text"),
 })
 NSkin:RegisterOptionGroupSubset("shared.tabBorderAppearance", "shared.tabAppearance", {
+    tabBorderGeometryControls,
     tabColors.left,
-    FindControl(tabAppearanceControls, "SLIDER", "borderSize"),
 })
 NSkin:RegisterOptionGroupSubset("shared.tabBackgroundAppearance", "shared.tabAppearance", {
     tabColors.right,
     FindControl(tabAppearanceControls, "COLOR", "selectedBackground"),
+})
+NSkin:RegisterOptionGroupSubset("shared.tabSurfaceAppearance", "shared.tabAppearance", {
+    tabSizeControls,
+    tabSpacingControl,
+    tabBorderGeometryControls,
+    { type = "COLOR_PAIR", order = 100,
+        left = tabColors.left, right = tabColors.right },
+    { type = "COLOR", key = "selectedBackground",
+        modeKey = "selectedBackgroundMode", label = "Selected background",
+        order = 101 },
 })
 
 local searchColors = FindControl(searchAppearanceControls, "COLOR_PAIR")
@@ -623,24 +667,33 @@ NSkin:RegisterOptionGroupSubset("shared.placeholderTextAppearance", "shared.sear
     searchAppearanceControls[4],
 })
 NSkin:RegisterOptionGroupSubset("shared.searchBoxAppearance", "shared.searchAppearance", {
-    { type = "COLOR_PAIR", left = searchColors.left, right = searchColors.right },
-    searchBorderAccessoryControls,
     searchSizeControls,
+    searchBorderGeometryControls,
+    searchAccessoryControls,
+    { type = "COLOR_PAIR", order = 100,
+        left = searchColors.left, right = searchColors.right },
 })
 
 local windowColors = FindControl(windowAppearanceControls, "COLOR_PAIR")
 NSkin:RegisterOptionGroupSubset("shared.windowBorderAppearance", "shared.windowAppearance", {
+    FindControl(windowAppearanceControls, "SLIDER_PAIR", nil, nil),
     windowColors.left,
-    FindControl(windowAppearanceControls, "SLIDER", "borderSize"),
 })
 NSkin:RegisterOptionGroupSubset("shared.windowBackgroundAppearance", "shared.windowAppearance", {
-    windowColors.right,
     FindControl(windowAppearanceControls, "SLIDER", "backgroundOpacity"),
+    windowColors.right,
+})
+NSkin:RegisterOptionGroupSubset("shared.windowSurfaceAppearance", "shared.windowAppearance", {
+    FindControl(windowAppearanceControls, "SLIDER_PAIR", nil, nil),
+    FindControl(windowAppearanceControls, "SLIDER", "backgroundOpacity"),
+    { type = "COLOR_PAIR", order = 100,
+        left = windowColors.left, right = windowColors.right },
 })
 NSkin:RegisterOptionGroupSubset("shared.windowHeaderAppearance", "shared.windowAppearance", {
     FindControl(windowAppearanceControls, "TYPOGRAPHY", nil, "Header"),
-    FindControl(windowAppearanceControls, "COLOR", "headerBackground"),
     FindControl(windowAppearanceControls, "SLIDER", "headerOpacity"),
+    { type = "COLOR", key = "headerBackground",
+        modeKey = "headerBackgroundMode", label = "Background", order = 100 },
 })
 
 NSkin:RegisterOptionGroupSubset("shared.headerTextAppearance",
@@ -649,7 +702,8 @@ NSkin:RegisterOptionGroupSubset("shared.headerTextAppearance",
     })
 NSkin:RegisterOptionGroupSubset("shared.headerUnderlineAppearance",
     "shared.sectionHeaderAppearance", {
-        FindControl(headerAppearanceControls, "COLOR", "underline"),
         FindControl(headerAppearanceControls, "CHECKBOX", "underlineVisible"),
         FindControl(headerAppearanceControls, "SLIDER", "underlineSize"),
+        { type = "COLOR", key = "underline", modeKey = "underlineMode",
+            label = "Color", order = 100 },
     })
