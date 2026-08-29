@@ -99,6 +99,40 @@ function NSkin:GetAppearanceStyle(name, windowID, elementID)
     return style
 end
 
+function NSkin:GetResolvedTypography(style, prefix)
+    style = style or {}
+    prefix = prefix or ""
+    local useGlobalKey = prefix == "" and "useGlobalTypography"
+        or (prefix .. "UseGlobalTypography")
+    local fontKey = prefix == "" and "font" or (prefix .. "Font")
+    local sizeKey = prefix == "" and "textSize" or (prefix .. "Size")
+    local outlineKey = prefix == "" and "outline" or (prefix .. "Outline")
+    local global = self:GetStyle("typography")
+    local fontModeKey = prefix == "" and "fontMode" or prefix .. "FontMode"
+    local sizeModeKey = prefix == "" and "sizeMode" or prefix .. "SizeMode"
+    local outlineModeKey = prefix == "" and "outlineMode" or prefix .. "OutlineMode"
+    if style[fontModeKey] or style[sizeModeKey] or style[outlineModeKey] then
+        return style[fontModeKey] == "GLOBAL" and global.font
+                or style[fontKey] or global.font,
+            style[sizeModeKey] == "GLOBAL" and global.size
+                or style[sizeKey] or global.size,
+            style[outlineModeKey] == "GLOBAL" and global.outline
+                or style[outlineKey] or global.outline
+    elseif style[useGlobalKey] == true then
+        return global.font, global.size, global.outline
+    end
+    return style[fontKey] or global.font, style[sizeKey] or global.size,
+        style[outlineKey] or global.outline
+end
+
+function NSkin:GetResolvedAppearanceColor(style, key)
+    local color = style and style[key]
+    if type(color) ~= "table" then return color end
+    if style[key .. "Mode"] ~= "ACCENT" then return color end
+    local accent = self:GetAccentColor()
+    return { accent[1], accent[2], accent[3], color[4] or accent[4] or 1 }
+end
+
 local function GetAppearanceParentValue(scope, id, windowID, path)
     local styleName, relativePath = path:match("^([^.]+)%.(.+)$")
     if not styleName then return nil end
@@ -228,6 +262,23 @@ end
 function NSkin:GetComponentBorderColor(styleName, style)
     if self:IsAccentColorEnabled() then return self:GetAccentColor() end
     return self:GetComponentBorderSetting(styleName, style)
+end
+
+function NSkin:GetAppearanceBorderColor(styleName, style, windowID, elementID)
+    if style and style.borderMode then
+        return self:GetResolvedAppearanceColor(style, "border")
+    end
+    local profile = self:GetProfile()
+    local overrides = profile.appearanceOverrides
+    local elementBorder = elementID and overrides and overrides.elements
+        and overrides.elements[elementID] and overrides.elements[elementID][styleName]
+        and overrides.elements[elementID][styleName].border
+    if elementBorder ~= nil then return style.border end
+    local windowBorder = windowID and overrides and overrides.windows
+        and overrides.windows[windowID] and overrides.windows[windowID][styleName]
+        and overrides.windows[windowID][styleName].border
+    if windowBorder ~= nil then return style.border end
+    return self:GetComponentBorderColor(styleName, style)
 end
 
 function NSkin:SetComponentBorderColor(styleName, color)

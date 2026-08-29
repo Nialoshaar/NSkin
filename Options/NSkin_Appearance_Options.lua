@@ -31,6 +31,40 @@ local function ResetPaths(paths)
     return changed == true
 end
 
+NSkin:RegisterOptionGroup("appearance.typography", {
+    controls = {
+        { type = "DROPDOWN", key = "font", label = "Global font", values = {
+            { value = "Fonts\\FRIZQT__.TTF", label = "Friz Quadrata" },
+            { value = "Fonts\\ARIALN.TTF", label = "Arial Narrow" },
+            { value = "Fonts\\MORPHEUS.TTF", label = "Morpheus" },
+            { value = "Fonts\\SKURRI.TTF", label = "Skurri" },
+        } },
+        { type = "SLIDER", key = "size", label = "Global text size", min = 8,
+            max = 32, step = 1, suffix = " px" },
+        { type = "DROPDOWN", key = "outline", label = "Global outline", values = {
+            { value = "", label = "None" },
+            { value = "OUTLINE", label = "Outline" },
+            { value = "THICKOUTLINE", label = "Thick outline" },
+            { value = "MONOCHROME,OUTLINE", label = "Monochrome outline" },
+        } },
+        { type = "RESET", label = "Reset Typography" },
+    },
+    get = function()
+        local style = NSkin:GetStyle("typography")
+        return { font = style.font, size = style.size, outline = style.outline }
+    end,
+    set = function(_, values)
+        local style = NSkin:GetStyle("typography")
+        local changed = SetScalar("typography.font", style.font, values.font)
+        changed = SetScalar("typography.size", style.size, values.size) or changed
+        changed = SetScalar("typography.outline", style.outline, values.outline) or changed
+        return changed == true
+    end,
+    reset = function()
+        return ResetPaths({ "typography.font", "typography.size", "typography.outline" })
+    end,
+})
+
 NSkin:RegisterOptionGroup("appearance.window", {
     controls = {
         { type = "COLOR", key = "backgroundColor", label = "Window background" },
@@ -243,6 +277,7 @@ local function BuildAppearanceOptions(parent)
     local views = {}
     local y = 38
     local groups = {
+        { "Typography", "appearance.typography" },
         { "Windows", "appearance.window" },
         { "Buttons", "appearance.button" },
         { "Tabs", "appearance.tab" },

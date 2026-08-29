@@ -109,14 +109,26 @@ local function RefreshAllOverlayAppearances()
     end
 end
 
-local function ResizeInspector(view)
+local function ResizeInspector(view, extraHeight)
     local inspector = controller.inspector
-    local contentHeight = view and view:GetHeight() or 1
-    local screenHeight = UIParent:GetHeight() or 700
-    local maximumHeight = math.max(180, math.min(600, screenHeight - 40))
-    inspector:SetHeight(math.min(maximumHeight, math.max(174, contentHeight + 136)))
+    local contentHeight = (view and view:GetHeight() or 1) + (extraHeight or 0)
+    inspector:SetHeight(math.max(122, contentHeight + 59))
     controller.scrollChild:SetHeight(math.max(1, contentHeight))
     controller.scrollFrame:SetVerticalScroll(0)
+end
+
+local RefreshInspector
+
+local function SetInspectorTextWhite(frame)
+    if not frame then return end
+    for _, region in ipairs({ frame:GetRegions() }) do
+        if region.GetObjectType and region:GetObjectType() == "FontString" then
+            region:SetTextColor(1, 1, 1, 1)
+        end
+    end
+    for _, child in ipairs({ frame:GetChildren() }) do
+        SetInspectorTextWhite(child)
+    end
 end
 
 local function LoadEditorOptions(element)
@@ -124,34 +136,121 @@ local function LoadEditorOptions(element)
         view:SetContext(nil)
         view:Hide()
     end
-    local id = element and element.editorOptions
-    if not id then
+    for i = 1, #controller.editorSections do
+        local section = controller.editorSections[i]
+        section:Hide()
+    end
+
+    local editorOptions = element and element.editorOptions
+    if not editorOptions then
         ResizeInspector(nil)
         return
     end
-    local view = controller.optionViews[id]
-    if not view then
-        view = NSkin:CreateOptionGroupView(controller.scrollChild, id, "COMPACT", element)
-        if not view then
-            ResizeInspector(nil)
-            return
-        end
-        view:SetPoint("TOPLEFT", controller.scrollChild, "TOPLEFT", 0, 0)
-        controller.optionViews[id] = view
-    else
-        view:SetContext(element)
+    local groups
+    if type(editorOptions) == "string" then
+        groups = { { id = editorOptions } }
+    elseif type(editorOptions) == "table" then
+        groups = editorOptions
     end
-    view:Show()
-    ResizeInspector(view)
+    if not groups or #groups == 0 then
+        ResizeInspector(nil)
+        return
+    end
+
+    local y = 8
+    local sectionIndex = 0
+    for i = 1, #groups do
+        local definition = groups[i]
+        local label = type(definition) == "table" and definition.label
+        local id = type(definition) == "table" and definition.id or definition
+        if type(id) == "string" and (label == "Layout" or label == "Position") then
+            local view = controller.optionViews[id]
+            if not view then
+                view = NSkin:CreateOptionGroupView(
+                    controller.scrollChild, id, "COMPACT", element)
+                controller.optionViews[id] = view
+            else
+                view:SetContext(element)
+            end
+            if view then
+                view:ClearAllPoints()
+                view:SetPoint("TOPLEFT", controller.scrollChild, "TOPLEFT", 24, -y)
+                view:Show()
+                y = y + view:GetHeight() + 8
+            end
+        end
+    end
+
+    for i = 1, #groups do
+        local definition = groups[i]
+        local label = type(definition) == "table" and definition.label
+        local id = type(definition) == "table" and definition.id or definition
+        if type(id) == "string" and label ~= "Layout" and label ~= "Position" then
+            sectionIndex = sectionIndex + 1
+            local section = controller.editorSections[sectionIndex]
+            if not section then
+                section = CreateFrame("Button", nil, controller.scrollChild)
+                section:SetHeight(40)
+                section.label = section:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+                section.label:SetPoint("LEFT", section, "LEFT", 12, 0)
+                section.icon = section:CreateTexture(nil, "OVERLAY")
+                section.icon:SetSize(18, 18)
+                section.icon:SetPoint("RIGHT", section, "RIGHT", -12, 0)
+                section.icon:SetTexture(
+                    "Interface\\AddOns\\NSkin\\Media\\angle-small-down.png")
+                NSkin:CreateFlatBackground(section, nil,
+                    { 0, 0, 0, 0 }, NSkin:GetAccentColor())
+                section:SetScript("OnClick", function(self)
+                    controller.expandedEditorSections[self.sectionKey] =
+                        not controller.expandedEditorSections[self.sectionKey]
+                    RefreshInspector()
+                end)
+                controller.editorSections[sectionIndex] = section
+            end
+            local key = element.id .. "\031" .. id
+            local expanded = controller.expandedEditorSections[key] == true
+            section.sectionKey = key
+            section.label:SetText(type(definition) == "table"
+                and (definition.label or id) or "Options")
+            section.icon:SetRotation(expanded and math.pi or 0)
+            NSkin:SetPixelBorderColor(
+                NSkin:GetPixelBorder(section, "NSkinFlatBackgroundBorder"),
+                unpack(NSkin:GetAccentColor()))
+            section:ClearAllPoints()
+            section:SetPoint("TOPLEFT", controller.scrollChild, "TOPLEFT", 0, -y)
+            section:SetPoint("RIGHT", controller.scrollChild, "RIGHT", 0, 0)
+            section:Show()
+            y = y + 39
+
+            if expanded then
+                local view = controller.optionViews[id]
+                if not view then
+                    view = NSkin:CreateOptionGroupView(
+                        controller.scrollChild, id, "COMPACT", element)
+                    controller.optionViews[id] = view
+                else
+                    view:SetContext(element)
+                end
+                if view then
+                    view:ClearAllPoints()
+                    view:SetPoint("TOPLEFT", controller.scrollChild, "TOPLEFT", 24, -y - 8)
+                    view:Show()
+                    y = y + view:GetHeight() + 16
+                end
+            end
+        end
+    end
+    ResizeInspector(nil, y)
 end
 
-local function RefreshInspector()
+RefreshInspector = function()
     if not controller then return end
     local element = controller.selectedElement
     controller.inspector.selection:SetText(
         element and ("Selected: " .. (element.label or element.id)) or "Select an element"
     )
     LoadEditorOptions(element)
+    SetInspectorTextWhite(controller.inspector)
 end
 
 local function DockInspector(element)
@@ -630,6 +729,8 @@ local function CreateController()
     if controller then return controller end
     controller = {
         optionViews = {},
+        editorSections = {},
+        expandedEditorSections = {},
         overlays = {},
         overlayElements = {},
         gridPools = setmetatable({}, { __mode = "k" }),
@@ -638,9 +739,12 @@ local function CreateController()
     }
 
     local inspector = CreateFrame("Frame", nil, UIParent)
-    inspector:SetSize(250, 130)
+    inspector:SetSize(480, 130)
     inspector:SetFrameStrata("DIALOG")
-    NSkin:SkinWindow(inspector)
+    local inspectorBackground = NSkin:SkinWindow(inspector)
+    if inspectorBackground then
+        inspectorBackground:SetColorTexture(0.025, 0.055, 0.10, 1)
+    end
     NSkin:SkinWindowHeader(inspector)
     CreateLabel(inspector, "Skinning Mode", "TOPLEFT", inspector, "TOPLEFT", 12, -5)
     local close = CreateButton(inspector, "x", 22, function()
@@ -650,41 +754,13 @@ local function CreateController()
     inspector.selection = CreateLabel(
         inspector, "Select an element", "TOPLEFT", inspector, "TOPLEFT", 12, -34
     )
-    local gridLabel = CreateLabel(
-        inspector, "Grid size", "TOPLEFT", inspector, "TOPLEFT", 12, -58
-    )
-    local gridDropdown = CreateFrame(
-        "DropdownButton", nil, inspector, "WowStyle1DropdownTemplate"
-    )
-    gridDropdown:SetSize(110, 24)
-    gridDropdown:SetPoint("LEFT", gridLabel, "RIGHT", 8, 0)
-    gridDropdown:SetDefaultText("8 px")
-    gridDropdown:SetupMenu(function(_, rootDescription)
-        for i = 1, #GRID_SIZES do
-            local size = GRID_SIZES[i]
-            rootDescription:CreateRadio(size .. " px",
-                function(value) return NSkin:GetSkinningGridSize() == value end,
-                function(value) NSkin:SetSkinningGridSize(value) end, size)
-        end
-    end)
-    controller.gridDropdown = gridDropdown
-    local gridHint = CreateLabel(
-        inspector, "Hold Shift for free movement", "TOPLEFT", inspector, "TOPLEFT", 12, -84
-    )
-    gridHint:SetFontObject(GameFontHighlightSmall)
     controller.inspector = inspector
 
     local scrollFrame = CreateFrame("ScrollFrame", nil, inspector)
-    scrollFrame:SetPoint("TOPLEFT", inspector, "TOPLEFT", 24, -110)
-    scrollFrame:SetPoint("BOTTOMRIGHT", inspector, "BOTTOMRIGHT", -24, 14)
-    scrollFrame:EnableMouseWheel(true)
-    scrollFrame:SetScript("OnMouseWheel", function(self, delta)
-        local maximum = math.max(0, controller.scrollChild:GetHeight() - self:GetHeight())
-        self:SetVerticalScroll(math.max(0, math.min(maximum,
-            self:GetVerticalScroll() - delta * 30)))
-    end)
+    scrollFrame:SetPoint("TOPLEFT", inspector, "TOPLEFT", 1, -58)
+    scrollFrame:SetPoint("BOTTOMRIGHT", inspector, "BOTTOMRIGHT", -1, 1)
     local scrollChild = CreateFrame("Frame", nil, scrollFrame)
-    scrollChild:SetSize(202, 1)
+    scrollChild:SetSize(478, 1)
     scrollFrame:SetScrollChild(scrollChild)
     controller.scrollFrame = scrollFrame
     controller.scrollChild = scrollChild

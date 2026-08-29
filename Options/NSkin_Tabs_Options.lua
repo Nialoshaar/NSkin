@@ -2,59 +2,23 @@ local _, NSkin = ...
 
 local function CreateTabControls(includeSpacing)
     local controls = {
-        {
-            type = "DROPDOWN",
-            key = "edge",
-            label = "Window edge",
-            order = 1,
-            values = {
+        { type = "DROPDOWN_PAIR", order = 1,
+            left = { key = "edge", label = "Window edge", values = {
                 { value = "TOP", label = "Top" },
-                { value = "BOTTOM", label = "Bottom" },
-            },
-        },
-        {
-            type = "DROPDOWN",
-            key = "side",
-            label = "Border side",
-            order = 2,
-            values = {
+                { value = "BOTTOM", label = "Bottom" } } },
+            right = { key = "side", label = "Border side", values = {
                 { value = "INSIDE", label = "Inside" },
-                { value = "OUTSIDE", label = "Outside" },
-            },
-        },
-        {
-            type = "DROPDOWN",
-            key = "alignment",
-            label = "Alignment",
-            order = 3,
-            values = {
+                { value = "OUTSIDE", label = "Outside" } } } },
+        { type = "DROPDOWN_PAIR", order = 2,
+            left = { key = "alignment", label = "Alignment", values = {
                 { value = "LEFT", label = "Left" },
                 { value = "CENTER", label = "Center" },
-                { value = "RIGHT", label = "Right" },
-            },
-        },
-        {
-            type = "SLIDER",
-            key = "alongOffset",
-            label = "X offset",
-            min = -2000,
-            max = 2000,
-            step = 0.1,
-            decimals = 1,
-            suffix = " px",
-            order = 4,
-        },
-        {
-            type = "SLIDER",
-            key = "edgeOffset",
-            label = "Y offset",
-            min = -2000,
-            max = 2000,
-            step = 0.1,
-            decimals = 1,
-            suffix = " px",
-            order = 5,
-        },
+                { value = "RIGHT", label = "Right" } } } },
+        { type = "SLIDER_PAIR", order = 3,
+            left = { key = "alongOffset", label = "X offset", min = -200,
+                max = 200, step = 0.1, decimals = 1, suffix = " px" },
+            right = { key = "edgeOffset", label = "Y offset", min = -200,
+                max = 200, step = 0.1, decimals = 1, suffix = " px" } },
     }
     if includeSpacing then
         controls[#controls + 1] = {

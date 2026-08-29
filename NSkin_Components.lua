@@ -143,7 +143,7 @@ function NSkin:SkinFlatButton(button, label, backgroundColor, borderColor,
     if text then text:SetTextColor(unpack(style.text)) end
 end
 
-function NSkin:SkinSearchBox(searchBox, style)
+function NSkin:SkinSearchBox(searchBox, style, borderColor)
     if not searchBox then return end
 
     local searchIcon = searchBox.SearchIcon or searchBox.searchIcon
@@ -152,12 +152,42 @@ function NSkin:SkinSearchBox(searchBox, style)
     end
     style = style or self:GetStyle("searchBox")
     self:CreateFlatBackground(
-        searchBox, nil, style.background, self:GetComponentBorderColor("searchBox", style)
+        searchBox, nil, self:GetResolvedAppearanceColor(style, "background"),
+        borderColor or self:GetResolvedAppearanceColor(style, "border")
+            or self:GetComponentBorderColor("searchBox", style)
     )
-    if searchBox.SetTextColor then searchBox:SetTextColor(unpack(style.text)) end
+    self:SetPixelBorderSize(
+        self:GetPixelBorder(searchBox, "NSkinFlatBackgroundBorder"),
+        style.borderSize or 1
+    )
+    if searchBox.SetTextColor then
+        searchBox:SetTextColor(unpack(self:GetResolvedAppearanceColor(style, "text")))
+    end
+    local font, size, outline = self:GetResolvedTypography(style)
+    if searchBox.SetFont and font and size then searchBox:SetFont(font, size, outline) end
     local instructions = searchBox.Instructions or searchBox.instructions
     if instructions then
-        instructions:SetTextColor(unpack(style.placeholderText))
+        instructions:SetTextColor(unpack(
+            self:GetResolvedAppearanceColor(style, "placeholderText")))
+        local placeholderFont, placeholderSize, placeholderOutline =
+            self:GetResolvedTypography(style, "placeholder")
+        if instructions.SetFont and placeholderFont and placeholderSize then
+            instructions:SetFont(placeholderFont, placeholderSize, placeholderOutline)
+        end
+        local data = self:GetSkinData(instructions, COMPONENT_STATE)
+        if not data.searchPlaceholderPoints then
+            data.searchPlaceholderPoints = {}
+            for i = 1, instructions:GetNumPoints() do
+                data.searchPlaceholderPoints[i] = { instructions:GetPoint(i) }
+            end
+        end
+        instructions:ClearAllPoints()
+        for i = 1, #data.searchPlaceholderPoints do
+            local point = data.searchPlaceholderPoints[i]
+            instructions:SetPoint(point[1], point[2], point[3],
+                (point[4] or 0) + (style.placeholderOffsetX or 0),
+                (point[5] or 0) + (style.placeholderOffsetY or 0))
+        end
     end
     if searchIcon then searchIcon:Show() end
 end
@@ -195,10 +225,10 @@ end
 
 -- Windows Skinning
 
-function NSkin:SkinWindow(frame, backgroundAnchor)
+function NSkin:SkinWindow(frame, backgroundAnchor, style, borderColor)
     if not frame then return nil end
 
-    local style = self:GetStyle("window")
+    style = style or self:GetStyle("window")
     local anchor = backgroundAnchor or frame
     local data = self:GetSkinData(frame, COMPONENT_STATE)
     local background = data.windowBackground
@@ -207,20 +237,21 @@ function NSkin:SkinWindow(frame, backgroundAnchor)
         background:SetAllPoints(anchor)
         data.windowBackground = background
     end
-    background:SetColorTexture(unpack(style.background))
+    background:SetColorTexture(unpack(self:GetResolvedAppearanceColor(style, "background")))
 
     local border = self:CreatePixelBorder(
-        frame, "NSkinWindowBorder", style.borderSize, self:GetWindowBorderColor(), false, anchor
+        frame, "NSkinWindowBorder", style.borderSize,
+        borderColor or self:GetWindowBorderColor(), false, anchor
     )
     self:SetPixelBorderSize(border, style.borderSize)
-    self:SetPixelBorderColor(border, unpack(self:GetWindowBorderColor()))
+    self:SetPixelBorderColor(border, unpack(borderColor or self:GetWindowBorderColor()))
     return background, border
 end
 
-function NSkin:SkinWindowHeader(frame)
+function NSkin:SkinWindowHeader(frame, style)
     if not frame then return nil end
 
-    local style = self:GetStyle("window").header
+    style = style or self:GetStyle("window").header
     local data = self:GetSkinData(frame, COMPONENT_STATE)
     local background = data.windowHeaderBackground
     if not background then
@@ -230,7 +261,7 @@ function NSkin:SkinWindowHeader(frame)
         data.windowHeaderBackground = background
     end
     background:SetHeight(style.height)
-    background:SetColorTexture(unpack(style.background))
+    background:SetColorTexture(unpack(self:GetResolvedAppearanceColor(style, "background")))
     return background
 end
 
@@ -240,7 +271,7 @@ local function RefreshTabSelection(tab, selected)
     NSkin:SkinTab(tab, selected)
 end
 
-function NSkin:SkinTab(tab, selected, style)
+function NSkin:SkinTab(tab, selected, style, borderColor)
     if not tab then return end
     style = style or self:GetStyle("tab")
 
@@ -251,16 +282,25 @@ function NSkin:SkinTab(tab, selected, style)
         end
         self:HideTextureRegions(tab)
         background = self:CreateFlatBackground(tab, nil, style.background,
-            self:GetComponentBorderColor("tab", style))
+            borderColor or self:GetResolvedAppearanceColor(style, "border")
+                or self:GetComponentBorderColor("tab", style))
     end
 
     self:CreateFlatButtonGlow(tab, style.hoverAlpha)
     self:SetPixelBorderColor(self:GetPixelBorder(tab, "NSkinFlatBackgroundBorder"),
-        unpack(self:GetComponentBorderColor("tab", style)))
+        unpack(borderColor or self:GetResolvedAppearanceColor(style, "border")
+            or self:GetComponentBorderColor("tab", style)))
+    self:SetPixelBorderSize(self:GetPixelBorder(tab, "NSkinFlatBackgroundBorder"),
+        style.borderSize or 1)
     background:SetColorTexture(unpack(
-        selected and style.selectedBackground or style.background
+        selected and self:GetResolvedAppearanceColor(style, "selectedBackground")
+            or self:GetResolvedAppearanceColor(style, "background")
     ))
-    if tab.Text then tab.Text:SetTextColor(unpack(style.text)) end
+    if tab.Text then
+        tab.Text:SetTextColor(unpack(self:GetResolvedAppearanceColor(style, "text")))
+        local font, size, outline = self:GetResolvedTypography(style)
+        if font and size then tab.Text:SetFont(font, size, outline) end
+    end
 end
 
 function NSkin:LayoutTabGroup(tabs, options)
@@ -409,14 +449,14 @@ function NSkin:LayoutTabSystem(tabSystem, options)
     return true
 end
 
-function NSkin:SkinTabSystem(tabSystem, style)
+function NSkin:SkinTabSystem(tabSystem, style, borderColor)
     if not tabSystem or not tabSystem.tabs then return end
     style = style or self:GetStyle("tab")
 
     for i = 1, #tabSystem.tabs do
         local tab = tabSystem.tabs[i]
         local selected = tab and tab.IsSelected and tab:IsSelected()
-        self:SkinTab(tab, selected, style)
+        self:SkinTab(tab, selected, style, borderColor)
     end
 end
 
@@ -954,7 +994,10 @@ function NSkin:RegisterPaginationGroup(definition)
     local textDefinition = elementDefinitions.text or {}
     controller.groupedRegions = { controls.previous, controls.next }
     controller.groupedRegionsWithText = { controls.previous, controls.text, controls.next }
-    local editorOptions = definition.editorOptions or "shared.pagination"
+    local editorOptions = definition.editorOptions or {
+        { id = "shared.paginationLayout", label = "Layout" },
+        { id = "shared.paginationPosition", label = "Position" },
+    }
     local defaultPlacement = definition.defaultPlacement
     local group = RegisterControllerElement(controller, ids.group,
         definition.groupLabel or "Pagination", controls.group, {
@@ -1103,7 +1146,13 @@ function NSkin:RegisterAccessoryGroup(definition)
     local accessoryDefinition = elementDefinitions.accessory or {}
     controller.groupedHighlightRegions = { controller.primary, controller.accessory }
     controller.primaryHighlightRegion = { controller.primary }
-    local editorOptions = definition.editorOptions or "shared.search"
+    local editorOptions = definition.editorOptions or {
+        { id = "shared.searchBoxAppearance", label = "Search Box" },
+        { id = "shared.searchTextAppearance", label = "Search Text" },
+        { id = "shared.placeholderTextAppearance", label = "Placeholder Text" },
+        { id = "shared.searchLayout", label = "Layout" },
+        { id = "shared.searchPosition", label = "Position" },
+    }
     local accessory = RegisterControllerElement(controller, definition.ids.accessory,
         definition.accessoryLabel or "Search accessory", definition.accessory, {
             editorOptions = accessoryDefinition.editorOptions or editorOptions,
