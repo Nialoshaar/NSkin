@@ -4,6 +4,7 @@
 ## Author: Nialoshaar
 ## Version: 2.0.0
 ## SavedVariables: NSkinDB
+## OptionalDeps: LibSharedMedia-3.0, SharedMedia
 ## IconTexture: Interface\AddOns\NSkin\Media\Icon.tga
 
 NSkin_Core.lua

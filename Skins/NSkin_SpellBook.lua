@@ -801,11 +801,14 @@ function SpellBookSkin:Initialize()
     NSkin:RegisterTabGroup(TAB_GROUP_ID, {
         label = "Spellbook tabs",
         kind = "TAB_GROUP",
+        module = "SpellBook",
+        appearanceWindowID = "SpellBook",
         editorOptions = {
-            { id = "tabs.layout", label = "Position" },
+            { id = "tabs.layout", label = "Position",
+                presentation = "INLINE", category = "POSITION" },
             { id = "shared.tabTextAppearance", label = "Tab Text" },
             { id = "shared.tabSurfaceAppearance", label = "Tab appearance",
-                inline = true },
+                presentation = "INLINE", category = "APPEARANCE" },
         },
         independentPlacement = true,
         movable = true,
@@ -829,11 +832,14 @@ function SpellBookSkin:Initialize()
     NSkin:RegisterTabGroup(CATEGORY_TAB_GROUP_ID, {
         label = "Spellbook class tabs",
         kind = "TAB_GROUP",
+        module = "SpellBook",
+        appearanceWindowID = "SpellBook",
         editorOptions = {
-            { id = "tabs.layout", label = "Position" },
+            { id = "tabs.layout", label = "Position",
+                presentation = "INLINE", category = "POSITION" },
             { id = "shared.tabTextAppearance", label = "Tab Text" },
             { id = "shared.tabSurfaceAppearance", label = "Tab appearance",
-                inline = true },
+                presentation = "INLINE", category = "APPEARANCE" },
         },
         independentPlacement = true,
         movable = true,
@@ -853,13 +859,16 @@ function SpellBookSkin:Initialize()
     NSkin:RegisterSkinningElement(WINDOW_ELEMENT_ID, {
         label = "Spellbook window",
         kind = "WINDOW",
+        module = "SpellBook",
+        appearanceWindowID = "SpellBook",
         window = playerSpells,
         target = playerSpells,
         priority = 0,
         editorOptions = {
-            { id = "spellbook.iconDisposition", label = "Layout" },
+            { id = "spellbook.iconDisposition", label = "Layout",
+                presentation = "INLINE", category = "LAYOUT" },
             { id = "shared.windowSurfaceAppearance", label = "Window appearance",
-                inline = true },
+                presentation = "INLINE", category = "APPEARANCE" },
             { id = "shared.windowHeaderAppearance", label = "Header" },
         },
     })
@@ -869,12 +878,14 @@ function SpellBookSkin:Initialize()
         label = "Spellbook class/spec headers",
         kind = "SECTION_HEADERS",
         module = "SpellBook",
+        appearanceWindowID = "SpellBook",
         window = playerSpells,
         target = pagedSpells,
         priority = 70,
         draggable = false,
         editorOptions = {
-            { id = "shared.sectionHeaderPlacement", label = "Position" },
+            { id = "shared.sectionHeaderPlacement", label = "Position",
+                presentation = "INLINE", category = "POSITION" },
             { id = "shared.headerTextAppearance", label = "Header Text" },
             { id = "shared.headerUnderlineAppearance", label = "Underline" },
         },
@@ -916,7 +927,8 @@ function SpellBookSkin:Initialize()
     local defaultBottom = { edge = "BOTTOM", side = "INSIDE", alignment = "RIGHT",
         alongOffset = -20, edgeOffset = 20 }
     spellBookSearchController = NSkin:RegisterAccessoryGroup({
-        module = "SpellBook", window = playerSpells,
+        module = "SpellBook", appearanceWindowID = "SpellBook",
+        window = playerSpells,
         ids = { primary = SEARCH_ELEMENT_ID, accessory = SEARCH_COG_ELEMENT_ID },
         primary = spellBook.SearchBox, accessory = spellBook.SettingsDropdown,
         primaryLabel = "Spellbook search", accessoryLabel = "Spellbook search cog",
@@ -924,8 +936,10 @@ function SpellBookSkin:Initialize()
         legacyOptionKey = "searchCogMode", snapTarget = true,
         visibilityFrame = spellBook,
         editorOptions = {
-            { id = "shared.searchPosition", label = "Position" },
-            { id = "shared.searchBoxAppearance", label = "Search Box", inline = true },
+            { id = "shared.searchPosition", label = "Position",
+                presentation = "INLINE", category = "POSITION" },
+            { id = "shared.searchBoxAppearance", label = "Search Box",
+                presentation = "INLINE", category = "APPEARANCE" },
             { id = "shared.searchTextAppearance", label = "Search Text" },
             { id = "shared.placeholderTextAppearance", label = "Placeholder Text" },
         },
@@ -937,7 +951,8 @@ function SpellBookSkin:Initialize()
         end,
     })
     spellBookPaginationController = NSkin:RegisterPaginationGroup({
-        module = "SpellBook", window = playerSpells,
+        module = "SpellBook", appearanceWindowID = "SpellBook",
+        window = playerSpells,
         ids = { group = PAGINATION_ELEMENT_ID, previous = PREVIOUS_ELEMENT_ID,
             next = NEXT_ELEMENT_ID, text = PAGE_TEXT_ELEMENT_ID },
         controls = { group = pagingControls,

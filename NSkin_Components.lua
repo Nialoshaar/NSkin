@@ -59,7 +59,7 @@ function NSkin:CreateOptionsSlider(parent, options)
     local track = slider:CreateTexture(nil, "BACKGROUND")
     track:SetPoint("LEFT", slider, "LEFT", 0, 0)
     track:SetPoint("RIGHT", slider, "RIGHT", 0, 0)
-    track:SetHeight(2)
+    track:SetHeight(4)
     track:SetColorTexture(0.35, 0.35, 0.35, 1)
 
     local accent = self:GetAccentColor()
@@ -77,7 +77,7 @@ function NSkin:CreateOptionsSlider(parent, options)
 
     local fill = slider:CreateTexture(nil, "ARTWORK")
     fill:SetPoint("LEFT", slider, "LEFT", 0, 0)
-    fill:SetHeight(2)
+    fill:SetHeight(4)
     fill:SetColorTexture(unpack(accent))
 
     slider:SetThumbTexture("Interface\\Buttons\\WHITE8X8")
@@ -676,6 +676,7 @@ function NSkin:RegisterSkinningElement(elementID, definition)
 
     definition.window = definition.window or definition.owner
     definition.target = definition.target or definition.container or definition.owner
+    definition.appearanceWindowID = definition.appearanceWindowID or definition.module
     definition.owner = nil
     definition.priority = tonumber(definition.priority) or 0
     definition.highlightPadding = tonumber(definition.highlightPadding) or 0
@@ -1018,6 +1019,7 @@ local function RegisterControllerElement(controller, id, label, target, options)
     NSkin:RegisterMovableElement({
         id = id,
         module = controller.module,
+        appearanceWindowID = controller.appearanceWindowID or controller.module,
         label = label,
         window = controller.window,
         target = target,
@@ -1046,7 +1048,9 @@ function NSkin:RegisterPaginationGroup(definition)
         or not controls.group or not controls.previous or not controls.next
         or not controls.text
     then return end
-    local controller = { module = definition.module, window = definition.window,
+    local controller = { module = definition.module,
+        appearanceWindowID = definition.appearanceWindowID or definition.module,
+        window = definition.window,
         id = definition.id or ids.group, ids = ids, controls = controls }
     local legacySeparateKey = definition.legacySeparateOptionKey
     local legacyTextKey = definition.legacyTextOptionKey
@@ -1135,8 +1139,10 @@ function NSkin:RegisterPaginationGroup(definition)
     controller.groupedRegions = { controls.previous, controls.next }
     controller.groupedRegionsWithText = { controls.previous, controls.text, controls.next }
     local editorOptions = definition.editorOptions or {
-        { id = "shared.paginationPosition", label = "Position" },
-        { id = "shared.paginationLayout", label = "Layout" },
+        { id = "shared.paginationPosition", label = "Position",
+            presentation = "INLINE", category = "POSITION" },
+        { id = "shared.paginationLayout", label = "Layout",
+            presentation = "INLINE", category = "LAYOUT" },
     }
     local defaultPlacement = definition.defaultPlacement
     local group = RegisterControllerElement(controller, ids.group,
@@ -1210,7 +1216,9 @@ function NSkin:RegisterAccessoryGroup(definition)
         or type(definition.ids) ~= "table" or not definition.ids.primary
         or not definition.ids.accessory or type(definition.anchorGrouped) ~= "function"
     then return end
-    local controller = { module = definition.module, window = definition.window,
+    local controller = { module = definition.module,
+        appearanceWindowID = definition.appearanceWindowID or definition.module,
+        window = definition.window,
         id = definition.id or definition.ids.primary, ids = definition.ids,
         primary = definition.primary, accessory = definition.accessory }
     local legacyOptionKey = definition.legacyOptionKey
@@ -1295,8 +1303,10 @@ function NSkin:RegisterAccessoryGroup(definition)
     controller.groupedHighlightRegions = { controller.primary, controller.accessory }
     controller.primaryHighlightRegion = { controller.primary }
     local editorOptions = definition.editorOptions or {
-        { id = "shared.searchPosition", label = "Position" },
-        { id = "shared.searchBoxAppearance", label = "Search Box", inline = true },
+        { id = "shared.searchPosition", label = "Position",
+            presentation = "INLINE", category = "POSITION" },
+        { id = "shared.searchBoxAppearance", label = "Search Box",
+            presentation = "INLINE", category = "APPEARANCE" },
         { id = "shared.searchTextAppearance", label = "Search Text" },
         { id = "shared.placeholderTextAppearance", label = "Placeholder Text" },
     }
@@ -1507,7 +1517,8 @@ function NSkin:ApplyTabGroupPlacement(group, placement, applyOptions)
     options.owner = group.window
     options.edge = group.edge
     options.orientation = group.orientation
-    local tabStyle = self:GetAppearanceStyle("tab", group.module, group.id)
+    local tabStyle = self:GetAppearanceStyle(
+        "tab", group.appearanceWindowID or group.module, group.id)
     options.spacing = tonumber(tabStyle and tabStyle.spacing) or self:GetTabSpacing()
     options.placement = placement
     local applied

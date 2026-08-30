@@ -38,7 +38,7 @@ local function BuildBorderOptions(parent)
     if reset:GetFontString() then reset:GetFontString():SetAlpha(0) end
 
     NSkin:CreateOptionsSection(page, "Accent", 170)
-    local accentToggle = CreateFrame("CheckButton", nil, page, "UICheckButtonTemplate")
+    local accentToggle = NSkin:CreateOwnedOptionsCheckbox(page)
     accentToggle:SetPoint("TOPLEFT", page, "TOPLEFT", -4, -202)
     if accentToggle.Text then
         accentToggle.Text:SetText("Use accent for shared controls and progress bars")

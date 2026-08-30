@@ -192,17 +192,27 @@ local function ResetAppearanceOverride(scope, id, path)
     local profile = NSkin:GetProfile()
     local scopes = profile.appearanceOverrides
     local overrides = scopes and scopes[scope] and scopes[scope][id]
-    if not overrides then return true end
+    if not overrides then return false end
+    local changed
     if path == nil then
         scopes[scope][id] = nil
+        changed = true
     else
-        local styleName, relativePath = path:match("^([^.]+)%.(.+)$")
-        local styleOverrides = styleName and overrides[styleName]
-        if styleOverrides then
-            local _, parent, key = GetPath(styleOverrides, relativePath, false)
-            if parent then parent[key] = nil end
+        local paths = type(path) == "table" and path or { path }
+        for i = 1, #paths do
+            local styleName, relativePath = paths[i]:match("^([^.]+)%.(.+)$")
+            local styleOverrides = styleName and overrides[styleName]
+            if styleOverrides then
+                local current, parent, key = GetPath(
+                    styleOverrides, relativePath, false)
+                if parent and current ~= nil then
+                    parent[key] = nil
+                    changed = true
+                end
+            end
         end
     end
+    if not changed then return false end
     PruneEmptyTables(profile.appearanceOverrides)
     if not next(profile.appearanceOverrides) then profile.appearanceOverrides = nil end
     NSkin:RefreshTheme()
@@ -223,6 +233,10 @@ end
 
 function NSkin:ResetElementAppearanceOverride(elementID, path)
     return ResetAppearanceOverride("elements", elementID, path)
+end
+
+function NSkin:ResetElementAppearanceOverrides(elementID, paths)
+    return ResetAppearanceOverride("elements", elementID, paths)
 end
 
 function NSkin:GetBorderAccentColor()

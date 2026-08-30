@@ -4,6 +4,7 @@ local controller
 local GRID_SIZES = { 2, 4, 8, 16 }
 local VALID_GRID_SIZES = { [2] = true, [4] = true, [8] = true, [16] = true }
 local TRANSPARENT = { 0, 0, 0, 0 }
+local RESET_CONFIRMATION_DIALOG = "NSKIN_CONFIRM_INHERITED_RESET"
 local StopDrag
 local RefreshGrid
 local HideGrid
@@ -40,6 +41,7 @@ local function CreateLabel(parent, text, point, relativeTo, relativePoint, x, y)
     local label = parent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     label:SetPoint(point, relativeTo or parent, relativePoint or point, x or 0, y or 0)
     label:SetText(text)
+    label:SetTextColor(1, 1, 1, 1)
     return label
 end
 
@@ -112,12 +114,31 @@ end
 local function ResizeInspector(view, extraHeight)
     local inspector = controller.inspector
     local contentHeight = (view and view:GetHeight() or 1) + (extraHeight or 0)
-    inspector:SetHeight(math.max(122, contentHeight + 59))
-    controller.scrollChild:SetHeight(math.max(1, contentHeight))
-    controller.scrollFrame:SetVerticalScroll(0)
+    local screenLimit = (UIParent:GetHeight() or 768) - 40
+    local anchoredLimit = (inspector:GetTop() or screenLimit) - 20
+    local maximumHeight = math.max(122, math.min(screenLimit, anchoredLimit))
+    local inspectorHeight = NSkin:SnapToPhysicalPixel(inspector,
+        math.max(122, math.min(contentHeight + 59, maximumHeight)))
+    local snappedContentHeight = NSkin:SnapToPhysicalPixel(
+        controller.scrollChild, math.max(1, contentHeight))
+    inspector:SetHeight(inspectorHeight)
+    controller.scrollChild:SetHeight(snappedContentHeight)
+    if controller.scrollFrame.UpdateScrollChildRect then
+        controller.scrollFrame:UpdateScrollChildRect()
+    end
+    local range = controller.scrollFrame:GetVerticalScrollRange() or 0
+    if contentHeight + 59 <= maximumHeight then
+        controller.scrollFrame:SetVerticalScroll(0)
+    elseif controller.scrollFrame:GetVerticalScroll() > range then
+        controller.scrollFrame:SetVerticalScroll(range)
+    end
 end
 
 local RefreshInspector
+
+local function SnapInspectorOffset(value)
+    return NSkin:SnapToPhysicalPixel(controller.scrollChild, value)
+end
 
 local function SetInspectorTextWhite(frame)
     if not frame then return end
@@ -157,16 +178,15 @@ local function LoadEditorOptions(element)
         return
     end
 
-    local y = 8
+    local y = SnapInspectorOffset(8)
     local sectionIndex = 0
     for i = 1, #groups do
         local definition = groups[i]
         local label = type(definition) == "table" and definition.label
         local id = type(definition) == "table" and definition.id or definition
-        local inline = type(definition) == "table" and definition.inline == true
-        if type(id) == "string"
-            and (inline or label == "Layout" or label == "Position")
-        then
+        local inline = type(definition) == "table"
+            and (definition.presentation == "INLINE" or definition.inline == true)
+        if type(id) == "string" and inline then
             local view = controller.optionViews[id]
             if not view then
                 view = NSkin:CreateOptionGroupView(
@@ -177,9 +197,10 @@ local function LoadEditorOptions(element)
             end
             if view then
                 view:ClearAllPoints()
-                view:SetPoint("TOPLEFT", controller.scrollChild, "TOPLEFT", 8, -y)
+                view:SetPoint("TOPLEFT", controller.scrollChild, "TOPLEFT",
+                    SnapInspectorOffset(8), -SnapInspectorOffset(y))
                 view:Show()
-                y = y + view:GetHeight() - 1
+                y = SnapInspectorOffset(y + view:GetHeight() - 1)
             end
         end
     end
@@ -188,10 +209,9 @@ local function LoadEditorOptions(element)
         local definition = groups[i]
         local label = type(definition) == "table" and definition.label
         local id = type(definition) == "table" and definition.id or definition
-        local inline = type(definition) == "table" and definition.inline == true
-        if type(id) == "string" and not inline
-            and label ~= "Layout" and label ~= "Position"
-        then
+        local inline = type(definition) == "table"
+            and (definition.presentation == "INLINE" or definition.inline == true)
+        if type(id) == "string" and not inline then
             sectionIndex = sectionIndex + 1
             local section = controller.editorSections[sectionIndex]
             if not section then
@@ -199,11 +219,41 @@ local function LoadEditorOptions(element)
                 section:SetHeight(48)
                 section.label = section:CreateFontString(nil, "OVERLAY", "GameFontNormal")
                 section.label:SetPoint("LEFT", section, "LEFT", 12, 0)
+                section.label:SetTextColor(1, 1, 1, 1)
                 section.icon = section:CreateTexture(nil, "OVERLAY")
                 section.icon:SetSize(18, 18)
                 section.icon:SetPoint("RIGHT", section, "RIGHT", -12, 0)
                 section.icon:SetTexture(
                     "Interface\\AddOns\\NSkin\\Media\\angle-small-down.png")
+                section.reset = CreateFrame("Button", nil, section)
+                section.reset:SetSize(24, 24)
+                section.reset:SetPoint("RIGHT", section.icon, "LEFT", -4, 0)
+                section.reset.icon = section.reset:CreateTexture(nil, "ARTWORK")
+                section.reset.icon:SetSize(16, 16)
+                section.reset.icon:SetPoint("CENTER")
+                section.reset.icon:SetTexture(
+                    "Interface\\AddOns\\NSkin\\Media\\rotate-right.png")
+                section.reset:SetScript("OnClick", function(self)
+                    if self.optionGroupID and self.context then
+                        StaticPopup_Show(RESET_CONFIRMATION_DIALOG,
+                            self.sectionLabel or "these options", nil, {
+                                id = self.optionGroupID,
+                                context = self.context,
+                            })
+                    end
+                end)
+                section.reset:SetScript("OnEnter", function(self)
+                    self.icon:SetVertexColor(unpack(NSkin:GetAccentColor()))
+                    if GameTooltip then
+                        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                        GameTooltip:SetText(self.tooltip or "Reset to window defaults")
+                        GameTooltip:Show()
+                    end
+                end)
+                section.reset:SetScript("OnLeave", function(self)
+                    self.icon:SetVertexColor(1, 1, 1, 1)
+                    if GameTooltip then GameTooltip:Hide() end
+                end)
                 NSkin:CreateFlatBackground(section, nil,
                     { 0, 0, 0, 0 }, NSkin:GetAccentColor())
                 section:SetScript("OnClick", function(self)
@@ -215,7 +265,18 @@ local function LoadEditorOptions(element)
             end
             local key = element.id .. "\031" .. id
             local expanded = controller.expandedEditorSections[key] == true
+            section:SetHeight(SnapInspectorOffset(48))
             section.sectionKey = key
+            local optionDefinition = NSkin:GetOptionGroupDefinition(id)
+            local hasInheritedReset = optionDefinition
+                and optionDefinition.inheritedReset == true
+            section.reset.optionGroupID = id
+            section.reset.context = element
+            section.reset.sectionLabel = type(definition) == "table"
+                and (definition.label or id) or id
+            section.reset.tooltip = optionDefinition
+                and optionDefinition.inheritedResetLabel
+            section.reset:SetShown(hasInheritedReset)
             section.label:SetText(type(definition) == "table"
                 and (definition.label or id) or "Options")
             section.icon:SetRotation(expanded and math.pi or 0)
@@ -223,10 +284,11 @@ local function LoadEditorOptions(element)
                 NSkin:GetPixelBorder(section, "NSkinFlatBackgroundBorder"),
                 unpack(NSkin:GetAccentColor()))
             section:ClearAllPoints()
-            section:SetPoint("TOPLEFT", controller.scrollChild, "TOPLEFT", 0, -y)
+            section:SetPoint("TOPLEFT", controller.scrollChild, "TOPLEFT", 0,
+                -SnapInspectorOffset(y))
             section:SetPoint("RIGHT", controller.scrollChild, "RIGHT", 0, 0)
             section:Show()
-            y = y + 47
+            y = SnapInspectorOffset(y + 47)
 
             if expanded then
                 local view = controller.optionViews[id]
@@ -239,9 +301,10 @@ local function LoadEditorOptions(element)
                 end
                 if view then
                     view:ClearAllPoints()
-                    view:SetPoint("TOPLEFT", controller.scrollChild, "TOPLEFT", 8, -y)
+                    view:SetPoint("TOPLEFT", controller.scrollChild, "TOPLEFT",
+                        SnapInspectorOffset(8), -SnapInspectorOffset(y))
                     view:Show()
-                    y = y + view:GetHeight() - 1
+                    y = SnapInspectorOffset(y + view:GetHeight() - 1)
                 end
             end
         end
@@ -258,6 +321,16 @@ RefreshInspector = function()
     LoadEditorOptions(element)
     NSkin:ApplyGlobalTypography(controller.inspector)
     SetInspectorTextWhite(controller.inspector)
+    NSkin:ResnapAllPixelBorders()
+    if C_Timer and C_Timer.After then
+        C_Timer.After(0, function()
+            if controller then
+                ResizeInspector(nil,
+                    math.max(0, (controller.scrollChild:GetHeight() or 1) - 1))
+                NSkin:ResnapAllPixelBorders()
+            end
+        end)
+    end
 end
 
 local function DockInspector(element)
@@ -299,6 +372,7 @@ local function SelectElement(element)
     NSkin:MarkSkinningWindowActive(element.window)
     local previous = controller.selectedElement
     controller.selectedElement = element
+    if previous ~= element then controller.scrollFrame:SetVerticalScroll(0) end
     if previous and previous ~= element then RefreshOverlayAppearance(previous) end
     RefreshOverlayAppearance(element)
     DockInspector(element)
@@ -643,7 +717,13 @@ StopDrag = function(apply)
         local persisted = type(element.setPlacement) == "function"
             and element.setPlacement(element, placement) == true
         if persisted and element.editorOptions then
-            NSkin:NotifyOptionGroupChanged(element.editorOptions)
+            local definitions = type(element.editorOptions) == "table"
+                and element.editorOptions or { element.editorOptions }
+            for i = 1, #definitions do
+                local definition = definitions[i]
+                local id = type(definition) == "table" and definition.id or definition
+                if type(id) == "string" then NSkin:NotifyOptionGroupChanged(id) end
+            end
         end
         if not persisted and controller.originalPlacement then
             ApplyElementPlacement(element, controller.originalPlacement)
@@ -820,6 +900,23 @@ local function CreateController()
         previewOptions = { preview = true, suppressNotify = true },
     }
 
+    if not StaticPopupDialogs[RESET_CONFIRMATION_DIALOG] then
+        StaticPopupDialogs[RESET_CONFIRMATION_DIALOG] = {
+            text = "Reset %s to window defaults?",
+            button1 = YES,
+            button2 = NO,
+            OnAccept = function(_, data)
+                if data and data.id and data.context then
+                    NSkin:ResetOptionGroup(data.id, data.context)
+                end
+            end,
+            timeout = 0,
+            whileDead = true,
+            hideOnEscape = true,
+            preferredIndex = 3,
+        }
+    end
+
     local inspector = CreateFrame("Frame", nil, UIParent)
     inspector:SetSize(520, 130)
     inspector:SetFrameStrata("DIALOG")
@@ -830,6 +927,38 @@ local function CreateController()
         NSkin:SetSkinningModeEnabled(false)
     end)
     close:SetPoint("TOPRIGHT", inspector, "TOPRIGHT", 0, 0)
+    local gridToggle = CreateFrame("Button", nil, inspector)
+    gridToggle:SetSize(22, 22)
+    gridToggle:SetPoint("RIGHT", close, "LEFT", -4, 0)
+    gridToggle.icon = gridToggle:CreateTexture(nil, "ARTWORK")
+    gridToggle.icon:SetSize(16, 16)
+    gridToggle.icon:SetPoint("CENTER")
+    gridToggle.icon:SetTexture("Interface\\AddOns\\NSkin\\Media\\grid-alt.png")
+    local function RefreshGridToggle()
+        gridToggle.icon:SetVertexColor(unpack(
+            NSkin:IsCompactGridDebugEnabled() and NSkin:GetAccentColor()
+                or { 1, 1, 1, 1 }))
+    end
+    gridToggle.RefreshState = RefreshGridToggle
+    gridToggle:SetScript("OnClick", function()
+        NSkin:SetCompactGridDebugEnabled(
+            not NSkin:IsCompactGridDebugEnabled())
+        RefreshGridToggle()
+    end)
+    gridToggle:SetScript("OnEnter", function(self)
+        self.icon:SetVertexColor(unpack(NSkin:GetAccentColor()))
+        if GameTooltip then
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetText("Toggle layout grid")
+            GameTooltip:Show()
+        end
+    end)
+    gridToggle:SetScript("OnLeave", function()
+        RefreshGridToggle()
+        if GameTooltip then GameTooltip:Hide() end
+    end)
+    RefreshGridToggle()
+    controller.gridToggle = gridToggle
     inspector.selection = CreateLabel(
         inspector, "Select an element", "TOPLEFT", inspector, "TOPLEFT", 12, -34
     )
@@ -838,6 +967,12 @@ local function CreateController()
     local scrollFrame = CreateFrame("ScrollFrame", nil, inspector)
     scrollFrame:SetPoint("TOPLEFT", inspector, "TOPLEFT", 1, -58)
     scrollFrame:SetPoint("BOTTOMRIGHT", inspector, "BOTTOMRIGHT", -1, 1)
+    scrollFrame:EnableMouseWheel(true)
+    scrollFrame:SetScript("OnMouseWheel", function(self, delta)
+        local range = self:GetVerticalScrollRange() or 0
+        local nextValue = self:GetVerticalScroll() - delta * 36
+        self:SetVerticalScroll(math.max(0, math.min(range, nextValue)))
+    end)
     local scrollChild = CreateFrame("Frame", nil, scrollFrame)
     scrollChild:SetSize(518, 1)
     scrollFrame:SetScrollChild(scrollChild)
@@ -885,6 +1020,9 @@ function NSkin:RefreshSkinningModeTheme()
     self:SkinWindowHeader(controller.inspector)
     self:ApplyGlobalTypography(controller.inspector)
     SetInspectorTextWhite(controller.inspector)
+    if controller.gridToggle and controller.gridToggle.RefreshState then
+        controller.gridToggle:RefreshState()
+    end
 end
 
 function NSkin:SetSkinningModeEnabled(enabled)

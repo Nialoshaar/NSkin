@@ -128,41 +128,10 @@ NSkin:RegisterOptionGroup("shared.searchPosition", {
     reset = function(context) return context.resetPlacement(context) end,
 })
 
-NSkin:RegisterOptionGroup("shared.searchLayout", {
-    controls = {
-        { type = "DROPDOWN_RESET", key = "accessoryMode",
-            label = "Search accessory", labelWidth = 100, dropdownWidth = 95,
-            dropdownReduction = 0,
-            resetIcon = "Interface\\AddOns\\NSkin\\Media\\rotate-right.png",
-            resetTooltip = "Reset search accessory layout",
-            values = { { value = "GROUPED", label = "Grouped" },
-                { value = "INDEPENDENT", label = "Independent" },
-                { value = "HIDDEN", label = "Hidden" } } },
-    },
-    get = function(context)
-        return { accessoryMode = context.getSearchAccessoryMode(context) }
-    end,
-    set = function(context, values)
-        local mode = values.accessoryMode
-        if mode ~= "GROUPED" and mode ~= "INDEPENDENT" and mode ~= "HIDDEN" then
-            return false
-        end
-        return context.setSearchAccessoryMode(context, mode)
-    end,
-    reset = function(context)
-        return context.setSearchAccessoryMode(context, "GROUPED")
-    end,
-})
-
 local GLOBAL_VALUE = "__NSKIN_GLOBAL__"
-local FONT_VALUES = {
-    { value = GLOBAL_VALUE, label = "NSkin Global Font" },
-    { divider = true },
-    { value = "Fonts\\FRIZQT__.TTF", label = "Friz Quadrata" },
-    { value = "Fonts\\ARIALN.TTF", label = "Arial Narrow" },
-    { value = "Fonts\\MORPHEUS.TTF", label = "Morpheus" },
-    { value = "Fonts\\SKURRI.TTF", label = "Skurri" },
-}
+local function FONT_VALUES()
+    return NSkin:GetAvailableFontOptions(true)
+end
 local OUTLINE_VALUES = {
     { value = GLOBAL_VALUE, label = "NSkin Global Outline" },
     { divider = true },
@@ -196,6 +165,10 @@ local function GetTypographyValues(values, style, keys, prefix)
 end
 
 local SetElementValue
+
+local function GetAppearanceWindowID(context)
+    return context.appearanceWindowID or context.module
+end
 
 local function SetElementTypography(context, stylePath, values, keys, prefix)
     prefix = prefix or ""
@@ -234,15 +207,12 @@ local function SetElementTypography(context, stylePath, values, keys, prefix)
 end
 
 SetElementValue = function(context, path, value)
-    return NSkin:SetElementAppearanceOverride(context.id, context.module, path, value)
+    return NSkin:SetElementAppearanceOverride(
+        context.id, GetAppearanceWindowID(context), path, value)
 end
 
 local function ResetElementPaths(context, paths)
-    local changed
-    for i = 1, #paths do
-        changed = NSkin:ResetElementAppearanceOverride(context.id, paths[i]) or changed
-    end
-    return changed == true
+    return NSkin:ResetElementAppearanceOverrides(context.id, paths)
 end
 
 local function CreateBorderGeometryControls(order)
@@ -252,6 +222,23 @@ local function CreateBorderGeometryControls(order)
             max = 4, step = 1, decimals = 0, suffix = " px", resetValue = 1 },
         right = { key = "borderPadding", label = "Border padding", min = -10,
             max = 20, step = 1, decimals = 0, suffix = " px", resetValue = 0 } }
+end
+
+local function ResetMappedElementKeys(context, keys, pathsByKey)
+    local paths, seen = {}, {}
+    for key in pairs(keys) do
+        local mapped = pathsByKey[key]
+        if type(mapped) == "string" then mapped = { mapped } end
+        if type(mapped) == "table" then
+            for i = 1, #mapped do
+                if not seen[mapped[i]] then
+                    seen[mapped[i]] = true
+                    paths[#paths + 1] = mapped[i]
+                end
+            end
+        end
+    end
+    return #paths > 0 and ResetElementPaths(context, paths) or false
 end
 
 local tabBorderGeometryControls = CreateBorderGeometryControls(13)
@@ -293,10 +280,21 @@ tabAppearanceControls[#tabAppearanceControls + 1] = {
     type = "COLOR", key = "selectedBackground", modeKey = "selectedBackgroundMode",
     label = "Selected background", order = 12,
 }
+local tabResetPaths = {
+    font = { "tab.fontMode", "tab.font" },
+    textSize = { "tab.sizeMode", "tab.textSize" },
+    outline = { "tab.outlineMode", "tab.outline" },
+}
+for _, key in ipairs({ "text", "textMode", "background", "backgroundMode",
+    "selectedBackground", "selectedBackgroundMode", "border", "borderMode",
+    "borderSize", "borderPadding", "width", "height", "spacing" }) do
+    tabResetPaths[key] = "tab." .. key
+end
 NSkin:RegisterOptionGroup("shared.tabAppearance", {
     controls = tabAppearanceControls,
     get = function(context)
-        local style = NSkin:GetAppearanceStyle("tab", context.module, context.id)
+        local style = NSkin:GetAppearanceStyle(
+            "tab", GetAppearanceWindowID(context), context.id)
         local currentWidth, currentHeight = GetFirstTabSize(context)
         local values = { background = CopyColor(style.background),
             selectedBackground = CopyColor(style.selectedBackground),
@@ -334,6 +332,9 @@ NSkin:RegisterOptionGroup("shared.tabAppearance", {
             "tab.selectedBackgroundMode", "tab.border", "tab.borderMode",
             "tab.borderSize", "tab.borderPadding", "tab.width", "tab.height",
             "tab.spacing" })
+    end,
+    resetSubset = function(context, keys)
+        return ResetMappedElementKeys(context, keys, tabResetPaths)
     end,
 })
 
@@ -388,15 +389,33 @@ searchAppearanceControls[#searchAppearanceControls + 1] = searchSizeControls
 local searchAccessoryControls = {
     type = "DROPDOWN_PAIR", order = 22,
     right = { key = "accessoryMode", label = "Search accessory",
-        labelWidth = 100, dropdownReduction = 0,
+        labelWidth = 100,
         values = { { value = "GROUPED", label = "Grouped" },
             { value = "INDEPENDENT", label = "Independent" },
             { value = "HIDDEN", label = "Hidden" } } },
 }
+local searchResetPaths = {
+    font = { "searchBox.fontMode", "searchBox.font" },
+    textSize = { "searchBox.sizeMode", "searchBox.textSize" },
+    outline = { "searchBox.outlineMode", "searchBox.outline" },
+    placeholderFont = { "searchBox.placeholderFontMode",
+        "searchBox.placeholderFont" },
+    placeholderSize = { "searchBox.placeholderSizeMode",
+        "searchBox.placeholderSize" },
+    placeholderOutline = { "searchBox.placeholderOutlineMode",
+        "searchBox.placeholderOutline" },
+}
+for _, key in ipairs({ "text", "textMode", "textOffsetX", "textOffsetY",
+    "placeholderText", "placeholderTextMode", "placeholderOffsetX",
+    "placeholderOffsetY", "background", "backgroundMode", "border",
+    "borderMode", "borderSize", "borderPadding", "width", "height" }) do
+    searchResetPaths[key] = "searchBox." .. key
+end
 NSkin:RegisterOptionGroup("shared.searchAppearance", {
     controls = searchAppearanceControls,
     get = function(context)
-        local style = NSkin:GetAppearanceStyle("searchBox", context.module, context.id)
+        local style = NSkin:GetAppearanceStyle(
+            "searchBox", GetAppearanceWindowID(context), context.id)
         local values = { background = CopyColor(style.background), border = CopyColor(style.border),
             text = CopyColor(style.text), textMode = style.textMode,
             placeholderText = CopyColor(style.placeholderText),
@@ -467,6 +486,13 @@ NSkin:RegisterOptionGroup("shared.searchAppearance", {
             "searchBox.width", "searchBox.height",
             "searchBox.placeholderOffsetX", "searchBox.placeholderOffsetY" })
     end,
+    resetSubset = function(context, keys)
+        local changed = ResetMappedElementKeys(context, keys, searchResetPaths)
+        if keys.accessoryMode and context.setSearchAccessoryMode then
+            changed = context.setSearchAccessoryMode(context, "GROUPED") or changed
+        end
+        return changed == true
+    end,
 })
 
 local windowAppearanceControls = {
@@ -495,10 +521,24 @@ windowAppearanceControls[#windowAppearanceControls + 1] = {
     type = "COLOR", key = "headerBackground", modeKey = "headerBackgroundMode",
     label = "Background", order = 21,
 }
+local windowResetPaths = {
+    background = "window.background", backgroundOpacity = "window.background",
+    backgroundMode = "window.backgroundMode", border = "window.border",
+    borderMode = "window.borderMode", borderSize = "window.borderSize",
+    borderPadding = "window.borderPadding",
+    headerBackground = "window.header.background",
+    headerOpacity = "window.header.background",
+    headerBackgroundMode = "window.header.backgroundMode",
+    headerText = "window.header.text", headerTextMode = "window.header.textMode",
+    headerFont = { "window.header.fontMode", "window.header.font" },
+    headerTextSize = { "window.header.sizeMode", "window.header.textSize" },
+    headerOutline = { "window.header.outlineMode", "window.header.outline" },
+}
 NSkin:RegisterOptionGroup("shared.windowAppearance", {
     controls = windowAppearanceControls,
     get = function(context)
-        local style = NSkin:GetAppearanceStyle("window", context.module, context.id)
+        local style = NSkin:GetAppearanceStyle(
+            "window", GetAppearanceWindowID(context), context.id)
         local values = { background = CopyColor(style.background),
             backgroundOpacity = style.background[4] or 1,
             border = CopyColor(style.border), borderMode = style.borderMode,
@@ -515,7 +555,8 @@ NSkin:RegisterOptionGroup("shared.windowAppearance", {
         return values
     end,
     set = function(context, values)
-        local style = NSkin:GetAppearanceStyle("window", context.module, context.id)
+        local style = NSkin:GetAppearanceStyle(
+            "window", GetAppearanceWindowID(context), context.id)
         local mapping = {
             ["window.backgroundMode"] = values.backgroundMode,
             ["window.border"] = values.border,
@@ -554,6 +595,9 @@ NSkin:RegisterOptionGroup("shared.windowAppearance", {
             "window.header.sizeMode", "window.header.outlineMode",
             "window.header.font", "window.header.textSize", "window.header.outline" })
     end,
+    resetSubset = function(context, keys)
+        return ResetMappedElementKeys(context, keys, windowResetPaths)
+    end,
 })
 
 local headerAppearanceControls = {
@@ -572,10 +616,20 @@ headerAppearanceControls[#headerAppearanceControls + 1] = {
     type = "COLOR", key = "underline", modeKey = "underlineMode",
     label = "Color", order = 10.5,
 }
+local sectionHeaderResetPaths = {
+    font = { "sectionHeader.fontMode", "sectionHeader.font" },
+    textSize = { "sectionHeader.sizeMode", "sectionHeader.textSize" },
+    outline = { "sectionHeader.outlineMode", "sectionHeader.outline" },
+}
+for _, key in ipairs({ "text", "textMode", "underlineVisible", "underlineSize",
+    "underline", "underlineMode" }) do
+    sectionHeaderResetPaths[key] = "sectionHeader." .. key
+end
 NSkin:RegisterOptionGroup("shared.sectionHeaderAppearance", {
     controls = headerAppearanceControls,
     get = function(context)
-        local style = NSkin:GetAppearanceStyle("sectionHeader", context.module, context.id)
+        local style = NSkin:GetAppearanceStyle(
+            "sectionHeader", GetAppearanceWindowID(context), context.id)
         local values = { text = CopyColor(style.text), underline = CopyColor(style.underline),
             underlineVisible = style.underlineVisible, underlineSize = style.underlineSize,
             textMode = style.textMode, underlineMode = style.underlineMode }
@@ -603,6 +657,9 @@ NSkin:RegisterOptionGroup("shared.sectionHeaderAppearance", {
             "sectionHeader.text", "sectionHeader.textMode",
             "sectionHeader.underlineVisible", "sectionHeader.underlineSize",
             "sectionHeader.underline", "sectionHeader.underlineMode" })
+    end,
+    resetSubset = function(context, keys)
+        return ResetMappedElementKeys(context, keys, sectionHeaderResetPaths)
     end,
 })
 

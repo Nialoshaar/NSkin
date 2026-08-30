@@ -33,12 +33,8 @@ end
 
 NSkin:RegisterOptionGroup("appearance.typography", {
     controls = {
-        { type = "DROPDOWN", key = "font", label = "Global font", values = {
-            { value = "Fonts\\FRIZQT__.TTF", label = "Friz Quadrata" },
-            { value = "Fonts\\ARIALN.TTF", label = "Arial Narrow" },
-            { value = "Fonts\\MORPHEUS.TTF", label = "Morpheus" },
-            { value = "Fonts\\SKURRI.TTF", label = "Skurri" },
-        } },
+        { type = "DROPDOWN", key = "font", label = "Global font",
+            values = function() return NSkin:GetAvailableFontOptions(false) end },
         { type = "SLIDER", key = "size", label = "Global text size", min = 8,
             max = 32, step = 1, suffix = " px" },
         { type = "DROPDOWN", key = "outline", label = "Global outline", values = {
