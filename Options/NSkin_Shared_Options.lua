@@ -167,7 +167,7 @@ end
 local SetElementValue
 
 local function GetAppearanceWindowID(context)
-    return context.appearanceWindowID or context.module
+    return context.appearanceWindowID
 end
 
 local function SetElementTypography(context, stylePath, values, keys, prefix)

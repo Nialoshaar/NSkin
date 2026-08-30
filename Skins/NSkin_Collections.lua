@@ -9,6 +9,9 @@ local QUALITY_BORDER_KEY = "__NSkinCollectionQualityBorder"
 local COLLECTION_ITEM_STATE = "collectionItems"
 local FILTER_STATE = "collectionFilter"
 local TOY_PROGRESS_ELEMENT_ID = "Collections.ToyBox.ProgressBar"
+local COLLECTIONS_WINDOW_ELEMENT_ID = "Collections.Journal.Window"
+local COLLECTIONS_APPEARANCE_WINDOW_ID = "Collections.Journal"
+local TOY_APPEARANCE_WINDOW_ID = "Collections.ToyBox"
 local TOY_SEARCH_ELEMENT_ID = "Collections.ToyBox.SearchBox"
 local TOY_FILTER_ELEMENT_ID = "Collections.ToyBox.Filter"
 local TOY_PAGINATION_ELEMENT_ID = "Collections.ToyBox.Pagination"
@@ -190,10 +193,11 @@ local function RegisterToyMovableElement(id, label, journal, target, priority,
     toyMovablesRegistered[id] = NSkin:RegisterMovableElement({
         id = id,
         module = "Collections",
+        appearanceWindowID = TOY_APPEARANCE_WINDOW_ID,
         label = label,
         window = journal,
         target = target,
-        editorOptions = editorOptions or "shared.movable",
+        editorOptions = editorOptions,
         defaultPlacement = placement,
         priority = priority or 80,
         anchorHighlight = anchorHighlight,
@@ -297,9 +301,12 @@ local function SkinCollectionTabs(selectedTab)
     selectedTab = selectedTab or (_G.PanelTemplates_GetSelectedTab
         and _G.PanelTemplates_GetSelectedTab(journal))
     local tabs = GetCollectionTabs(journal)
-    local style = NSkin:GetStyle("tab")
+    local style = NSkin:GetAppearanceStyle(
+        "tab", COLLECTIONS_APPEARANCE_WINDOW_ID, TAB_GROUP_ID)
+    local borderColor = NSkin:GetAppearanceBorderColor(
+        "tab", style, COLLECTIONS_APPEARANCE_WINDOW_ID, TAB_GROUP_ID)
     for i = 1, #tabs do
-        NSkin:SkinTab(tabs[i], i == selectedTab, style)
+        NSkin:SkinTab(tabs[i], i == selectedTab, style, borderColor)
     end
     if NSkin:GetTabGroup(TAB_GROUP_ID) then
         NSkin:ApplyTabGroupLayout(TAB_GROUP_ID)
@@ -333,8 +340,12 @@ SkinCollectionsWindow = function()
         journal.portrait:Hide()
     end
 
-    NSkin:SkinWindow(journal)
-    NSkin:SkinWindowHeader(journal)
+    local windowStyle = NSkin:GetAppearanceStyle("window",
+        COLLECTIONS_APPEARANCE_WINDOW_ID, COLLECTIONS_WINDOW_ELEMENT_ID)
+    NSkin:SkinWindow(journal, nil, windowStyle,
+        NSkin:GetAppearanceBorderColor("window", windowStyle,
+            COLLECTIONS_APPEARANCE_WINDOW_ID, COLLECTIONS_WINDOW_ELEMENT_ID))
+    NSkin:SkinWindowHeader(journal, windowStyle.header)
 
     local title = journal.TitleContainer and journal.TitleContainer.TitleText
     if title then title:SetTextColor(unpack(NSkin:GetStyle("button").text)) end
@@ -355,9 +366,11 @@ SkinCollectionsWindow = function()
         local filterDropdown = toyBox.FilterDropdown
         local pagingControls = toyBox.PagingControls or toyBox.PagingFrame
             or toyBox.pagingFrame
-        NSkin:SkinSearchBox(searchBox, NSkin:GetAppearanceStyle(
-            "searchBox", "Collections", TOY_SEARCH_ELEMENT_ID
-        ))
+        local searchStyle = NSkin:GetAppearanceStyle(
+            "searchBox", TOY_APPEARANCE_WINDOW_ID, TOY_SEARCH_ELEMENT_ID)
+        NSkin:SkinSearchBox(searchBox, searchStyle,
+            NSkin:GetAppearanceBorderColor("searchBox", searchStyle,
+                TOY_APPEARANCE_WINDOW_ID, TOY_SEARCH_ELEMENT_ID))
         SkinToyFilterButton(filterDropdown)
         if searchBox and filterDropdown then
             filterDropdown:SetHeight(searchBox:GetHeight())
@@ -387,7 +400,9 @@ SkinCollectionsWindow = function()
         )
         if not toySearchController then
             toySearchController = NSkin:RegisterAccessoryGroup({
-                module = "Collections", window = journal,
+                module = "Collections",
+                appearanceWindowID = TOY_APPEARANCE_WINDOW_ID,
+                window = journal,
                 ids = { primary = TOY_SEARCH_ELEMENT_ID,
                     accessory = TOY_FILTER_ELEMENT_ID },
                 primary = searchBox, accessory = filterDropdown,
@@ -395,7 +410,6 @@ SkinCollectionsWindow = function()
                 primaryPriority = 81, accessoryPriority = 91,
                 legacyOptionKey = "searchAccessoryMode",
                 visibilityFrame = toyBox,
-                elements = { accessory = { editorOptions = "shared.movable" } },
                 anchorGrouped = AnchorToySearchAccessory,
             })
         else
@@ -403,7 +417,9 @@ SkinCollectionsWindow = function()
         end
         if not toyPaginationController then
             toyPaginationController = NSkin:RegisterPaginationGroup({
-                module = "Collections", window = journal,
+                module = "Collections",
+                appearanceWindowID = TOY_APPEARANCE_WINDOW_ID,
+                window = journal,
                 ids = { group = TOY_PAGINATION_ELEMENT_ID,
                     previous = TOY_PREVIOUS_ELEMENT_ID, next = TOY_NEXT_ELEMENT_ID,
                     text = TOY_PAGE_TEXT_ELEMENT_ID },
@@ -521,15 +537,25 @@ function CollectionSkin:Initialize()
     if not collectionsInitialized then
         NSkin:RegisterTabGroup(TAB_GROUP_ID, {
             module = "Collections",
+            appearanceWindowID = COLLECTIONS_APPEARANCE_WINDOW_ID,
             label = "Collections tabs",
             kind = "TAB_GROUP",
-            editorOptions = "tabs.layout",
             window = journal,
             target = journal,
             tabs = GetCollectionTabs(journal),
             priority = 50,
             orientation = "HORIZONTAL",
             edge = "BOTTOM",
+        })
+        NSkin:RegisterSkinningElement(COLLECTIONS_WINDOW_ELEMENT_ID, {
+            module = "Collections",
+            appearanceWindowID = COLLECTIONS_APPEARANCE_WINDOW_ID,
+            label = "Collections window",
+            kind = "WINDOW",
+            window = journal,
+            target = journal,
+            priority = 0,
+            draggable = false,
         })
         _G.EventRegistry:RegisterCallback(
             "CollectionsJournal.TabSet",

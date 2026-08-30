@@ -152,6 +152,15 @@ local function SetInspectorTextWhite(frame)
     end
 end
 
+local function IsInlineEditorDefinition(definition)
+    if type(definition) ~= "table" then return false end
+    if definition.presentation ~= nil then
+        return definition.presentation == "INLINE"
+    end
+    if definition.inline ~= nil then return definition.inline == true end
+    return definition.category == "POSITION" or definition.category == "LAYOUT"
+end
+
 local function LoadEditorOptions(element)
     for _, view in pairs(controller.optionViews) do
         view:SetContext(nil)
@@ -184,8 +193,7 @@ local function LoadEditorOptions(element)
         local definition = groups[i]
         local label = type(definition) == "table" and definition.label
         local id = type(definition) == "table" and definition.id or definition
-        local inline = type(definition) == "table"
-            and (definition.presentation == "INLINE" or definition.inline == true)
+        local inline = IsInlineEditorDefinition(definition)
         if type(id) == "string" and inline then
             local view = controller.optionViews[id]
             if not view then
@@ -209,8 +217,7 @@ local function LoadEditorOptions(element)
         local definition = groups[i]
         local label = type(definition) == "table" and definition.label
         local id = type(definition) == "table" and definition.id or definition
-        local inline = type(definition) == "table"
-            and (definition.presentation == "INLINE" or definition.inline == true)
+        local inline = IsInlineEditorDefinition(definition)
         if type(id) == "string" and not inline then
             sectionIndex = sectionIndex + 1
             local section = controller.editorSections[sectionIndex]

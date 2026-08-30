@@ -157,23 +157,30 @@ function NSkin:CreatePixelBorder(frame, key, size, color, outside, anchor)
         requestedSize = tonumber(size) or 1 }
     pixelBorders[border] = true
     ApplyPixelBorderGeometry(border)
-    local anchorData = self:GetSkinData(anchor, "physicalPixels")
-    anchorData.borders = anchorData.borders
+    -- Only frames support OnSizeChanged/OnShow scripts. Borders may be
+    -- anchored to a Texture (for example collection icons), so watch their
+    -- owning frame instead of attempting to attach scripts to the region.
+    local watchTarget = anchor
+    if not (anchor.IsObjectType and anchor:IsObjectType("Frame")) then
+        watchTarget = frame
+    end
+    local watchData = self:GetSkinData(watchTarget, "physicalPixels")
+    watchData.borders = watchData.borders
         or setmetatable({}, { __mode = "k" })
-    anchorData.borders[border] = true
-    if anchorData and not anchorData.resnapHooked then
-        anchorData.resnapHooked = true
-        if anchor.HookScript then
-            anchor:HookScript("OnSizeChanged", function()
-                QueueBorderSetResnap(anchorData)
+    watchData.borders[border] = true
+    if not watchData.resnapHooked then
+        watchData.resnapHooked = true
+        if watchTarget.HookScript then
+            watchTarget:HookScript("OnSizeChanged", function()
+                QueueBorderSetResnap(watchData)
             end)
-            anchor:HookScript("OnShow", function()
-                QueueBorderSetResnap(anchorData)
+            watchTarget:HookScript("OnShow", function()
+                QueueBorderSetResnap(watchData)
             end)
         end
-        if _G.hooksecurefunc and anchor.SetScale then
-            pcall(_G.hooksecurefunc, anchor, "SetScale", function()
-                QueueBorderSetResnap(anchorData)
+        if _G.hooksecurefunc and watchTarget.SetScale then
+            pcall(_G.hooksecurefunc, watchTarget, "SetScale", function()
+                QueueBorderSetResnap(watchData)
             end)
         end
     end

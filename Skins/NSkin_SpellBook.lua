@@ -11,6 +11,7 @@ local SPELL_BOOK_STATE = "spellBook"
 local WINDOW_BUTTON_TEXT_SIZE = 20
 local WINDOW_BUTTON_TEXT_OFFSET_X = 0
 local WINDOW_BUTTON_TEXT_OFFSET_Y = 0
+local APPEARANCE_WINDOW_ID = "PlayerSpells.SpellBook"
 
 local assistedCombatDivider
 local initialized = false
@@ -331,17 +332,17 @@ local function SkinSpellBookTabs()
     if not spellBook then return end
 
     local categoryStyle = NSkin:GetAppearanceStyle(
-        "tab", "SpellBook", CATEGORY_TAB_GROUP_ID)
+        "tab", APPEARANCE_WINDOW_ID, CATEGORY_TAB_GROUP_ID)
     local categoryBorder = NSkin:GetAppearanceBorderColor(
-        "tab", categoryStyle, "SpellBook", CATEGORY_TAB_GROUP_ID)
+        "tab", categoryStyle, APPEARANCE_WINDOW_ID, CATEGORY_TAB_GROUP_ID)
     NSkin:SkinTabSystem(spellBook.CategoryTabSystem, categoryStyle, categoryBorder)
     NSkin:LayoutTabSystem(spellBook.CategoryTabSystem)
     if NSkin:GetTabGroup(CATEGORY_TAB_GROUP_ID) then
         NSkin:ApplyTabGroupLayout(CATEGORY_TAB_GROUP_ID)
     end
-    local mainStyle = NSkin:GetAppearanceStyle("tab", "SpellBook", TAB_GROUP_ID)
+    local mainStyle = NSkin:GetAppearanceStyle("tab", APPEARANCE_WINDOW_ID, TAB_GROUP_ID)
     local mainBorder = NSkin:GetAppearanceBorderColor(
-        "tab", mainStyle, "SpellBook", TAB_GROUP_ID)
+        "tab", mainStyle, APPEARANCE_WINDOW_ID, TAB_GROUP_ID)
     NSkin:SkinTabSystem(playerSpells.TabSystem, mainStyle, mainBorder)
     if NSkin:GetTabGroup(TAB_GROUP_ID) then
         NSkin:ApplyTabGroupLayout(TAB_GROUP_ID)
@@ -448,9 +449,10 @@ local function SkinTitleBar(playerSpells, spellBook)
     if not playerSpells or not spellBook then return end
 
     if playerSpells.NineSlice then playerSpells.NineSlice:Hide() end
-    local style = NSkin:GetAppearanceStyle("window", "SpellBook", WINDOW_ELEMENT_ID)
+    local style = NSkin:GetAppearanceStyle("window", APPEARANCE_WINDOW_ID, WINDOW_ELEMENT_ID)
     NSkin:SkinWindow(playerSpells, nil, style,
-        NSkin:GetAppearanceBorderColor("window", style, "SpellBook", WINDOW_ELEMENT_ID))
+        NSkin:GetAppearanceBorderColor(
+            "window", style, APPEARANCE_WINDOW_ID, WINDOW_ELEMENT_ID))
     if playerSpells.TitleContainer and playerSpells.TitleContainer.TitleText then
         local title = playerSpells.TitleContainer.TitleText
         title:SetTextColor(unpack(
@@ -497,10 +499,10 @@ local function SkinSpellBookControls()
     SkinTitleBar(playerSpells, spellBook)
     SkinSpellBookTabs()
     local searchStyle = NSkin:GetAppearanceStyle(
-        "searchBox", "SpellBook", SEARCH_ELEMENT_ID)
+        "searchBox", APPEARANCE_WINDOW_ID, SEARCH_ELEMENT_ID)
     NSkin:SkinSearchBox(spellBook.SearchBox, searchStyle,
         NSkin:GetAppearanceBorderColor(
-            "searchBox", searchStyle, "SpellBook", SEARCH_ELEMENT_ID))
+            "searchBox", searchStyle, APPEARANCE_WINDOW_ID, SEARCH_ELEMENT_ID))
     NSkin:SkinPagingControls(pagedSpells and pagedSpells.PagingControls,
         PAGING_BUTTON_TEXT_SIZE)
     SkinAssistedCombat(spellBook.AssistedCombatRotationSpellFrame)
@@ -594,7 +596,7 @@ local function SkinSpellBookHeader(header)
         header.Backplate:Hide()
     end
     local style = NSkin:GetAppearanceStyle(
-        "sectionHeader", "SpellBook", HEADERS_ELEMENT_ID)
+        "sectionHeader", APPEARANCE_WINDOW_ID, HEADERS_ELEMENT_ID)
     local offset = NSkin:GetSpellBookHeaderOffset()
     if header.Text then
         local textData = NSkin:GetSkinData(header.Text, SPELL_BOOK_STATE)
@@ -802,14 +804,7 @@ function SpellBookSkin:Initialize()
         label = "Spellbook tabs",
         kind = "TAB_GROUP",
         module = "SpellBook",
-        appearanceWindowID = "SpellBook",
-        editorOptions = {
-            { id = "tabs.layout", label = "Position",
-                presentation = "INLINE", category = "POSITION" },
-            { id = "shared.tabTextAppearance", label = "Tab Text" },
-            { id = "shared.tabSurfaceAppearance", label = "Tab appearance",
-                presentation = "INLINE", category = "APPEARANCE" },
-        },
+        appearanceWindowID = APPEARANCE_WINDOW_ID,
         independentPlacement = true,
         movable = true,
         window = playerSpells,
@@ -833,14 +828,7 @@ function SpellBookSkin:Initialize()
         label = "Spellbook class tabs",
         kind = "TAB_GROUP",
         module = "SpellBook",
-        appearanceWindowID = "SpellBook",
-        editorOptions = {
-            { id = "tabs.layout", label = "Position",
-                presentation = "INLINE", category = "POSITION" },
-            { id = "shared.tabTextAppearance", label = "Tab Text" },
-            { id = "shared.tabSurfaceAppearance", label = "Tab appearance",
-                presentation = "INLINE", category = "APPEARANCE" },
-        },
+        appearanceWindowID = APPEARANCE_WINDOW_ID,
         independentPlacement = true,
         movable = true,
         snapTarget = true,
@@ -860,16 +848,13 @@ function SpellBookSkin:Initialize()
         label = "Spellbook window",
         kind = "WINDOW",
         module = "SpellBook",
-        appearanceWindowID = "SpellBook",
+        appearanceWindowID = APPEARANCE_WINDOW_ID,
         window = playerSpells,
         target = playerSpells,
         priority = 0,
-        editorOptions = {
+        extraEditorOptions = {
             { id = "spellbook.iconDisposition", label = "Layout",
                 presentation = "INLINE", category = "LAYOUT" },
-            { id = "shared.windowSurfaceAppearance", label = "Window appearance",
-                presentation = "INLINE", category = "APPEARANCE" },
-            { id = "shared.windowHeaderAppearance", label = "Header" },
         },
     })
 
@@ -878,17 +863,11 @@ function SpellBookSkin:Initialize()
         label = "Spellbook class/spec headers",
         kind = "SECTION_HEADERS",
         module = "SpellBook",
-        appearanceWindowID = "SpellBook",
+        appearanceWindowID = APPEARANCE_WINDOW_ID,
         window = playerSpells,
         target = pagedSpells,
         priority = 70,
         draggable = false,
-        editorOptions = {
-            { id = "shared.sectionHeaderPlacement", label = "Position",
-                presentation = "INLINE", category = "POSITION" },
-            { id = "shared.headerTextAppearance", label = "Header Text" },
-            { id = "shared.headerUnderlineAppearance", label = "Underline" },
-        },
         highlightRegions = function()
             local regions = {}
             if pagedSpells and pagedSpells.EnumerateFrames then
@@ -927,7 +906,7 @@ function SpellBookSkin:Initialize()
     local defaultBottom = { edge = "BOTTOM", side = "INSIDE", alignment = "RIGHT",
         alongOffset = -20, edgeOffset = 20 }
     spellBookSearchController = NSkin:RegisterAccessoryGroup({
-        module = "SpellBook", appearanceWindowID = "SpellBook",
+        module = "SpellBook", appearanceWindowID = APPEARANCE_WINDOW_ID,
         window = playerSpells,
         ids = { primary = SEARCH_ELEMENT_ID, accessory = SEARCH_COG_ELEMENT_ID },
         primary = spellBook.SearchBox, accessory = spellBook.SettingsDropdown,
@@ -935,15 +914,6 @@ function SpellBookSkin:Initialize()
         primaryPlacement = defaultSearch, accessoryPlacement = defaultCog,
         legacyOptionKey = "searchCogMode", snapTarget = true,
         visibilityFrame = spellBook,
-        editorOptions = {
-            { id = "shared.searchPosition", label = "Position",
-                presentation = "INLINE", category = "POSITION" },
-            { id = "shared.searchBoxAppearance", label = "Search Box",
-                presentation = "INLINE", category = "APPEARANCE" },
-            { id = "shared.searchTextAppearance", label = "Search Text" },
-            { id = "shared.placeholderTextAppearance", label = "Placeholder Text" },
-        },
-        elements = { accessory = { editorOptions = "shared.movable" } },
         anchorGrouped = function(searchBox, cog)
             cog:ClearAllPoints()
             cog:SetPoint("LEFT", searchBox, "RIGHT", 5, 0)
@@ -951,7 +921,7 @@ function SpellBookSkin:Initialize()
         end,
     })
     spellBookPaginationController = NSkin:RegisterPaginationGroup({
-        module = "SpellBook", appearanceWindowID = "SpellBook",
+        module = "SpellBook", appearanceWindowID = APPEARANCE_WINDOW_ID,
         window = playerSpells,
         ids = { group = PAGINATION_ELEMENT_ID, previous = PREVIOUS_ELEMENT_ID,
             next = NEXT_ELEMENT_ID, text = PAGE_TEXT_ELEMENT_ID },
