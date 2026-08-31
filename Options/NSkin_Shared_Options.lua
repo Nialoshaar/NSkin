@@ -501,6 +501,8 @@ local windowAppearanceControls = {
     CreateBorderGeometryControls(4),
     { type = "SLIDER", key = "headerOpacity", label = "Header opacity",
         min = 0, max = 1, step = 0.05, decimals = 2, order = 22 },
+    { type = "CHECKBOX", key = "matchHeader",
+        label = "Match header to background", order = 23 },
 }
 AddTypographyControls(windowAppearanceControls,
     { useGlobal = "headerUseGlobal", font = "headerFont",
@@ -529,6 +531,7 @@ local windowResetPaths = {
     headerBackground = "window.header.background",
     headerOpacity = "window.header.background",
     headerBackgroundMode = "window.header.backgroundMode",
+    matchHeader = "window.header.matchBackground",
     headerText = "window.header.text", headerTextMode = "window.header.textMode",
     headerFont = { "window.header.fontMode", "window.header.font" },
     headerTextSize = { "window.header.sizeMode", "window.header.textSize" },
@@ -548,7 +551,8 @@ NSkin:RegisterOptionGroup("shared.windowAppearance", {
             headerTextMode = style.header.textMode,
             headerOpacity = style.header.background[4] or 1,
             backgroundMode = style.backgroundMode,
-            headerBackgroundMode = style.header.backgroundMode }
+            headerBackgroundMode = style.header.backgroundMode,
+            matchHeader = style.header.matchBackground == true }
         GetTypographyValues(values, style.header,
             { useGlobal = "headerUseGlobal", font = "headerFont",
                 size = "headerTextSize", outline = "headerOutline" })
@@ -564,6 +568,7 @@ NSkin:RegisterOptionGroup("shared.windowAppearance", {
             ["window.borderSize"] = values.borderSize,
             ["window.borderPadding"] = values.borderPadding,
             ["window.header.backgroundMode"] = values.headerBackgroundMode,
+            ["window.header.matchBackground"] = values.matchHeader,
             ["window.header.text"] = values.headerText,
             ["window.header.textMode"] = values.headerTextMode,
         }
@@ -590,6 +595,7 @@ NSkin:RegisterOptionGroup("shared.windowAppearance", {
             "window.border", "window.borderMode", "window.borderSize",
             "window.borderPadding",
             "window.header.background", "window.header.backgroundMode",
+            "window.header.matchBackground",
             "window.header.text", "window.header.textMode",
             "window.header.fontMode",
             "window.header.sizeMode", "window.header.outlineMode",
@@ -743,6 +749,7 @@ NSkin:RegisterOptionGroupSubset("shared.windowBackgroundAppearance", "shared.win
 NSkin:RegisterOptionGroupSubset("shared.windowSurfaceAppearance", "shared.windowAppearance", {
     FindControl(windowAppearanceControls, "SLIDER_PAIR", nil, nil),
     FindControl(windowAppearanceControls, "SLIDER", "backgroundOpacity"),
+    FindControl(windowAppearanceControls, "CHECKBOX", "matchHeader"),
     { type = "COLOR_PAIR", order = 100,
         left = windowColors.left, right = windowColors.right },
 })

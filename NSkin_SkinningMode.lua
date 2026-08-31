@@ -801,8 +801,12 @@ local function CreateOverlay(element)
         or type(element.highlightRegions) == "table"
         or type(element.highlightRegions) == "function"
         or type(element.getHighlightBounds) == "function"
-    local overlay = CreateFrame("Button", nil,
-        usesAbsoluteBounds and UIParent or element.window)
+    local parent = UIParent
+    if not usesAbsoluteBounds then
+        parent = element.target and element.target.GetParent
+            and element.target:GetParent() or element.window
+    end
+    local overlay = CreateFrame("Button", nil, parent)
     overlay.usesAbsoluteBounds = usesAbsoluteBounds
     overlay:SetFrameStrata("DIALOG")
     overlay:SetFrameLevel(math.max(1,
@@ -842,7 +846,9 @@ local function CreateOverlay(element)
     end)
     overlay:SetScript("OnHide", function()
         if controller.enabled and controller.selectedElement == element
-            and not element.window:IsShown()
+            and (not element.window:IsShown()
+                or (element.target and element.target.IsVisible
+                    and not element.target:IsVisible()))
         then
             StopDrag(false)
             DockWithoutSelection(element.window)

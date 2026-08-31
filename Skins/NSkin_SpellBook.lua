@@ -461,14 +461,7 @@ local function SkinTitleBar(playerSpells, spellBook)
         if font and size then title:SetFont(font, size, outline) end
     end
 
-    local headerStyle = style.header
-    if headerStyle.matchBackground then
-        headerStyle = {}
-        for key, value in pairs(style.header) do headerStyle[key] = value end
-        headerStyle.background = style.background
-        headerStyle.backgroundMode = style.backgroundMode
-    end
-    NSkin:SkinWindowHeader(playerSpells, headerStyle)
+    NSkin:SkinWindowHeader(playerSpells, style.header)
 end
 
 local function RemoveSpellBookPortraitAndHelp(playerSpells, spellBook)

@@ -93,20 +93,15 @@ NSkin:RegisterOptionGroup("spellbook.appearance", {
 
 NSkin:RegisterOptionGroup("spellbook.iconDisposition", {
     controls = {
-        { type = "CONTROL_PAIR",
-            left = { type = "DROPDOWN", key = "iconsPerRow",
-                label = "Icons disposition", values = {
-                    { value = 2, label = "2 icons per row" },
-                    { value = 3, label = "3 icons per row" },
-                    { value = 4, label = "4 icons per row" } } },
-            right = { type = "CHECKBOX", key = "matchHeader",
-                label = "Match header to background" } },
+        { type = "DROPDOWN", key = "iconsPerRow",
+            label = "Icons disposition", values = {
+                { value = 2, label = "2 icons per row" },
+                { value = 3, label = "3 icons per row" },
+                { value = 4, label = "4 icons per row" } } },
         { type = "RESET", label = "Reset Layout", compactLabel = "Reset" },
     },
     get = function()
-        local style = NSkin:GetAppearanceStyle("window", WINDOW_ID, WINDOW_ELEMENT_ID)
-        return { iconsPerRow = NSkin:GetSpellBookIconsPerRow(),
-            matchHeader = style.header.matchBackground }
+        return { iconsPerRow = NSkin:GetSpellBookIconsPerRow() }
     end,
     set = function(_, values)
         local changed
@@ -115,17 +110,10 @@ NSkin:RegisterOptionGroup("spellbook.iconDisposition", {
         then
             changed = NSkin:SetSpellBookIconsPerRow(values.iconsPerRow)
         end
-        if values.matchHeader ~= nil then
-            changed = NSkin:SetElementAppearanceOverride(WINDOW_ELEMENT_ID, WINDOW_ID,
-                "window.header.matchBackground", values.matchHeader == true) or changed
-        end
         return changed == true
     end,
     reset = function()
-        local changed = NSkin:SetSpellBookIconsPerRow(defaults.iconsPerRow)
-        changed = NSkin:ResetElementAppearanceOverride(WINDOW_ELEMENT_ID,
-            "window.header.matchBackground") or changed
-        return changed == true
+        return NSkin:SetSpellBookIconsPerRow(defaults.iconsPerRow)
     end,
 })
 

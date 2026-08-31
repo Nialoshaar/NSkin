@@ -12,16 +12,35 @@ local TOY_PROGRESS_ELEMENT_ID = "Collections.ToyBox.ProgressBar"
 local COLLECTIONS_WINDOW_ELEMENT_ID = "Collections.Journal.Window"
 local COLLECTIONS_APPEARANCE_WINDOW_ID = "Collections.Journal"
 local TOY_APPEARANCE_WINDOW_ID = "Collections.ToyBox"
+local HEIRLOOM_APPEARANCE_WINDOW_ID = "Collections.Heirlooms"
+local APPEARANCE_ITEMS_WINDOW_ID = "Collections.Appearances.Items"
 local TOY_SEARCH_ELEMENT_ID = "Collections.ToyBox.SearchBox"
 local TOY_FILTER_ELEMENT_ID = "Collections.ToyBox.Filter"
 local TOY_PAGINATION_ELEMENT_ID = "Collections.ToyBox.Pagination"
 local TOY_PREVIOUS_ELEMENT_ID = "Collections.ToyBox.Pagination.Previous"
 local TOY_NEXT_ELEMENT_ID = "Collections.ToyBox.Pagination.Next"
 local TOY_PAGE_TEXT_ELEMENT_ID = "Collections.ToyBox.Pagination.Text"
+local HEIRLOOM_SEARCH_ELEMENT_ID = "Collections.Heirlooms.SearchBox"
+local HEIRLOOM_FILTER_ELEMENT_ID = "Collections.Heirlooms.Filter"
+local HEIRLOOM_CLASS_ELEMENT_ID = "Collections.Heirlooms.ClassDropdown"
+local HEIRLOOM_PROGRESS_ELEMENT_ID = "Collections.Heirlooms.ProgressBar"
+local HEIRLOOM_PAGINATION_ELEMENT_ID = "Collections.Heirlooms.Pagination"
+local HEIRLOOM_PREVIOUS_ELEMENT_ID = "Collections.Heirlooms.Pagination.Previous"
+local HEIRLOOM_NEXT_ELEMENT_ID = "Collections.Heirlooms.Pagination.Next"
+local HEIRLOOM_PAGE_TEXT_ELEMENT_ID = "Collections.Heirlooms.Pagination.Text"
+local APPEARANCE_TABS_ELEMENT_ID = "Collections.Appearances.TopTabs"
+local APPEARANCE_SEARCH_ELEMENT_ID = "Collections.Appearances.Items.SearchBox"
+local APPEARANCE_FILTER_ELEMENT_ID = "Collections.Appearances.Items.Filter"
+local APPEARANCE_CLASS_ELEMENT_ID = "Collections.Appearances.Items.ClassDropdown"
+local APPEARANCE_PROGRESS_ELEMENT_ID = "Collections.Appearances.Items.ProgressBar"
+local APPEARANCE_PAGINATION_ELEMENT_ID = "Collections.Appearances.Items.Pagination"
+local APPEARANCE_PREVIOUS_ELEMENT_ID = "Collections.Appearances.Items.Pagination.Previous"
+local APPEARANCE_NEXT_ELEMENT_ID = "Collections.Appearances.Items.Pagination.Next"
+local APPEARANCE_PAGE_TEXT_ELEMENT_ID = "Collections.Appearances.Items.Pagination.Text"
 local WINDOW_BUTTON_TEXT_SIZE = 20
 local HEIRLOOM_QUALITY = _G.Enum and _G.Enum.ItemQuality and _G.Enum.ItemQuality.Heirloom or 7
 local Item = _G.C_Item
-local TOY_PROGRESS_BAR_STYLE = {
+local COLLECTION_PROGRESS_BAR_STYLE = {
     height = 16,
     stripArtwork = true,
     useThemeTexture = true,
@@ -33,15 +52,23 @@ local TOY_PROGRESS_BAR_STYLE = {
 local collectionsInitialized = false
 local toysInitialized = false
 local heirloomsInitialized = false
-local toyMovablesRegistered = {}
+local collectionMovablesRegistered = {}
 local toyPaginationController
 local toySearchController
 local toySearchGroupedAnchor
+local heirloomPaginationController
+local heirloomSearchController
+local heirloomSearchGroupedAnchor
+local appearancePaginationController
+local appearanceSearchController
+local appearanceSearchGroupedAnchor
+local appearanceTabsRegistered = false
 local collectionTabs
 local SkinCollectionsWindow
 local filterMenuHooked = false
-local toyFilterDropdown
-local toyFilterMenu
+local collectionMenuOwners = setmetatable({}, { __mode = "k" })
+local activeCollectionDropdown
+local activeCollectionMenu
 local collectionTabLayout = {
     orientation = "HORIZONTAL",
     edge = "BOTTOM",
@@ -51,9 +78,9 @@ local TAB_GROUP_ID = "Collections.MainTabs"
 local function SkinFilterMenuFrame(menu)
     if not menu or not menu.GetRegions then return end
 
-    if menu == toyFilterMenu and toyFilterDropdown then
+    if menu == activeCollectionMenu and activeCollectionDropdown then
         menu:ClearAllPoints()
-        menu:SetPoint("TOPLEFT", toyFilterDropdown, "BOTTOMLEFT", 0, 0)
+        menu:SetPoint("TOPLEFT", activeCollectionDropdown, "BOTTOMLEFT", 0, 0)
     end
 
     for index = 1, menu:GetNumRegions() do
@@ -115,10 +142,11 @@ local function HookFilterMenu()
     if not manager or type(manager.OpenMenu) ~= "function" then return end
 
     hooksecurefunc(manager, "OpenMenu", function(self, ownerRegion)
-        if ownerRegion ~= toyFilterDropdown then return end
+        if not collectionMenuOwners[ownerRegion] then return end
         local menu = self:GetOpenMenu()
         if not menu then return end
-        toyFilterMenu = menu
+        activeCollectionDropdown = ownerRegion
+        activeCollectionMenu = menu
 
         -- Defer until Blizzard has finished constructing the generated menu
         -- regions; this is ordering, not a timing or taint boundary.
@@ -129,11 +157,11 @@ local function HookFilterMenu()
 
     if _G.MenuStyle1Mixin and type(_G.MenuStyle1Mixin.Generate) == "function" then
         hooksecurefunc(_G.MenuStyle1Mixin, "Generate", function(menu)
-            local root = toyFilterMenu
+            local root = activeCollectionMenu
             if not root or not root:IsShown() or menu == root then return end
 
             -- Submenus bypass MenuManager:OpenMenu. Style their generated
-            -- frame only while the Toy Box filter root is still open.
+            -- frame only while the tracked Collections dropdown is still open.
             C_Timer.After(0, function()
                 if root:IsShown() and menu:IsShown() then SkinFilterMenu(menu) end
             end)
@@ -142,16 +170,26 @@ local function HookFilterMenu()
     filterMenuHooked = true
 end
 
-local function SkinToyFilterButton(button)
+local function SkinCollectionDropdownButton(button, fallbackLabel, preserveText)
     if not button then return end
-    toyFilterDropdown = button
-    NSkin:SkinFlatButton(button, "Filter", nil, nil, 12)
+    collectionMenuOwners[button] = true
+    NSkin:CreateFlatBackground(button, nil, NSkin:GetStyle("button").background,
+        NSkin:GetComponentBorderColor("button", NSkin:GetStyle("button")))
+    NSkin:CreateFlatButtonGlow(button, NSkin:GetStyle("button").hoverAlpha)
 
     if button.Background then button.Background:SetAlpha(0) end
     if button.Arrow then button.Arrow:SetAlpha(0) end
-    if button.Text then button.Text:SetAlpha(0) end
+    if button.NineSlice then button.NineSlice:Hide() end
+    if button.Text then
+        button.Text:SetTextColor(unpack(NSkin:GetStyle("button").text))
+        button.Text:SetAlpha(preserveText and 1 or 0)
+    end
 
     local data = NSkin:GetSkinData(button, FILTER_STATE)
+    if not preserveText then
+        local label = NSkin:SetFlatButtonLabel(button, fallbackLabel or "", 12)
+        if label then label:SetTextColor(unpack(NSkin:GetStyle("button").text)) end
+    end
     local arrow = data.arrow
     if not arrow then
         arrow = button:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
@@ -165,9 +203,17 @@ local function SkinToyFilterButton(button)
     HookFilterMenu()
 end
 
-local function RegisterToyMovableElement(id, label, journal, target, priority,
-    anchorHighlight, editorOptions, isEditable)
-    if toyMovablesRegistered[id] or not journal or not target then return end
+local function RegisterCollectionMovableElement(id, appearanceWindowID, label,
+    journal, target, priority, anchorHighlight, editorOptions, isEditable)
+    if not journal or not target then return end
+    if collectionMovablesRegistered[id] then
+        local element = NSkin:GetSkinningElement(id)
+        local saved = NSkin:GetSavedMovableElementPlacement(id)
+        if element and saved and NSkin:IsSkinningElementEditable(element) then
+            element.applyPlacement(element, saved, { suppressNotify = true })
+        end
+        return element
+    end
 
     local windowLeft, windowTop = journal:GetLeft(), journal:GetTop()
     local targetLeft, targetTop = target:GetLeft(), target:GetTop()
@@ -190,10 +236,10 @@ local function RegisterToyMovableElement(id, label, journal, target, priority,
         }
     end
 
-    toyMovablesRegistered[id] = NSkin:RegisterMovableElement({
+    collectionMovablesRegistered[id] = NSkin:RegisterMovableElement({
         id = id,
         module = "Collections",
-        appearanceWindowID = TOY_APPEARANCE_WINDOW_ID,
+        appearanceWindowID = appearanceWindowID,
         label = label,
         window = journal,
         target = target,
@@ -214,6 +260,36 @@ local function AnchorToySearchAccessory(searchBox, filterDropdown)
     filterDropdown:SetPoint(toySearchGroupedAnchor.point, searchBox,
         toySearchGroupedAnchor.relativePoint, toySearchGroupedAnchor.x,
         toySearchGroupedAnchor.y)
+    return true
+end
+
+local function CaptureSearchAccessoryAnchor(searchBox, accessory)
+    if not searchBox or not accessory then return nil end
+    local searchLeft, searchRight = searchBox:GetLeft(), searchBox:GetRight()
+    local accessoryLeft, accessoryRight = accessory:GetLeft(), accessory:GetRight()
+    local _, searchY = searchBox:GetCenter()
+    local _, accessoryY = accessory:GetCenter()
+    if not searchLeft or not searchRight or not accessoryLeft or not accessoryRight
+        or not searchY or not accessoryY
+    then return nil end
+    if accessoryRight <= searchLeft then
+        return { point = "RIGHT", relativePoint = "LEFT",
+            x = accessoryRight - searchLeft, y = accessoryY - searchY }
+    end
+    return { point = "LEFT", relativePoint = "RIGHT",
+        x = accessoryLeft - searchRight, y = accessoryY - searchY }
+end
+
+local function AnchorHeirloomSearchAccessory(searchBox, filterDropdown)
+    if not searchBox or not filterDropdown or not heirloomSearchGroupedAnchor then
+        return false
+    end
+    if filterDropdown.IsProtected and filterDropdown:IsProtected() then return false end
+    if _G.InCombatLockdown and _G.InCombatLockdown() then return false end
+    filterDropdown:ClearAllPoints()
+    filterDropdown:SetPoint(heirloomSearchGroupedAnchor.point, searchBox,
+        heirloomSearchGroupedAnchor.relativePoint, heirloomSearchGroupedAnchor.x,
+        heirloomSearchGroupedAnchor.y)
     return true
 end
 
@@ -317,7 +393,7 @@ local function SkinCollectionTabs(selectedTab)
 end
 
 function CollectionSkin:OnTabSet(_, selectedTab)
-    SkinCollectionTabs(selectedTab)
+    SkinCollectionsWindow()
     RemoveCollectionPageBackgrounds()
 end
 
@@ -348,7 +424,12 @@ SkinCollectionsWindow = function()
     NSkin:SkinWindowHeader(journal, windowStyle.header)
 
     local title = journal.TitleContainer and journal.TitleContainer.TitleText
-    if title then title:SetTextColor(unpack(NSkin:GetStyle("button").text)) end
+    if title then
+        title:SetTextColor(unpack(
+            NSkin:GetResolvedAppearanceColor(windowStyle.header, "text")))
+        local font, size, outline = NSkin:GetResolvedTypography(windowStyle.header)
+        if font and size then title:SetFont(font, size, outline) end
+    end
 
     local closeButton = journal.CloseButton
     NSkin:SkinFlatButton(closeButton, "x", nil, nil, WINDOW_BUTTON_TEXT_SIZE)
@@ -371,32 +452,20 @@ SkinCollectionsWindow = function()
         NSkin:SkinSearchBox(searchBox, searchStyle,
             NSkin:GetAppearanceBorderColor("searchBox", searchStyle,
                 TOY_APPEARANCE_WINDOW_ID, TOY_SEARCH_ELEMENT_ID))
-        SkinToyFilterButton(filterDropdown)
+        SkinCollectionDropdownButton(filterDropdown, "Filter", false)
         if searchBox and filterDropdown then
             filterDropdown:SetHeight(searchBox:GetHeight())
             if not toySearchGroupedAnchor then
-                local searchLeft, searchRight = searchBox:GetLeft(), searchBox:GetRight()
-                local filterLeft, filterRight = filterDropdown:GetLeft(), filterDropdown:GetRight()
-                local _, searchY = searchBox:GetCenter()
-                local _, filterY = filterDropdown:GetCenter()
-                if searchLeft and searchRight and filterLeft and filterRight
-                    and searchY and filterY
-                then
-                    if filterRight <= searchLeft then
-                        toySearchGroupedAnchor = { point = "RIGHT", relativePoint = "LEFT",
-                            x = filterRight - searchLeft, y = filterY - searchY }
-                    else
-                        toySearchGroupedAnchor = { point = "LEFT", relativePoint = "RIGHT",
-                            x = filterLeft - searchRight, y = filterY - searchY }
-                    end
-                end
+                toySearchGroupedAnchor = CaptureSearchAccessoryAnchor(
+                    searchBox, filterDropdown)
             end
         end
         NSkin:SkinPagingControls(pagingControls or toyBox)
         local progressBar = toyBox.ProgressBar or toyBox.progressBar
-        NSkin:SkinProgressBar(progressBar, TOY_PROGRESS_BAR_STYLE)
-        RegisterToyMovableElement(
-            TOY_PROGRESS_ELEMENT_ID, "Toy Box progress bar", journal, progressBar, 80
+        NSkin:SkinProgressBar(progressBar, COLLECTION_PROGRESS_BAR_STYLE)
+        RegisterCollectionMovableElement(
+            TOY_PROGRESS_ELEMENT_ID, TOY_APPEARANCE_WINDOW_ID,
+            "Toy Box progress bar", journal, progressBar, 80
         )
         if not toySearchController then
             toySearchController = NSkin:RegisterAccessoryGroup({
@@ -437,6 +506,191 @@ SkinCollectionsWindow = function()
             })
         else
             toyPaginationController:Refresh()
+        end
+    end
+
+    local heirlooms = _G.HeirloomsJournal
+    if heirlooms then
+        local searchBox = heirlooms.SearchBox or heirlooms.searchBox
+        local filterDropdown = heirlooms.FilterDropdown
+        local classDropdown = heirlooms.ClassDropdown
+        local pagingControls = heirlooms.PagingFrame or heirlooms.PagingControls
+        local progressBar = heirlooms.progressBar or heirlooms.ProgressBar
+        local searchStyle = NSkin:GetAppearanceStyle(
+            "searchBox", HEIRLOOM_APPEARANCE_WINDOW_ID, HEIRLOOM_SEARCH_ELEMENT_ID)
+        NSkin:SkinSearchBox(searchBox, searchStyle,
+            NSkin:GetAppearanceBorderColor("searchBox", searchStyle,
+                HEIRLOOM_APPEARANCE_WINDOW_ID, HEIRLOOM_SEARCH_ELEMENT_ID))
+        SkinCollectionDropdownButton(filterDropdown, "Filter", false)
+        SkinCollectionDropdownButton(classDropdown, "Class/spec", true)
+        if searchBox and filterDropdown then
+            filterDropdown:SetHeight(searchBox:GetHeight())
+            if not heirloomSearchGroupedAnchor then
+                heirloomSearchGroupedAnchor = CaptureSearchAccessoryAnchor(
+                    searchBox, filterDropdown)
+            end
+        end
+        NSkin:SkinPagingControls(pagingControls or heirlooms)
+        NSkin:SkinProgressBar(progressBar, COLLECTION_PROGRESS_BAR_STYLE)
+        RegisterCollectionMovableElement(
+            HEIRLOOM_CLASS_ELEMENT_ID, HEIRLOOM_APPEARANCE_WINDOW_ID,
+            "Heirlooms class/spec filter", journal, classDropdown, 79)
+        RegisterCollectionMovableElement(
+            HEIRLOOM_PROGRESS_ELEMENT_ID, HEIRLOOM_APPEARANCE_WINDOW_ID,
+            "Heirlooms progress bar", journal, progressBar, 80)
+        if not heirloomSearchController then
+            heirloomSearchController = NSkin:RegisterAccessoryGroup({
+                module = "Collections",
+                appearanceWindowID = HEIRLOOM_APPEARANCE_WINDOW_ID,
+                window = journal,
+                ids = { primary = HEIRLOOM_SEARCH_ELEMENT_ID,
+                    accessory = HEIRLOOM_FILTER_ELEMENT_ID },
+                primary = searchBox, accessory = filterDropdown,
+                primaryLabel = "Heirlooms search bar",
+                accessoryLabel = "Heirlooms filter",
+                primaryPriority = 81, accessoryPriority = 91,
+                visibilityFrame = heirlooms,
+                anchorGrouped = AnchorHeirloomSearchAccessory,
+            })
+        else
+            heirloomSearchController:Refresh()
+        end
+        if not heirloomPaginationController then
+            heirloomPaginationController = NSkin:RegisterPaginationGroup({
+                module = "Collections",
+                appearanceWindowID = HEIRLOOM_APPEARANCE_WINDOW_ID,
+                window = journal,
+                ids = { group = HEIRLOOM_PAGINATION_ELEMENT_ID,
+                    previous = HEIRLOOM_PREVIOUS_ELEMENT_ID,
+                    next = HEIRLOOM_NEXT_ELEMENT_ID,
+                    text = HEIRLOOM_PAGE_TEXT_ELEMENT_ID },
+                controls = { group = pagingControls,
+                    previous = pagingControls and (pagingControls.PrevPageButton
+                        or pagingControls.prevPageButton),
+                    next = pagingControls and (pagingControls.NextPageButton
+                        or pagingControls.nextPageButton),
+                    text = pagingControls and (pagingControls.PageText
+                        or pagingControls.pageText) },
+                groupLabel = "Heirlooms pagination", groupPriority = 82,
+                visibilityFrame = heirlooms,
+            })
+        else
+            heirloomPaginationController:Refresh()
+        end
+    end
+
+    local wardrobe = _G.WardrobeCollectionFrame
+    local itemsFrame = wardrobe and wardrobe.ItemsCollectionFrame
+    if wardrobe and itemsFrame then
+        local topTabs = { wardrobe.ItemsTab, wardrobe.SetsTab }
+        local selectedTab = _G.PanelTemplates_GetSelectedTab
+            and _G.PanelTemplates_GetSelectedTab(wardrobe) or 1
+        local tabStyle = NSkin:GetAppearanceStyle(
+            "tab", APPEARANCE_ITEMS_WINDOW_ID, APPEARANCE_TABS_ELEMENT_ID)
+        local tabBorder = NSkin:GetAppearanceBorderColor(
+            "tab", tabStyle, APPEARANCE_ITEMS_WINDOW_ID,
+            APPEARANCE_TABS_ELEMENT_ID)
+        for i = 1, #topTabs do
+            NSkin:SkinTab(topTabs[i], i == selectedTab, tabStyle, tabBorder)
+        end
+        if not appearanceTabsRegistered then
+            appearanceTabsRegistered = NSkin:RegisterTabGroup(
+                APPEARANCE_TABS_ELEMENT_ID, {
+                    module = "Collections",
+                    appearanceWindowID = APPEARANCE_ITEMS_WINDOW_ID,
+                    label = "Appearances top tabs",
+                    window = journal,
+                    target = wardrobe,
+                    tabs = topTabs,
+                    priority = 60,
+                    orientation = "HORIZONTAL",
+                    edge = "TOP",
+                    isEditable = function() return wardrobe:IsVisible() end,
+                }) == true
+        elseif NSkin:GetTabGroup(APPEARANCE_TABS_ELEMENT_ID) then
+            NSkin:ApplyTabGroupLayout(APPEARANCE_TABS_ELEMENT_ID)
+        end
+
+        local searchBox = wardrobe.SearchBox or wardrobe.searchBox
+        local filterDropdown = wardrobe.FilterButton or wardrobe.FilterDropdown
+        local classDropdown = wardrobe.ClassDropdown
+        local weaponDropdown = itemsFrame.WeaponDropdown
+        local progressBar = wardrobe.progressBar or wardrobe.ProgressBar
+        local pagingControls = itemsFrame.PagingFrame or itemsFrame.PagingControls
+        local searchStyle = NSkin:GetAppearanceStyle(
+            "searchBox", APPEARANCE_ITEMS_WINDOW_ID, APPEARANCE_SEARCH_ELEMENT_ID)
+        NSkin:SkinSearchBox(searchBox, searchStyle,
+            NSkin:GetAppearanceBorderColor("searchBox", searchStyle,
+                APPEARANCE_ITEMS_WINDOW_ID, APPEARANCE_SEARCH_ELEMENT_ID))
+        SkinCollectionDropdownButton(filterDropdown, "Filter", false)
+        SkinCollectionDropdownButton(classDropdown, "Class/spec", true)
+        SkinCollectionDropdownButton(weaponDropdown, "Weapon", true)
+        if searchBox and filterDropdown then
+            filterDropdown:SetHeight(searchBox:GetHeight())
+            if not appearanceSearchGroupedAnchor then
+                appearanceSearchGroupedAnchor = CaptureSearchAccessoryAnchor(
+                    searchBox, filterDropdown)
+            end
+        end
+        NSkin:SkinProgressBar(progressBar, COLLECTION_PROGRESS_BAR_STYLE)
+        NSkin:SkinPagingControls(pagingControls or itemsFrame)
+        RegisterCollectionMovableElement(
+            APPEARANCE_CLASS_ELEMENT_ID, APPEARANCE_ITEMS_WINDOW_ID,
+            "Appearances class/spec filter", journal, classDropdown, 79,
+            nil, nil, function()
+                return itemsFrame:IsVisible() and classDropdown:IsVisible()
+            end)
+        RegisterCollectionMovableElement(
+            APPEARANCE_PROGRESS_ELEMENT_ID, APPEARANCE_ITEMS_WINDOW_ID,
+            "Appearances progress bar", journal, progressBar, 81,
+            nil, nil, function()
+                return itemsFrame:IsVisible() and progressBar:IsVisible()
+            end)
+        if not appearanceSearchController then
+            appearanceSearchController = NSkin:RegisterAccessoryGroup({
+                module = "Collections",
+                appearanceWindowID = APPEARANCE_ITEMS_WINDOW_ID,
+                window = journal,
+                ids = { primary = APPEARANCE_SEARCH_ELEMENT_ID,
+                    accessory = APPEARANCE_FILTER_ELEMENT_ID },
+                primary = searchBox, accessory = filterDropdown,
+                primaryLabel = "Appearances search bar",
+                accessoryLabel = "Appearances filter",
+                primaryPriority = 82, accessoryPriority = 92,
+                visibilityFrame = itemsFrame,
+                anchorGrouped = function(primary, accessory)
+                    if not appearanceSearchGroupedAnchor then return false end
+                    if accessory.IsProtected and accessory:IsProtected() then return false end
+                    if _G.InCombatLockdown and _G.InCombatLockdown() then return false end
+                    accessory:ClearAllPoints()
+                    accessory:SetPoint(appearanceSearchGroupedAnchor.point, primary,
+                        appearanceSearchGroupedAnchor.relativePoint,
+                        appearanceSearchGroupedAnchor.x,
+                        appearanceSearchGroupedAnchor.y)
+                    return true
+                end,
+            })
+        else
+            appearanceSearchController:Refresh()
+        end
+        if not appearancePaginationController then
+            appearancePaginationController = NSkin:RegisterPaginationGroup({
+                module = "Collections",
+                appearanceWindowID = APPEARANCE_ITEMS_WINDOW_ID,
+                window = journal,
+                ids = { group = APPEARANCE_PAGINATION_ELEMENT_ID,
+                    previous = APPEARANCE_PREVIOUS_ELEMENT_ID,
+                    next = APPEARANCE_NEXT_ELEMENT_ID,
+                    text = APPEARANCE_PAGE_TEXT_ELEMENT_ID },
+                controls = { group = pagingControls,
+                    previous = pagingControls and pagingControls.PrevPageButton,
+                    next = pagingControls and pagingControls.NextPageButton,
+                    text = pagingControls and pagingControls.PageText },
+                groupLabel = "Appearances pagination", groupPriority = 83,
+                visibilityFrame = itemsFrame,
+            })
+        else
+            appearancePaginationController:Refresh()
         end
     end
 end
@@ -515,6 +769,10 @@ function CollectionSkin:InitializeOptionalAdapters()
             SkinCollectionButton(button, HEIRLOOM_QUALITY)
         end)
         heirloomsInitialized = true
+        for i = 1, #(heirloomsJournal.heirloomEntryFrames or {}) do
+            SkinCollectionButton(
+                heirloomsJournal.heirloomEntryFrames[i], HEIRLOOM_QUALITY)
+        end
     end
 end
 
@@ -583,6 +841,13 @@ function CollectionSkin:RefreshTheme()
     if toysInitialized and iconsFrame then
         for i = 1, TOYS_PER_PAGE do
             SkinCollectionButton(iconsFrame["spellButton" .. i])
+        end
+    end
+    local heirloomsJournal = _G.HeirloomsJournal
+    if heirloomsInitialized and heirloomsJournal then
+        for i = 1, #(heirloomsJournal.heirloomEntryFrames or {}) do
+            SkinCollectionButton(
+                heirloomsJournal.heirloomEntryFrames[i], HEIRLOOM_QUALITY)
         end
     end
 end

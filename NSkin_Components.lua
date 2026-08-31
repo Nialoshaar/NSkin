@@ -423,19 +423,72 @@ function NSkin:CreateEditorOptionsPreset(preset, extraEditorOptions)
     return result
 end
 
+local function LayoutWindowBackground(frame, data, anchor)
+    local background = data and data.windowBackground
+    if not background or not anchor then return end
+    background:ClearAllPoints()
+    if anchor == frame and (tonumber(data.windowHeaderHeight) or 0) > 0 then
+        background:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -data.windowHeaderHeight)
+        background:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
+    else
+        background:SetAllPoints(anchor)
+    end
+end
+
+local function ConcealWindowRegion(region)
+    if not region or not region.GetObjectType then return end
+    local objectType = region:GetObjectType()
+    if region.SetAlpha then region:SetAlpha(0) end
+    if objectType == "Texture" then
+        if region.SetTexture then region:SetTexture(nil) end
+        region:Hide()
+        return
+    end
+    if not (region.IsObjectType and region:IsObjectType("Frame")) then return end
+    local data = NSkin:GetSkinData(region, COMPONENT_STATE)
+    region:Hide()
+    if not data.windowArtworkConcealHooked and region.HookScript then
+        data.windowArtworkConcealHooked = true
+        region:HookScript("OnShow", function(self)
+            self:SetAlpha(0)
+            self:Hide()
+        end)
+    end
+end
+
+function NSkin:ConcealWindowArtwork(frame)
+    if not frame then return end
+    ConcealWindowRegion(frame.NineSlice)
+    ConcealWindowRegion(frame.Bg)
+    ConcealWindowRegion(frame.TopTileStreaks)
+    ConcealWindowRegion(frame.TitleBg)
+    ConcealWindowRegion(frame.PortraitContainer)
+    ConcealWindowRegion(frame.portrait)
+    ConcealWindowRegion(frame.portraitFrame)
+    ConcealWindowRegion(frame.topBorderBar)
+    ConcealWindowRegion(frame.topLeftCorner)
+    ConcealWindowRegion(frame.TopRightCorner)
+end
+
 function NSkin:SkinWindow(frame, backgroundAnchor, style, borderColor)
     if not frame then return nil end
 
+    self:ConcealWindowArtwork(frame)
     style = style or self:GetStyle("window")
     local anchor = backgroundAnchor or frame
     local data = self:GetSkinData(frame, COMPONENT_STATE)
     local background = data.windowBackground
     if not background then
         background = frame:CreateTexture(nil, "BACKGROUND", nil, 0)
-        background:SetAllPoints(anchor)
         data.windowBackground = background
     end
-    background:SetColorTexture(unpack(self:GetResolvedAppearanceColor(style, "background")))
+    data.windowBackgroundAnchor = anchor
+    LayoutWindowBackground(frame, data, anchor)
+    local backgroundColor = self:GetResolvedAppearanceColor(style, "background")
+    background:SetColorTexture(unpack(backgroundColor))
+    data.windowBackgroundColor = {
+        backgroundColor[1], backgroundColor[2], backgroundColor[3], backgroundColor[4],
+    }
 
     local border = self:CreatePixelBorder(
         frame, "NSkinWindowBorder", style.borderSize,
@@ -459,8 +512,15 @@ function NSkin:SkinWindowHeader(frame, style)
         background:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 0)
         data.windowHeaderBackground = background
     end
-    background:SetHeight(style.height)
-    background:SetColorTexture(unpack(self:GetResolvedAppearanceColor(style, "background")))
+    local height = self:SnapToPhysicalPixel(
+        frame, math.max(0, tonumber(style.height) or 0))
+    background:SetHeight(height)
+    local color = style.matchBackground and data.windowBackgroundColor
+        or self:GetResolvedAppearanceColor(style, "background")
+    color = color or self:GetResolvedAppearanceColor(style, "background")
+    background:SetColorTexture(unpack(color))
+    data.windowHeaderHeight = height
+    LayoutWindowBackground(frame, data, data.windowBackgroundAnchor or frame)
     return background
 end
 
@@ -1154,6 +1214,7 @@ function NSkin:RegisterPaginationGroup(definition)
     local controller = { module = definition.module,
         appearanceWindowID = definition.appearanceWindowID,
         window = definition.window,
+        visibilityFrame = definition.visibilityFrame,
         id = definition.id or ids.group, ids = ids, controls = controls }
     local legacySeparateKey = definition.legacySeparateOptionKey
     local legacyTextKey = definition.legacyTextOptionKey
@@ -1169,6 +1230,10 @@ function NSkin:RegisterPaginationGroup(definition)
         if not mode and legacyTextKey and options then mode = options[legacyTextKey] end
         mode = mode or "GROUPED"
         return mode == "GROUPED" and self:GetSeparateButtons() and "INDEPENDENT" or mode
+    end
+    function controller:IsVisible()
+        local target = self.visibilityFrame or self.controls.group
+        return not target or not target.IsVisible or target:IsVisible()
     end
     function controller:NotifyBounds()
         NSkin:NotifySkinningElementBoundsChanged(self.ids.group)
@@ -1258,7 +1323,9 @@ function NSkin:RegisterPaginationGroup(definition)
             applyPlacement = groupDefinition.applyPlacement,
             livePreview = groupDefinition.livePreview,
             draggable = groupDefinition.draggable,
-            isEditable = function() return not controller:GetSeparateButtons() end,
+            isEditable = function()
+                return controller:IsVisible() and not controller:GetSeparateButtons()
+            end,
         })
     local previous = RegisterControllerElement(controller, ids.previous,
         definition.previousLabel or "Previous page button", controls.previous, {
@@ -1268,7 +1335,9 @@ function NSkin:RegisterPaginationGroup(definition)
             defaultPlacement = previousDefinition.defaultPlacement
                 or definition.previousPlacement or defaultPlacement,
             priority = previousDefinition.priority or definition.buttonPriority or 90,
-            isEditable = function() return controller:GetSeparateButtons() end,
+            isEditable = function()
+                return controller:IsVisible() and controller:GetSeparateButtons()
+            end,
             applyPlacement = previousDefinition.applyPlacement,
             livePreview = previousDefinition.livePreview,
             draggable = previousDefinition.draggable,
@@ -1281,7 +1350,9 @@ function NSkin:RegisterPaginationGroup(definition)
             defaultPlacement = nextDefinition.defaultPlacement
                 or definition.nextPlacement or defaultPlacement,
             priority = nextDefinition.priority or definition.buttonPriority or 90,
-            isEditable = function() return controller:GetSeparateButtons() end,
+            isEditable = function()
+                return controller:IsVisible() and controller:GetSeparateButtons()
+            end,
             applyPlacement = nextDefinition.applyPlacement,
             livePreview = nextDefinition.livePreview,
             draggable = nextDefinition.draggable,
@@ -1294,7 +1365,10 @@ function NSkin:RegisterPaginationGroup(definition)
             defaultPlacement = textDefinition.defaultPlacement
                 or definition.textPlacement or defaultPlacement,
             priority = textDefinition.priority or definition.textPriority or 100,
-            isEditable = function() return controller:GetTextMode() == "INDEPENDENT" end,
+            isEditable = function()
+                return controller:IsVisible()
+                    and controller:GetTextMode() == "INDEPENDENT"
+            end,
             applyPlacement = textDefinition.applyPlacement,
             livePreview = textDefinition.livePreview,
             draggable = textDefinition.draggable,
@@ -1327,6 +1401,7 @@ function NSkin:RegisterAccessoryGroup(definition)
     local controller = { module = definition.module,
         appearanceWindowID = definition.appearanceWindowID,
         window = definition.window,
+        visibilityFrame = definition.visibilityFrame,
         id = definition.id or definition.ids.primary, ids = definition.ids,
         primary = definition.primary, accessory = definition.accessory }
     local legacyOptionKey = definition.legacyOptionKey
@@ -1334,6 +1409,10 @@ function NSkin:RegisterAccessoryGroup(definition)
         local state, options = GetControllerState(self.module, self.id, false)
         if state and state.mode then return state.mode end
         return legacyOptionKey and options and options[legacyOptionKey] or "GROUPED"
+    end
+    function controller:IsVisible()
+        local target = self.visibilityFrame or self.primary:GetParent()
+        return not target or not target.IsVisible or target:IsVisible()
     end
     function controller:AnchorGrouped()
         return definition.anchorGrouped(self.primary, self.accessory) == true
@@ -1421,7 +1500,9 @@ function NSkin:RegisterAccessoryGroup(definition)
             defaultPlacement = accessoryDefinition.defaultPlacement
                 or definition.accessoryPlacement,
             priority = accessoryDefinition.priority or definition.accessoryPriority or 90,
-            isEditable = function() return controller:GetMode() == "INDEPENDENT" end,
+            isEditable = function()
+                return controller:IsVisible() and controller:GetMode() == "INDEPENDENT"
+            end,
             applyPlacement = accessoryDefinition.applyPlacement,
             livePreview = accessoryDefinition.livePreview,
             draggable = accessoryDefinition.draggable,
@@ -1433,6 +1514,7 @@ function NSkin:RegisterAccessoryGroup(definition)
             defaultPlacement = primaryDefinition.defaultPlacement or definition.primaryPlacement,
             priority = primaryDefinition.priority or definition.primaryPriority or 80,
             snapTarget = definition.snapTarget,
+            isEditable = function() return controller:IsVisible() end,
             applyPlacement = function(element, placement, applyOptions)
                 if primaryDefinition.applyPlacement then
                     if not primaryDefinition.applyPlacement(element, placement,
