@@ -1,6 +1,7 @@
 local _, NSkin = ...
 
 local RESET_CONFIRMATION_DIALOG = "NSKIN_CONFIRM_INHERITED_RESET"
+local RESET_ELEMENT_DIALOG = "NSKIN_CONFIRM_ELEMENT_RESET"
 local state
 
 local function CreateLabel(parent, text, point, relativeTo, relativePoint, x, y)
@@ -44,6 +45,36 @@ local function ResizeInspector(view, extraHeight)
 end
 
 local RefreshInspector
+
+local function ResetElementToBlizzardDefaults(element)
+    if not element then return false end
+    local resetGroups = {}
+    local editorOptions = element.editorOptions
+    if type(editorOptions) == "string" then
+        resetGroups[editorOptions] = true
+    elseif type(editorOptions) == "table" then
+        for i = 1, #editorOptions do
+            local definition = editorOptions[i]
+            local id = type(definition) == "table" and definition.id or definition
+            if type(id) == "string" then resetGroups[id] = true end
+        end
+    end
+    for id in pairs(resetGroups) do
+        NSkin:ResetOptionGroup(id, element)
+    end
+
+    -- Clear anything not represented by the visible compact subsets too.
+    NSkin:ResetElementAppearanceOverride(element.id)
+    if type(element.resetPlacement) == "function" then
+        element.resetPlacement(element)
+    end
+    if element.kind == "TAB_GROUP" then
+        NSkin:RestoreTabGroupOriginalPlacement(element.id)
+    end
+    NSkin:RefreshAppearance()
+    NSkin:NotifySkinningElementBoundsChanged(element.id)
+    return true
+end
 
 local function SnapInspectorOffset(value)
     return NSkin:SnapToPhysicalPixel(state.scrollChild, value)
@@ -234,6 +265,7 @@ RefreshInspector = function()
     state.inspector.selection:SetText(
         element and ("Selected: " .. (element.label or element.id)) or "Select an element"
     )
+    state.inspector.resetElement:SetShown(element ~= nil)
     LoadEditorOptions(element)
     NSkin:ApplyGlobalTypography(state.inspector)
     SetInspectorTextWhite(state.inspector)
@@ -311,6 +343,23 @@ function NSkin:CreateDockedWindow(owner)
             preferredIndex = 3,
         }
     end
+    if not StaticPopupDialogs[RESET_ELEMENT_DIALOG] then
+        StaticPopupDialogs[RESET_ELEMENT_DIALOG] = {
+            text = "Reset %s completely to its Blizzard defaults?",
+            button1 = YES,
+            button2 = NO,
+            OnAccept = function(_, element)
+                if element then
+                    ResetElementToBlizzardDefaults(element)
+                    RefreshInspector()
+                end
+            end,
+            timeout = 0,
+            whileDead = true,
+            hideOnEscape = true,
+            preferredIndex = 3,
+        }
+    end
 
     local inspector = CreateFrame("Frame", nil, UIParent)
     inspector:SetSize(520, 130)
@@ -357,6 +406,19 @@ function NSkin:CreateDockedWindow(owner)
     inspector.selection = CreateLabel(
         inspector, "Select an element", "TOPLEFT", inspector, "TOPLEFT", 12, -34
     )
+    local resetElement = CreateButton(inspector, "Reset to Blizzard default", 176,
+        function()
+            local element = state.selectedElement
+            if element then
+                StaticPopup_Show(RESET_ELEMENT_DIALOG,
+                    element.label or element.id, nil, element)
+            end
+        end)
+    resetElement:SetPoint("TOPRIGHT", inspector, "TOPRIGHT", -12, -27)
+    resetElement:Hide()
+    inspector.selection:SetPoint("RIGHT", resetElement, "LEFT", -8, 0)
+    inspector.selection:SetJustifyH("LEFT")
+    inspector.resetElement = resetElement
     state.inspector = inspector
 
     local scrollFrame = CreateFrame("ScrollFrame", nil, inspector)

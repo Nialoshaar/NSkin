@@ -3158,6 +3158,11 @@ NSkin:RegisterOptionGroup("shared.tabAppearance", {
         local style = NSkin:GetAppearanceStyle(
             "tab", GetAppearanceWindowID(context), context.id)
         local currentWidth, currentHeight = GetFirstTabSize(context)
+        local tabGroup = NSkin:GetTabGroup(context.id)
+        local spacing = tonumber(style.spacing)
+        if spacing == nil and tabGroup then
+            spacing = tonumber(tabGroup.originalSpacing)
+        end
         local values = { background = CopyColor(style.background),
             selectedBackground = CopyColor(style.selectedBackground),
             border = CopyColor(style.border), text = CopyColor(style.text),
@@ -3167,7 +3172,7 @@ NSkin:RegisterOptionGroup("shared.tabAppearance", {
                 and style.width or currentWidth,
             height = tonumber(style.height) and style.height > 0
                 and style.height or currentHeight,
-            spacing = style.spacing,
+            spacing = spacing or 0,
             backgroundMode = style.backgroundMode,
             selectedBackgroundMode = style.selectedBackgroundMode,
             borderMode = style.borderMode }

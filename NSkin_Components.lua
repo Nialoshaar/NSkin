@@ -3,6 +3,16 @@ local _, NSkin = ...
 
 local resolvedStyles = {}
 local appearanceScopes = {}
+local APPEARANCE_GEOMETRY_KEYS = {
+    typography = { size = true },
+    window = { header = { height = true } },
+    tab = { width = true, height = true, spacing = true, bottom = true },
+    searchBox = { width = true, height = true, textSize = true,
+        textOffsetX = true, textOffsetY = true, placeholderSize = true,
+        placeholderOffsetX = true, placeholderOffsetY = true },
+    sectionHeader = { textSize = true },
+    progressBar = { height = true },
+}
 
 local function RoundOne(value)
     value = tonumber(value) or 0
@@ -73,6 +83,19 @@ local function CopyWithOverrides(defaults, overrides)
     return result
 end
 
+local function RemoveGeometryValues(style, geometry)
+    for key, value in pairs(geometry or {}) do
+        if type(value) == "table" then
+            if type(style[key]) == "table" then
+                RemoveGeometryValues(style[key], value)
+                if not next(style[key]) then style[key] = nil end
+            end
+        elseif value then
+            style[key] = nil
+        end
+    end
+end
+
 function NSkin:GetStyle(name)
     local cached = resolvedStyles[name]
     if cached then return cached end
@@ -141,6 +164,11 @@ end
 function NSkin:GetAppearanceStyle(name, windowID, elementID)
     local style = self:GetStyle(name)
     if not style then return nil end
+    -- Global appearance controls provide visual inheritance only. Geometry is
+    -- opt-in per window or element so untouched Blizzard windows retain their
+    -- live dimensions and layout.
+    style = CopyWithOverrides({}, style)
+    RemoveGeometryValues(style, APPEARANCE_GEOMETRY_KEYS[name])
     local profile = self:GetProfile()
     local overrides = profile.appearanceOverrides
     local chain = windowID and GetAppearanceScopeChain(windowID)
@@ -2786,6 +2814,83 @@ function NSkin:ForEachRegisteredTabGroup(callback)
     for _, group in pairs(tabGroups) do callback(group) end
 end
 
+local function RestoreTabDimensions(group)
+    local tabs = group and group.container and group.container.tabs
+        or group and group.tabs
+    if type(tabs) ~= "table" then return false end
+    local restored = false
+    for i = 1, #tabs do
+        local tab = tabs[i]
+        if tab then
+            local data = NSkin:GetSkinData(tab, COMPONENT_STATE, false)
+            if data and data.tabOriginalSize then
+                tab:SetSize(data.tabOriginalSize[1], data.tabOriginalSize[2])
+                data.tabOriginalSize = nil
+                restored = true
+            end
+        end
+    end
+    return restored
+end
+
+local function RestoreTabPoints(groupID)
+    local originals = tabGroupOriginalPoints[groupID]
+    if not originals then return false end
+    for i = 1, #originals do
+        local original = originals[i]
+        if original.target and original.target.ClearAllPoints then
+            original.target:ClearAllPoints()
+            for pointIndex = 1, #original.points do
+                original.target:SetPoint(unpack(original.points[pointIndex]))
+            end
+        end
+    end
+    return true
+end
+
+local function ApplyTabGeometryWithoutPlacement(group, tabStyle)
+    local tabs = group.container and group.container.tabs or group.tabs
+    local applied = false
+    if type(tabs) == "table" then
+        for i = 1, #tabs do
+            local tab = tabs[i]
+            if tab then
+                ApplyTabDimensions(tab, tabStyle,
+                    NSkin:GetSkinData(tab, COMPONENT_STATE))
+                applied = true
+            end
+        end
+    end
+
+    if group.container and group.container.MarkDirty then
+        local spacing = tonumber(tabStyle and tabStyle.spacing)
+        if spacing ~= nil then
+            group.container.spacing = spacing
+            group.spacingOverrideApplied = true
+        elseif group.spacingOverrideApplied then
+            group.container.spacing = group.originalSpacing
+            group.spacingOverrideApplied = nil
+        end
+        group.container:MarkDirty()
+    else
+        local spacing = tonumber(tabStyle and tabStyle.spacing)
+        if spacing ~= nil then
+            if not group.spacingOverrideApplied then
+                RestoreTabPoints(group.id)
+            end
+            NSkin:LayoutTabGroup(tabs, {
+                spacing = spacing,
+                orientation = group.orientation,
+            })
+            group.spacingOverrideApplied = true
+        elseif group.spacingOverrideApplied then
+            RestoreTabPoints(group.id)
+            group.spacingOverrideApplied = nil
+        end
+    end
+    return applied
+end
+
 function NSkin:ApplyTabGroupPlacement(group, placement, applyOptions)
     if not group or (_G.InCombatLockdown and _G.InCombatLockdown()) then return false end
     local options = group.layoutOptions
@@ -2828,7 +2933,11 @@ function NSkin:ApplyTabGroupLayout(groupID)
     local group = tabGroups[groupID]
     if not group or (_G.InCombatLockdown and _G.InCombatLockdown()) then return false end
     if type(group.hasPlacement) == "function" and not group.hasPlacement(group) then
-        return false
+        local tabStyle = self:GetAppearanceStyle(
+            "tab", group.appearanceWindowID, group.id)
+        local applied = ApplyTabGeometryWithoutPlacement(group, tabStyle)
+        if applied then FireComponentCallback("TabGroupLayoutApplied", group) end
+        return applied
     end
     local placement = self:GetTabGroupPlacement(groupID)
     if type(group.applyPlacement) == "function" then
@@ -2848,20 +2957,17 @@ function NSkin:RefreshRegisteredTabGroups()
 end
 
 function NSkin:RestoreTabGroupOriginalPlacement(groupID)
-    local originals = tabGroupOriginalPoints[groupID]
-    if not originals then return false end
-    for i = 1, #originals do
-        local original = originals[i]
-        if original.target and original.target.ClearAllPoints then
-            original.target:ClearAllPoints()
-            for pointIndex = 1, #original.points do
-                original.target:SetPoint(unpack(original.points[pointIndex]))
-            end
-        end
-    end
+    if not RestoreTabPoints(groupID) then return false end
     local group = tabGroups[groupID]
-    if group and group.container and group.container.MarkDirty then
-        group.container:MarkDirty()
+    if group then
+        RestoreTabDimensions(group)
+        group.spacingOverrideApplied = nil
+        if group.container and group.container.MarkDirty then
+            if group.originalSpacing ~= nil then
+                group.container.spacing = group.originalSpacing
+            end
+            group.container:MarkDirty()
+        end
     end
     return true
 end
