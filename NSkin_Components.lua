@@ -2162,6 +2162,7 @@ function NSkin:SkinProgressBar(bar, options)
         or not bar.SetStatusBarTexture or (bar.IsForbidden and bar:IsForbidden())
     then return false end
     options = options or {}
+    local style = self:GetStyle("progressBar")
     local data = self:GetSkinData(bar, PROGRESS_COMPONENT_STATE)
     if not data.originalHeight then data.originalHeight = bar:GetHeight() end
     local height = tonumber(options.height)
@@ -2183,7 +2184,7 @@ function NSkin:SkinProgressBar(bar, options)
     end
 
     local texture = options.texture
-    if options.useAppearanceTexture then texture = self:GetStatusBarTexture() end
+    if options.useAppearanceTexture then texture = style and style.texture end
     if type(texture) == "string" and texture ~= "" then
         bar:SetStatusBarTexture(texture)
         fill = bar:GetStatusBarTexture()
@@ -2195,10 +2196,27 @@ function NSkin:SkinProgressBar(bar, options)
     end
 
     if options.background then
-        local style = self:GetStyle("progressBar")
-        self:CreateFlatBackground(bar, PROGRESS_BACKGROUND_KEY,
-            options.backgroundColor or style.background,
-            options.borderColor or self:GetWindowBorderColor())
+        local backgroundColor = options.backgroundColor or style.background
+        local borderColor = options.borderColor or self:GetWindowBorderColor()
+            or style.border
+        local background = self:CreateFlatBackground(
+            bar, PROGRESS_BACKGROUND_KEY, backgroundColor, borderColor)
+        if background then
+            -- Blizzard progress templates can alter their regions again while
+            -- refreshing. Reassert the complete NSkin-owned surface each pass.
+            background:ClearAllPoints()
+            background:SetPoint("TOPLEFT", bar, "TOPLEFT", 1, -1)
+            background:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", -1, 1)
+            background:SetColorTexture(unpack(backgroundColor))
+            background:SetAlpha(1)
+            background:Show()
+        end
+        local border = self:GetPixelBorder(
+            bar, PROGRESS_BACKGROUND_KEY .. "Border")
+        self:SetPixelBorderColor(border, unpack(borderColor))
+        self:SetPixelBorderSize(border, 1)
+        self:SetPixelBorderPadding(border, 0)
+        self:SetPixelBorderShown(border, true)
     end
 
     if options.centerText then

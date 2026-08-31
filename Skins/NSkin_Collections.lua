@@ -80,7 +80,7 @@ local State = {
         Heirlooms = false, AppearanceTabs = false },
     Main = { tabs = nil },
     ToyBox = { paginationController = nil, searchController = nil,
-        groupedAnchor = nil },
+        groupedAnchor = nil, backgroundHooked = false },
     Heirlooms = { paginationController = nil, searchController = nil,
         groupedAnchor = nil },
     Appearances = { Items = { paginationController = nil,
@@ -426,6 +426,32 @@ local function ResolvePagingControls(owner, candidate)
     return group, previous, nextPage, pageText
 end
 
+local function ResolveProgressBar(owner, candidate)
+    local seen = {}
+    local function Find(frame, depth)
+        if not frame or seen[frame] then return nil end
+        seen[frame] = true
+        if frame.GetObjectType and frame:GetObjectType() == "StatusBar" then
+            return frame
+        end
+        for _, key in ipairs({ "ProgressBar", "progressBar", "StatusBar",
+            "statusBar", "Bar", "bar" }) do
+            local child = frame[key]
+            if child and child ~= frame then
+                local found = Find(child, depth + 1)
+                if found then return found end
+            end
+        end
+        if depth < 2 and frame.GetChildren then
+            for _, child in ipairs({ frame:GetChildren() }) do
+                local found = Find(child, depth + 1)
+                if found then return found end
+            end
+        end
+    end
+    return Find(candidate, 0) or Find(owner, 0)
+end
+
 SkinCollectionsWindow = function(adapterName)
     local journal = _G.CollectionsJournal
     if not journal then return end
@@ -463,6 +489,7 @@ SkinCollectionsWindow = function(adapterName)
 
     local toyBox = _G.ToyBox
     if toyBox and (not adapterName or adapterName == "ToyBox") then
+        RemoveBackgroundFrame(toyBox.iconsFrame)
         local searchBox = toyBox.SearchBox or toyBox.searchBox
         local filterDropdown = toyBox.FilterDropdown
         local pagingControls = toyBox.PagingControls or toyBox.PagingFrame
@@ -482,7 +509,8 @@ SkinCollectionsWindow = function(adapterName)
             end
         end
         NSkin:SkinPagingControls(pagingGroup or toyBox)
-        local progressBar = toyBox.ProgressBar or toyBox.progressBar
+        local progressBar = ResolveProgressBar(
+            toyBox, toyBox.ProgressBar or toyBox.progressBar)
         NSkin:SkinProgressBar(progressBar, COLLECTION_PROGRESS_BAR_STYLE)
         RegisterCollectionMovableElement(
             IDs.ToyBox.ProgressBar, IDs.ToyBox.Scope,
@@ -536,7 +564,8 @@ SkinCollectionsWindow = function(adapterName)
         local pagingControls = heirlooms.PagingFrame or heirlooms.PagingControls
         local pagingGroup, previousPage, nextPage, pageText =
             ResolvePagingControls(heirlooms, pagingControls)
-        local progressBar = heirlooms.progressBar or heirlooms.ProgressBar
+        local progressBar = ResolveProgressBar(
+            heirlooms, heirlooms.progressBar or heirlooms.ProgressBar)
         local searchStyle = NSkin:GetAppearanceStyle(
             "searchBox", IDs.Heirlooms.Scope, IDs.Heirlooms.Search.Group)
         NSkin:SkinSearchBox(searchBox, searchStyle,
@@ -635,7 +664,8 @@ SkinCollectionsWindow = function(adapterName)
         local filterDropdown = wardrobe.FilterButton or wardrobe.FilterDropdown
         local classDropdown = wardrobe.ClassDropdown
         local weaponDropdown = itemsFrame.WeaponDropdown
-        local progressBar = wardrobe.progressBar or wardrobe.ProgressBar
+        local progressBar = ResolveProgressBar(
+            wardrobe, wardrobe.progressBar or wardrobe.ProgressBar)
         local pagingControls = itemsFrame.PagingFrame or itemsFrame.PagingControls
         local pagingGroup, previousPage, nextPage, pageText =
             ResolvePagingControls(itemsFrame, pagingControls)
@@ -723,6 +753,7 @@ ApplyCollectionsSkin = function()
             adapter:ApplySkin()
         end
     end
+    RemoveCollectionPageBackgrounds()
 end
 
 local function UpdateIconBorder(button, knownQuality)
@@ -790,6 +821,14 @@ function CollectionSkin:InitializeOptionalAdapters()
         for i = 1, TOYS_PER_PAGE do
             SkinCollectionButton(iconsFrame["spellButton" .. i])
         end
+    end
+    if iconsFrame and not State.ToyBox.backgroundHooked
+        and type(_G.ToyBox_UpdateButtons) == "function"
+    then
+        _G.hooksecurefunc("ToyBox_UpdateButtons", function()
+            RemoveBackgroundFrame(iconsFrame)
+        end)
+        State.ToyBox.backgroundHooked = true
     end
     local heirloomsJournal = _G.HeirloomsJournal
     if not State.initialized.Heirlooms and heirloomsJournal
