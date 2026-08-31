@@ -280,7 +280,7 @@ function DockedWindow:ResetScroll()
     state.scrollFrame:SetVerticalScroll(0)
 end
 
-function DockedWindow:RefreshTheme()
+function DockedWindow:RefreshAppearance()
     NSkin:SkinWindow(state.inspector)
     NSkin:SkinWindowHeader(state.inspector)
     NSkin:ApplyGlobalTypography(state.inspector)

@@ -169,7 +169,7 @@ function NSkin:CreateOptionsPage(parent)
         if parent.activePage == self then parent:SetHeight(height) end
     end
 
-    function page:ApplyStructureTheme()
+    function page:ApplyStructureAppearance()
         local color = NSkin:GetStyle("window").header.divider
         for i = 1, #self.sectionDividers do
             self.sectionDividers[i]:SetColorTexture(unpack(color))
@@ -2226,7 +2226,7 @@ function NSkin:CreateOptionGroupView(parent, id, layout, context)
         SetViewEnabled(self, enabled)
     end
 
-    function view:ApplyTheme()
+    function view:ApplyAppearance()
         local values = self.context and self.definition.get(self.context)
         for key, dropdown in pairs(self.colorByKey) do
             local modeKey = self.colorModeByKey[key]
@@ -2290,17 +2290,17 @@ end
 local function SetColor(path, current, color, opacity)
     local value = ColorWithOpacity(color, opacity)
     if ColorsEqual(current, value) then return false end
-    return NSkin:SetThemeOverride(path, value)
+    return NSkin:SetAppearanceOverride(path, value)
 end
 
 local function SetScalar(path, current, value)
     if value == nil or current == value then return false end
-    return NSkin:SetThemeOverride(path, value)
+    return NSkin:SetAppearanceOverride(path, value)
 end
 
 local function ResetPaths(paths)
     local changed
-    for i = 1, #paths do changed = NSkin:ResetThemeOverride(paths[i]) or changed end
+    for i = 1, #paths do changed = NSkin:ResetAppearanceOverride(paths[i]) or changed end
     return changed == true
 end
 
@@ -2420,10 +2420,10 @@ local function RegisterColorAppearanceGroup(id, styleName, controls)
         end,
         reset = function()
             local paths = { styleName .. ".background" }
-            if NSkin.defaultTheme[styleName].selectedBackground then
+            if NSkin.baseAppearance[styleName].selectedBackground then
                 paths[#paths + 1] = styleName .. ".selectedBackground"
             end
-            if NSkin.defaultTheme[styleName].hoverAlpha ~= nil then
+            if NSkin.baseAppearance[styleName].hoverAlpha ~= nil then
                 paths[#paths + 1] = styleName .. ".hoverAlpha"
             end
             local changed = ResetPaths(paths)
@@ -2562,12 +2562,12 @@ local function BuildAppearanceOptions(parent)
         y = contentY + view:GetHeight() + 24
     end
 
-    function page:ApplyTheme()
-        for i = 1, #views do views[i]:ApplyTheme() end
+    function page:ApplyAppearance()
+        for i = 1, #views do views[i]:ApplyAppearance() end
     end
     function page:Refresh()
         for i = 1, #views do views[i]:Refresh() end
-        self:ApplyTheme()
+        self:ApplyAppearance()
     end
 
     page:SetContentHeight(y)
@@ -2701,7 +2701,7 @@ local function BuildBorderOptions(parent)
         page:Refresh()
     end)
 
-    function page:ApplyTheme()
+    function page:ApplyAppearance()
         local color = NSkin:GetBorderAccentColor()
         local buttonStyle = NSkin:GetStyle("button")
         NSkin:CreateFlatBackground(swatch, "NSkinBorderColorSwatch",
@@ -2714,7 +2714,7 @@ local function BuildBorderOptions(parent)
     end
 
     function page:Refresh()
-        self:ApplyTheme()
+        self:ApplyAppearance()
     end
 
     page:SetContentHeight(330)
@@ -2840,13 +2840,13 @@ local function BuildTabsOptions(parent)
     local layoutView = NSkin:CreateOptionGroupView(page, "tabs.defaults", "FULL", page)
     layoutView:SetPoint("TOPLEFT", page, "TOPLEFT", 0, -70)
 
-    function page:ApplyTheme()
-        if layoutView.ApplyTheme then layoutView:ApplyTheme() end
+    function page:ApplyAppearance()
+        if layoutView.ApplyAppearance then layoutView:ApplyAppearance() end
     end
 
     function page:Refresh()
         layoutView:Refresh()
-        self:ApplyTheme()
+        self:ApplyAppearance()
     end
 
     page:SetContentHeight(90 + layoutView:GetHeight())

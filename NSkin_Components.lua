@@ -64,6 +64,12 @@ local function CopyWithOverrides(defaults, overrides)
             result[key] = defaultValue
         end
     end
+    for key, override in pairs(overrides or {}) do
+        if defaults[key] == nil then
+            result[key] = type(override) == "table"
+                and CopyWithOverrides({}, override) or override
+        end
+    end
     return result
 end
 
@@ -71,11 +77,11 @@ function NSkin:GetStyle(name)
     local cached = resolvedStyles[name]
     if cached then return cached end
 
-    local defaults = self.defaultTheme and self.defaultTheme[name]
+    local defaults = self.baseAppearance and self.baseAppearance[name]
     if type(defaults) ~= "table" then return nil end
 
     local profile = self:GetProfile()
-    local overrides = profile.theme and profile.theme[name]
+    local overrides = profile.appearance and profile.appearance[name]
     cached = CopyWithOverrides(defaults, overrides)
     resolvedStyles[name] = cached
     return cached
@@ -130,7 +136,7 @@ function NSkin:GetAppearanceScopeChain(scopeID)
     return copy
 end
 
--- Appearance resolves from the bundled/shared theme through optional window
+-- Appearance resolves from the base appearance through optional window
 -- and element layers. Each saved layer remains sparse, so reset means removal.
 function NSkin:GetAppearanceStyle(name, windowID, elementID)
     local style = self:GetStyle(name)
@@ -179,6 +185,19 @@ function NSkin:GetResolvedTypography(style, prefix)
         style[outlineKey] or global.outline
 end
 
+function NSkin:ApplyResolvedTypography(fontString, style, prefix)
+    if not fontString or not fontString.GetFont or not fontString.SetFont then return false end
+    local data = self:GetSkinData(fontString, "resolvedTypography")
+    if not data.originalFont then data.originalFont = { fontString:GetFont() } end
+    local font, size, outline = self:GetResolvedTypography(style, prefix)
+    font = font or data.originalFont[1]
+    size = tonumber(size) or data.originalFont[2]
+    if not font or not size then return false end
+    fontString:SetFont(font, size,
+        outline ~= nil and outline or data.originalFont[3])
+    return true
+end
+
 function NSkin:GetResolvedAppearanceColor(style, key)
     local color = style and style[key]
     if type(color) ~= "table" then return color end
@@ -219,7 +238,7 @@ local function SetAppearanceOverride(scope, id, windowID, path, value)
     end
     local parentValue, styleName, relativePath =
         GetAppearanceParentValue(scope, id, windowID, path)
-    if parentValue == nil or type(parentValue) ~= type(value) then return false end
+    if parentValue ~= nil and type(parentValue) ~= type(value) then return false end
 
     local profile = NSkin:GetProfile()
     local scopes = profile.appearanceOverrides
@@ -227,7 +246,8 @@ local function SetAppearanceOverride(scope, id, windowID, path, value)
         and scopes[scope][id][styleName]
     local currentValue = styleOverrides
         and GetPath(styleOverrides, relativePath, false) or nil
-    local newValue = TablesEqual(value, parentValue) and nil or value
+    local newValue = parentValue ~= nil and TablesEqual(value, parentValue)
+        and nil or value
     if TablesEqual(currentValue, newValue) then return false end
 
     profile.appearanceOverrides = profile.appearanceOverrides or {}
@@ -240,7 +260,7 @@ local function SetAppearanceOverride(scope, id, windowID, path, value)
     parent[key] = newValue
     PruneEmptyTables(profile.appearanceOverrides)
     if not next(profile.appearanceOverrides) then profile.appearanceOverrides = nil end
-    NSkin:RefreshTheme()
+    NSkin:RefreshAppearance()
     return true
 end
 
@@ -272,7 +292,7 @@ local function ResetAppearanceOverride(scope, id, path)
     if not changed then return false end
     PruneEmptyTables(profile.appearanceOverrides)
     if not next(profile.appearanceOverrides) then profile.appearanceOverrides = nil end
-    NSkin:RefreshTheme()
+    NSkin:RefreshAppearance()
     return true
 end
 
@@ -305,11 +325,11 @@ end
 
 function NSkin:SetBorderAccentColor(color)
     if type(color) ~= "table" then return false end
-    return self:SetThemeOverride("window.border", color)
+    return self:SetAppearanceOverride("window.border", color)
 end
 
 function NSkin:ResetBorderAccentColor()
-    return self:ResetThemeOverride("window.border")
+    return self:ResetAppearanceOverride("window.border")
 end
 
 function NSkin:IsAccentColorEnabled()
@@ -321,16 +341,16 @@ function NSkin:GetAccentColor()
 end
 
 function NSkin:SetAccentColorEnabled(enabled)
-    return self:SetThemeOverride("accent.enabled", enabled == true)
+    return self:SetAppearanceOverride("accent.enabled", enabled == true)
 end
 
 function NSkin:SetAccentColor(color)
     if type(color) ~= "table" then return false end
-    return self:SetThemeOverride("accent.color", color)
+    return self:SetAppearanceOverride("accent.color", color)
 end
 
 function NSkin:ResetAccentColor()
-    return self:ResetThemeOverride("accent.color")
+    return self:ResetAppearanceOverride("accent.color")
 end
 
 function NSkin:GetSharedBorderColor()
@@ -340,8 +360,8 @@ end
 
 function NSkin:GetComponentBorderSetting(styleName, style)
     local profile = self:GetProfile()
-    local override = profile.theme and profile.theme[styleName]
-        and profile.theme[styleName].border
+    local override = profile.appearance and profile.appearance[styleName]
+        and profile.appearance[styleName].border
     if override ~= nil then
         style = style or self:GetStyle(styleName)
         if style and style.border then return style.border end
@@ -376,25 +396,25 @@ function NSkin:GetAppearanceBorderColor(styleName, style, windowID, elementID)
 end
 
 function NSkin:SetComponentBorderColor(styleName, color)
-    local defaults = self.defaultTheme and self.defaultTheme[styleName]
+    local defaults = self.baseAppearance and self.baseAppearance[styleName]
     if type(color) ~= "table" or type(defaults) ~= "table"
         or type(defaults.border) ~= "table"
     then
         return false
     end
     local profile = self:GetProfile()
-    profile.theme = profile.theme or {}
-    profile.theme[styleName] = profile.theme[styleName] or {}
-    profile.theme[styleName].border = TablesEqual(color, self:GetBorderAccentColor())
+    profile.appearance = profile.appearance or {}
+    profile.appearance[styleName] = profile.appearance[styleName] or {}
+    profile.appearance[styleName].border = TablesEqual(color, self:GetBorderAccentColor())
         and nil or color
-    PruneEmptyTables(profile.theme)
-    if not next(profile.theme) then profile.theme = nil end
-    self:RefreshTheme()
+    PruneEmptyTables(profile.appearance)
+    if not next(profile.appearance) then profile.appearance = nil end
+    self:RefreshAppearance()
     return true
 end
 
 function NSkin:ResetComponentBorderColor(styleName)
-    return self:ResetThemeOverride(styleName .. ".border")
+    return self:ResetAppearanceOverride(styleName .. ".border")
 end
 
 function NSkin:GetWindowBorderColor()
@@ -406,18 +426,18 @@ function NSkin:GetTabSpacing()
 end
 
 local function RefreshTabLayouts()
-    NSkin:InvalidateTheme()
+    NSkin:InvalidateAppearance()
     if NSkin.RefreshRegisteredTabGroups then NSkin:RefreshRegisteredTabGroups() end
 end
 
 local function SetTabLayoutOverride(path, value)
-    local defaultValue = GetPath(NSkin.defaultTheme, path, false)
+    local defaultValue = GetPath(NSkin.baseAppearance, path, false)
     local profile = NSkin:GetProfile()
-    profile.theme = profile.theme or {}
-    local _, parent, key = GetPath(profile.theme, path, true)
+    profile.appearance = profile.appearance or {}
+    local _, parent, key = GetPath(profile.appearance, path, true)
     parent[key] = value == defaultValue and nil or value
-    PruneEmptyTables(profile.theme)
-    if not next(profile.theme) then profile.theme = nil end
+    PruneEmptyTables(profile.appearance)
+    if not next(profile.appearance) then profile.appearance = nil end
     RefreshTabLayouts()
     return true
 end
@@ -430,23 +450,26 @@ function NSkin:SetTabSpacing(spacing)
 end
 
 function NSkin:ResetTabSpacing()
-    return SetTabLayoutOverride("tab.spacing", self.defaultTheme.tab.spacing)
+    return self:ResetAppearanceOverride("tab.spacing")
 end
 
 function NSkin:GetBottomTabAnchor()
-    return self:GetStyle("tab").bottom.anchor
+    local bottom = self:GetStyle("tab").bottom
+    return bottom and bottom.anchor or nil
 end
 
 function NSkin:GetBottomTabOffsetX()
-    return self:GetStyle("tab").bottom.offsetX
+    local bottom = self:GetStyle("tab").bottom
+    return bottom and bottom.offsetX or nil
 end
 
 function NSkin:GetBottomTabOffsetY()
-    return self:GetStyle("tab").bottom.offsetY
+    local bottom = self:GetStyle("tab").bottom
+    return bottom and bottom.offsetY or nil
 end
 
 function NSkin:GetTabPlacement()
-    local layout = self:GetStyle("tab").bottom
+    local layout = self:GetStyle("tab").bottom or {}
     return {
         mode = layout.mode,
         point = layout.point,
@@ -455,19 +478,19 @@ function NSkin:GetTabPlacement()
         y = layout.y,
         edge = layout.edge or "BOTTOM",
         side = layout.side or "OUTSIDE",
-        alignment = layout.anchor,
-        alongOffset = layout.offsetX,
-        edgeOffset = layout.offsetY,
+        alignment = layout.anchor or "LEFT",
+        alongOffset = layout.offsetX or 0,
+        edgeOffset = layout.offsetY or 0,
     }
 end
 
 function NSkin:SetTabPlacement(placement)
     if type(placement) ~= "table" then return false end
     local profile = self:GetProfile()
-    profile.theme = profile.theme or {}
-    profile.theme.tab = profile.theme.tab or {}
-    profile.theme.tab.bottom = profile.theme.tab.bottom or {}
-    local bottom = profile.theme.tab.bottom
+    profile.appearance = profile.appearance or {}
+    profile.appearance.tab = profile.appearance.tab or {}
+    profile.appearance.tab.bottom = profile.appearance.tab.bottom or {}
+    local bottom = profile.appearance.tab.bottom
     if placement.mode == "GRID" then
         local x, y = tonumber(placement.x), tonumber(placement.y)
         if not x or not y then return false end
@@ -495,15 +518,14 @@ function NSkin:SetTabPlacement(placement)
     alongOffset = math.max(-2000, math.min(2000, RoundOne(alongOffset)))
     edgeOffset = math.max(-2000, math.min(2000, RoundOne(edgeOffset)))
 
-    local defaults = self.defaultTheme.tab.bottom
     bottom.mode, bottom.point, bottom.relativePoint, bottom.x, bottom.y = nil, nil, nil, nil, nil
-    bottom.edge = edge == defaults.edge and nil or edge
-    bottom.side = side == defaults.side and nil or side
-    bottom.anchor = alignment == defaults.anchor and nil or alignment
-    bottom.offsetX = alongOffset == defaults.offsetX and nil or alongOffset
-    bottom.offsetY = edgeOffset == defaults.offsetY and nil or edgeOffset
-    PruneEmptyTables(profile.theme)
-    if not next(profile.theme) then profile.theme = nil end
+    bottom.edge = edge
+    bottom.side = side
+    bottom.anchor = alignment
+    bottom.offsetX = alongOffset
+    bottom.offsetY = edgeOffset
+    PruneEmptyTables(profile.appearance)
+    if not next(profile.appearance) then profile.appearance = nil end
     RefreshTabLayouts()
     return true
 end
@@ -542,14 +564,13 @@ function NSkin:SetBottomTabOffsetY(offset)
 end
 
 function NSkin:ResetTabLayout()
-    local defaults = self.defaultTheme.tab.bottom
-    return self:SetTabPlacement({
-        edge = defaults.edge,
-        side = defaults.side,
-        alignment = defaults.anchor,
-        alongOffset = defaults.offsetX,
-        edgeOffset = defaults.offsetY,
-    })
+    local changed = self:ResetAppearanceOverride("tab.bottom")
+    if self.ForEachRegisteredTabGroup then
+        self:ForEachRegisteredTabGroup(function(group)
+            self:RestoreTabGroupOriginalPlacement(group.id)
+        end)
+    end
+    return changed
 end
 
 
@@ -557,48 +578,49 @@ function NSkin:ResetBottomTabLayout()
     return self:ResetTabLayout()
 end
 
-function NSkin:InvalidateTheme()
+function NSkin:InvalidateAppearance()
     wipe(resolvedStyles)
 end
 
-function NSkin:RefreshTheme()
-    self:InvalidateTheme()
+function NSkin:RefreshAppearance()
+    self:InvalidateAppearance()
 
-    if self.RefreshOptionsTheme then self:RefreshOptionsTheme() end
-    if self.RefreshSkinningModeTheme then self:RefreshSkinningModeTheme() end
+    if self.RefreshOptionsAppearance then self:RefreshOptionsAppearance() end
+    if self.RefreshSkinningModeAppearance then self:RefreshSkinningModeAppearance() end
     for _, module in pairs(self.modules) do
-        if self:IsModuleEnabled(module.name) and type(module.RefreshTheme) == "function" then
-            module:RefreshTheme()
+        if self:IsModuleEnabled(module.name) and type(module.RefreshAppearance) == "function" then
+            module:RefreshAppearance()
         end
     end
     if self.RefreshRegisteredTabGroups then self:RefreshRegisteredTabGroups() end
 end
 
-function NSkin:SetThemeOverride(path, value)
+function NSkin:SetAppearanceOverride(path, value)
     if type(path) ~= "string" or path == "" then return false end
-    local defaultValue = GetPath(self.defaultTheme, path, false)
-    if defaultValue == nil or type(defaultValue) ~= type(value) then return false end
+    local defaultValue = GetPath(self.baseAppearance, path, false)
+    if defaultValue ~= nil and type(defaultValue) ~= type(value) then return false end
 
     local profile = self:GetProfile()
-    profile.theme = profile.theme or {}
-    local _, parent, key = GetPath(profile.theme, path, true)
-    parent[key] = TablesEqual(value, defaultValue) and nil or value
-    PruneEmptyTables(profile.theme)
-    if not next(profile.theme) then profile.theme = nil end
-    self:RefreshTheme()
+    profile.appearance = profile.appearance or {}
+    local _, parent, key = GetPath(profile.appearance, path, true)
+    parent[key] = defaultValue ~= nil and TablesEqual(value, defaultValue)
+        and nil or value
+    PruneEmptyTables(profile.appearance)
+    if not next(profile.appearance) then profile.appearance = nil end
+    self:RefreshAppearance()
     return true
 end
 
-function NSkin:ResetThemeOverride(path)
+function NSkin:ResetAppearanceOverride(path)
     if type(path) ~= "string" or path == "" then return false end
     local profile = self:GetProfile()
-    if not profile.theme then return true end
+    if not profile.appearance then return true end
 
-    local _, parent, key = GetPath(profile.theme, path, false)
+    local _, parent, key = GetPath(profile.appearance, path, false)
     if parent then parent[key] = nil end
-    PruneEmptyTables(profile.theme)
-    if not next(profile.theme) then profile.theme = nil end
-    self:RefreshTheme()
+    PruneEmptyTables(profile.appearance)
+    if not next(profile.appearance) then profile.appearance = nil end
+    self:RefreshAppearance()
     return true
 end
 
@@ -1159,8 +1181,7 @@ function NSkin:SkinSearchBox(searchBox, style, borderColor)
     if searchBox.SetTextColor then
         searchBox:SetTextColor(unpack(self:GetResolvedAppearanceColor(style, "text")))
     end
-    local font, size, outline = self:GetResolvedTypography(style)
-    if searchBox.SetFont and font and size then searchBox:SetFont(font, size, outline) end
+    self:ApplyResolvedTypography(searchBox, style)
     if searchBox.GetTextInsets and searchBox.SetTextInsets then
         if not searchData.searchTextInsets then
             searchData.searchTextInsets = { searchBox:GetTextInsets() }
@@ -1175,11 +1196,7 @@ function NSkin:SkinSearchBox(searchBox, style, borderColor)
     if instructions then
         instructions:SetTextColor(unpack(
             self:GetResolvedAppearanceColor(style, "placeholderText")))
-        local placeholderFont, placeholderSize, placeholderOutline =
-            self:GetResolvedTypography(style, "placeholder")
-        if instructions.SetFont and placeholderFont and placeholderSize then
-            instructions:SetFont(placeholderFont, placeholderSize, placeholderOutline)
-        end
+        self:ApplyResolvedTypography(instructions, style, "placeholder")
         local data = self:GetSkinData(instructions, COMPONENT_STATE)
         if not data.searchPlaceholderPoints then
             data.searchPlaceholderPoints = {}
@@ -1224,8 +1241,8 @@ function NSkin:SkinPagingControls(pagingControls, textSize)
     local previous = pagingControls.PrevPageButton or pagingControls.prevPageButton
     local nextPage = pagingControls.NextPageButton or pagingControls.nextPageButton
     local pageText = pagingControls.PageText or pagingControls.pageText
-    SkinPagingButton(previous, "<", textSize or 16)
-    SkinPagingButton(nextPage, ">", textSize or 16)
+    SkinPagingButton(previous, "<", textSize)
+    SkinPagingButton(nextPage, ">", textSize)
     if pageText then pageText:SetTextColor(unpack(self:GetStyle("button").text)) end
 end
 
@@ -1235,20 +1252,26 @@ function NSkin:ApplyGlobalTypography(frame)
     if not frame then return end
     local typography = self:GetStyle("typography")
     local font, size, outline = typography.font, typography.size, typography.outline
-    if not font or not size then return end
+    if not font and not size and outline == nil then return end
 
     local function Apply(target)
         if target.GetObjectType and target:GetObjectType() == "FontString" then
-            target:SetFont(font, size, outline)
+            local currentFont, currentSize, currentOutline = target:GetFont()
+            target:SetFont(font or currentFont, size or currentSize,
+                outline ~= nil and outline or currentOutline)
         elseif target.GetObjectType and target:GetObjectType() == "EditBox"
             and target.SetFont
         then
-            target:SetFont(font, size, outline)
+            local currentFont, currentSize, currentOutline = target:GetFont()
+            target:SetFont(font or currentFont, size or currentSize,
+                outline ~= nil and outline or currentOutline)
         end
         if target.GetRegions then
             for _, region in ipairs({ target:GetRegions() }) do
                 if region.GetObjectType and region:GetObjectType() == "FontString" then
-                    region:SetFont(font, size, outline)
+                    local currentFont, currentSize, currentOutline = region:GetFont()
+                    region:SetFont(font or currentFont, size or currentSize,
+                        outline ~= nil and outline or currentOutline)
                 end
             end
         end
@@ -1438,10 +1461,16 @@ end
 function NSkin:SkinWindow(frame, backgroundAnchor, style, borderColor)
     if not frame then return nil end
 
+    local data = self:GetSkinData(frame, COMPONENT_STATE)
+    if not data.blizzardHeaderHeight then
+        local titleBackground = frame.TitleBg or frame.titleBg
+        local height = titleBackground and titleBackground.GetHeight
+            and titleBackground:GetHeight()
+        data.blizzardHeaderHeight = tonumber(height) and height > 0 and height or 22
+    end
     self:ConcealWindowArtwork(frame)
     style = style or self:GetStyle("window")
     local anchor = backgroundAnchor or frame
-    local data = self:GetSkinData(frame, COMPONENT_STATE)
     local background = data.windowBackground
     if not background then
         background = frame:CreateTexture(nil, "BACKGROUND", nil, 0)
@@ -1477,8 +1506,8 @@ function NSkin:SkinWindowHeader(frame, style)
         background:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 0)
         data.windowHeaderBackground = background
     end
-    local height = self:SnapToPhysicalPixel(
-        frame, math.max(0, tonumber(style.height) or 0))
+    local height = self:SnapToPhysicalPixel(frame, math.max(0,
+        tonumber(style.height) or data.blizzardHeaderHeight or 22))
     background:SetHeight(height)
     local color = style.matchBackground and data.windowBackgroundColor
         or self:GetResolvedAppearanceColor(style, "background")
@@ -1543,8 +1572,7 @@ function NSkin:SkinTab(tab, selected, style, borderColor)
     ))
     if tab.Text then
         tab.Text:SetTextColor(unpack(self:GetResolvedAppearanceColor(style, "text")))
-        local font, size, outline = self:GetResolvedTypography(style)
-        if font and size then tab.Text:SetFont(font, size, outline) end
+        self:ApplyResolvedTypography(tab.Text, style)
     end
 end
 
@@ -1552,7 +1580,7 @@ function NSkin:LayoutTabGroup(tabs, options)
     if type(tabs) ~= "table" then return end
     options = options or {}
 
-    local spacing = tonumber(options.spacing) or self:GetTabSpacing()
+    local spacing = tonumber(options.spacing) or self:GetTabSpacing() or 0
     local vertical = options.orientation == "VERTICAL"
     local anchor = options.anchor
     local anchorPoint = anchor and anchor.point
@@ -1565,7 +1593,7 @@ function NSkin:LayoutTabGroup(tabs, options)
     local previous
 
     if owner and not vertical and (edge == "BOTTOM" or edge == "TOP") then
-        local layout = options.placement or self:GetStyle("tab").bottom
+        local layout = options.placement or self:GetStyle("tab").bottom or {}
         if layout.mode == "GRID" then
             anchorPoint = layout.point or "TOPLEFT"
             anchorRelativeTo = owner
@@ -1644,13 +1672,14 @@ function NSkin:LayoutTabSystem(tabSystem, options)
         return
     end
 
-    tabSystem.spacing = tonumber(options and options.spacing) or self:GetTabSpacing()
+    tabSystem.spacing = tonumber(options and options.spacing)
+        or self:GetTabSpacing() or tabSystem.spacing or 0
     tabSystem:MarkDirty()
 
     if options and options.owner
         and (options.edge == "BOTTOM" or options.edge == "TOP")
     then
-        local layout = options.placement or self:GetStyle("tab").bottom
+        local layout = options.placement or self:GetStyle("tab").bottom or {}
         if layout.mode == "GRID" then
             tabSystem:ClearAllPoints()
             tabSystem:SetPoint(layout.point or "TOPLEFT", options.owner,
@@ -1733,6 +1762,19 @@ function NSkin:RegisterTabGroup(groupID, definition)
             originals[i] = { target = target, points = points }
         end
         tabGroupOriginalPoints[groupID] = originals
+    end
+
+    if definition.originalSpacing == nil then
+        if definition.container and tonumber(definition.container.spacing) then
+            definition.originalSpacing = tonumber(definition.container.spacing)
+        elseif type(definition.tabs) == "table" and #definition.tabs > 1 then
+            local first, second = definition.tabs[1], definition.tabs[2]
+            local firstRight = first and first.GetRight and first:GetRight()
+            local secondLeft = second and second.GetLeft and second:GetLeft()
+            if firstRight and secondLeft then
+                definition.originalSpacing = secondLeft - firstRight
+            end
+        end
     end
 
     definition.kind = "TAB_GROUP"
@@ -2093,8 +2135,13 @@ function NSkin:SkinProgressBar(bar, options)
     then return false end
     options = options or {}
     local data = self:GetSkinData(bar, PROGRESS_COMPONENT_STATE)
+    if not data.originalHeight then data.originalHeight = bar:GetHeight() end
     local height = tonumber(options.height)
-    if height and height > 0 then bar:SetHeight(height) end
+    if height and height > 0 then
+        bar:SetHeight(height)
+    elseif data.originalHeight then
+        bar:SetHeight(data.originalHeight)
+    end
 
     local fill = bar:GetStatusBarTexture()
     if type(options.artworkRegions) == "table" then
@@ -2108,7 +2155,7 @@ function NSkin:SkinProgressBar(bar, options)
     end
 
     local texture = options.texture
-    if options.useThemeTexture then texture = self:GetStatusBarTexture() end
+    if options.useAppearanceTexture then texture = self:GetStatusBarTexture() end
     if type(texture) == "string" and texture ~= "" then
         bar:SetStatusBarTexture(texture)
         fill = bar:GetStatusBarTexture()
@@ -2155,6 +2202,11 @@ GetCurrentWindowPlacement = function(window, target)
     end
     return { edge = "TOP", side = "INSIDE", alignment = "CENTER",
         alongOffset = 0, edgeOffset = -46 }
+end
+
+function NSkin:GetCurrentWindowElementPlacement(window, target)
+    if not window or not target then return nil end
+    return CopyPlacement(GetCurrentWindowPlacement(window, target))
 end
 
 function NSkin:RegisterSimpleMovableElement(definition)
@@ -2747,7 +2799,8 @@ function NSkin:ApplyTabGroupPlacement(group, placement, applyOptions)
     options.orientation = group.orientation
     local tabStyle = self:GetAppearanceStyle(
         "tab", group.appearanceWindowID, group.id)
-    options.spacing = tonumber(tabStyle and tabStyle.spacing) or self:GetTabSpacing()
+    options.spacing = tonumber(tabStyle and tabStyle.spacing)
+        or group.originalSpacing or 0
     options.placement = placement
     local applied
     if group.container and group.container.MarkDirty then

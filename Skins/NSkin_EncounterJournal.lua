@@ -125,7 +125,6 @@ function EncounterJournalSkin:StyleInstancePage()
     local instanceButton = info.instanceButton
     if instanceButton and IsTexture(instanceButton.icon) then
         ClearButtonTextures(instanceButton)
-        instanceButton.icon:SetSize(32, 32)
         -- This inherited icon keeps a Blizzard-owned mask that cannot be
         -- reliably detached. SetTexCoord is illegal while that mask exists,
         -- so preserve its native coordinates instead of generating errors.
@@ -231,7 +230,7 @@ function EncounterJournalSkin:StyleVisibleFrames(scrollBox)
     end)
 end
 
-function EncounterJournalSkin:RefreshTheme()
+function EncounterJournalSkin:RefreshAppearance()
     if not initialized then return end
     self:StyleVisibleFrames(hookedScrollBox)
     self:StyleBossFrames(bossScrollBox)

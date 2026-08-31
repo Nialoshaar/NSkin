@@ -270,7 +270,7 @@ local function CreateOptionsWindow()
         if not page then return nil end
         page:Hide()
         info.page = page
-        if page.ApplyTheme then page:ApplyTheme() end
+        if page.ApplyAppearance then page:ApplyAppearance() end
         NSkin:ApplyGlobalTypography(page)
         return page
     end
@@ -343,7 +343,7 @@ local function CreateOptionsWindow()
         end
     end
 
-    function frame:ApplyTheme()
+    function frame:ApplyAppearance()
         SkinOptionsWindow(self)
         self.navigationDivider:SetColorTexture(unpack(NSkin:GetStyle("window").header.divider))
         local optionsStyle = NSkin:GetStyle("options")
@@ -365,8 +365,8 @@ local function CreateOptionsWindow()
         self:RefreshModuleNavigation()
         for i = 1, #pages do
             local page = pages[i].page
-            if page and page.ApplyStructureTheme then page:ApplyStructureTheme() end
-            if page and page.ApplyTheme then page:ApplyTheme() end
+            if page and page.ApplyStructureAppearance then page:ApplyStructureAppearance() end
+            if page and page.ApplyAppearance then page:ApplyAppearance() end
         end
         NSkin:ApplyGlobalTypography(self)
     end
@@ -390,7 +390,7 @@ local function CreateOptionsWindow()
         end
     end
     frame:SetScript("OnShow", function(self)
-        self:ApplyTheme()
+        self:ApplyAppearance()
         self:SelectOptionsPage(self.selectedPageKey or "general")
     end)
     frame:SetScript("OnHide", function(self)
@@ -401,8 +401,8 @@ local function CreateOptionsWindow()
     return frame
 end
 
-function NSkin:RefreshOptionsTheme()
-    if options then options:ApplyTheme() end
+function NSkin:RefreshOptionsAppearance()
+    if options then options:ApplyAppearance() end
 end
 
 function NSkin:ToggleOptions()

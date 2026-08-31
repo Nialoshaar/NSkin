@@ -759,9 +759,9 @@ local function CreateController()
     return controller
 end
 
-function NSkin:RefreshSkinningModeTheme()
+function NSkin:RefreshSkinningModeAppearance()
     if not controller or not controller.enabled then return end
-    controller.dockedWindow:RefreshTheme()
+    controller.dockedWindow:RefreshAppearance()
 end
 
 function NSkin:SetSkinningModeEnabled(enabled)
@@ -776,7 +776,7 @@ function NSkin:SetSkinningModeEnabled(enabled)
     if controller.enabled == enabled then return true end
     controller.enabled = enabled
     if enabled then
-        self:RefreshSkinningModeTheme()
+        self:RefreshSkinningModeAppearance()
         self:RegisterComponentCallback(
             "SkinningElementRegistered", HandleSkinningElementRegistered, controller
         )

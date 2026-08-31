@@ -13,7 +13,7 @@ the real content height. Do not anchor page controls to the outer options frame.
 Appearance resolves in this order:
 
 ```text
-shared theme -> window override -> element override
+base appearance -> global component value -> window override -> element override
 ```
 
 Use `GetAppearanceStyle`, `SetWindowAppearanceOverride`, and

@@ -1,8 +1,8 @@
 local _, NSkin = ...
 
-local defaults = NSkin.defaultModuleOptions.SpellBook
-local WINDOW_ID = "SpellBook"
-local WINDOW_ELEMENT_ID = "SpellBook.Window"
+local SPELL_TEXT_MIN = 8
+local SPELL_TEXT_MAX = 32
+local WINDOW_ID = "PlayerSpells.SpellBook"
 
 local function CopyColor(color)
     return { color[1], color[2], color[3], color[4] or 1 }
@@ -14,8 +14,8 @@ NSkin:RegisterOptionGroup("spellbook.settings", {
             type = "SLIDER",
             key = "textSize",
             label = "Spell name text size",
-            min = defaults.minTextSize,
-            max = defaults.maxTextSize,
+            min = SPELL_TEXT_MIN,
+            max = SPELL_TEXT_MAX,
             step = 1,
             suffix = " px",
         },
@@ -29,6 +29,7 @@ NSkin:RegisterOptionGroup("spellbook.settings", {
             key = "iconsPerRow",
             label = "Icons disposition",
             values = {
+                { value = 0, label = "Blizzard default" },
                 { value = 2, label = "2 icons per row" },
                 { value = 3, label = "3 icons per row" },
                 { value = 4, label = "4 icons per row" },
@@ -61,9 +62,9 @@ NSkin:RegisterOptionGroup("spellbook.settings", {
         return changed == true
     end,
     reset = function()
-        local changed = NSkin:SetSpellBookTextSize(defaults.textSize)
+        local changed = NSkin:ResetSpellBookTextSize()
         changed = NSkin:SetSpellBookAssistantHidden(false) or changed
-        changed = NSkin:SetSpellBookIconsPerRow(defaults.iconsPerRow) or changed
+        changed = NSkin:ResetSpellBookIconsPerRow() or changed
         return changed == true
     end,
 })
@@ -94,17 +95,18 @@ NSkin:RegisterOptionGroup("spellbook.appearance", {
 NSkin:RegisterOptionGroup("spellbook.iconDisposition", {
     controls = {
         { type = "SLIDER", key = "textSize", label = "Spell name text size",
-            min = defaults.minTextSize, max = defaults.maxTextSize,
+            min = SPELL_TEXT_MIN, max = SPELL_TEXT_MAX,
             step = 1, suffix = " px" },
         { type = "DROPDOWN", key = "iconsPerRow",
             label = "Icons disposition", values = {
+                { value = 0, label = "Blizzard default" },
                 { value = 2, label = "2 icons per row" },
                 { value = 3, label = "3 icons per row" },
                 { value = 4, label = "4 icons per row" } } },
-        { type = "RESET", label = "Reset Layout", compactLabel = "Reset" },
-            },
         { type = "CHECKBOX", key = "hideAssistant",
             label = "Hide Single-Button Assistant" },
+        { type = "RESET", label = "Reset Layout", compactLabel = "Reset" },
+    },
     get = function()
         return { textSize = NSkin:GetSpellBookTextSize(),
             iconsPerRow = NSkin:GetSpellBookIconsPerRow(),
@@ -120,7 +122,7 @@ NSkin:RegisterOptionGroup("spellbook.iconDisposition", {
         if values.iconsPerRow ~= nil
             and values.iconsPerRow ~= NSkin:GetSpellBookIconsPerRow()
         then
-            changed = NSkin:SetSpellBookIconsPerRow(values.iconsPerRow)
+            changed = NSkin:SetSpellBookIconsPerRow(values.iconsPerRow) or changed
         end
         if values.hideAssistant ~= nil
             and values.hideAssistant ~= NSkin:GetSpellBookAssistantHidden()
@@ -130,8 +132,8 @@ NSkin:RegisterOptionGroup("spellbook.iconDisposition", {
         return changed == true
     end,
     reset = function()
-        local changed = NSkin:SetSpellBookTextSize(defaults.textSize)
-        changed = NSkin:SetSpellBookIconsPerRow(defaults.iconsPerRow) or changed
+        local changed = NSkin:ResetSpellBookTextSize()
+        changed = NSkin:ResetSpellBookIconsPerRow() or changed
         changed = NSkin:SetSpellBookAssistantHidden(false) or changed
         return changed == true
     end,
@@ -158,16 +160,16 @@ local function BuildSpellBookOptions(parent)
     )
     appearanceView:SetPoint("TOPLEFT", page, "TOPLEFT", 0, -appearanceContentY)
 
-    function page:ApplyTheme()
-        settingsView:ApplyTheme()
-        appearanceView:ApplyTheme()
+    function page:ApplyAppearance()
+        settingsView:ApplyAppearance()
+        appearanceView:ApplyAppearance()
     end
 
     function page:Refresh()
         local context = NSkin:IsModuleEnabled("SpellBook") and page or nil
         settingsView:SetContext(context)
         appearanceView:SetContext(context)
-        self:ApplyTheme()
+        self:ApplyAppearance()
     end
 
     page:SetContentHeight(appearanceContentY + appearanceView:GetHeight() + 20)

@@ -1,21 +1,11 @@
 do
 local _, NSkin = ...
 
-NSkin.defaultModuleOptions = {
-    SpellBook = {
-        textSize = 16,
-        minTextSize = 8,
-        maxTextSize = 32,
-        iconsPerRow = 3,
-    },
-}
-
--- Immutable bundled design. Player changes belong in the active profile's
--- theme table and are resolved over these values at runtime.
-NSkin.defaultTheme = {
+-- Immutable visual styling only. Geometry belongs to explicit profile
+-- overrides; an absent value always means preserve Blizzard's live state.
+NSkin.baseAppearance = {
     typography = {
         font = "Fonts\\FRIZQT__.TTF",
-        size = 12,
         outline = "",
     },
 
@@ -36,11 +26,9 @@ NSkin.defaultTheme = {
             background = { 0.04, 0.04, 0.04, 0.95 },
             backgroundMode = "CUSTOM",
             divider = { 0.45, 0.45, 0.45, 1 },
-            height = 22,
             matchBackground = false,
             text = { 1, 1, 1, 1 },
             textMode = "CUSTOM",
-            textSize = 12,
             font = "Fonts\\FRIZQT__.TTF",
             outline = "",
             useGlobalTypography = true,
@@ -62,23 +50,12 @@ NSkin.defaultTheme = {
         hoverAlpha = 0.10,
         borderSize = 1,
         borderPadding = 0,
-        width = 0,
-        height = 0,
-        textSize = 12,
         font = "Fonts\\FRIZQT__.TTF",
         outline = "",
         useGlobalTypography = true,
         fontMode = "GLOBAL",
         sizeMode = "GLOBAL",
         outlineMode = "GLOBAL",
-        spacing = 4,
-        bottom = {
-            edge = "BOTTOM",
-            side = "OUTSIDE",
-            anchor = "LEFT",
-            offsetX = 0,
-            offsetY = 0,
-        },
     },
 
     button = {
@@ -105,32 +82,23 @@ NSkin.defaultTheme = {
         placeholderTextMode = "CUSTOM",
         borderSize = 1,
         borderPadding = 0,
-        width = 0,
-        height = 0,
-        textSize = 12,
         font = "Fonts\\FRIZQT__.TTF",
         outline = "",
         useGlobalTypography = true,
         fontMode = "GLOBAL",
         sizeMode = "GLOBAL",
         outlineMode = "GLOBAL",
-        textOffsetX = 0,
-        textOffsetY = 0,
-        placeholderSize = 12,
         placeholderFont = "Fonts\\FRIZQT__.TTF",
         placeholderOutline = "",
         placeholderUseGlobalTypography = true,
         placeholderFontMode = "GLOBAL",
         placeholderSizeMode = "GLOBAL",
         placeholderOutlineMode = "GLOBAL",
-        placeholderOffsetX = 0,
-        placeholderOffsetY = 0,
     },
 
     sectionHeader = {
         text = { 1, 1, 1, 1 },
         textMode = "CUSTOM",
-        textSize = 16,
         font = "Fonts\\FRIZQT__.TTF",
         outline = "",
         useGlobalTypography = true,
@@ -145,7 +113,6 @@ NSkin.defaultTheme = {
 
     progressBar = {
         texture = "Interface\\Buttons\\WHITE8X8",
-        height = 16,
         background = { 0.06, 0.06, 0.06, 0.90 },
         border = { 0, 0, 0, 1 },
         useCustomColor = false,
@@ -185,7 +152,7 @@ end
 local _, NSkin = ...
 
 local DEFAULT_PROFILE = "Default"
-local CURRENT_DATABASE_VERSION = 6
+local CURRENT_DATABASE_VERSION = 7
 local activeProfile
 
 local function CopyTable(source)
@@ -212,11 +179,13 @@ local function GetCharacterKey()
     return name .. "-" .. realm
 end
 
-local function RemoveEmptyThemeTables(profile)
-    local theme = profile.theme
-    if not theme then return end
-    if theme.progressBar and not next(theme.progressBar) then theme.progressBar = nil end
-    if not next(theme) then profile.theme = nil end
+local function RemoveEmptyAppearanceTables(profile)
+    local appearance = profile.appearance
+    if not appearance then return end
+    if appearance.progressBar and not next(appearance.progressBar) then
+        appearance.progressBar = nil
+    end
+    if not next(appearance) then profile.appearance = nil end
 end
 
 local function MigrateVersion1(database, profile)
@@ -231,25 +200,22 @@ local function MigrateVersion1(database, profile)
     end
 
     if database.statusBarTexture ~= nil then
-        local defaultTexture = NSkin.defaultTheme.progressBar.texture
-        profile.theme = profile.theme or {}
-        profile.theme.progressBar = profile.theme.progressBar or {}
+        local defaultTexture = NSkin.baseAppearance.progressBar.texture
+        profile.appearance = profile.appearance or {}
+        profile.appearance.progressBar = profile.appearance.progressBar or {}
         if database.statusBarTexture == defaultTexture then
-            profile.theme.progressBar.texture = nil
+            profile.appearance.progressBar.texture = nil
         else
-            profile.theme.progressBar.texture = database.statusBarTexture
+            profile.appearance.progressBar.texture = database.statusBarTexture
         end
-        RemoveEmptyThemeTables(profile)
+        RemoveEmptyAppearanceTables(profile)
     end
 
     if database.spellBookTextSize ~= nil then
-        local defaultSize = NSkin.defaultModuleOptions.SpellBook.textSize
-        if database.spellBookTextSize ~= defaultSize then
-            profile.moduleOptions = profile.moduleOptions or {}
-            profile.moduleOptions.SpellBook = profile.moduleOptions.SpellBook or {}
-            if profile.moduleOptions.SpellBook.textSize == nil then
-                profile.moduleOptions.SpellBook.textSize = database.spellBookTextSize
-            end
+        profile.moduleOptions = profile.moduleOptions or {}
+        profile.moduleOptions.SpellBook = profile.moduleOptions.SpellBook or {}
+        if profile.moduleOptions.SpellBook.textSize == nil then
+            profile.moduleOptions.SpellBook.textSize = database.spellBookTextSize
         end
     end
 
@@ -259,19 +225,19 @@ local function MigrateVersion1(database, profile)
 end
 
 local function MigrateVersion2(database)
-    local defaultTexture = NSkin.defaultTheme.progressBar.texture
+    local defaultTexture = NSkin.baseAppearance.progressBar.texture
     for _, profile in pairs(database.profiles) do
         local texture = profile.statusBarTexture
         if texture ~= nil then
-            profile.theme = profile.theme or {}
-            profile.theme.progressBar = profile.theme.progressBar or {}
+            profile.appearance = profile.appearance or {}
+            profile.appearance.progressBar = profile.appearance.progressBar or {}
             if texture == defaultTexture then
-                profile.theme.progressBar.texture = nil
+                profile.appearance.progressBar.texture = nil
             else
-                profile.theme.progressBar.texture = texture
+                profile.appearance.progressBar.texture = texture
             end
             profile.statusBarTexture = nil
-            RemoveEmptyThemeTables(profile)
+            RemoveEmptyAppearanceTables(profile)
         end
     end
 end
@@ -297,23 +263,16 @@ local function MigrateVersion4(database)
             local mainTabs = spellBook.tabGroups and spellBook.tabGroups.MainTabs
             local placement = mainTabs and mainTabs.placement
             if placement then
-                profile.theme = profile.theme or {}
-                profile.theme.tab = profile.theme.tab or {}
-                profile.theme.tab.bottom = profile.theme.tab.bottom or {}
-                local bottom = profile.theme.tab.bottom
-                local defaults = NSkin.defaultTheme.tab.bottom
-                if bottom.anchor == nil and placement.alignment ~= defaults.anchor then
-                    bottom.anchor = placement.alignment
-                end
-                if bottom.offsetX == nil and placement.alongOffset ~= defaults.offsetX then
-                    bottom.offsetX = placement.alongOffset
-                end
-                if bottom.offsetY == nil and placement.edgeOffset ~= defaults.offsetY then
-                    bottom.offsetY = placement.edgeOffset
-                end
-                if not next(bottom) then profile.theme.tab.bottom = nil end
-                if not next(profile.theme.tab) then profile.theme.tab = nil end
-                if not next(profile.theme) then profile.theme = nil end
+                profile.appearance = profile.appearance or {}
+                profile.appearance.tab = profile.appearance.tab or {}
+                profile.appearance.tab.bottom = profile.appearance.tab.bottom or {}
+                local bottom = profile.appearance.tab.bottom
+                if bottom.anchor == nil then bottom.anchor = placement.alignment end
+                if bottom.offsetX == nil then bottom.offsetX = placement.alongOffset end
+                if bottom.offsetY == nil then bottom.offsetY = placement.edgeOffset end
+                if not next(bottom) then profile.appearance.tab.bottom = nil end
+                if not next(profile.appearance.tab) then profile.appearance.tab = nil end
+                if not next(profile.appearance) then profile.appearance = nil end
             end
             spellBook.tabGroups = nil
             if not next(spellBook) then moduleOptions.SpellBook = nil end
@@ -374,6 +333,15 @@ local function RunMigrations(database, activeProfileTable)
             end
         end
     end
+    if version < 7 then
+        for _, profile in pairs(database.profiles) do
+            if profile.theme then
+                profile.appearance = profile.appearance or {}
+                MergeSparse(profile.appearance, profile.theme)
+                profile.theme = nil
+            end
+        end
+    end
     if version < CURRENT_DATABASE_VERSION then
         database.version = CURRENT_DATABASE_VERSION
     end
@@ -425,6 +393,18 @@ function NSkin:GetModuleOptions(moduleName, create)
         options[moduleName] = moduleOptions
     end
     return moduleOptions
+end
+
+function NSkin:RemoveModuleOption(moduleName, key)
+    local profile = self:GetProfile()
+    local options = profile.moduleOptions
+    local moduleOptions = options and options[moduleName]
+    if not moduleOptions then return false end
+    local changed = moduleOptions[key] ~= nil
+    moduleOptions[key] = nil
+    if not next(moduleOptions) then options[moduleName] = nil end
+    if not next(options) then profile.moduleOptions = nil end
+    return changed
 end
 
 function NSkin:CreateProfile(name)
