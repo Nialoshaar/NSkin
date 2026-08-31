@@ -1,7 +1,7 @@
 local _, NSkin = ...
 
 local DEFAULT_PROFILE = "Default"
-local CURRENT_DATABASE_VERSION = 4
+local CURRENT_DATABASE_VERSION = 5
 local activeProfile
 
 local function CopyTable(source)
@@ -138,12 +138,46 @@ local function MigrateVersion4(database)
     end
 end
 
+local function MergeSparse(target, source)
+    for key, value in pairs(source or {}) do
+        if type(value) == "table" then
+            target[key] = type(target[key]) == "table" and target[key] or {}
+            MergeSparse(target[key], value)
+        elseif target[key] == nil then
+            target[key] = value
+        end
+    end
+end
+
+local function MigrateVersion5(database)
+    for _, profile in pairs(database.profiles) do
+        local overrides = profile.appearanceOverrides
+        local windows = overrides and overrides.windows
+        local legacySpellBook = windows and windows.SpellBook
+        if legacySpellBook then
+            windows["PlayerSpells.SpellBook"] =
+                windows["PlayerSpells.SpellBook"] or {}
+            MergeSparse(windows["PlayerSpells.SpellBook"], legacySpellBook)
+            windows.SpellBook = nil
+        end
+        local legacyCollections = windows and windows["Collections.Journal"]
+        if legacyCollections then
+            windows.Collections = windows.Collections or {}
+            MergeSparse(windows.Collections, legacyCollections)
+            windows["Collections.Journal"] = nil
+        end
+        if windows and not next(windows) then overrides.windows = nil end
+        if overrides and not next(overrides) then profile.appearanceOverrides = nil end
+    end
+end
+
 local function RunMigrations(database, activeProfileTable)
     local version = tonumber(database.version) or 0
     if version < 1 then MigrateVersion1(database, activeProfileTable) end
     if version < 2 then MigrateVersion2(database) end
     if version < 3 then MigrateVersion3(database) end
     if version < 4 then MigrateVersion4(database) end
+    if version < 5 then MigrateVersion5(database) end
     if version < CURRENT_DATABASE_VERSION then
         database.version = CURRENT_DATABASE_VERSION
     end

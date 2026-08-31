@@ -31,6 +31,7 @@ end
 function NSkin:CreateSharedPlacementControls(extra)
     local controls = {
         { type = "SLIDER_PAIR", order = 1, centerReset = true,
+            resetGroup = true,
             resetTooltip = "Reset X and Y offsets",
             left = { key = "alongOffset", label = "X offset", min = -200,
                 max = 200, step = 0.1, decimals = 1, suffix = " px" },
@@ -672,6 +673,7 @@ NSkin:RegisterOptionGroup("shared.sectionHeaderAppearance", {
 NSkin:RegisterOptionGroup("shared.sectionHeaderPlacement", {
     controls = {
         { type = "SLIDER_PAIR", centerReset = true,
+            resetGroup = true,
             resetTooltip = "Reset X and Y offsets",
             left = { key = "offsetX", label = "X offset", min = -200,
                 max = 200, step = 0.1, decimals = 1, suffix = " px" },

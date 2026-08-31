@@ -2,14 +2,17 @@ local _, NSkin = ...
 
 local COMPONENT_STATE = "components"
 local tabGroups = {}
+local tabGroupOriginalPoints = {}
 local skinningElements = {}
 local componentCallbacks = {}
 local movableOriginalPoints = {}
+local movableOriginalSizes = {}
 local movableElementsByWindow = setmetatable({}, { __mode = "k" })
 local movableWatchers = setmetatable({}, { __mode = "k" })
 local registeredWindows = setmetatable({}, { __mode = "k" })
 local windowSequence = 0
 local SUPPRESS_NOTIFICATION = { suppressNotify = true }
+local GetCurrentWindowPlacement
 
 local function CopyPlacement(placement)
     local copy = {}
@@ -398,6 +401,30 @@ local EDITOR_PRESETS = {
     },
 }
 
+local SHARED_ELEMENT_TYPES = {}
+
+function NSkin:RegisterSharedElementType(typeID, definition)
+    if type(typeID) ~= "string" or typeID == ""
+        or type(definition) ~= "table" or SHARED_ELEMENT_TYPES[typeID]
+    then return false end
+    local preset = definition.editorPreset or typeID
+    if not EDITOR_PRESETS[preset] then return false end
+    definition.id = typeID
+    definition.editorPreset = preset
+    SHARED_ELEMENT_TYPES[typeID] = definition
+    return true
+end
+
+function NSkin:GetSharedElementType(typeID)
+    return SHARED_ELEMENT_TYPES[typeID]
+end
+
+function NSkin:CreateSharedElementEditorOptions(typeID, extras)
+    local definition = SHARED_ELEMENT_TYPES[typeID]
+    return definition and self:CreateEditorOptionsPreset(
+        definition.editorPreset, extras) or nil
+end
+
 local function CopyEditorOption(option)
     local copy = {}
     for key, value in pairs(option or {}) do copy[key] = value end
@@ -421,6 +448,30 @@ function NSkin:CreateEditorOptionsPreset(preset, extraEditorOptions)
     end
     for i = 1, #after do result[#result + 1] = after[i] end
     return result
+end
+
+local SHARED_TYPE_DEFINITIONS = {
+    WINDOW = { style = "window", skin = "SkinWindow",
+        appearanceControls = "shared.windowAppearance" },
+    WINDOW_HEADER = { style = "window.header", skin = "SkinWindowHeader",
+        appearanceControls = "shared.windowHeaderAppearance", editorPreset = "WINDOW" },
+    TAB_GROUP = { style = "tab", skin = "SkinTab",
+        appearanceControls = "shared.tabAppearance" },
+    BUTTON = { style = "button", skin = "SkinFlatButton", editorPreset = "MOVABLE" },
+    DROPDOWN = { style = "button", skin = "SkinDropdown", editorPreset = "MOVABLE" },
+    SEARCH_GROUP = { style = "searchBox", skin = "SkinSearchBox" },
+    SEARCH_ACCESSORY = { style = "button", skin = "SkinDropdown" },
+    PAGINATION_GROUP = { style = "button", skin = "SkinPagingControls" },
+    PAGINATION_CHILD = { style = "button", skin = "SkinFlatButton" },
+    PROGRESS_BAR = { style = "progressBar", skin = "SkinProgressBar",
+        editorPreset = "MOVABLE" },
+    ICON = { style = "icon", skin = "CreateQualityBorder", editorPreset = "MOVABLE" },
+    SCROLLBAR = { style = "scrollbar", skin = "SkinScrollBar", editorPreset = "MOVABLE" },
+    SECTION_HEADER = { style = "sectionHeader", editorPreset = "SECTION_HEADERS" },
+    TEXT = { style = "typography", editorPreset = "MOVABLE" },
+}
+for typeID, definition in pairs(SHARED_TYPE_DEFINITIONS) do
+    NSkin:RegisterSharedElementType(typeID, definition)
 end
 
 local function LayoutWindowBackground(frame, data, anchor)
@@ -744,12 +795,30 @@ function NSkin:RegisterTabGroup(groupID, definition)
     if type(groupID) ~= "string" or groupID == ""
         or type(definition) ~= "table"
         or type(definition.appearanceWindowID) ~= "string"
+        or not self:GetAppearanceScope(definition.appearanceWindowID)
         or not (definition.window or definition.owner)
         or definition.orientation ~= "HORIZONTAL"
         or (definition.edge ~= "BOTTOM" and definition.edge ~= "TOP")
         or (not definition.container and type(definition.tabs) ~= "table")
     then
         return false
+    end
+
+    if not tabGroupOriginalPoints[groupID] then
+        local originals = {}
+        local targets = definition.container and { definition.container }
+            or definition.tabs
+        for i = 1, #(targets or {}) do
+            local target = targets[i]
+            local points = {}
+            if target and target.GetNumPoints then
+                for pointIndex = 1, target:GetNumPoints() do
+                    points[pointIndex] = { target:GetPoint(pointIndex) }
+                end
+            end
+            originals[i] = { target = target, points = points }
+        end
+        tabGroupOriginalPoints[groupID] = originals
     end
 
     definition.kind = "TAB_GROUP"
@@ -770,11 +839,20 @@ function NSkin:RegisterTabGroup(groupID, definition)
         end
     end
     if type(group.module) == "string" and not group.getPlacement then
+        group.hasPlacement = function(element)
+            local moduleOptions = NSkin:GetModuleOptions(element.module, false)
+            return moduleOptions and moduleOptions.tabPlacements
+                and moduleOptions.tabPlacements[element.id] ~= nil
+        end
         group.getPlacement = function(element)
             local moduleOptions = NSkin:GetModuleOptions(element.module, false)
             local saved = moduleOptions and moduleOptions.tabPlacements
                 and moduleOptions.tabPlacements[element.id]
-            return CopyPlacement(saved or NSkin:GetTabPlacement())
+            if saved then return CopyPlacement(saved) end
+            local originals = tabGroupOriginalPoints[element.id]
+            local target = originals and originals[1] and originals[1].target
+            if target then return GetCurrentWindowPlacement(element.window, target) end
+            return CopyPlacement(NSkin:GetTabPlacement())
         end
         group.setPlacement = function(element, placement)
             if not NSkin:ApplyTabGroupPlacement(element, placement,
@@ -789,11 +867,15 @@ function NSkin:RegisterTabGroup(groupID, definition)
             return true
         end
         group.resetPlacement = function(element)
-            local placement = NSkin:GetTabPlacement()
-            if not NSkin:ApplyTabGroupPlacement(element, placement,
-                { suppressNotify = true })
-            then
-                return false
+            local originals = tabGroupOriginalPoints[element.id]
+            for i = 1, #(originals or {}) do
+                local original = originals[i]
+                if original.target and original.target.ClearAllPoints then
+                    original.target:ClearAllPoints()
+                    for pointIndex = 1, #original.points do
+                        original.target:SetPoint(unpack(original.points[pointIndex]))
+                    end
+                end
             end
             local moduleOptions = NSkin:GetModuleOptions(element.module, false)
             if moduleOptions and moduleOptions.tabPlacements then
@@ -823,6 +905,7 @@ function NSkin:RegisterSkinningElement(elementID, definition)
     definition.target = definition.target or definition.container or definition.owner
     if type(definition.appearanceWindowID) ~= "string"
         or definition.appearanceWindowID == ""
+        or not self:GetAppearanceScope(definition.appearanceWindowID)
     then
         return false
     end
@@ -979,6 +1062,10 @@ function NSkin:RestoreMovableElementOriginal(elementOrID, suppressNotify)
     if not element or not points or not element.target then return false end
     element.target:ClearAllPoints()
     for i = 1, #points do element.target:SetPoint(unpack(points[i])) end
+    local size = movableOriginalSizes[element.id]
+    if size and element.supportsResize and element.target.SetSize then
+        element.target:SetSize(size[1], size[2])
+    end
     if not suppressNotify then self:NotifySkinningElementBoundsChanged(element.id) end
     return true
 end
@@ -988,7 +1075,8 @@ function NSkin:RegisterMovableElement(definition)
         or type(definition.module) ~= "string" or not definition.window
         or type(definition.appearanceWindowID) ~= "string"
         or definition.appearanceWindowID == ""
-        or not definition.target or type(definition.defaultPlacement) ~= "table"
+        or not self:GetAppearanceScope(definition.appearanceWindowID)
+        or not definition.target
     then return false end
     local id = definition.id
     if not movableOriginalPoints[id] then
@@ -997,6 +1085,9 @@ function NSkin:RegisterMovableElement(definition)
             points[i] = { definition.target:GetPoint(i) }
         end
         movableOriginalPoints[id] = points
+        if definition.supportsResize and definition.target.GetSize then
+            movableOriginalSizes[id] = { definition.target:GetSize() }
+        end
     end
     local customApply = definition.applyPlacement
     definition.kind = definition.kind or "MOVABLE"
@@ -1008,7 +1099,10 @@ function NSkin:RegisterMovableElement(definition)
     definition.draggable = definition.draggable ~= false
     definition.movable = true
     definition.getPlacement = definition.getPlacement or function(element)
-        return CopyPlacement(GetSavedMovablePlacement(element) or element.defaultPlacement)
+        local saved = GetSavedMovablePlacement(element)
+        if saved then return CopyPlacement(saved) end
+        return CopyPlacement(element.defaultPlacement
+            or GetCurrentWindowPlacement(element.window, element.target))
     end
     definition.applyPlacement = customApply or function(element, placement, applyOptions)
         return NSkin:LayoutWindowElement(element, placement, applyOptions)
@@ -1138,7 +1232,7 @@ function NSkin:SkinProgressBar(bar, options)
     return true
 end
 
-local function GetCurrentWindowPlacement(window, target)
+GetCurrentWindowPlacement = function(window, target)
     local windowLeft, windowTop = window:GetLeft(), window:GetTop()
     local targetLeft, targetTop = target:GetLeft(), target:GetTop()
     if windowLeft and windowTop and targetLeft and targetTop then
@@ -1147,6 +1241,28 @@ local function GetCurrentWindowPlacement(window, target)
     end
     return { edge = "TOP", side = "INSIDE", alignment = "CENTER",
         alongOffset = 0, edgeOffset = -46 }
+end
+
+function NSkin:RegisterSimpleMovableElement(definition)
+    if type(definition) ~= "table" then return nil end
+    local existing = definition.id and self:GetSkinningElement(definition.id)
+    if existing then
+        local saved = self:GetSavedMovableElementPlacement(definition.id)
+        if saved and self:IsSkinningElementEditable(existing) then
+            existing.applyPlacement(existing, saved, SUPPRESS_NOTIFICATION)
+        end
+        self:NotifySkinningElementBoundsChanged(definition.id)
+        return existing
+    end
+    definition.preserveBlizzardPlacement = definition.preserveBlizzardPlacement ~= false
+    if not self:RegisterMovableElement(definition) then return nil end
+    return self:GetSkinningElement(definition.id)
+end
+
+function NSkin:RegisterProgressBarElement(definition)
+    if type(definition) ~= "table" then return nil end
+    definition.kind = definition.kind or "PROGRESS_BAR"
+    return self:RegisterSimpleMovableElement(definition)
 end
 
 local function GetControllerState(module, id, create)
@@ -1203,6 +1319,7 @@ function NSkin:RegisterPaginationGroup(definition)
     if type(definition) ~= "table" or type(definition.module) ~= "string"
         or type(definition.appearanceWindowID) ~= "string"
         or definition.appearanceWindowID == ""
+        or not self:GetAppearanceScope(definition.appearanceWindowID)
         or not definition.window or type(definition.ids) ~= "table"
         or type(definition.controls) ~= "table"
     then return end
@@ -1336,7 +1453,7 @@ function NSkin:RegisterPaginationGroup(definition)
                 or definition.previousPlacement or defaultPlacement,
             priority = previousDefinition.priority or definition.buttonPriority or 90,
             isEditable = function()
-                return controller:IsVisible() and controller:GetSeparateButtons()
+                return controller:IsVisible()
             end,
             applyPlacement = previousDefinition.applyPlacement,
             livePreview = previousDefinition.livePreview,
@@ -1351,7 +1468,7 @@ function NSkin:RegisterPaginationGroup(definition)
                 or definition.nextPlacement or defaultPlacement,
             priority = nextDefinition.priority or definition.buttonPriority or 90,
             isEditable = function()
-                return controller:IsVisible() and controller:GetSeparateButtons()
+                return controller:IsVisible()
             end,
             applyPlacement = nextDefinition.applyPlacement,
             livePreview = nextDefinition.livePreview,
@@ -1385,6 +1502,17 @@ function NSkin:RegisterPaginationGroup(definition)
             end
         end
     end
+    for _, buttonElement in ipairs({ previous, nextPage }) do
+        if buttonElement then
+            local setPlacement = buttonElement.setPlacement
+            buttonElement.setPlacement = function(element, placement)
+                if not controller:GetSeparateButtons() then
+                    controller:SetSeparateButtons(true)
+                end
+                return setPlacement(element, placement)
+            end
+        end
+    end
     controller:UpdateWatcher()
     controller:Refresh()
     return controller
@@ -1394,6 +1522,7 @@ function NSkin:RegisterAccessoryGroup(definition)
     if type(definition) ~= "table" or type(definition.module) ~= "string"
         or type(definition.appearanceWindowID) ~= "string"
         or definition.appearanceWindowID == ""
+        or not self:GetAppearanceScope(definition.appearanceWindowID)
         or not definition.window or not definition.primary or not definition.accessory
         or type(definition.ids) ~= "table" or not definition.ids.primary
         or not definition.ids.accessory or type(definition.anchorGrouped) ~= "function"
@@ -1446,11 +1575,8 @@ function NSkin:RegisterAccessoryGroup(definition)
             if saved then
                 primaryElement.applyPlacement(primaryElement, saved, SUPPRESS_NOTIFICATION)
             else
+                NSkin:RestoreMovableElementOriginal(self.ids.primary, true)
                 NSkin:RestoreMovableElementOriginal(self.ids.accessory, true)
-                if primaryElement then
-                    primaryElement.applyPlacement(primaryElement,
-                        CopyPlacement(definition.primaryPlacement), SUPPRESS_NOTIFICATION)
-                end
             end
         elseif mode == "INDEPENDENT" then
             local element = skinningElements[self.ids.accessory]
@@ -1665,7 +1791,7 @@ function NSkin:GetTabGroupPlacement(groupID)
     if group and type(group.getPlacement) == "function" then
         return group.getPlacement(group)
     end
-    return self:GetTabPlacement()
+    return nil
 end
 
 function NSkin:SetTabGroupPlacement(groupID, placement)
@@ -1750,6 +1876,25 @@ function NSkin:RefreshRegisteredTabGroups()
     if _G.InCombatLockdown and _G.InCombatLockdown() then return false end
     for groupID in pairs(tabGroups) do
         self:ApplyTabGroupLayout(groupID)
+    end
+    return true
+end
+
+function NSkin:RestoreTabGroupOriginalPlacement(groupID)
+    local originals = tabGroupOriginalPoints[groupID]
+    if not originals then return false end
+    for i = 1, #originals do
+        local original = originals[i]
+        if original.target and original.target.ClearAllPoints then
+            original.target:ClearAllPoints()
+            for pointIndex = 1, #original.points do
+                original.target:SetPoint(unpack(original.points[pointIndex]))
+            end
+        end
+    end
+    local group = tabGroups[groupID]
+    if group and group.container and group.container.MarkDirty then
+        group.container:MarkDirty()
     end
     return true
 end

@@ -3,6 +3,7 @@ local _, NSkin = ...
 local function CreateTabControls(includeSpacing)
     local controls = {
         { type = "SLIDER_PAIR", order = 1, centerReset = true,
+            resetGroup = true,
             resetTooltip = "Reset X and Y offsets",
             left = { key = "alongOffset", label = "X offset", min = -200,
                 max = 200, step = 0.1, decimals = 1, suffix = " px" },
@@ -118,10 +119,5 @@ local function BuildTabsOptions(parent)
     return page
 end
 
-NSkin:RegisterOptionsPage({
-    key = "tabs",
-    label = "Tabs",
-    group = "shared",
-    order = 10,
-    builder = BuildTabsOptions,
-})
+-- Placement belongs to the docked Position category. Keep the option-group
+-- definitions for the inspector, but do not expose placement globally.

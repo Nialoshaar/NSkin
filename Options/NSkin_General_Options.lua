@@ -10,7 +10,7 @@ local standaloneDefinitions = {}
 
 local optionGroups = {
     shared = { label = "Shared Elements", order = 10 },
-    windows = { label = "Windows", order = 20 },
+    windows = { label = "Modules", order = 20 },
 }
 
 function NSkin:RegisterOptionsPage(definition)

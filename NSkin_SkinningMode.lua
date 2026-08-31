@@ -808,7 +808,16 @@ local function CreateOverlay(element)
     end
     local overlay = CreateFrame("Button", nil, parent)
     overlay.usesAbsoluteBounds = usesAbsoluteBounds
-    overlay:SetFrameStrata("DIALOG")
+    -- A full-window hit target must never eclipse its registered children.
+    -- Frame levels are only reliably comparable within the same frame strata,
+    -- especially when overlays have different parents, so element overlays use
+    -- a dedicated higher strata instead of relying on priority alone.
+    overlay:SetFrameStrata(element.kind == "WINDOW"
+        and "DIALOG" or "FULLSCREEN_DIALOG")
+    -- The full-window overlay is visual only. If it owns the mouse it receives
+    -- MouseDown before child overlays in some Blizzard parent trees, which
+    -- prevents their drag handlers from ever starting.
+    overlay:EnableMouse(element.kind ~= "WINDOW")
     overlay:SetFrameLevel(math.max(1,
         (element.window:GetFrameLevel() or 0) + 10 + (element.priority or 0)))
     overlay:RegisterForClicks("LeftButtonUp")
@@ -828,12 +837,66 @@ local function CreateOverlay(element)
         self.hovered = nil
         RefreshOverlayAppearance(element)
     end)
-    overlay:SetScript("OnClick", function() SelectElement(element) end)
+
+    local function ResolvePointerElement()
+        if not _G.GetCursorPosition then return element end
+        local cursorX, cursorY = _G.GetCursorPosition()
+        local parentScale = UIParent and UIParent:GetEffectiveScale() or 1
+        if not cursorX or not cursorY or not parentScale or parentScale == 0 then
+            return element
+        end
+        cursorX, cursorY = cursorX / parentScale, cursorY / parentScale
+        local best, bestPriority, bestArea
+        for _, candidate in pairs(controller.overlayElements) do
+            if candidate.kind ~= "WINDOW" and candidate.window == element.window
+                and NSkin:IsSkinningElementEditable(candidate)
+            then
+                local left, right, bottom, top =
+                    NSkin:GetSkinningElementBounds(candidate)
+                if left and cursorX >= left and cursorX <= right
+                    and cursorY >= bottom and cursorY <= top
+                then
+                    local priority = tonumber(candidate.priority) or 0
+                    local area = math.max(0, right - left) * math.max(0, top - bottom)
+                    if not best or priority > bestPriority
+                        or (priority == bestPriority and area < bestArea)
+                    then
+                        best, bestPriority, bestArea = candidate, priority, area
+                    end
+                end
+            end
+        end
+        return best or element
+    end
+
+    overlay:SetScript("OnClick", function()
+        SelectElement(ResolvePointerElement())
+    end)
+    if element.kind == "WINDOW" then
+        local headerHitTarget = CreateFrame("Button", nil, overlay)
+        headerHitTarget:SetPoint("TOPLEFT")
+        headerHitTarget:SetPoint("TOPRIGHT")
+        headerHitTarget:SetHeight(22)
+        headerHitTarget:RegisterForClicks("LeftButtonUp")
+        headerHitTarget:SetScript("OnClick", function() SelectElement(element) end)
+        headerHitTarget:SetScript("OnEnter", function()
+            overlay.hovered = true
+            RefreshOverlayAppearance(element)
+        end)
+        headerHitTarget:SetScript("OnLeave", function()
+            overlay.hovered = nil
+            RefreshOverlayAppearance(element)
+        end)
+        overlay.headerHitTarget = headerHitTarget
+    end
     if element.kind == "TAB_GROUP" or element.draggable then
         overlay:RegisterForDrag("LeftButton")
         overlay:SetScript("OnDragStart", function()
-            SelectElement(element)
-            BeginDrag(element)
+            local pointerElement = ResolvePointerElement()
+            SelectElement(pointerElement)
+            if pointerElement.kind == "TAB_GROUP" or pointerElement.draggable then
+                BeginDrag(pointerElement)
+            end
         end)
         overlay:SetScript("OnDragStop", function() StopDrag(true) end)
     end

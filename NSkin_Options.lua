@@ -1818,6 +1818,11 @@ local function CreateSliderPair(view, control, y)
         icon:SetTexture("Interface\\AddOns\\NSkin\\Media\\rotate-right.png")
         reset:SetScript("OnClick", function()
             if view.refreshing or not view.context then return end
+            if control.resetGroup and type(view.definition.reset) == "function" then
+                view.definition.reset(view.context)
+                view:Refresh()
+                return
+            end
             local values = CopyTable(view.definition.get(view.context))
             values[control.left.key] = control.left.resetValue or 0
             values[control.right.key] = control.right.resetValue or 0

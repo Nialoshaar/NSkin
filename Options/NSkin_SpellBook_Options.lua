@@ -93,27 +93,47 @@ NSkin:RegisterOptionGroup("spellbook.appearance", {
 
 NSkin:RegisterOptionGroup("spellbook.iconDisposition", {
     controls = {
+        { type = "SLIDER", key = "textSize", label = "Spell name text size",
+            min = defaults.minTextSize, max = defaults.maxTextSize,
+            step = 1, suffix = " px" },
         { type = "DROPDOWN", key = "iconsPerRow",
             label = "Icons disposition", values = {
                 { value = 2, label = "2 icons per row" },
                 { value = 3, label = "3 icons per row" },
                 { value = 4, label = "4 icons per row" } } },
         { type = "RESET", label = "Reset Layout", compactLabel = "Reset" },
-    },
+            },
+        { type = "CHECKBOX", key = "hideAssistant",
+            label = "Hide Single-Button Assistant" },
     get = function()
-        return { iconsPerRow = NSkin:GetSpellBookIconsPerRow() }
+        return { textSize = NSkin:GetSpellBookTextSize(),
+            iconsPerRow = NSkin:GetSpellBookIconsPerRow(),
+            hideAssistant = NSkin:GetSpellBookAssistantHidden() }
     end,
     set = function(_, values)
         local changed
+        if values.textSize ~= nil
+            and values.textSize ~= NSkin:GetSpellBookTextSize()
+        then
+            changed = NSkin:SetSpellBookTextSize(values.textSize)
+        end
         if values.iconsPerRow ~= nil
             and values.iconsPerRow ~= NSkin:GetSpellBookIconsPerRow()
         then
             changed = NSkin:SetSpellBookIconsPerRow(values.iconsPerRow)
         end
+        if values.hideAssistant ~= nil
+            and values.hideAssistant ~= NSkin:GetSpellBookAssistantHidden()
+        then
+            changed = NSkin:SetSpellBookAssistantHidden(values.hideAssistant) or changed
+        end
         return changed == true
     end,
     reset = function()
-        return NSkin:SetSpellBookIconsPerRow(defaults.iconsPerRow)
+        local changed = NSkin:SetSpellBookTextSize(defaults.textSize)
+        changed = NSkin:SetSpellBookIconsPerRow(defaults.iconsPerRow) or changed
+        changed = NSkin:SetSpellBookAssistantHidden(false) or changed
+        return changed == true
     end,
 })
 
@@ -154,7 +174,5 @@ local function BuildSpellBookOptions(parent)
     return page
 end
 
-NSkin:RegisterOptionsPage({
-    module = "SpellBook",
-    builder = BuildSpellBookOptions,
-})
+-- Spellbook customization is intentionally docked-editor only. The main
+-- options window still exposes module enablement through its module row.

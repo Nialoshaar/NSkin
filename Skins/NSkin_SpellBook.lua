@@ -13,9 +13,12 @@ local WINDOW_BUTTON_TEXT_OFFSET_X = 0
 local WINDOW_BUTTON_TEXT_OFFSET_Y = 0
 local APPEARANCE_WINDOW_ID = "PlayerSpells.SpellBook"
 
+NSkin:RegisterAppearanceScope(APPEARANCE_WINDOW_ID, {
+    label = "Spellbook",
+})
+
 local assistedCombatDivider
 local initialized = false
-local bottomTabLayout = { edge = "BOTTOM" }
 local TAB_GROUP_ID = "SpellBook.MainTabs"
 local CATEGORY_TAB_GROUP_ID = "SpellBook.CategoryTabs"
 local WINDOW_ELEMENT_ID = "SpellBook.Window"
@@ -177,6 +180,10 @@ local function GetMainTabPlacementOptions()
     return options and options.mainTabsPlacement
 end
 
+local function HasMainTabPlacement()
+    return GetMainTabPlacementOptions() ~= nil
+end
+
 local function GetMainTabPlacement()
     return CopyPlacement(GetMainTabPlacementOptions() or NSkin:GetTabPlacement())
 end
@@ -216,7 +223,7 @@ local function ResetMainTabPlacement()
             profile.moduleOptions = nil
         end
     end
-    return NSkin:ApplyTabGroupLayout(TAB_GROUP_ID)
+    return NSkin:RestoreTabGroupOriginalPlacement(TAB_GROUP_ID)
 end
 
 function NSkin:ResetSpellBookTabPlacements()
@@ -233,7 +240,7 @@ function NSkin:ResetSpellBookTabPlacements()
     end
     local category = self:GetTabGroup(CATEGORY_TAB_GROUP_ID)
     if category then RestoreCategoryTabAnchors(category.container) end
-    self:ApplyTabGroupLayout(TAB_GROUP_ID)
+    self:RestoreTabGroupOriginalPlacement(TAB_GROUP_ID)
     return true
 end
 
@@ -336,7 +343,6 @@ local function SkinSpellBookTabs()
     local categoryBorder = NSkin:GetAppearanceBorderColor(
         "tab", categoryStyle, APPEARANCE_WINDOW_ID, CATEGORY_TAB_GROUP_ID)
     NSkin:SkinTabSystem(spellBook.CategoryTabSystem, categoryStyle, categoryBorder)
-    NSkin:LayoutTabSystem(spellBook.CategoryTabSystem)
     if NSkin:GetTabGroup(CATEGORY_TAB_GROUP_ID) then
         NSkin:ApplyTabGroupLayout(CATEGORY_TAB_GROUP_ID)
     end
@@ -346,9 +352,6 @@ local function SkinSpellBookTabs()
     NSkin:SkinTabSystem(playerSpells.TabSystem, mainStyle, mainBorder)
     if NSkin:GetTabGroup(TAB_GROUP_ID) then
         NSkin:ApplyTabGroupLayout(TAB_GROUP_ID)
-    else
-        bottomTabLayout.owner = playerSpells
-        NSkin:LayoutTabSystem(playerSpells.TabSystem, bottomTabLayout)
     end
 end
 
@@ -367,16 +370,6 @@ local function SkinWindowButtons(playerSpells, spellBook)
     NSkin:SkinFlatButton(minimizeButton, "-", nil, nil,
         WINDOW_BUTTON_TEXT_SIZE, WINDOW_BUTTON_TEXT_OFFSET_X, WINDOW_BUTTON_TEXT_OFFSET_Y)
 
-    if closeButton then
-        closeButton:SetSize(22, 22)
-        closeButton:ClearAllPoints()
-        closeButton:SetPoint("TOPRIGHT", playerSpells, "TOPRIGHT", 0, 0)
-    end
-    if expandFrame and closeButton then
-        expandFrame:SetSize(22, 22)
-        expandFrame:ClearAllPoints()
-        expandFrame:SetPoint("BOTTOMRIGHT", closeButton, "BOTTOMLEFT", 0, 0)
-    end
 end
 
 local function SkinAssistedCombat(frame)
@@ -806,6 +799,7 @@ function SpellBookSkin:Initialize()
         priority = 50,
         orientation = "HORIZONTAL",
         edge = "BOTTOM",
+        hasPlacement = HasMainTabPlacement,
         getPlacement = GetMainTabPlacement,
         setPlacement = SetMainTabPlacement,
         resetPlacement = ResetMainTabPlacement,
@@ -846,8 +840,8 @@ function SpellBookSkin:Initialize()
         target = playerSpells,
         priority = 0,
         extraEditorOptions = {
-            { id = "spellbook.iconDisposition", label = "Layout",
-                presentation = "INLINE", category = "LAYOUT" },
+            { id = "spellbook.iconDisposition", label = "Spellbook",
+                presentation = "INLINE", category = "SPECIFIC" },
         },
     })
 

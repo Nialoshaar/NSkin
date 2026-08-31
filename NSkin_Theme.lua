@@ -1,6 +1,7 @@
 local _, NSkin = ...
 
 local resolvedStyles = {}
+local appearanceScopes = {}
 
 local function RoundOne(value)
     value = tonumber(value) or 0
@@ -79,6 +80,55 @@ function NSkin:GetStyle(name)
     return cached
 end
 
+local function GetAppearanceScopeChain(scopeID)
+    if not scopeID then return nil end
+    local chain, seen = {}, {}
+    local current = scopeID
+    while current do
+        if seen[current] then return nil end
+        seen[current] = true
+        table.insert(chain, 1, current)
+        local scope = appearanceScopes[current]
+        if not scope then return nil end
+        current = scope.parent
+    end
+    return chain
+end
+
+function NSkin:RegisterAppearanceScope(scopeID, definition)
+    if type(scopeID) ~= "string" or scopeID == ""
+        or type(definition) ~= "table" or appearanceScopes[scopeID]
+    then return false end
+    local parent = definition.parent
+    if parent ~= nil and (type(parent) ~= "string"
+        or parent == "" or not appearanceScopes[parent])
+    then return false end
+    if parent == scopeID then return false end
+    local scope = {
+        id = scopeID,
+        label = definition.label or scopeID,
+        parent = parent,
+    }
+    appearanceScopes[scopeID] = scope
+    if not GetAppearanceScopeChain(scopeID) then
+        appearanceScopes[scopeID] = nil
+        return false
+    end
+    return true
+end
+
+function NSkin:GetAppearanceScope(scopeID)
+    return appearanceScopes[scopeID]
+end
+
+function NSkin:GetAppearanceScopeChain(scopeID)
+    local chain = GetAppearanceScopeChain(scopeID)
+    if not chain then return nil end
+    local copy = {}
+    for i = 1, #chain do copy[i] = chain[i] end
+    return copy
+end
+
 -- Appearance resolves from the bundled/shared theme through optional window
 -- and element layers. Each saved layer remains sparse, so reset means removal.
 function NSkin:GetAppearanceStyle(name, windowID, elementID)
@@ -86,10 +136,13 @@ function NSkin:GetAppearanceStyle(name, windowID, elementID)
     if not style then return nil end
     local profile = self:GetProfile()
     local overrides = profile.appearanceOverrides
-    local windowOverride = windowID and overrides and overrides.windows
-        and overrides.windows[windowID]
-    if windowOverride and windowOverride[name] then
-        style = CopyWithOverrides(style, windowOverride[name])
+    local chain = windowID and GetAppearanceScopeChain(windowID)
+    for i = 1, #(chain or {}) do
+        local windowOverride = overrides and overrides.windows
+            and overrides.windows[chain[i]]
+        if windowOverride and windowOverride[name] then
+            style = CopyWithOverrides(style, windowOverride[name])
+        end
     end
     local elementOverride = elementID and overrides and overrides.elements
         and overrides.elements[elementID]
@@ -146,7 +199,10 @@ local function GetAppearanceParentValue(scope, id, windowID, path)
     if not styleName then return nil end
     local style
     if scope == "windows" then
-        style = NSkin:GetStyle(styleName)
+        local registered = appearanceScopes[id]
+        style = registered and registered.parent
+            and NSkin:GetAppearanceStyle(styleName, registered.parent)
+            or NSkin:GetStyle(styleName)
     else
         style = NSkin:GetAppearanceStyle(styleName, windowID)
     end
@@ -220,14 +276,17 @@ local function ResetAppearanceOverride(scope, id, path)
 end
 
 function NSkin:SetWindowAppearanceOverride(windowID, path, value)
+    if not appearanceScopes[windowID] then return false end
     return SetAppearanceOverride("windows", windowID, nil, path, value)
 end
 
 function NSkin:ResetWindowAppearanceOverride(windowID, path)
+    if not appearanceScopes[windowID] then return false end
     return ResetAppearanceOverride("windows", windowID, path)
 end
 
 function NSkin:SetElementAppearanceOverride(elementID, windowID, path, value)
+    if not appearanceScopes[windowID] then return false end
     return SetAppearanceOverride("elements", elementID, windowID, path, value)
 end
 
@@ -304,10 +363,14 @@ function NSkin:GetAppearanceBorderColor(styleName, style, windowID, elementID)
         and overrides.elements[elementID] and overrides.elements[elementID][styleName]
         and overrides.elements[elementID][styleName].border
     if elementBorder ~= nil then return style.border end
-    local windowBorder = windowID and overrides and overrides.windows
-        and overrides.windows[windowID] and overrides.windows[windowID][styleName]
-        and overrides.windows[windowID][styleName].border
-    if windowBorder ~= nil then return style.border end
+    local chain = windowID and GetAppearanceScopeChain(windowID)
+    for i = #(chain or {}), 1, -1 do
+        local windowBorder = overrides and overrides.windows
+            and overrides.windows[chain[i]]
+            and overrides.windows[chain[i]][styleName]
+            and overrides.windows[chain[i]][styleName].border
+        if windowBorder ~= nil then return style.border end
+    end
     return self:GetComponentBorderColor(styleName, style)
 end
 
