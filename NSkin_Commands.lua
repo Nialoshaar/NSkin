@@ -18,29 +18,6 @@ end
 
 local commands = {}
 
-commands.rescan = function()
-    if not NSkin:IsModuleEnabled("BlizzardProgressBars") then
-        NSkin:Print("Progress Bars is disabled. Enable it in /nskin and reload the UI first.")
-        return
-    end
-
-    if RunModuleMethod(
-        "BlizzardProgressBars",
-        "Scan",
-        "Progress bar rescanning is unavailable."
-    ) then
-        NSkin:Print("progress bars rescanned.")
-    end
-end
-
-commands.debug = function()
-    RunModuleMethod(
-        "BlizzardProgressBars",
-        "Debug",
-        "Progress bar diagnostics are unavailable."
-    )
-end
-
 commands.journaldebug = function()
     RunModuleMethod(
         "EncounterJournal",
@@ -90,7 +67,7 @@ local function HandleSlashCommand(message)
         return
     end
 
-    NSkin:Print("commands: /nskin, /nskin edit, /nskin skinning, /nskin resettabs, /nskin rescan, /nskin debug, /nskin journaldebug")
+    NSkin:Print("commands: /nskin, /nskin edit, /nskin skinning, /nskin resettabs, /nskin journaldebug")
 end
 
 SLASH_NSKIN1 = "/nskin"

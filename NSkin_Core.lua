@@ -8,10 +8,6 @@ NSkin.modules = NSkin.modules or {}
 
 NSkin.moduleDefinitions = {
     {
-        key = "BlizzardProgressBars", label = "Progress Bars", defaultEnabled = false,
-        optionsGroup = "shared", optionsOrder = 10,
-    },
-    {
         key = "EncounterJournal", label = "Adventure Journal", defaultEnabled = false,
         optionsGroup = "windows", optionsOrder = 10,
     },

@@ -8,22 +8,14 @@
 ## IconTexture: Interface\AddOns\NSkin\Media\Icon.tga
 
 NSkin_Core.lua
-NSkin_Default.lua
 NSkin_Database.lua
-NSkin_Theme.lua
-NSkin_Skin.lua
 NSkin_Components.lua
-NSkin_Options.lua
-NSkin_SkinningMode.lua
-Skins\NSkin_BlizzardProgressBars.lua
-Skins\NSkin_EncounterJournal.lua
-Skins\NSkin_Collections.lua
+Options\NSkin_ComponentsOptions.lua
 Skins\NSkin_SpellBook.lua
-Options\NSkin_General_Options.lua
-Options\NSkin_Appearance_Options.lua
-Options\NSkin_Border_Options.lua
-Options\NSkin_Tabs_Options.lua
-Options\NSkin_BlizzardProgressBars_Options.lua
-Options\NSkin_Shared_Options.lua
-Options\NSkin_SpellBook_Options.lua
+Skins\NSkin_Collections.lua
+Skins\NSkin_EncounterJournal.lua
+Options\NSkin_WindowsOptions.lua
+Options\NSkin_Options.lua
+NSkin_SkinningMode.lua
+NSkin_DockedWindow.lua
 NSkin_Commands.lua

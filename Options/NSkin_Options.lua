@@ -48,6 +48,12 @@ function NSkin:RegisterOptionsPage(definition)
     return true
 end
 
+local pendingOptionsPages = NSkin.pendingOptionsPages
+NSkin.pendingOptionsPages = nil
+for i = 1, #(pendingOptionsPages or {}) do
+    NSkin:RegisterOptionsPage(pendingOptionsPages[i])
+end
+
 local function SkinOptionsWindow(frame)
     if not frame.NSkinOptionsStripped then
         NSkin:HideTextureRegions(frame)

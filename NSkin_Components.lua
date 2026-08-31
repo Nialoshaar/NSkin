@@ -1,3 +1,917 @@
+do
+local _, NSkin = ...
+
+local resolvedStyles = {}
+local appearanceScopes = {}
+
+local function RoundOne(value)
+    value = tonumber(value) or 0
+    if value >= 0 then return math.floor(value * 10 + 0.5) / 10 end
+    return math.ceil(value * 10 - 0.5) / 10
+end
+
+local function TablesEqual(left, right)
+    if type(left) ~= type(right) then return false end
+    if type(left) ~= "table" then return left == right end
+    for key, value in pairs(left) do
+        if not TablesEqual(value, right[key]) then return false end
+    end
+    for key in pairs(right) do
+        if left[key] == nil then return false end
+    end
+    return true
+end
+
+local function GetPath(root, path, create)
+    local node = root
+    local parent
+    local finalKey
+    for key in path:gmatch("[^%.]+") do
+        parent = node
+        finalKey = key
+        local child = node[key]
+        if child == nil and create then
+            child = {}
+            node[key] = child
+        end
+        node = child
+        if node == nil then break end
+    end
+    return node, parent, finalKey
+end
+
+local function PruneEmptyTables(root)
+    for key, value in pairs(root) do
+        if type(value) == "table" then
+            PruneEmptyTables(value)
+            if not next(value) then root[key] = nil end
+        end
+    end
+end
+
+local function CopyWithOverrides(defaults, overrides)
+    local result = {}
+    for key, defaultValue in pairs(defaults) do
+        local override = overrides and overrides[key]
+        if type(defaultValue) == "table" then
+            result[key] = CopyWithOverrides(
+                defaultValue,
+                type(override) == "table" and override or nil
+            )
+        elseif override ~= nil then
+            result[key] = override
+        else
+            result[key] = defaultValue
+        end
+    end
+    return result
+end
+
+function NSkin:GetStyle(name)
+    local cached = resolvedStyles[name]
+    if cached then return cached end
+
+    local defaults = self.defaultTheme and self.defaultTheme[name]
+    if type(defaults) ~= "table" then return nil end
+
+    local profile = self:GetProfile()
+    local overrides = profile.theme and profile.theme[name]
+    cached = CopyWithOverrides(defaults, overrides)
+    resolvedStyles[name] = cached
+    return cached
+end
+
+local function GetAppearanceScopeChain(scopeID)
+    if not scopeID then return nil end
+    local chain, seen = {}, {}
+    local current = scopeID
+    while current do
+        if seen[current] then return nil end
+        seen[current] = true
+        table.insert(chain, 1, current)
+        local scope = appearanceScopes[current]
+        if not scope then return nil end
+        current = scope.parent
+    end
+    return chain
+end
+
+function NSkin:RegisterAppearanceScope(scopeID, definition)
+    if type(scopeID) ~= "string" or scopeID == ""
+        or type(definition) ~= "table" or appearanceScopes[scopeID]
+    then return false end
+    local parent = definition.parent
+    if parent ~= nil and (type(parent) ~= "string"
+        or parent == "" or not appearanceScopes[parent])
+    then return false end
+    if parent == scopeID then return false end
+    local scope = {
+        id = scopeID,
+        label = definition.label or scopeID,
+        parent = parent,
+    }
+    appearanceScopes[scopeID] = scope
+    if not GetAppearanceScopeChain(scopeID) then
+        appearanceScopes[scopeID] = nil
+        return false
+    end
+    return true
+end
+
+function NSkin:GetAppearanceScope(scopeID)
+    return appearanceScopes[scopeID]
+end
+
+function NSkin:GetAppearanceScopeChain(scopeID)
+    local chain = GetAppearanceScopeChain(scopeID)
+    if not chain then return nil end
+    local copy = {}
+    for i = 1, #chain do copy[i] = chain[i] end
+    return copy
+end
+
+-- Appearance resolves from the bundled/shared theme through optional window
+-- and element layers. Each saved layer remains sparse, so reset means removal.
+function NSkin:GetAppearanceStyle(name, windowID, elementID)
+    local style = self:GetStyle(name)
+    if not style then return nil end
+    local profile = self:GetProfile()
+    local overrides = profile.appearanceOverrides
+    local chain = windowID and GetAppearanceScopeChain(windowID)
+    for i = 1, #(chain or {}) do
+        local windowOverride = overrides and overrides.windows
+            and overrides.windows[chain[i]]
+        if windowOverride and windowOverride[name] then
+            style = CopyWithOverrides(style, windowOverride[name])
+        end
+    end
+    local elementOverride = elementID and overrides and overrides.elements
+        and overrides.elements[elementID]
+    if elementOverride and elementOverride[name] then
+        style = CopyWithOverrides(style, elementOverride[name])
+    end
+    return style
+end
+
+function NSkin:GetResolvedTypography(style, prefix)
+    style = style or {}
+    prefix = prefix or ""
+    local useGlobalKey = prefix == "" and "useGlobalTypography"
+        or (prefix .. "UseGlobalTypography")
+    local fontKey = prefix == "" and "font" or (prefix .. "Font")
+    local sizeKey = prefix == "" and "textSize" or (prefix .. "Size")
+    local outlineKey = prefix == "" and "outline" or (prefix .. "Outline")
+    local global = self:GetStyle("typography")
+    local fontModeKey = prefix == "" and "fontMode" or prefix .. "FontMode"
+    local sizeModeKey = prefix == "" and "sizeMode" or prefix .. "SizeMode"
+    local outlineModeKey = prefix == "" and "outlineMode" or prefix .. "OutlineMode"
+    if style[fontModeKey] or style[sizeModeKey] or style[outlineModeKey] then
+        return style[fontModeKey] == "GLOBAL" and global.font
+                or style[fontKey] or global.font,
+            style[sizeModeKey] == "GLOBAL" and global.size
+                or style[sizeKey] or global.size,
+            style[outlineModeKey] == "GLOBAL" and global.outline
+                or style[outlineKey] or global.outline
+    elseif style[useGlobalKey] == true then
+        return global.font, global.size, global.outline
+    end
+    return style[fontKey] or global.font, style[sizeKey] or global.size,
+        style[outlineKey] or global.outline
+end
+
+function NSkin:GetResolvedAppearanceColor(style, key)
+    local color = style and style[key]
+    if type(color) ~= "table" then return color end
+    local mode = style[key .. "Mode"]
+    local resolved
+    if mode == "ACCENT" then
+        resolved = self:GetAccentColor()
+    elseif mode == "CLASS" then
+        local _, class = UnitClass("player")
+        resolved = class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
+    end
+    if not resolved then return color end
+    return { resolved.r or resolved[1], resolved.g or resolved[2],
+        resolved.b or resolved[3], color[4] or resolved.a or resolved[4] or 1 }
+end
+
+local function GetAppearanceParentValue(scope, id, windowID, path)
+    local styleName, relativePath = path:match("^([^.]+)%.(.+)$")
+    if not styleName then return nil end
+    local style
+    if scope == "windows" then
+        local registered = appearanceScopes[id]
+        style = registered and registered.parent
+            and NSkin:GetAppearanceStyle(styleName, registered.parent)
+            or NSkin:GetStyle(styleName)
+    else
+        style = NSkin:GetAppearanceStyle(styleName, windowID)
+    end
+    return style and GetPath(style, relativePath, false), styleName, relativePath
+end
+
+local function SetAppearanceOverride(scope, id, windowID, path, value)
+    if (scope ~= "windows" and scope ~= "elements")
+        or type(id) ~= "string" or id == ""
+        or type(path) ~= "string" or path == ""
+    then
+        return false
+    end
+    local parentValue, styleName, relativePath =
+        GetAppearanceParentValue(scope, id, windowID, path)
+    if parentValue == nil or type(parentValue) ~= type(value) then return false end
+
+    local profile = NSkin:GetProfile()
+    local scopes = profile.appearanceOverrides
+    local styleOverrides = scopes and scopes[scope] and scopes[scope][id]
+        and scopes[scope][id][styleName]
+    local currentValue = styleOverrides
+        and GetPath(styleOverrides, relativePath, false) or nil
+    local newValue = TablesEqual(value, parentValue) and nil or value
+    if TablesEqual(currentValue, newValue) then return false end
+
+    profile.appearanceOverrides = profile.appearanceOverrides or {}
+    scopes = profile.appearanceOverrides
+    scopes[scope] = scopes[scope] or {}
+    scopes[scope][id] = scopes[scope][id] or {}
+    scopes[scope][id][styleName] = scopes[scope][id][styleName] or {}
+    styleOverrides = scopes[scope][id][styleName]
+    local _, parent, key = GetPath(styleOverrides, relativePath, true)
+    parent[key] = newValue
+    PruneEmptyTables(profile.appearanceOverrides)
+    if not next(profile.appearanceOverrides) then profile.appearanceOverrides = nil end
+    NSkin:RefreshTheme()
+    return true
+end
+
+local function ResetAppearanceOverride(scope, id, path)
+    if type(id) ~= "string" or id == "" then return false end
+    local profile = NSkin:GetProfile()
+    local scopes = profile.appearanceOverrides
+    local overrides = scopes and scopes[scope] and scopes[scope][id]
+    if not overrides then return false end
+    local changed
+    if path == nil then
+        scopes[scope][id] = nil
+        changed = true
+    else
+        local paths = type(path) == "table" and path or { path }
+        for i = 1, #paths do
+            local styleName, relativePath = paths[i]:match("^([^.]+)%.(.+)$")
+            local styleOverrides = styleName and overrides[styleName]
+            if styleOverrides then
+                local current, parent, key = GetPath(
+                    styleOverrides, relativePath, false)
+                if parent and current ~= nil then
+                    parent[key] = nil
+                    changed = true
+                end
+            end
+        end
+    end
+    if not changed then return false end
+    PruneEmptyTables(profile.appearanceOverrides)
+    if not next(profile.appearanceOverrides) then profile.appearanceOverrides = nil end
+    NSkin:RefreshTheme()
+    return true
+end
+
+function NSkin:SetWindowAppearanceOverride(windowID, path, value)
+    if not appearanceScopes[windowID] then return false end
+    return SetAppearanceOverride("windows", windowID, nil, path, value)
+end
+
+function NSkin:ResetWindowAppearanceOverride(windowID, path)
+    if not appearanceScopes[windowID] then return false end
+    return ResetAppearanceOverride("windows", windowID, path)
+end
+
+function NSkin:SetElementAppearanceOverride(elementID, windowID, path, value)
+    if not appearanceScopes[windowID] then return false end
+    return SetAppearanceOverride("elements", elementID, windowID, path, value)
+end
+
+function NSkin:ResetElementAppearanceOverride(elementID, path)
+    return ResetAppearanceOverride("elements", elementID, path)
+end
+
+function NSkin:ResetElementAppearanceOverrides(elementID, paths)
+    return ResetAppearanceOverride("elements", elementID, paths)
+end
+
+function NSkin:GetBorderAccentColor()
+    return self:GetStyle("window").border
+end
+
+function NSkin:SetBorderAccentColor(color)
+    if type(color) ~= "table" then return false end
+    return self:SetThemeOverride("window.border", color)
+end
+
+function NSkin:ResetBorderAccentColor()
+    return self:ResetThemeOverride("window.border")
+end
+
+function NSkin:IsAccentColorEnabled()
+    return self:GetStyle("accent").enabled == true
+end
+
+function NSkin:GetAccentColor()
+    return self:GetStyle("accent").color
+end
+
+function NSkin:SetAccentColorEnabled(enabled)
+    return self:SetThemeOverride("accent.enabled", enabled == true)
+end
+
+function NSkin:SetAccentColor(color)
+    if type(color) ~= "table" then return false end
+    return self:SetThemeOverride("accent.color", color)
+end
+
+function NSkin:ResetAccentColor()
+    return self:ResetThemeOverride("accent.color")
+end
+
+function NSkin:GetSharedBorderColor()
+    if self:IsAccentColorEnabled() then return self:GetAccentColor() end
+    return self:GetBorderAccentColor()
+end
+
+function NSkin:GetComponentBorderSetting(styleName, style)
+    local profile = self:GetProfile()
+    local override = profile.theme and profile.theme[styleName]
+        and profile.theme[styleName].border
+    if override ~= nil then
+        style = style or self:GetStyle(styleName)
+        if style and style.border then return style.border end
+    end
+    return self:GetBorderAccentColor()
+end
+
+function NSkin:GetComponentBorderColor(styleName, style)
+    if self:IsAccentColorEnabled() then return self:GetAccentColor() end
+    return self:GetComponentBorderSetting(styleName, style)
+end
+
+function NSkin:GetAppearanceBorderColor(styleName, style, windowID, elementID)
+    if style and style.borderMode then
+        return self:GetResolvedAppearanceColor(style, "border")
+    end
+    local profile = self:GetProfile()
+    local overrides = profile.appearanceOverrides
+    local elementBorder = elementID and overrides and overrides.elements
+        and overrides.elements[elementID] and overrides.elements[elementID][styleName]
+        and overrides.elements[elementID][styleName].border
+    if elementBorder ~= nil then return style.border end
+    local chain = windowID and GetAppearanceScopeChain(windowID)
+    for i = #(chain or {}), 1, -1 do
+        local windowBorder = overrides and overrides.windows
+            and overrides.windows[chain[i]]
+            and overrides.windows[chain[i]][styleName]
+            and overrides.windows[chain[i]][styleName].border
+        if windowBorder ~= nil then return style.border end
+    end
+    return self:GetComponentBorderColor(styleName, style)
+end
+
+function NSkin:SetComponentBorderColor(styleName, color)
+    local defaults = self.defaultTheme and self.defaultTheme[styleName]
+    if type(color) ~= "table" or type(defaults) ~= "table"
+        or type(defaults.border) ~= "table"
+    then
+        return false
+    end
+    local profile = self:GetProfile()
+    profile.theme = profile.theme or {}
+    profile.theme[styleName] = profile.theme[styleName] or {}
+    profile.theme[styleName].border = TablesEqual(color, self:GetBorderAccentColor())
+        and nil or color
+    PruneEmptyTables(profile.theme)
+    if not next(profile.theme) then profile.theme = nil end
+    self:RefreshTheme()
+    return true
+end
+
+function NSkin:ResetComponentBorderColor(styleName)
+    return self:ResetThemeOverride(styleName .. ".border")
+end
+
+function NSkin:GetWindowBorderColor()
+    return self:GetSharedBorderColor()
+end
+
+function NSkin:GetTabSpacing()
+    return self:GetStyle("tab").spacing
+end
+
+local function RefreshTabLayouts()
+    NSkin:InvalidateTheme()
+    if NSkin.RefreshRegisteredTabGroups then NSkin:RefreshRegisteredTabGroups() end
+end
+
+local function SetTabLayoutOverride(path, value)
+    local defaultValue = GetPath(NSkin.defaultTheme, path, false)
+    local profile = NSkin:GetProfile()
+    profile.theme = profile.theme or {}
+    local _, parent, key = GetPath(profile.theme, path, true)
+    parent[key] = value == defaultValue and nil or value
+    PruneEmptyTables(profile.theme)
+    if not next(profile.theme) then profile.theme = nil end
+    RefreshTabLayouts()
+    return true
+end
+
+function NSkin:SetTabSpacing(spacing)
+    spacing = tonumber(spacing)
+    if not spacing then return false end
+    spacing = math.max(-30, math.min(30, math.floor(spacing + 0.5)))
+    return SetTabLayoutOverride("tab.spacing", spacing)
+end
+
+function NSkin:ResetTabSpacing()
+    return SetTabLayoutOverride("tab.spacing", self.defaultTheme.tab.spacing)
+end
+
+function NSkin:GetBottomTabAnchor()
+    return self:GetStyle("tab").bottom.anchor
+end
+
+function NSkin:GetBottomTabOffsetX()
+    return self:GetStyle("tab").bottom.offsetX
+end
+
+function NSkin:GetBottomTabOffsetY()
+    return self:GetStyle("tab").bottom.offsetY
+end
+
+function NSkin:GetTabPlacement()
+    local layout = self:GetStyle("tab").bottom
+    return {
+        mode = layout.mode,
+        point = layout.point,
+        relativePoint = layout.relativePoint,
+        x = layout.x,
+        y = layout.y,
+        edge = layout.edge or "BOTTOM",
+        side = layout.side or "OUTSIDE",
+        alignment = layout.anchor,
+        alongOffset = layout.offsetX,
+        edgeOffset = layout.offsetY,
+    }
+end
+
+function NSkin:SetTabPlacement(placement)
+    if type(placement) ~= "table" then return false end
+    local profile = self:GetProfile()
+    profile.theme = profile.theme or {}
+    profile.theme.tab = profile.theme.tab or {}
+    profile.theme.tab.bottom = profile.theme.tab.bottom or {}
+    local bottom = profile.theme.tab.bottom
+    if placement.mode == "GRID" then
+        local x, y = tonumber(placement.x), tonumber(placement.y)
+        if not x or not y then return false end
+        bottom.mode = "GRID"
+        bottom.point = placement.point or "TOPLEFT"
+        bottom.relativePoint = placement.relativePoint or "TOPLEFT"
+        bottom.x = math.max(-2000, math.min(2000, RoundOne(x)))
+        bottom.y = math.max(-2000, math.min(2000, RoundOne(y)))
+        bottom.relativeTo = nil
+        RefreshTabLayouts()
+        return true
+    end
+    local alignment = placement.alignment
+    if alignment ~= "LEFT" and alignment ~= "CENTER" and alignment ~= "RIGHT" then
+        return false
+    end
+    local current = self:GetTabPlacement()
+    local edge = placement.edge or current.edge
+    local side = placement.side or current.side
+    if edge ~= "TOP" and edge ~= "BOTTOM" then return false end
+    if side ~= "INSIDE" and side ~= "OUTSIDE" then return false end
+    local alongOffset = tonumber(placement.alongOffset)
+    local edgeOffset = tonumber(placement.edgeOffset)
+    if not alongOffset or not edgeOffset then return false end
+    alongOffset = math.max(-2000, math.min(2000, RoundOne(alongOffset)))
+    edgeOffset = math.max(-2000, math.min(2000, RoundOne(edgeOffset)))
+
+    local defaults = self.defaultTheme.tab.bottom
+    bottom.mode, bottom.point, bottom.relativePoint, bottom.x, bottom.y = nil, nil, nil, nil, nil
+    bottom.edge = edge == defaults.edge and nil or edge
+    bottom.side = side == defaults.side and nil or side
+    bottom.anchor = alignment == defaults.anchor and nil or alignment
+    bottom.offsetX = alongOffset == defaults.offsetX and nil or alongOffset
+    bottom.offsetY = edgeOffset == defaults.offsetY and nil or edgeOffset
+    PruneEmptyTables(profile.theme)
+    if not next(profile.theme) then profile.theme = nil end
+    RefreshTabLayouts()
+    return true
+end
+
+function NSkin:GetBottomTabPlacement()
+    return self:GetTabPlacement()
+end
+
+function NSkin:SetBottomTabPlacement(placement)
+    return self:SetTabPlacement(placement)
+end
+
+function NSkin:SetBottomTabAnchor(anchor)
+    if anchor ~= "LEFT" and anchor ~= "CENTER" and anchor ~= "RIGHT" then
+        return false
+    end
+    local placement = self:GetTabPlacement()
+    placement.alignment = anchor
+    return self:SetTabPlacement(placement)
+end
+
+function NSkin:SetBottomTabOffsetX(offset)
+    offset = tonumber(offset)
+    if not offset then return false end
+    local placement = self:GetTabPlacement()
+    placement.alongOffset = offset
+    return self:SetTabPlacement(placement)
+end
+
+function NSkin:SetBottomTabOffsetY(offset)
+    offset = tonumber(offset)
+    if not offset then return false end
+    local placement = self:GetTabPlacement()
+    placement.edgeOffset = offset
+    return self:SetTabPlacement(placement)
+end
+
+function NSkin:ResetTabLayout()
+    local defaults = self.defaultTheme.tab.bottom
+    return self:SetTabPlacement({
+        edge = defaults.edge,
+        side = defaults.side,
+        alignment = defaults.anchor,
+        alongOffset = defaults.offsetX,
+        edgeOffset = defaults.offsetY,
+    })
+end
+
+
+function NSkin:ResetBottomTabLayout()
+    return self:ResetTabLayout()
+end
+
+function NSkin:InvalidateTheme()
+    wipe(resolvedStyles)
+end
+
+function NSkin:RefreshTheme()
+    self:InvalidateTheme()
+
+    if self.RefreshOptionsTheme then self:RefreshOptionsTheme() end
+    if self.RefreshSkinningModeTheme then self:RefreshSkinningModeTheme() end
+    for _, module in pairs(self.modules) do
+        if self:IsModuleEnabled(module.name) and type(module.RefreshTheme) == "function" then
+            module:RefreshTheme()
+        end
+    end
+    if self.RefreshRegisteredTabGroups then self:RefreshRegisteredTabGroups() end
+end
+
+function NSkin:SetThemeOverride(path, value)
+    if type(path) ~= "string" or path == "" then return false end
+    local defaultValue = GetPath(self.defaultTheme, path, false)
+    if defaultValue == nil or type(defaultValue) ~= type(value) then return false end
+
+    local profile = self:GetProfile()
+    profile.theme = profile.theme or {}
+    local _, parent, key = GetPath(profile.theme, path, true)
+    parent[key] = TablesEqual(value, defaultValue) and nil or value
+    PruneEmptyTables(profile.theme)
+    if not next(profile.theme) then profile.theme = nil end
+    self:RefreshTheme()
+    return true
+end
+
+function NSkin:ResetThemeOverride(path)
+    if type(path) ~= "string" or path == "" then return false end
+    local profile = self:GetProfile()
+    if not profile.theme then return true end
+
+    local _, parent, key = GetPath(profile.theme, path, false)
+    if parent then parent[key] = nil end
+    PruneEmptyTables(profile.theme)
+    if not next(profile.theme) then profile.theme = nil end
+    self:RefreshTheme()
+    return true
+end
+
+end
+
+do
+local _, NSkin = ...
+
+local skinData = setmetatable({}, { __mode = "k" })
+local pixelBorders = setmetatable({}, { __mode = "k" })
+local QueuePixelBorderResnap
+
+function NSkin:GetPhysicalPixelSize(frame)
+    local _, physicalHeight
+    if _G.GetPhysicalScreenSize then
+        _, physicalHeight = _G.GetPhysicalScreenSize()
+    end
+    physicalHeight = tonumber(physicalHeight) or 768
+    local scale = frame and frame.GetEffectiveScale and frame:GetEffectiveScale()
+        or (UIParent and UIParent:GetEffectiveScale()) or 1
+    if not scale or scale <= 0 then scale = 1 end
+    return (768 / math.max(1, physicalHeight)) / scale
+end
+
+function NSkin:SnapToPhysicalPixel(frame, value)
+    value = tonumber(value) or 0
+    local pixel = self:GetPhysicalPixelSize(frame)
+    local scaled = value / pixel
+    if scaled >= 0 then return math.floor(scaled + 0.5) * pixel end
+    return math.ceil(scaled - 0.5) * pixel
+end
+
+function NSkin:ConfigureOwnedPixelTexture(texture)
+    if not texture then return end
+    if texture.SetSnapToPixelGrid then texture:SetSnapToPixelGrid(false) end
+    if texture.SetTexelSnappingBias then texture:SetTexelSnappingBias(0) end
+end
+
+local function ApplyPixelBorderGeometry(border)
+    if not border or not border.anchor then return end
+    local anchor = border.anchor
+    local pixel = NSkin:GetPhysicalPixelSize(anchor)
+    local requestedSize = math.max(1, tonumber(border.requestedSize) or 1)
+    local thickness = requestedSize * pixel
+    local requestedPadding = tonumber(border.requestedPadding)
+    local padding = requestedPadding and requestedPadding * pixel or 0
+    border.pixelSize = pixel
+    border.effectiveSize = thickness
+    border.effectivePadding = padding
+
+    for _, edge in ipairs({ border.top, border.bottom, border.left, border.right }) do
+        edge:ClearAllPoints()
+        NSkin:ConfigureOwnedPixelTexture(edge)
+    end
+    if border.outside and requestedPadding == nil then
+        border.top:SetPoint("BOTTOMLEFT", anchor, "TOPLEFT", -thickness, 0)
+        border.top:SetPoint("BOTTOMRIGHT", anchor, "TOPRIGHT", thickness, 0)
+        border.bottom:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", -thickness, 0)
+        border.bottom:SetPoint("TOPRIGHT", anchor, "BOTTOMRIGHT", thickness, 0)
+        border.left:SetPoint("TOPRIGHT", anchor, "TOPLEFT", 0, thickness)
+        border.left:SetPoint("BOTTOMRIGHT", anchor, "BOTTOMLEFT", 0, -thickness)
+        border.right:SetPoint("TOPLEFT", anchor, "TOPRIGHT", 0, thickness)
+        border.right:SetPoint("BOTTOMLEFT", anchor, "BOTTOMRIGHT", 0, -thickness)
+    else
+        border.top:SetPoint("TOPLEFT", anchor, "TOPLEFT", -padding, padding)
+        border.top:SetPoint("TOPRIGHT", anchor, "TOPRIGHT", padding, padding)
+        border.bottom:SetPoint("BOTTOMLEFT", anchor, "BOTTOMLEFT", -padding, -padding)
+        border.bottom:SetPoint("BOTTOMRIGHT", anchor, "BOTTOMRIGHT", padding, -padding)
+        border.left:SetPoint("TOPLEFT", anchor, "TOPLEFT", -padding, padding)
+        border.left:SetPoint("BOTTOMLEFT", anchor, "BOTTOMLEFT", -padding, -padding)
+        border.right:SetPoint("TOPRIGHT", anchor, "TOPRIGHT", padding, padding)
+        border.right:SetPoint("BOTTOMRIGHT", anchor, "BOTTOMRIGHT", padding, -padding)
+    end
+    border.top:SetHeight(thickness)
+    border.bottom:SetHeight(thickness)
+    border.left:SetWidth(thickness)
+    border.right:SetWidth(thickness)
+end
+
+function NSkin:ResnapPixelBorder(border)
+    ApplyPixelBorderGeometry(border)
+end
+
+function NSkin:ResnapAllPixelBorders()
+    for border in pairs(pixelBorders) do ApplyPixelBorderGeometry(border) end
+end
+
+local function QueueBorderSetResnap(data)
+    if not data or data.pending then return end
+    data.pending = true
+    local function Resnap()
+        data.pending = nil
+        for border in pairs(data.borders or {}) do ApplyPixelBorderGeometry(border) end
+    end
+    if C_Timer and C_Timer.After then C_Timer.After(0, Resnap) else Resnap() end
+end
+
+function NSkin:GetSkinData(object, namespace, create)
+    if not object then return nil end
+
+    -- Preserve GetSkinData(object, false) while allowing each subsystem to
+    -- keep its state in a clearly named table.
+    if type(namespace) == "boolean" then
+        create = namespace
+        namespace = nil
+    end
+
+    local data = skinData[object]
+    if not data and create ~= false then
+        data = {}
+        skinData[object] = data
+    end
+    if not data or not namespace then return data end
+
+    local scoped = data[namespace]
+    if not scoped and create ~= false then
+        scoped = {}
+        data[namespace] = scoped
+    end
+    return scoped
+end
+
+function NSkin:GetPixelBorder(frame, key)
+    local data = self:GetSkinData(frame, "primitives", false)
+    return data and data.borders and data.borders[key]
+end
+
+function NSkin:GetFlatBackground(frame, key)
+    local data = self:GetSkinData(frame, "primitives", false)
+    return data and data.backgrounds and data.backgrounds[key or "NSkinFlatBackground"]
+end
+
+-- Creates four simple texture edges without using BackdropTemplate or NineSlice.
+-- The regions are owned by the target frame and do not alter protected state.
+
+-- Icons Skinning
+function NSkin:CreatePixelBorder(frame, key, size, color, outside, anchor)
+    if not frame or not frame.CreateTexture then return nil end
+    local data = self:GetSkinData(frame, "primitives")
+    if key then
+        data.borders = data.borders or {}
+        if data.borders[key] then return data.borders[key] end
+    end
+
+    size = size or 1
+    color = color or self:GetStyle("icon").border
+    anchor = anchor or frame
+
+    local function NewEdge()
+        local edge = frame:CreateTexture(nil, "OVERLAY", nil, 7)
+        edge:SetColorTexture(unpack(color))
+        self:ConfigureOwnedPixelTexture(edge)
+        return edge
+    end
+
+    local top = NewEdge()
+    local bottom = NewEdge()
+    local left = NewEdge()
+    local right = NewEdge()
+
+    local border = { top = top, bottom = bottom, left = left, right = right,
+        frame = frame, anchor = anchor, outside = outside == true,
+        requestedSize = tonumber(size) or 1 }
+    pixelBorders[border] = true
+    ApplyPixelBorderGeometry(border)
+    -- Only frames support OnSizeChanged/OnShow scripts. Borders may be
+    -- anchored to a Texture (for example collection icons), so watch their
+    -- owning frame instead of attempting to attach scripts to the region.
+    local watchTarget = anchor
+    if not (anchor.IsObjectType and anchor:IsObjectType("Frame")) then
+        watchTarget = frame
+    end
+    local watchData = self:GetSkinData(watchTarget, "physicalPixels")
+    watchData.borders = watchData.borders
+        or setmetatable({}, { __mode = "k" })
+    watchData.borders[border] = true
+    if not watchData.resnapHooked then
+        watchData.resnapHooked = true
+        if watchTarget.HookScript then
+            watchTarget:HookScript("OnSizeChanged", function()
+                QueueBorderSetResnap(watchData)
+            end)
+            watchTarget:HookScript("OnShow", function()
+                QueueBorderSetResnap(watchData)
+            end)
+        end
+        if _G.hooksecurefunc and watchTarget.SetScale then
+            pcall(_G.hooksecurefunc, watchTarget, "SetScale", function()
+                QueueBorderSetResnap(watchData)
+            end)
+        end
+    end
+    if key then data.borders[key] = border end
+    return border
+end
+
+function NSkin:SetPixelBorderShown(border, shown)
+    if not border or border.shown == shown then return end
+
+    border.top:SetShown(shown)
+    border.bottom:SetShown(shown)
+    border.left:SetShown(shown)
+    border.right:SetShown(shown)
+    border.shown = shown
+end
+
+function NSkin:SetPixelBorderColor(border, red, green, blue, alpha)
+    if not border then return end
+
+    alpha = alpha or 1
+    border.top:SetColorTexture(red, green, blue, alpha)
+    border.bottom:SetColorTexture(red, green, blue, alpha)
+    border.left:SetColorTexture(red, green, blue, alpha)
+    border.right:SetColorTexture(red, green, blue, alpha)
+    self:ConfigureOwnedPixelTexture(border.top)
+    self:ConfigureOwnedPixelTexture(border.bottom)
+    self:ConfigureOwnedPixelTexture(border.left)
+    self:ConfigureOwnedPixelTexture(border.right)
+end
+
+function NSkin:SetPixelBorderSize(border, size)
+    if not border or not size then return end
+    border.requestedSize = tonumber(size) or border.requestedSize or 1
+    ApplyPixelBorderGeometry(border)
+end
+
+function NSkin:SetPixelBorderPadding(border, padding)
+    if not border or not border.anchor then return end
+    border.requestedPadding = tonumber(padding) or 0
+    border.padding = border.requestedPadding
+    ApplyPixelBorderGeometry(border)
+end
+
+function NSkin:CreateQualityBorder(frame, anchor, key, size, outside)
+    local border = self:CreatePixelBorder(frame, key, size, nil, outside == true, anchor)
+    self:SetPixelBorderShown(border, false)
+    return border
+end
+
+function NSkin:SetQualityBorder(border, quality)
+    local item = _G.C_Item
+    if not border then return false end
+    local style = self:GetStyle("icon")
+    if style and style.qualityColor == false then
+        self:SetPixelBorderColor(border, unpack(style.border))
+        self:SetPixelBorderShown(border, true)
+        return true
+    end
+    if quality == nil or not item or not item.GetItemQualityColor then
+        self:SetPixelBorderShown(border, false)
+        return false
+    end
+
+    local red, green, blue = item.GetItemQualityColor(quality)
+    self:SetPixelBorderColor(border, red, green, blue)
+    self:SetPixelBorderShown(border, true)
+    return true
+end
+
+function NSkin:HideTextureRegions(frame, textureToKeep)
+    if not frame or not frame.GetRegions then return end
+
+    local regions = { frame:GetRegions() }
+    for i = 1, #regions do
+        local region = regions[i]
+        if region ~= textureToKeep and region.GetObjectType
+            and region:GetObjectType() == "Texture" then
+            -- Blizzard frequently shows these regions again when control
+            -- state changes. Alpha remains suppressed across those Show calls.
+            region:SetAlpha(0)
+            region:SetTexture(nil)
+            region:Hide()
+        end
+    end
+end
+
+function NSkin:CreateFlatBackground(frame, key, color, borderColor)
+    if not frame or not frame.CreateTexture or not color or not borderColor then return nil end
+
+    key = key or "NSkinFlatBackground"
+    local data = self:GetSkinData(frame, "primitives")
+    data.backgrounds = data.backgrounds or {}
+    local background = data.backgrounds[key]
+    if not background then
+        background = frame:CreateTexture(nil, "BACKGROUND", nil, 7)
+        background:SetPoint("TOPLEFT", 1, -1)
+        background:SetPoint("BOTTOMRIGHT", -1, 1)
+        data.backgrounds[key] = background
+    end
+    background:SetColorTexture(unpack(color))
+    self:ConfigureOwnedPixelTexture(background)
+    background:Show()
+    local border = self:CreatePixelBorder(frame, key .. "Border", 1, borderColor)
+    self:SetPixelBorderColor(border, unpack(borderColor))
+    return background
+end
+
+local pixelResnapPending = false
+QueuePixelBorderResnap = function()
+    if pixelResnapPending then return end
+    pixelResnapPending = true
+    local function Resnap()
+        pixelResnapPending = false
+        NSkin:ResnapAllPixelBorders()
+    end
+    if C_Timer and C_Timer.After then C_Timer.After(0, Resnap) else Resnap() end
+end
+
+NSkin:RegisterEvent("UI_SCALE_CHANGED", QueuePixelBorderResnap)
+NSkin:RegisterEvent("DISPLAY_SIZE_CHANGED", QueuePixelBorderResnap)
+
+end
+
 local _, NSkin = ...
 
 local COMPONENT_STATE = "components"
