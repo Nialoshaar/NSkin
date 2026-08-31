@@ -216,11 +216,23 @@ end
 function NSkin:ApplyResolvedTypography(fontString, style, prefix)
     if not fontString or not fontString.GetFont or not fontString.SetFont then return false end
     local data = self:GetSkinData(fontString, "resolvedTypography")
-    if not data.originalFont then data.originalFont = { fontString:GetFont() } end
+    if not data.baselineID then
+        data.baselineID = "Typography:" .. tostring(fontString)
+        self:CaptureComponentBaseline(data.baselineID, fontString, {
+            font = fontString,
+        })
+    end
+    local baseline = self:GetComponentBaseline(data.baselineID)
+    if not data.originalFont then
+        data.originalFont = baseline and baseline.font or { fontString:GetFont() }
+    end
     local font, size, outline = self:GetResolvedTypography(style, prefix)
+    local hasSizeOverride = tonumber(size) ~= nil
     font = font or data.originalFont[1]
     size = tonumber(size) or data.originalFont[2]
     if not font or not size then return false end
+    self:MarkComponentGeometryModified(data.baselineID, "font",
+        hasSizeOverride)
     fontString:SetFont(font, size,
         outline ~= nil and outline or data.originalFont[3])
     return true
@@ -274,7 +286,11 @@ local function SetAppearanceOverride(scope, id, windowID, path, value)
         and scopes[scope][id][styleName]
     local currentValue = styleOverrides
         and GetPath(styleOverrides, relativePath, false) or nil
-    local newValue = parentValue ~= nil and TablesEqual(value, parentValue)
+    local isBlizzardGeometrySentinel = value == 0
+        and (path:match("%.width$") or path:match("%.height$")
+            or path:match("%.textSize$") or path:match("%.iconSize$"))
+    local newValue = (isBlizzardGeometrySentinel
+        or (parentValue ~= nil and TablesEqual(value, parentValue)))
         and nil or value
     if TablesEqual(currentValue, newValue) then return false end
 
@@ -971,12 +987,142 @@ local skinningElements = {}
 local componentCallbacks = {}
 local movableOriginalPoints = {}
 local movableOriginalSizes = {}
+local componentBaselines = setmetatable({}, { __mode = "k" })
+local componentBaselineTargets = setmetatable({}, { __mode = "v" })
 local movableElementsByWindow = setmetatable({}, { __mode = "k" })
 local movableWatchers = setmetatable({}, { __mode = "k" })
 local registeredWindows = setmetatable({}, { __mode = "k" })
 local windowSequence = 0
 local SUPPRESS_NOTIFICATION = { suppressNotify = true }
 local GetCurrentWindowPlacement
+
+local function CaptureFramePoints(target)
+    local points = {}
+    if target and target.GetNumPoints then
+        for i = 1, target:GetNumPoints() do
+            points[i] = { target:GetPoint(i) }
+        end
+    end
+    return points
+end
+
+local function RestoreFramePoints(target, points)
+    if not target or not target.ClearAllPoints or type(points) ~= "table" then
+        return false
+    end
+    target:ClearAllPoints()
+    for i = 1, #points do target:SetPoint(unpack(points[i])) end
+    return true
+end
+
+function NSkin:CaptureComponentBaseline(id, target, options)
+    if type(id) ~= "string" or id == "" or not target then return nil end
+    options = options or {}
+    local baselines = componentBaselines[target]
+    if not baselines then
+        baselines = {}
+        componentBaselines[target] = baselines
+    end
+    local existing = baselines[id]
+    if existing and not options.force then return existing end
+    if type(options.canCapture) == "function"
+        and options.canCapture(target) ~= true
+    then return nil end
+
+    local baseline = existing or { modified = {} }
+    baseline.id, baseline.target = id, target
+    baseline.options = options
+    if options.size and target.GetSize then
+        baseline.width, baseline.height = target:GetSize()
+    end
+    if options.points then baseline.points = CaptureFramePoints(target) end
+    local fontString = options.font == true and target or options.font
+    if fontString and fontString.GetFont then
+        baseline.fontTarget = fontString
+        baseline.font = { fontString:GetFont() }
+    end
+    local editBox = options.textInsets == true and target or options.textInsets
+    if editBox and editBox.GetTextInsets then
+        baseline.textInsetsTarget = editBox
+        baseline.textInsets = { editBox:GetTextInsets() }
+    end
+    local spacingTarget = options.spacing == true and target or options.spacing
+    if spacingTarget then
+        baseline.spacingTarget = spacingTarget
+        baseline.spacing = spacingTarget.spacing
+    end
+    baseline.refreshBlizzardLayout = options.refreshBlizzardLayout
+    baselines[id] = baseline
+    componentBaselineTargets[id] = target
+    return baseline
+end
+
+function NSkin:GetComponentBaseline(idOrTarget)
+    if type(idOrTarget) == "string" then
+        local target = componentBaselineTargets[idOrTarget]
+        local baselines = target and componentBaselines[target]
+        return baselines and baselines[idOrTarget] or nil
+    end
+    local baselines = idOrTarget and componentBaselines[idOrTarget]
+    if not baselines then return nil end
+    for _, baseline in pairs(baselines) do return baseline end
+end
+
+function NSkin:MarkComponentGeometryModified(idOrTarget, property, modified)
+    local baseline = self:GetComponentBaseline(idOrTarget)
+    if not baseline then return false end
+    baseline.modified[property] = modified ~= false or nil
+    return true
+end
+
+function NSkin:RestoreComponentBaseline(idOrTarget, properties)
+    local baseline = self:GetComponentBaseline(idOrTarget)
+    if not baseline then return false end
+    if type(baseline.refreshBlizzardLayout) == "function" then
+        if baseline.refreshBlizzardLayout(baseline) == true then
+            wipe(baseline.modified)
+            local options = baseline.options or {}
+            options.force = true
+            self:CaptureComponentBaseline(
+                baseline.id, baseline.target, options)
+            options.force = nil
+            return true
+        end
+    end
+    local requested = type(properties) == "table" and properties or nil
+    local function ShouldRestore(key)
+        return (not requested or requested[key]) and baseline.modified[key]
+    end
+    local target = baseline.target
+    if ShouldRestore("size") and target.SetSize
+        and baseline.width and baseline.height
+    then target:SetSize(baseline.width, baseline.height) end
+    if ShouldRestore("points") then RestoreFramePoints(target, baseline.points) end
+    if ShouldRestore("font") and baseline.fontTarget and baseline.font then
+        baseline.fontTarget:SetFont(unpack(baseline.font))
+    end
+    if ShouldRestore("textInsets") and baseline.textInsetsTarget
+        and baseline.textInsets
+    then baseline.textInsetsTarget:SetTextInsets(unpack(baseline.textInsets)) end
+    if ShouldRestore("spacing") and baseline.spacingTarget then
+        baseline.spacingTarget.spacing = baseline.spacing
+        if baseline.spacingTarget.MarkDirty then baseline.spacingTarget:MarkDirty() end
+    end
+    for key in pairs(baseline.modified) do
+        if not requested or requested[key] then baseline.modified[key] = nil end
+    end
+    return true
+end
+
+function NSkin:RefreshComponentBaseline(idOrTarget)
+    local baseline = self:GetComponentBaseline(idOrTarget)
+    if not baseline or next(baseline.modified) then return false end
+    local options = baseline.options or {}
+    options.force = true
+    self:CaptureComponentBaseline(baseline.id, baseline.target, options)
+    options.force = nil
+    return true
+end
 
 local function CopyPlacement(placement)
     local copy = {}
@@ -1178,6 +1324,12 @@ function NSkin:SkinSearchBox(searchBox, style, borderColor)
     if not searchBox then return end
 
     local searchData = self:GetSkinData(searchBox, COMPONENT_STATE)
+    if not searchData.baselineID then
+        searchData.baselineID = "SearchBox:" .. tostring(searchBox)
+        self:CaptureComponentBaseline(searchData.baselineID, searchBox, {
+            size = true, textInsets = true,
+        })
+    end
     local searchIcon = searchBox.SearchIcon or searchBox.searchIcon
     if not self:GetFlatBackground(searchBox) then
         self:HideTextureRegions(searchBox, searchIcon)
@@ -1187,6 +1339,7 @@ function NSkin:SkinSearchBox(searchBox, style, borderColor)
     configuredWidth = configuredWidth and configuredWidth > 0 and configuredWidth or nil
     configuredHeight = configuredHeight and configuredHeight > 0 and configuredHeight or nil
     if configuredWidth or configuredHeight then
+        self:MarkComponentGeometryModified(searchData.baselineID, "size", true)
         if not searchData.searchOriginalSize then
             searchData.searchOriginalSize = { searchBox:GetWidth(), searchBox:GetHeight() }
         end
@@ -1194,8 +1347,7 @@ function NSkin:SkinSearchBox(searchBox, style, borderColor)
         searchBox:SetSize(configuredWidth or originalSize[1],
             configuredHeight or originalSize[2])
     elseif searchData.searchOriginalSize then
-        searchBox:SetSize(searchData.searchOriginalSize[1],
-            searchData.searchOriginalSize[2])
+        self:RestoreComponentBaseline(searchData.baselineID, { size = true })
         searchData.searchOriginalSize = nil
     end
     self:CreateFlatBackground(
@@ -1216,6 +1368,8 @@ function NSkin:SkinSearchBox(searchBox, style, borderColor)
         end
         local insets = searchData.searchTextInsets
         local offsetX, offsetY = style.textOffsetX or 0, style.textOffsetY or 0
+        self:MarkComponentGeometryModified(searchData.baselineID, "textInsets",
+            style.textOffsetX ~= nil or style.textOffsetY ~= nil)
         searchBox:SetTextInsets((insets[1] or 0) + offsetX,
             (insets[2] or 0) - offsetX, (insets[3] or 0) - offsetY,
             (insets[4] or 0) + offsetY)
@@ -1494,7 +1648,7 @@ function NSkin:SkinWindow(frame, backgroundAnchor, style, borderColor)
         local titleBackground = frame.TitleBg or frame.titleBg
         local height = titleBackground and titleBackground.GetHeight
             and titleBackground:GetHeight()
-        data.blizzardHeaderHeight = tonumber(height) and height > 0 and height or 22
+        data.blizzardHeaderHeight = tonumber(height) and height > 0 and height or nil
     end
     self:ConcealWindowArtwork(frame)
     style = style or self:GetStyle("window")
@@ -1534,14 +1688,17 @@ function NSkin:SkinWindowHeader(frame, style)
         background:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 0)
         data.windowHeaderBackground = background
     end
-    local height = self:SnapToPhysicalPixel(frame, math.max(0,
-        tonumber(style.height) or data.blizzardHeaderHeight or 22))
-    background:SetHeight(height)
+    local height = tonumber(style.height) or data.blizzardHeaderHeight
+        or (frame.nskinOwnedGeometry and 22 or nil)
+    if height then
+        height = self:SnapToPhysicalPixel(frame, math.max(0, height))
+        background:SetHeight(height)
+    end
     local color = style.matchBackground and data.windowBackgroundColor
         or self:GetResolvedAppearanceColor(style, "background")
     color = color or self:GetResolvedAppearanceColor(style, "background")
     background:SetColorTexture(unpack(color))
-    data.windowHeaderHeight = height
+    data.windowHeaderHeight = height or 0
     LayoutWindowBackground(frame, data, data.windowBackgroundAnchor or frame)
     return background
 end
@@ -1817,6 +1974,7 @@ function NSkin:RegisterTabGroup(groupID, definition)
         group.id = groupID
         tabGroups[groupID] = group
     end
+    self:RefreshTabGroupBaseline(groupID, true)
     if type(group.applyPlacement) ~= "function" then
         group.applyPlacement = function(element, placement, applyOptions)
             return NSkin:ApplyTabGroupPlacement(element, placement, applyOptions)
@@ -1851,21 +2009,21 @@ function NSkin:RegisterTabGroup(groupID, definition)
             return true
         end
         group.resetPlacement = function(element)
-            local originals = tabGroupOriginalPoints[element.id]
-            for i = 1, #(originals or {}) do
-                local original = originals[i]
-                if original.target and original.target.ClearAllPoints then
-                    original.target:ClearAllPoints()
-                    for pointIndex = 1, #original.points do
-                        original.target:SetPoint(unpack(original.points[pointIndex]))
-                    end
-                end
-            end
+            NSkin:RestoreTabGroupOriginalPlacement(element.id)
             local moduleOptions = NSkin:GetModuleOptions(element.module, false)
             if moduleOptions and moduleOptions.tabPlacements then
                 moduleOptions.tabPlacements[element.id] = nil
                 if not next(moduleOptions.tabPlacements) then
                     moduleOptions.tabPlacements = nil
+                end
+                if not next(moduleOptions) then
+                    local profile = NSkin:GetProfile()
+                    if profile.moduleOptions then
+                        profile.moduleOptions[element.module] = nil
+                        if not next(profile.moduleOptions) then
+                            profile.moduleOptions = nil
+                        end
+                    end
                 end
             end
             FireComponentCallback("TabGroupLayoutApplied", element)
@@ -1874,6 +2032,48 @@ function NSkin:RegisterTabGroup(groupID, definition)
     end
 
     self:RegisterSkinningElement(groupID, group)
+    return true
+end
+
+function NSkin:RefreshTabGroupBaseline(groupID, force)
+    local group = tabGroups[groupID]
+    if not group then return false end
+    if type(group.canCaptureBaseline) == "function"
+        and group.canCaptureBaseline(group) ~= true
+    then return false end
+    if force then
+        for i = 1, #(group.tabBaselineIDs or {}) do
+            local baseline = self:GetComponentBaseline(group.tabBaselineIDs[i])
+            if baseline and next(baseline.modified) then return false end
+        end
+        local groupBaseline = self:GetComponentBaseline(group.groupBaselineID)
+        if groupBaseline and next(groupBaseline.modified) then return false end
+    end
+    group.tabBaselineIDs = group.tabBaselineIDs or {}
+    local tabs = group.container and group.container.tabs or group.tabs
+    for i = 1, #(tabs or {}) do
+        local tab = tabs[i]
+        if tab then
+            local id = groupID .. ":tab:" .. i
+            group.tabBaselineIDs[i] = id
+            self:CaptureComponentBaseline(id, tab, {
+                size = true, points = true, force = force == true,
+            })
+        end
+    end
+    local groupTarget = group.container or (tabs and tabs[1])
+    if groupTarget then
+        group.groupBaselineID = groupID .. ":group"
+        self:CaptureComponentBaseline(group.groupBaselineID, groupTarget, {
+            points = group.container ~= nil,
+            spacing = group.container or false,
+            force = force == true,
+        })
+        local baseline = self:GetComponentBaseline(group.groupBaselineID)
+        if baseline and baseline.spacing ~= nil then
+            group.originalSpacing = baseline.spacing
+        end
+    end
     return true
 end
 
@@ -1900,6 +2100,21 @@ function NSkin:RegisterSkinningElement(elementID, definition)
     definition.owner = nil
     definition.priority = tonumber(definition.priority) or 0
     definition.highlightPadding = tonumber(definition.highlightPadding) or 0
+    if type(definition.baseline) == "table" and definition.target then
+        self:CaptureComponentBaseline(elementID, definition.target,
+            definition.baseline)
+    end
+    definition.captureBaseline = definition.captureBaseline or function(element)
+        if type(element.baseline) ~= "table" then return false end
+        return NSkin:CaptureComponentBaseline(
+            element.id, element.target, element.baseline) ~= nil
+    end
+    definition.restoreGeometry = definition.restoreGeometry or function(element)
+        return NSkin:RestoreComponentBaseline(element.id)
+    end
+    definition.refreshBaseline = definition.refreshBaseline or function(element)
+        return NSkin:RefreshComponentBaseline(element.id)
+    end
     if not registeredWindows[definition.window] then
         windowSequence = windowSequence + 1
         registeredWindows[definition.window] = windowSequence
@@ -2042,13 +2257,16 @@ end
 function NSkin:RestoreMovableElementOriginal(elementOrID, suppressNotify)
     local element = type(elementOrID) == "table"
         and elementOrID or skinningElements[elementOrID]
-    local points = element and movableOriginalPoints[element.id]
-    if not element or not points or not element.target then return false end
-    element.target:ClearAllPoints()
-    for i = 1, #points do element.target:SetPoint(unpack(points[i])) end
-    local size = movableOriginalSizes[element.id]
-    if size and element.supportsResize and element.target.SetSize then
-        element.target:SetSize(size[1], size[2])
+    if not element or not element.target then return false end
+    local restored = self:RestoreComponentBaseline(element.id)
+    if not restored then
+        local points = movableOriginalPoints[element.id]
+        if not points then return false end
+        RestoreFramePoints(element.target, points)
+        local size = movableOriginalSizes[element.id]
+        if size and element.supportsResize and element.target.SetSize then
+            element.target:SetSize(size[1], size[2])
+        end
     end
     if not suppressNotify then self:NotifySkinningElementBoundsChanged(element.id) end
     return true
@@ -2063,6 +2281,12 @@ function NSkin:RegisterMovableElement(definition)
         or not definition.target
     then return false end
     local id = definition.id
+    self:CaptureComponentBaseline(id, definition.target, {
+        points = true,
+        size = definition.supportsResize == true,
+        refreshBlizzardLayout = definition.refreshBlizzardLayout,
+        canCapture = definition.canCaptureBaseline,
+    })
     if not movableOriginalPoints[id] then
         local points = {}
         for i = 1, definition.target:GetNumPoints() do
@@ -2099,6 +2323,7 @@ function NSkin:RegisterMovableElement(definition)
         local options = NSkin:GetModuleOptions(element.module, true)
         options.movablePlacements = options.movablePlacements or {}
         options.movablePlacements[element.id] = CopyPlacement(placement)
+        NSkin:MarkComponentGeometryModified(element.id, "points", true)
         EnsureMovableWatcher(element.window)
         return true
     end
@@ -2132,7 +2357,10 @@ function NSkin:RegisterMovableElement(definition)
     if not alreadyRegistered then elements[#elements + 1] = element end
     local saved = GetSavedMovablePlacement(element)
     if saved and self:IsSkinningElementEditable(element) then
-        if element.applyPlacement(element, saved) then EnsureMovableWatcher(element.window) end
+        if element.applyPlacement(element, saved) then
+            self:MarkComponentGeometryModified(element.id, "points", true)
+            EnsureMovableWatcher(element.window)
+        end
     end
     return true
 end
@@ -2164,12 +2392,20 @@ function NSkin:SkinProgressBar(bar, options)
     options = options or {}
     local style = self:GetStyle("progressBar")
     local data = self:GetSkinData(bar, PROGRESS_COMPONENT_STATE)
-    if not data.originalHeight then data.originalHeight = bar:GetHeight() end
+    if not data.baselineID then
+        data.baselineID = "ProgressBar:" .. tostring(bar)
+        self:CaptureComponentBaseline(data.baselineID, bar, { size = true })
+    end
+    local baseline = self:GetComponentBaseline(data.baselineID)
+    if not data.originalHeight then
+        data.originalHeight = baseline and baseline.height or bar:GetHeight()
+    end
     local height = tonumber(options.height)
     if height and height > 0 then
+        self:MarkComponentGeometryModified(data.baselineID, "size", true)
         bar:SetHeight(height)
-    elseif data.originalHeight then
-        bar:SetHeight(data.originalHeight)
+    elseif baseline and baseline.modified.size then
+        self:RestoreComponentBaseline(data.baselineID, { size = true })
     end
 
     local fill = bar:GetStatusBarTexture()
@@ -2840,6 +3076,12 @@ local function RestoreTabDimensions(group)
     for i = 1, #tabs do
         local tab = tabs[i]
         if tab then
+            local baselineID = group.tabBaselineIDs and group.tabBaselineIDs[i]
+            if baselineID and NSkin:RestoreComponentBaseline(
+                baselineID, { size = true })
+            then
+                restored = true
+            end
             local data = NSkin:GetSkinData(tab, COMPONENT_STATE, false)
             if data and data.tabOriginalSize then
                 tab:SetSize(data.tabOriginalSize[1], data.tabOriginalSize[2])
@@ -2852,6 +3094,17 @@ local function RestoreTabDimensions(group)
 end
 
 local function RestoreTabPoints(groupID)
+    local group = tabGroups[groupID]
+    local restored
+    for i = 1, #(group and group.tabBaselineIDs or {}) do
+        restored = NSkin:RestoreComponentBaseline(
+            group.tabBaselineIDs[i], { points = true }) or restored
+    end
+    if group and group.groupBaselineID then
+        restored = NSkin:RestoreComponentBaseline(
+            group.groupBaselineID, { points = true, spacing = true }) or restored
+    end
+    if restored then return true end
     local originals = tabGroupOriginalPoints[groupID]
     if not originals then return false end
     for i = 1, #originals do
@@ -2873,6 +3126,18 @@ local function ApplyTabGeometryWithoutPlacement(group, tabStyle)
         for i = 1, #tabs do
             local tab = tabs[i]
             if tab then
+                local hasSize = tonumber(tabStyle and tabStyle.width)
+                    or tonumber(tabStyle and tabStyle.height)
+                local baselineID = group.tabBaselineIDs and group.tabBaselineIDs[i]
+                if baselineID then
+                    if hasSize then
+                        NSkin:MarkComponentGeometryModified(
+                            baselineID, "size", true)
+                    else
+                        NSkin:RestoreComponentBaseline(
+                            baselineID, { size = true })
+                    end
+                end
                 ApplyTabDimensions(tab, tabStyle,
                     NSkin:GetSkinData(tab, COMPONENT_STATE))
                 applied = true
@@ -2883,9 +3148,13 @@ local function ApplyTabGeometryWithoutPlacement(group, tabStyle)
     if group.container and group.container.MarkDirty then
         local spacing = tonumber(tabStyle and tabStyle.spacing)
         if spacing ~= nil then
+            NSkin:MarkComponentGeometryModified(
+                group.groupBaselineID, "spacing", true)
             group.container.spacing = spacing
             group.spacingOverrideApplied = true
         elseif group.spacingOverrideApplied then
+            NSkin:RestoreComponentBaseline(
+                group.groupBaselineID, { spacing = true })
             group.container.spacing = group.originalSpacing
             group.spacingOverrideApplied = nil
         end
@@ -2893,6 +3162,10 @@ local function ApplyTabGeometryWithoutPlacement(group, tabStyle)
     else
         local spacing = tonumber(tabStyle and tabStyle.spacing)
         if spacing ~= nil then
+            for i = 1, #(group.tabBaselineIDs or {}) do
+                NSkin:MarkComponentGeometryModified(
+                    group.tabBaselineIDs[i], "points", true)
+            end
             if not group.spacingOverrideApplied then
                 RestoreTabPoints(group.id)
             end
@@ -2931,11 +3204,30 @@ function NSkin:ApplyTabGroupPlacement(group, placement, applyOptions)
     else
         applied = self:LayoutTabGroup(group.tabs, options) == true
     end
+    if applied and group.groupBaselineID then
+        self:MarkComponentGeometryModified(
+            group.groupBaselineID, "points", group.container ~= nil)
+        if tonumber(tabStyle and tabStyle.spacing) ~= nil then
+            self:MarkComponentGeometryModified(
+                group.groupBaselineID, "spacing", true)
+        end
+    end
     local tabs = group.container and group.container.tabs or group.tabs
     if applied and type(tabs) == "table" then
         for i = 1, #tabs do
             local tab = tabs[i]
             if tab then
+                local baselineID = group.tabBaselineIDs and group.tabBaselineIDs[i]
+                if baselineID then
+                    NSkin:MarkComponentGeometryModified(
+                        baselineID, "points", true)
+                    if tonumber(tabStyle and tabStyle.width)
+                        or tonumber(tabStyle and tabStyle.height)
+                    then
+                        NSkin:MarkComponentGeometryModified(
+                            baselineID, "size", true)
+                    end
+                end
                 ApplyTabDimensions(tab, tabStyle,
                     self:GetSkinData(tab, COMPONENT_STATE))
             end
@@ -2975,8 +3267,23 @@ function NSkin:RefreshRegisteredTabGroups()
 end
 
 function NSkin:RestoreTabGroupOriginalPlacement(groupID)
-    if not RestoreTabPoints(groupID) then return false end
     local group = tabGroups[groupID]
+    if not group then return false end
+    local refreshed
+    if type(group.refreshBlizzardLayout) == "function" then
+        refreshed = group.refreshBlizzardLayout(group) == true
+    end
+    if refreshed then
+        for i = 1, #(group.tabBaselineIDs or {}) do
+            local baseline = self:GetComponentBaseline(group.tabBaselineIDs[i])
+            if baseline then wipe(baseline.modified) end
+        end
+        local baseline = self:GetComponentBaseline(group.groupBaselineID)
+        if baseline then wipe(baseline.modified) end
+        self:RefreshTabGroupBaseline(groupID, true)
+    elseif not RestoreTabPoints(groupID) then
+        return false
+    end
     if group then
         RestoreTabDimensions(group)
         group.spacingOverrideApplied = nil

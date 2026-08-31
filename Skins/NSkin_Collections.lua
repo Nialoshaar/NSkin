@@ -404,11 +404,22 @@ end
 function CollectionSkin:OnTabSet(_, selectedTab)
     ApplyCollectionsSkin()
     RemoveCollectionPageBackgrounds()
+    if C_Timer and C_Timer.After then
+        C_Timer.After(0, function()
+            NSkin:RefreshTabGroupBaseline(IDs.MainTabs, true)
+        end)
+    end
 end
 
 function CollectionSkin:OnShow(selectedTab)
     self:InitializeOptionalAdapters()
+    NSkin:RefreshTabGroupBaseline(IDs.MainTabs, true)
     ApplyCollectionsSkin()
+    if C_Timer and C_Timer.After then
+        C_Timer.After(0, function()
+            NSkin:RefreshTabGroupBaseline(IDs.MainTabs, true)
+        end)
+    end
 end
 
 local function ResolvePagingControls(owner, candidate)
@@ -583,7 +594,10 @@ SkinCollectionsWindow = function(adapterName)
         NSkin:SkinProgressBar(progressBar, COLLECTION_PROGRESS_BAR_STYLE)
         RegisterCollectionMovableElement(
             IDs.Heirlooms.Search.Class, IDs.Heirlooms.Scope,
-            "Heirlooms class/spec filter", journal, classDropdown, 79)
+            "Heirlooms class/spec filter", journal, classDropdown, 79,
+            nil, nil, function()
+                return heirlooms:IsVisible() and classDropdown:IsVisible()
+            end)
         RegisterCollectionMovableElement(
             IDs.Heirlooms.ProgressBar, IDs.Heirlooms.Scope,
             "Heirlooms progress bar", journal, progressBar, 80,
@@ -873,6 +887,9 @@ function CollectionSkin:Initialize()
             priority = 50,
             orientation = "HORIZONTAL",
             edge = "BOTTOM",
+            canCaptureBaseline = function()
+                return journal:IsShown()
+            end,
         })
         NSkin:RegisterSkinningElement(IDs.Window, {
             module = "Collections",

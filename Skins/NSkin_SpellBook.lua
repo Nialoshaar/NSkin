@@ -48,12 +48,13 @@ end
 
 function NSkin:GetSpellBookTextSize()
     return self:GetSpellBookTextSizeOverride()
-        or State.original.spellTextSize or 16
+        or State.original.spellTextSize or 0
 end
 
 function NSkin:SetSpellBookTextSize(size)
     size = tonumber(size)
     if not size then return false end
+    if size == 0 then return self:ResetSpellBookTextSize() end
 
     size = math.max(8, math.min(32, math.floor(size + 0.5)))
     self:GetModuleOptions("SpellBook", true).textSize = size

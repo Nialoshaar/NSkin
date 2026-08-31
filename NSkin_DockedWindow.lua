@@ -67,6 +67,8 @@ local function ResetElementToBlizzardDefaults(element)
     NSkin:ResetElementAppearanceOverride(element.id)
     if type(element.resetPlacement) == "function" then
         element.resetPlacement(element)
+    elseif type(element.restoreGeometry) == "function" then
+        element.restoreGeometry(element)
     end
     if element.kind == "TAB_GROUP" then
         NSkin:RestoreTabGroupOriginalPlacement(element.id)
@@ -345,7 +347,7 @@ function NSkin:CreateDockedWindow(owner)
     end
     if not StaticPopupDialogs[RESET_ELEMENT_DIALOG] then
         StaticPopupDialogs[RESET_ELEMENT_DIALOG] = {
-            text = "Reset %s completely to its Blizzard defaults?",
+            text = "Reset all customizations for %s?\n\nIts Blizzard layout will be restored while the default NSkin skin remains applied.",
             button1 = YES,
             button2 = NO,
             OnAccept = function(_, element)
@@ -362,6 +364,7 @@ function NSkin:CreateDockedWindow(owner)
     end
 
     local inspector = CreateFrame("Frame", nil, UIParent)
+    inspector.nskinOwnedGeometry = true
     inspector:SetSize(520, 130)
     inspector:SetFrameStrata("DIALOG")
     NSkin:SkinWindow(inspector)
@@ -406,7 +409,7 @@ function NSkin:CreateDockedWindow(owner)
     inspector.selection = CreateLabel(
         inspector, "Select an element", "TOPLEFT", inspector, "TOPLEFT", 12, -34
     )
-    local resetElement = CreateButton(inspector, "Reset to Blizzard default", 176,
+    local resetElement = CreateButton(inspector, "Reset customizations", 164,
         function()
             local element = state.selectedElement
             if element then
@@ -415,6 +418,18 @@ function NSkin:CreateDockedWindow(owner)
             end
         end)
     resetElement:SetPoint("TOPRIGHT", inspector, "TOPRIGHT", -12, -27)
+    resetElement:SetScript("OnEnter", function(self)
+        if GameTooltip then
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetText("Reset customizations")
+            GameTooltip:AddLine("Removes this element's appearance and layout overrides, restores its Blizzard layout, and keeps the default NSkin skin.",
+                1, 1, 1, true)
+            GameTooltip:Show()
+        end
+    end)
+    resetElement:SetScript("OnLeave", function()
+        if GameTooltip then GameTooltip:Hide() end
+    end)
     resetElement:Hide()
     inspector.selection:SetPoint("RIGHT", resetElement, "LEFT", -8, 0)
     inspector.selection:SetJustifyH("LEFT")
