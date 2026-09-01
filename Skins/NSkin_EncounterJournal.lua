@@ -116,6 +116,83 @@ local journeysScrollBarRegistered = false
 local travelersScrollBarRegistered = false
 local travelersFilterScrollBarRegistered = false
 local journeysListHooked = false
+local expansionMenuTypographyRegistered = false
+local expansionMenuFontObjects = {}
+local expansionMenuFontObjectCount = 0
+
+local function GetExpansionMenuFontObject(fontString)
+    if not fontString or not fontString.GetFont then return nil end
+    local sourceFont, sourceSize, sourceOutline = fontString:GetFont()
+    local globalFont, _, globalOutline = NSkin:GetResolvedTypography(
+        NSkin:GetStyle("text"))
+    local font = globalFont or sourceFont
+    local size = tonumber(sourceSize)
+    local outline = globalOutline ~= nil and globalOutline or sourceOutline
+    if not font or not size then return nil end
+
+    local key = table.concat({ font, tostring(size), tostring(outline or "") }, "\031")
+    local fontObject = expansionMenuFontObjects[key]
+    if not fontObject then
+        expansionMenuFontObjectCount = expansionMenuFontObjectCount + 1
+        fontObject = CreateFont(
+            "NSkinEncounterJournalDropdownFont"
+                .. expansionMenuFontObjectCount)
+        expansionMenuFontObjects[key] = fontObject
+    end
+    fontObject:SetFont(font, size, outline)
+    return fontObject
+end
+
+local function RegisterExpansionMenuTypography()
+    if expansionMenuTypographyRegistered
+        or not _G.Menu
+        or not _G.Menu.ModifyMenu
+    then
+        return
+    end
+
+    _G.Menu.ModifyMenu("MENU_EJ_EXPANSION",
+        function(_, rootDescription)
+            for _, description in
+                rootDescription:EnumerateElementDescriptions()
+            do
+                description:AddInitializer(function(frame)
+                    local fontString = frame and frame.fontString
+                    local fontObject = GetExpansionMenuFontObject(fontString)
+                    if fontObject then
+                        fontString:SetFontObject(fontObject)
+                    end
+
+                    local radioBase = frame and frame.leftTexture1
+                    if radioBase then
+                        local selected = description:IsSelected()
+                        radioBase:SetTexture(NSkin.mediaPath
+                            .. (selected and "checkbox-checked.png"
+                                or "checkbox-unchecked.png"))
+                        radioBase:SetTexCoord(0, 1, 0, 1)
+                        radioBase:ClearAllPoints()
+                        radioBase:SetPoint("LEFT")
+                        radioBase:SetSize(16, 16)
+                        NSkin:ConfigureOwnedPixelTexture(radioBase)
+                        radioBase:SetVertexColor(unpack(selected
+                            and NSkin:GetAccentColor()
+                            or NSkin:GetSharedBorderColor()))
+                        if fontString then
+                            fontString:ClearAllPoints()
+                            fontString:SetPoint(
+                                "LEFT", radioBase, "RIGHT", 7, 0)
+                        end
+                    end
+
+                    local radioCheck = frame and frame.leftTexture2
+                    if radioCheck then
+                        radioCheck:Hide()
+                    end
+                end)
+            end
+        end)
+    expansionMenuTypographyRegistered = true
+end
 
 local function GetAdventureGuideTabs(journal)
     local tabs = {}
@@ -440,6 +517,7 @@ function EncounterJournalSkin:StyleBossButton(button)
     end
     background:SetColorTexture(unpack(NSkin:GetStyle("encounterCard").background))
     background:Show()
+    NSkin:SkinTextColor(button.text, NSkin:GetStyle("text"))
 end
 
 function EncounterJournalSkin:StyleBossFrames(scrollBox)
@@ -449,6 +527,107 @@ function EncounterJournalSkin:StyleBossFrames(scrollBox)
     end)
 end
 
+local function HideParchmentTexture(texture)
+    if not texture then return end
+    texture:SetAlpha(0)
+    texture:Hide()
+end
+
+local function StyleEncounterInfoHeader(header)
+    local button = header and header.button
+    if not button then return end
+
+    for _, key in ipairs({
+        "eLeftUp", "eMidUp", "eRightUp",
+        "eLeftDown", "eMidDown", "eRightDown",
+        "cLeftUp", "cMidUp", "cRightUp",
+        "cLeftDown", "cMidDown", "cRightDown",
+    }) do
+        HideParchmentTexture(button[key])
+    end
+
+    local buttonName = button.GetName and button:GetName()
+    if buttonName then
+        HideParchmentTexture(_G[buttonName .. "HighlightLeft"])
+        HideParchmentTexture(_G[buttonName .. "HighlightMid"])
+        HideParchmentTexture(_G[buttonName .. "HighlightRight"])
+        local glow = _G[buttonName .. "Glow"]
+        if glow then
+            glow:SetAlpha(0)
+            glow:Hide()
+        end
+    end
+
+    local buttonStyle = NSkin:GetStyle("button")
+    NSkin:CreateFlatBackground(button,
+        "NSkinEncounterInfoHeaderBackground",
+        buttonStyle.background, NSkin:GetSharedBorderColor())
+
+    local isExpanded = button.textures
+        and button.tex == button.textures.expanded
+    if isExpanded then
+        button.title:SetTextColor(unpack(NSkin:GetSharedBorderColor()))
+        if button.expandedIcon then
+            button.expandedIcon:SetTextColor(unpack(
+                NSkin:GetSharedBorderColor()))
+        end
+    else
+        NSkin:SkinTextColor(button.title, NSkin:GetStyle("text"))
+        NSkin:SkinTextColor(button.expandedIcon, NSkin:GetStyle("text"))
+    end
+    local hover = GetOrCreateHover(button)
+    if button.IsMouseOver then hover:SetShown(button:IsMouseOver()) end
+
+    local buttonData = NSkin:GetSkinData(button, ENCOUNTER_JOURNAL_STATE)
+    if not buttonData.infoHeaderPostClickHooked then
+        button:HookScript("OnClick", function()
+            C_Timer.After(0, function()
+                StyleEncounterInfoHeader(header)
+            end)
+        end)
+        buttonData.infoHeaderPostClickHooked = true
+    end
+
+    HideParchmentTexture(header.descriptionBG)
+    HideParchmentTexture(header.descriptionBGBottom)
+end
+
+local function StyleEncounterText(frame, textStyle)
+    if not frame then return end
+    for _, region in ipairs({ frame:GetRegions() }) do
+        if IsFontString(region) then
+            NSkin:SkinTextColor(region, textStyle)
+        end
+    end
+    for _, child in ipairs({ frame:GetChildren() }) do
+        StyleEncounterText(child, textStyle)
+    end
+end
+
+function EncounterJournalSkin:StyleEncounterInfoHeaders()
+    local journal = _G.EncounterJournal
+    local encounter = journal and journal.encounter
+    local info = encounter and encounter.info
+    if not encounter or not info then return end
+
+    HideParchmentTexture(info.leftShadow)
+    HideParchmentTexture(info.rightShadow)
+
+    for _, header in pairs(encounter.usedHeaders or {}) do
+        StyleEncounterInfoHeader(header)
+    end
+    local overviewFrame = encounter.overviewFrame
+    if overviewFrame then
+        HideParchmentTexture(overviewFrame.header)
+        StyleEncounterText(overviewFrame, NSkin:GetStyle("text"))
+    end
+    for _, header in pairs(
+        overviewFrame and overviewFrame.overviews or {})
+    do
+        StyleEncounterInfoHeader(header)
+    end
+end
+
 function EncounterJournalSkin:StyleInstancePage()
     local journal = _G.EncounterJournal
     local encounter = journal and journal.encounter
@@ -456,12 +635,22 @@ function EncounterJournalSkin:StyleInstancePage()
     local info = encounter and encounter.info
     if not instance or not info then return end
 
+    -- UI-EJ-JournalBG is the full parchment sheet shared by every dungeon
+    -- and raid detail page. It has no parentKey in Blizzard's XML, so access
+    -- the named texture directly rather than through encounter.info.
+    local parchment = _G.EncounterJournalEncounterFrameInfoBG
+    if parchment then
+        parchment:SetAlpha(0)
+        parchment:Hide()
+    end
+
     -- The lore image contains its ornamental frame in the source texture.
     -- Use the image-only portion and rotate it back into its original
     -- orientation, producing a clean rectangular dungeon image.
     local loreImage = instance.loreBG
     if IsTexture(loreImage) then
         loreImage:SetTexCoord(0.71, 0.06, 0.582, 0.08)
+
         if loreImage.SetRotation then loreImage:SetRotation(math.rad(180)) end
 
         local data = NSkin:GetSkinData(instance, ENCOUNTER_JOURNAL_STATE)
@@ -487,6 +676,13 @@ function EncounterJournalSkin:StyleInstancePage()
         instance.titleBG:SetAlpha(0)
         instance.titleBG:Hide()
     end
+
+
+    local sharedTextStyle = NSkin:GetStyle("text")
+    NSkin:SkinTextColor(info.instanceTitle, sharedTextStyle)
+    NSkin:SkinTextColor(info.encounterTitle, sharedTextStyle)
+
+    self:StyleEncounterInfoHeaders()
 
     local instanceButton = info.instanceButton
     if instanceButton and IsTexture(instanceButton.icon) then
@@ -1292,6 +1488,7 @@ function EncounterJournalSkin:Initialize()
     end
 
     hookedScrollBox = scrollBox
+    RegisterExpansionMenuTypography()
     self:RegisterSharedNavigationBar()
     if not windowRegistered then
         NSkin:RegisterSkinningElement(IDs.Window, {
@@ -1414,6 +1611,21 @@ function EncounterJournalSkin:Initialize()
     if type(_G.EncounterJournal_DisplayInstance) == "function" then
         hooksecurefunc("EncounterJournal_DisplayInstance", function()
             EncounterJournalSkin:StyleInstancePage()
+            C_Timer.After(0, function()
+                EncounterJournalSkin:StyleEncounterInfoHeaders()
+            end)
+        end)
+    end
+    if type(_G.EncounterJournal_DisplayEncounter) == "function" then
+        hooksecurefunc("EncounterJournal_DisplayEncounter", function()
+            C_Timer.After(0, function()
+                EncounterJournalSkin:StyleEncounterInfoHeaders()
+            end)
+        end)
+    end
+    if type(_G.EncounterJournal_ToggleHeaders) == "function" then
+        hooksecurefunc("EncounterJournal_ToggleHeaders", function()
+            EncounterJournalSkin:StyleEncounterInfoHeaders()
         end)
     end
 

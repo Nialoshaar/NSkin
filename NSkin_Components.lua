@@ -945,6 +945,7 @@ function NSkin:CreateFlatBackground(frame, key, color, borderColor)
     local background = data.backgrounds[key]
     if not background then
         background = frame:CreateTexture(nil, "BACKGROUND", nil, 7)
+        if not background then return nil end
         background:SetPoint("TOPLEFT", 1, -1)
         background:SetPoint("BOTTOMRIGHT", -1, 1)
         data.backgrounds[key] = background
@@ -1412,27 +1413,11 @@ function NSkin:SkinDropdown(dropdown, options)
     end)
 end
 
-local function SkinDropdownMenuText(frame, textStyle)
-    if not frame then return end
-    for _, region in ipairs({ frame:GetRegions() }) do
-        if region.IsObjectType and region:IsObjectType("FontString") then
-            -- Blizzard_Menu compositor regions reject SetFont. Their native
-            -- typography is retained while color still resolves through the
-            -- shared NSkin text appearance.
-            NSkin:SkinTextColor(region, textStyle)
-        end
-    end
-    for _, child in ipairs({ frame:GetChildren() }) do
-        SkinDropdownMenuText(child, textStyle)
-    end
-end
-
 function NSkin:SkinDropdownMenu(menu, style)
     if not menu or not menu.IsShown or not menu:IsShown() then return false end
     style = style or {}
     local backgroundColor = style.background or self:GetStyle("window").background
     local borderColor = style.border or self:GetSharedBorderColor()
-    local textStyle = style.textStyle or self:GetStyle("text")
     local data = self:GetSkinData(menu, COMPONENT_STATE)
 
     for _, region in ipairs({ menu:GetRegions() }) do
@@ -1463,7 +1448,6 @@ function NSkin:SkinDropdownMenu(menu, style)
     self:SetPixelBorderSize(border, 1)
     self:SetPixelBorderShown(border, true)
     borderFrame:Show()
-    SkinDropdownMenuText(menu, textStyle)
     return true
 end
 
