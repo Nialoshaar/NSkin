@@ -176,17 +176,30 @@ function NSkin:GetResolvedTypography(style, prefix)
     local sizeModeKey = prefix == "" and "sizeMode" or prefix .. "SizeMode"
     local outlineModeKey = prefix == "" and "outlineMode" or prefix .. "OutlineMode"
     if style[fontModeKey] or style[sizeModeKey] or style[outlineModeKey] then
-        return style[fontModeKey] == "GLOBAL" and global.font
-                or style[fontKey] or global.font,
-            style[sizeModeKey] == "GLOBAL" and global.size
-                or style[sizeKey] or global.size,
-            style[outlineModeKey] == "GLOBAL" and global.outline
-                or style[outlineKey] or global.outline
+        local font = style[fontModeKey] == "GLOBAL" and global.font
+            or style[fontKey] or global.font
+        local size
+        if style[sizeModeKey] ~= "BLIZZARD" then
+            size = style[sizeModeKey] == "GLOBAL" and global.size
+                or style[sizeKey] or global.size
+        end
+        local outline = style[outlineModeKey] == "GLOBAL" and global.outline
+            or style[outlineKey] or global.outline
+        return font, size, outline
     elseif style[useGlobalKey] == true then
         return global.font, global.size, global.outline
     end
     return style[fontKey] or global.font, style[sizeKey] or global.size,
         style[outlineKey] or global.outline
+end
+
+function NSkin:SkinText(fontString, style)
+    if not fontString or not fontString.GetFont then return false end
+    style = style or self:GetStyle("text")
+    local color = self:GetResolvedAppearanceColor(style, "color")
+    if color then fontString:SetTextColor(unpack(color)) end
+    self:ApplyResolvedTypography(fontString, style)
+    return true
 end
 
 function NSkin:ApplyResolvedTypography(fontString, style, prefix)
@@ -1300,19 +1313,26 @@ local function RefreshActionButton(button)
     local data = NSkin:GetSkinData(button, COMPONENT_STATE, false)
     if not data or not data.label then return end
     local enabled = not button.IsEnabled or button:IsEnabled()
-    data.label:SetTextColor(1, 1, 1, enabled and 1 or 0.45)
+    local color = data.actionTextColor
+        or NSkin:GetStyle("text").color
+    data.label:SetTextColor(color[1], color[2], color[3],
+        (color[4] or 1) * (enabled and 1 or 0.45))
 end
 
 function NSkin:SkinActionButton(button, options)
     if not button then return end
     options = options or {}
     local data = self:GetSkinData(button, COMPONENT_STATE)
+    local style = options.style
+        or (options.background and options.text and options)
+        or self:GetStyle("button")
+    data.actionStyle = style
+    data.actionTextColor = self:GetResolvedAppearanceColor(style, "text")
     local nativeText = button.GetFontString and button:GetFontString()
     local label = button.GetText and button:GetText() or ""
     self:SkinFlatButton(button, label,
-        options.background or { 0, 0, 0, 0.85 },
-        options.border or self:GetComponentBorderColor(
-            "button", self:GetStyle("button")),
+        options.background or style.background,
+        options.border or self:GetComponentBorderColor("button", style),
         options.textSize)
     local border = self:GetPixelBorder(button, "NSkinFlatBackgroundBorder")
     self:SetPixelBorderSize(border, 1)
@@ -1338,7 +1358,9 @@ end
 function NSkin:SkinDropdown(dropdown, options)
     if not dropdown then return end
     options = options or {}
-    local style = self:GetStyle("button")
+    local style = options.style
+        or (options.background and options.text and options)
+        or self:GetStyle("button")
     self:CreateFlatBackground(dropdown, nil,
         options.background or style.background,
         options.border or self:GetComponentBorderColor("button", style))
@@ -1372,9 +1394,12 @@ local function RefreshScrollBarArrow(button)
     end
 end
 
-function NSkin:SkinScrollBar(scrollBar)
+function NSkin:SkinScrollBar(scrollBar, style)
     if not scrollBar then return end
-    local accent = self:GetAccentColor()
+    style = style or self:GetStyle("scrollBar")
+    local trackColor = self:GetResolvedAppearanceColor(style, "track")
+    local thumbColor = self:GetResolvedAppearanceColor(style, "thumb")
+    local arrowColor = self:GetResolvedAppearanceColor(style, "arrow")
     local track = scrollBar.Track
     local thumb = track and track.Thumb
     local data = self:GetSkinData(scrollBar, COMPONENT_STATE)
@@ -1389,7 +1414,7 @@ function NSkin:SkinScrollBar(scrollBar)
             data.scrollTrack:SetWidth(2)
             self:ConfigureOwnedPixelTexture(data.scrollTrack)
         end
-        data.scrollTrack:SetColorTexture(0.25, 0.25, 0.25, 1)
+        data.scrollTrack:SetColorTexture(unpack(trackColor))
     end
     if thumb then
         for _, texture in ipairs({ thumb.Begin, thumb.Middle, thumb.End }) do
@@ -1402,7 +1427,7 @@ function NSkin:SkinScrollBar(scrollBar)
             data.scrollThumb:SetWidth(6)
             self:ConfigureOwnedPixelTexture(data.scrollThumb)
         end
-        data.scrollThumb:SetColorTexture(unpack(accent))
+        data.scrollThumb:SetColorTexture(unpack(thumbColor))
     end
     for _, entry in ipairs({ { scrollBar.Back, math.pi },
         { scrollBar.Forward, 0 } })
@@ -1424,7 +1449,7 @@ function NSkin:SkinScrollBar(scrollBar)
                 button:HookScript("OnDisable", RefreshScrollBarArrow)
                 buttonData.scrollArrowHooked = true
             end
-            buttonData.scrollArrow:SetVertexColor(unpack(accent))
+            buttonData.scrollArrow:SetVertexColor(unpack(arrowColor))
             RefreshScrollBarArrow(button)
         end
     end
@@ -1653,6 +1678,10 @@ local EDITOR_PRESETS = {
         { id = "shared.movable", label = "Position",
             presentation = "INLINE", category = "POSITION" },
     },
+    TEXT = {
+        { id = "shared.textAppearance", label = "Text",
+            category = "CUSTOMIZE" },
+    },
 }
 
 local SHARED_ELEMENT_TYPES = {}
@@ -1722,9 +1751,10 @@ local SHARED_TYPE_DEFINITIONS = {
     PROGRESS_BAR = { style = "progressBar", skin = "SkinProgressBar",
         editorPreset = "MOVABLE" },
     ICON = { style = "icon", skin = "CreateQualityBorder", editorPreset = "MOVABLE" },
-    SCROLLBAR = { style = "scrollbar", skin = "SkinScrollBar", editorPreset = "MOVABLE" },
+    SCROLLBAR = { style = "scrollBar", skin = "SkinScrollBar", editorPreset = "MOVABLE" },
     SECTION_HEADER = { style = "sectionHeader", editorPreset = "SECTION_HEADERS" },
-    TEXT = { style = "typography", editorPreset = "MOVABLE" },
+    TEXT = { style = "text", skin = "SkinText",
+        appearanceControls = "shared.textAppearance", editorPreset = "TEXT" },
 }
 for typeID, definition in pairs(SHARED_TYPE_DEFINITIONS) do
     NSkin:RegisterSharedElementType(typeID, definition)
@@ -2642,7 +2672,6 @@ function NSkin:RegisterSimpleMovableElement(definition)
         self:NotifySkinningElementBoundsChanged(definition.id)
         return existing
     end
-    definition.preserveBlizzardPlacement = definition.preserveBlizzardPlacement ~= false
     if not self:RegisterMovableElement(definition) then return nil end
     return self:GetSkinningElement(definition.id)
 end

@@ -2393,6 +2393,7 @@ local function RegisterColorAppearanceGroup(id, styleName, controls)
             if style.border then
                 values.border = CopyColor(NSkin:GetComponentBorderSetting(styleName, style))
             end
+            if style.text then values.text = CopyColor(style.text) end
             values.hoverAlpha = style.hoverAlpha
             return values
         end,
@@ -2414,6 +2415,10 @@ local function RegisterColorAppearanceGroup(id, styleName, controls)
                     changed = NSkin:SetComponentBorderColor(styleName, values.border) or changed
                 end
             end
+            if style.text and values.text then
+                changed = SetColor(styleName .. ".text", style.text,
+                    values.text, values.text[4]) or changed
+            end
             changed = SetScalar(styleName .. ".hoverAlpha", style.hoverAlpha,
                 values.hoverAlpha) or changed
             return changed == true
@@ -2425,6 +2430,9 @@ local function RegisterColorAppearanceGroup(id, styleName, controls)
             end
             if NSkin.baseAppearance[styleName].hoverAlpha ~= nil then
                 paths[#paths + 1] = styleName .. ".hoverAlpha"
+            end
+            if NSkin.baseAppearance[styleName].text then
+                paths[#paths + 1] = styleName .. ".text"
             end
             local changed = ResetPaths(paths)
             changed = NSkin:ResetComponentBorderColor(styleName) or changed
@@ -2440,6 +2448,7 @@ RegisterColorAppearanceGroup("appearance.button", "button", {
     { type = "SLIDER", key = "hoverAlpha", label = "Hover opacity",
         min = 0, max = 0.5, step = 0.01, decimals = 2 },
     { type = "COLOR", key = "border", label = "Button border" },
+    { type = "COLOR", key = "text", label = "Button text" },
     { type = "RESET", label = "Reset Buttons" },
 })
 
@@ -3470,6 +3479,39 @@ NSkin:RegisterOptionGroup("shared.windowAppearance", {
     end,
     resetSubset = function(context, keys)
         return ResetMappedElementKeys(context, keys, windowResetPaths)
+    end,
+})
+
+local textAppearanceControls = {}
+AddTypographyControls(textAppearanceControls,
+    { useGlobal = "useGlobal", font = "font", size = "textSize", outline = "outline" },
+    "Text", 1, { type = "COLOR", key = "color", modeKey = "colorMode",
+        label = "Color" })
+NSkin:RegisterOptionGroup("shared.textAppearance", {
+    controls = textAppearanceControls,
+    get = function(context)
+        local style = NSkin:GetAppearanceStyle(
+            "text", GetAppearanceWindowID(context), context.id)
+        local values = { color = CopyColor(style.color), colorMode = style.colorMode }
+        GetTypographyValues(values, style,
+            { useGlobal = "useGlobal", font = "font", size = "textSize", outline = "outline" })
+        return values
+    end,
+    set = function(context, values)
+        local changed = SetElementTypography(context, "text", values,
+            { font = "font", size = "textSize", outline = "outline" })
+        if values.color ~= nil then
+            changed = SetElementValue(context, "text.color", values.color) or changed
+        end
+        if values.colorMode ~= nil then
+            changed = SetElementValue(context, "text.colorMode", values.colorMode) or changed
+        end
+        return changed == true
+    end,
+    reset = function(context)
+        return ResetElementPaths(context, { "text.fontMode", "text.sizeMode",
+            "text.outlineMode", "text.font", "text.textSize", "text.outline",
+            "text.color", "text.colorMode" })
     end,
 })
 

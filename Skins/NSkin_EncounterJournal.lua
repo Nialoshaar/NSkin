@@ -18,6 +18,7 @@ local IDs = {
     },
     Suggested = {
         Scope = "EncounterJournal.SuggestedContent",
+        Text = "EncounterJournal.SuggestedContent.Text",
         Buttons = {
             "EncounterJournal.SuggestedContent.AcceptQuest1",
             "EncounterJournal.SuggestedContent.AcceptQuest2",
@@ -26,6 +27,7 @@ local IDs = {
     },
     Tutorials = {
         Scope = "EncounterJournal.Tutorials",
+        Text = "EncounterJournal.Tutorials.Text",
         StartButton = "EncounterJournal.Tutorials.StartButton",
     },
     Instances = {
@@ -73,9 +75,12 @@ local bossScrollBox
 local concealedScrollBox
 local concealedOriginalAlpha
 local journeysRegistered = false
+local windowRegistered = false
 local tabsRegistered = false
-local suggestedButtonsRegistered = false
+local suggestedButtonsRegistered = {}
+local suggestedTextRegistered = false
 local tutorialsButtonRegistered = false
+local tutorialsTextRegistered = false
 local instanceControlsRegistered = false
 local journeysScrollBarRegistered = false
 local travelersScrollBarRegistered = false
@@ -92,16 +97,17 @@ local function GetAdventureGuideTabs(journal)
     return tabs
 end
 
-local function SetFrameTextWhite(frame)
-    if not frame then return end
-    for _, region in ipairs({ frame:GetRegions() }) do
-        if region.IsObjectType and region:IsObjectType("FontString") then
-            region:SetTextColor(1, 1, 1, 1)
-        end
-    end
-    for _, child in ipairs({ frame:GetChildren() }) do
-        SetFrameTextWhite(child)
-    end
+local function AddTextRegion(regions, fontString)
+    if fontString and fontString.GetFont then regions[#regions + 1] = fontString end
+end
+
+local function GetSuggestionTextRegions(suggestion)
+    local regions = {}
+    local display = suggestion and suggestion.centerDisplay
+    AddTextRegion(regions, display and display.title and display.title.text)
+    AddTextRegion(regions, display and display.description and display.description.text)
+    AddTextRegion(regions, suggestion and suggestion.reward and suggestion.reward.text)
+    return regions
 end
 
 local cardFrameAtlases = {
@@ -411,7 +417,8 @@ function EncounterJournalSkin:StyleInstanceControls(forceShown)
     NSkin:SkinSearchBox(searchBox, searchStyle,
         NSkin:GetAppearanceBorderColor("searchBox", searchStyle,
             IDs.Instances.Scope, IDs.Instances.Search))
-    NSkin:SkinScrollBar(scrollBar)
+    NSkin:SkinScrollBar(scrollBar, NSkin:GetAppearanceStyle(
+        "scrollBar", IDs.Instances.Scope, IDs.Instances.ScrollBar))
     if not instanceControlsRegistered and searchBox and scrollBar then
         local function IsInstanceTabVisible(target)
             local selected = journal.selectedTab
@@ -426,7 +433,6 @@ function EncounterJournalSkin:StyleInstanceControls(forceShown)
             kind = "SEARCH_GROUP",
             window = journal,
             target = searchBox,
-            preserveBlizzardPlacement = true,
             priority = 80,
             highlightRegions = { searchBox },
             isEditable = function()
@@ -441,7 +447,6 @@ function EncounterJournalSkin:StyleInstanceControls(forceShown)
             kind = "SCROLLBAR",
             window = journal,
             target = scrollBar,
-            preserveBlizzardPlacement = true,
             priority = 81,
             highlightRegions = { scrollBar },
             isEditable = function()
@@ -464,9 +469,12 @@ function EncounterJournalSkin:StyleJournalScrollBars()
     local travelersScrollBar = travelersLog and travelersLog.ScrollBar
     local travelersFilterScrollBar = travelersLog and travelersLog.FilterList
         and travelersLog.FilterList.ScrollBar
-    NSkin:SkinScrollBar(journeysScrollBar)
-    NSkin:SkinScrollBar(travelersScrollBar)
-    NSkin:SkinScrollBar(travelersFilterScrollBar)
+    NSkin:SkinScrollBar(journeysScrollBar, NSkin:GetAppearanceStyle(
+        "scrollBar", IDs.Journeys.Scope, IDs.Journeys.ScrollBar))
+    NSkin:SkinScrollBar(travelersScrollBar, NSkin:GetAppearanceStyle(
+        "scrollBar", IDs.TravelersLog.Scope, IDs.TravelersLog.ScrollBar))
+    NSkin:SkinScrollBar(travelersFilterScrollBar, NSkin:GetAppearanceStyle(
+        "scrollBar", IDs.TravelersLog.Scope, IDs.TravelersLog.FilterScrollBar))
     if journeysScrollBar and not journeysScrollBarRegistered then
         NSkin:RegisterSimpleMovableElement({
             id = IDs.Journeys.ScrollBar,
@@ -476,7 +484,6 @@ function EncounterJournalSkin:StyleJournalScrollBars()
             kind = "SCROLLBAR",
             window = journal,
             target = journeysScrollBar,
-            preserveBlizzardPlacement = true,
             priority = 81,
             highlightRegions = { journeysScrollBar },
             isEditable = function()
@@ -496,7 +503,6 @@ function EncounterJournalSkin:StyleJournalScrollBars()
             kind = "SCROLLBAR",
             window = journal,
             target = travelersScrollBar,
-            preserveBlizzardPlacement = true,
             priority = 81,
             highlightRegions = { travelersScrollBar },
             isEditable = function()
@@ -518,7 +524,6 @@ function EncounterJournalSkin:StyleJournalScrollBars()
             kind = "SCROLLBAR",
             window = journal,
             target = travelersFilterScrollBar,
-            preserveBlizzardPlacement = true,
             priority = 82,
             highlightRegions = { travelersFilterScrollBar },
             isEditable = function()
@@ -571,28 +576,57 @@ function EncounterJournalSkin:StyleSuggestedContent(forceShown)
             data.suggestedOriginalColor = { title:GetTextColor() }
         end
         if shown then
-            title:SetTextColor(1, 1, 1, 1)
+            NSkin:SkinText(title, NSkin:GetAppearanceStyle(
+                "text", IDs.Suggested.Scope, IDs.Suggested.Text))
         else
             title:SetTextColor(unpack(data.suggestedOriginalColor))
         end
     end
+    local textStyle = NSkin:GetAppearanceStyle(
+        "text", IDs.Suggested.Scope, IDs.Suggested.Text)
     local suggestions = { suggestFrame.Suggestion1,
         suggestFrame.Suggestion2, suggestFrame.Suggestion3 }
+    local textRegions = {}
     for _, suggestion in ipairs(suggestions) do
         if suggestion then
             if suggestion.bg then
                 suggestion.bg:SetAlpha(1)
                 suggestion.bg:Show()
             end
-            if shown then SetFrameTextWhite(suggestion) end
-            NSkin:SkinActionButton(suggestion.button)
+            for _, fontString in ipairs(GetSuggestionTextRegions(suggestion)) do
+                textRegions[#textRegions + 1] = fontString
+                if shown then NSkin:SkinText(fontString, textStyle) end
+            end
         end
     end
-    if shown and not suggestedButtonsRegistered then
+    if shown and title and not suggestedTextRegistered then
+        NSkin:RegisterSkinningElement(IDs.Suggested.Text, {
+            module = "EncounterJournal",
+            appearanceWindowID = IDs.Suggested.Scope,
+            label = "Suggested Content text",
+            kind = "TEXT",
+            window = journal,
+            target = title,
+            draggable = false,
+            priority = 70,
+            highlightRegions = textRegions,
+            isEditable = function()
+                return suggestFrame:IsVisible() and title:IsVisible()
+            end,
+        })
+        suggestedTextRegistered = true
+    elseif suggestedTextRegistered then
+        NSkin:NotifySkinningElementBoundsChanged(IDs.Suggested.Text)
+    end
+    if shown then
         for i = 1, #suggestions do
             local suggestion = suggestions[i]
             local button = suggestion and suggestion.button
             if button then
+                NSkin:SkinActionButton(button, { style = NSkin:GetAppearanceStyle(
+                    "button", IDs.Suggested.Scope, IDs.Suggested.Buttons[i]) })
+            end
+            if button and not suggestedButtonsRegistered[i] then
                 NSkin:RegisterSimpleMovableElement({
                     id = IDs.Suggested.Buttons[i],
                     module = "EncounterJournal",
@@ -601,19 +635,16 @@ function EncounterJournalSkin:StyleSuggestedContent(forceShown)
                     kind = "ACTION_BUTTON",
                     window = journal,
                     target = button,
-                    preserveBlizzardPlacement = true,
                     priority = 80 + i,
                     highlightRegions = { button },
                     isEditable = function()
                         return suggestFrame:IsVisible() and button:IsVisible()
                     end,
                 })
+                suggestedButtonsRegistered[i] = true
+            elseif suggestedButtonsRegistered[i] then
+                NSkin:NotifySkinningElementBoundsChanged(IDs.Suggested.Buttons[i])
             end
-        end
-        suggestedButtonsRegistered = true
-    elseif suggestedButtonsRegistered then
-        for i = 1, #IDs.Suggested.Buttons do
-            NSkin:NotifySkinningElementBoundsChanged(IDs.Suggested.Buttons[i])
         end
     end
 end
@@ -631,11 +662,34 @@ function EncounterJournalSkin:StyleTutorials(forceShown)
     -- StyleSuggestedContent restores Blizzard's original section-title color
     -- whenever its page is inactive. Tutorials then deliberately overrides it.
     local title = journal.instanceSelect and journal.instanceSelect.Title
-    if shown and title then title:SetTextColor(1, 1, 1, 1) end
+    if shown and title then
+        NSkin:SkinText(title, NSkin:GetAppearanceStyle(
+            "text", IDs.Tutorials.Scope, IDs.Tutorials.Text))
+        if not tutorialsTextRegistered then
+            NSkin:RegisterSkinningElement(IDs.Tutorials.Text, {
+                module = "EncounterJournal",
+                appearanceWindowID = IDs.Tutorials.Scope,
+                label = "Tutorials title",
+                kind = "TEXT",
+                window = journal,
+                target = title,
+                draggable = false,
+                priority = 70,
+                highlightRegions = { title },
+                isEditable = function()
+                    return tutorialsFrame:IsVisible() and title:IsVisible()
+                end,
+            })
+            tutorialsTextRegistered = true
+        else
+            NSkin:NotifySkinningElementBoundsChanged(IDs.Tutorials.Text)
+        end
+    end
 
     local startButton = contents.StartButton
     if not startButton then return end
-    NSkin:SkinActionButton(startButton)
+    NSkin:SkinActionButton(startButton, { style = NSkin:GetAppearanceStyle(
+        "button", IDs.Tutorials.Scope, IDs.Tutorials.StartButton) })
 
     if shown and not tutorialsButtonRegistered then
         NSkin:RegisterSimpleMovableElement({
@@ -646,7 +700,6 @@ function EncounterJournalSkin:StyleTutorials(forceShown)
             kind = "ACTION_BUTTON",
             window = journal,
             target = startButton,
-            preserveBlizzardPlacement = true,
             priority = 80,
             highlightRegions = { startButton },
             isEditable = function()
@@ -699,18 +752,9 @@ function EncounterJournalSkin:StyleJourneys(forceShown)
     if shown == nil then shown = selectedTab == journeysTabID end
     if not shown then return end
 
-    NSkin:SkinDropdown(dropdown)
+    NSkin:SkinDropdown(dropdown, { style = NSkin:GetAppearanceStyle(
+        "button", IDs.Journeys.Scope, IDs.Journeys.SeasonDropdown) })
     if not journeysRegistered and dropdown then
-        NSkin:RegisterSkinningElement(IDs.Window, {
-            module = "EncounterJournal",
-            appearanceWindowID = IDs.AppearanceWindow,
-            label = "Adventure Guide window",
-            kind = "WINDOW",
-            window = journal,
-            target = journal,
-            priority = 0,
-            draggable = false,
-        })
         NSkin:RegisterSimpleMovableElement({
             id = IDs.Journeys.SeasonDropdown,
             module = "EncounterJournal",
@@ -719,7 +763,6 @@ function EncounterJournalSkin:StyleJourneys(forceShown)
             kind = "DROPDOWN",
             window = journal,
             target = dropdown,
-            preserveBlizzardPlacement = true,
             priority = 80,
             highlightRegions = { dropdown },
             isEditable = function()
@@ -825,6 +868,19 @@ function EncounterJournalSkin:Initialize()
     end
 
     hookedScrollBox = scrollBox
+    if not windowRegistered then
+        NSkin:RegisterSkinningElement(IDs.Window, {
+            module = "EncounterJournal",
+            appearanceWindowID = IDs.AppearanceWindow,
+            label = "Adventure Guide window",
+            kind = "WINDOW",
+            window = journal,
+            target = journal,
+            priority = 0,
+            draggable = false,
+        })
+        windowRegistered = true
+    end
     local info = journal.encounter and journal.encounter.info
     bossScrollBox = info and info.BossesScrollBox
     hooksecurefunc(scrollBox, "Update", function(updatedScrollBox)

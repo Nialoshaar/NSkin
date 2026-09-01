@@ -9,6 +9,17 @@ NSkin.baseAppearance = {
         outline = "",
     },
 
+    text = {
+        color = { 1, 1, 1, 1 },
+        colorMode = "CUSTOM",
+        font = "Fonts\\FRIZQT__.TTF",
+        outline = "",
+        useGlobalTypography = true,
+        fontMode = "GLOBAL",
+        sizeMode = "BLIZZARD",
+        outlineMode = "GLOBAL",
+    },
+
     accent = {
         enabled = false,
         color = { 0, 0.55, 0.82, 1 },
@@ -63,6 +74,15 @@ NSkin.baseAppearance = {
         border = { 0.45, 0.45, 0.45, 1 },
         text = { 1, 1, 1, 1 },
         hoverAlpha = 0.10,
+    },
+
+    scrollBar = {
+        track = { 0.25, 0.25, 0.25, 1 },
+        trackMode = "CUSTOM",
+        thumb = { 0, 0.55, 0.82, 1 },
+        thumbMode = "ACCENT",
+        arrow = { 0, 0.55, 0.82, 1 },
+        arrowMode = "ACCENT",
     },
 
     icon = {
