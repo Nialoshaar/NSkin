@@ -8,6 +8,31 @@ local function CopyColor(color)
     return { color[1], color[2], color[3], color[4] or 1 }
 end
 
+NSkin:RegisterOptionGroup("encounterJournal.journeyCardsBackground", {
+    controls = {
+        {
+            type = "DROPDOWN",
+            key = "backgroundMode",
+            label = "Background",
+            values = {
+                { value = "DEFAULT", label = "Blizzard default" },
+                { value = "IMAGES", label = "Images" },
+                { value = "BLACK", label = "Black" },
+            },
+        },
+        { type = "RESET", label = "Reset Background", compactLabel = "Reset" },
+    },
+    get = function()
+        return { backgroundMode = NSkin:GetJourneyCardsBackgroundMode() }
+    end,
+    set = function(_, values)
+        return NSkin:SetJourneyCardsBackgroundMode(values.backgroundMode)
+    end,
+    reset = function()
+        return NSkin:ResetJourneyCardsBackgroundMode()
+    end,
+})
+
 NSkin:RegisterOptionGroup("spellbook.settings", {
     controls = {
         {

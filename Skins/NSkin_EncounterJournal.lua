@@ -10,6 +10,7 @@ local IDs = {
     Journeys = {
         Scope = "EncounterJournal.Journeys",
         SeasonDropdown = "EncounterJournal.Journeys.SeasonDropdown",
+        Cards = "EncounterJournal.Journeys.Cards",
         ScrollBar = "EncounterJournal.Journeys.ScrollBar",
     },
     TravelersLog = {
@@ -69,6 +70,28 @@ local CROP_BOTTOM = 0.697
 local JOURNEY_CARD_CROP_X = 0.05
 local JOURNEY_CARD_CROP_Y = 0.12
 local JOURNEY_CARD_INSET = 6
+local AMANI_TRIBE_BACKGROUND_ATLAS = "delve-entrance-background-twilight-crypts"
+local RITUAL_SITES_BACKGROUND_ATLAS = "delve-entrance-background-the-shadow-enclave"
+local SILVERMOON_COURT_BACKGROUND_ATLAS = "delve-entrance-background-parhelion-plaza"
+local ZULJARRA_FORCES_BACKGROUND_ATLAS = "delve-entrance-background-ulatek02"
+local SINGULARITY_BACKGROUND_TEXTURE =
+    "Interface\\Glues\\LoadingScreens\\Expansion11\\Main\\LoadScreen_Zone_Voidstorm.blp"
+local HARATI_BACKGROUND_TEXTURE =
+    "Interface\\Glues\\LoadingScreens\\Expansion11\\Main\\LoadScreen_Zone_Harandar.blp"
+local AMANI_TRIBE_CROP_RIGHT = 0.60
+local AMANI_TRIBE_CROP_TOP = 0.35
+local AMANI_TRIBE_CROP_BOTTOM = 0.65
+local SINGULARITY_CROP_TOP = 0.275
+local SINGULARITY_CROP_BOTTOM = 0.725
+local JOURNEY_BACKGROUND_DEFAULT = "DEFAULT"
+local JOURNEY_BACKGROUND_IMAGES = "IMAGES"
+local JOURNEY_BACKGROUND_BLACK = "BLACK"
+local JOURNEY_PROGRESS_BAR_STYLE = {
+    stripArtwork = true,
+    useAppearanceTexture = true,
+    background = true,
+    height = 12,
+}
 
 local initialized = false
 local hookedScrollBox
@@ -77,8 +100,11 @@ local refreshPasses = 0
 local lastTabID
 local bossScrollBox
 local concealedScrollBox
+local greatVaultIconFrame
+local greatVaultIconTexture
 local concealedOriginalAlpha
 local journeysRegistered = false
+local journeyCardsRegistered = false
 local windowRegistered = false
 local tabsRegistered = false
 local suggestedButtonsRegistered = {}
@@ -117,12 +143,74 @@ end
 
 local GetOrCreateHover
 
+local function ApplyGlobalTypography(frame)
+    if not frame then return end
+    local sourceStyle = NSkin:GetStyle("text")
+    local style = {}
+    for key, value in pairs(sourceStyle) do style[key] = value end
+    style.sizeMode = "BLIZZARD"
+    local visited = {}
+
+    local function Apply(target)
+        if not target or visited[target] then return end
+        visited[target] = true
+        if target.IsObjectType and target:IsObjectType("FontString") then
+            NSkin:ApplyResolvedTypography(target, style)
+            return
+        end
+        if target.GetRegions then
+            for _, region in ipairs({ target:GetRegions() }) do
+                if region and region.IsObjectType
+                    and region:IsObjectType("FontString")
+                then
+                    NSkin:ApplyResolvedTypography(region, style)
+                end
+            end
+        end
+        if target.GetChildren then
+            for _, child in ipairs({ target:GetChildren() }) do
+                Apply(child)
+            end
+        end
+    end
+
+    Apply(frame)
+end
+
+function NSkin:GetJourneyCardsBackgroundMode()
+    local options = self:GetModuleOptions("EncounterJournal", false)
+    return options and options.journeyCardsBackgroundMode
+        or JOURNEY_BACKGROUND_IMAGES
+end
+
+function NSkin:SetJourneyCardsBackgroundMode(mode)
+    if mode ~= JOURNEY_BACKGROUND_DEFAULT
+        and mode ~= JOURNEY_BACKGROUND_IMAGES
+        and mode ~= JOURNEY_BACKGROUND_BLACK
+    then
+        return false
+    end
+    local options = self:GetModuleOptions("EncounterJournal", true)
+    if options.journeyCardsBackgroundMode == mode then return false end
+    options.journeyCardsBackgroundMode = mode
+    EncounterJournalSkin:StyleJourneys(true)
+    return true
+end
+
+function NSkin:ResetJourneyCardsBackgroundMode()
+    local changed = self:RemoveModuleOption(
+        "EncounterJournal", "journeyCardsBackgroundMode")
+    if changed then EncounterJournalSkin:StyleJourneys(true) end
+    return changed
+end
+
 local function StyleJourneyCard(button)
     if not button or not (button.RenownCardFactionName or button.JourneyCardName) then
         return
     end
 
     local data = NSkin:GetSkinData(button, ENCOUNTER_JOURNAL_STATE)
+    ApplyGlobalTypography(button)
     local surface = data.journeyCardSurface
     if not surface then
         surface = CreateFrame("Frame", nil, button)
@@ -142,9 +230,68 @@ local function StyleJourneyCard(button)
     -- atlas while clicked. Disable that overlay, and make the pushed texture
     -- reuse the normal artwork so clicking never makes the card disappear.
     button:UpdateHighlightForState()
+    local nameRegion = button.RenownCardFactionName or button.JourneyCardName
+    local cardName = nameRegion and nameRegion:GetText()
+    local isAmaniTribe = cardName == "Amani Tribe"
+    local isSilvermoonCourt = cardName == "Silvermoon Court"
+    local isRitualSites = cardName == "Ritual Sites"
+    local isZuljarraForces = cardName == "Zul'jarra's Forces"
+    local isSingularity = cardName == "The Singularity"
+    local isHarati = cardName == "Hara'ti"
+    local delveBackgroundAtlas = isAmaniTribe
+        and AMANI_TRIBE_BACKGROUND_ATLAS
+        or isRitualSites and RITUAL_SITES_BACKGROUND_ATLAS
+        or isSilvermoonCourt and SILVERMOON_COURT_BACKGROUND_ATLAS
+        or isZuljarraForces and ZULJARRA_FORCES_BACKGROUND_ATLAS
+    local backgroundMode = NSkin:GetJourneyCardsBackgroundMode()
     if button.NormalTexture and button.PushedTexture then
-        local normalAtlas = button.NormalTexture:GetAtlas()
-        if normalAtlas then button.PushedTexture:SetAtlas(normalAtlas, false) end
+        data.journeyDefaultBackgrounds = data.journeyDefaultBackgrounds or {}
+        local default = cardName and data.journeyDefaultBackgrounds[cardName]
+        if cardName and not default then
+            default = {
+                normalAtlas = button.NormalTexture:GetAtlas(),
+                normalTexture = button.NormalTexture:GetTexture(),
+                pushedAtlas = button.PushedTexture:GetAtlas(),
+                pushedTexture = button.PushedTexture:GetTexture(),
+            }
+            data.journeyDefaultBackgrounds[cardName] = default
+        end
+
+        local function Restore(texture, atlas, source)
+            if atlas then
+                texture:SetAtlas(atlas, false)
+            elseif source then
+                texture:SetTexture(source)
+            end
+        end
+
+        if backgroundMode == JOURNEY_BACKGROUND_BLACK then
+            button.NormalTexture:SetColorTexture(0, 0, 0, 0.85)
+            button.PushedTexture:SetColorTexture(0, 0, 0, 0.85)
+        elseif backgroundMode == JOURNEY_BACKGROUND_DEFAULT then
+            if default then
+                Restore(button.NormalTexture,
+                    default.normalAtlas, default.normalTexture)
+                Restore(button.PushedTexture,
+                    default.pushedAtlas, default.pushedTexture)
+            end
+        elseif isHarati then
+            button.NormalTexture:SetTexture(HARATI_BACKGROUND_TEXTURE)
+            button.PushedTexture:SetTexture(HARATI_BACKGROUND_TEXTURE)
+        elseif isSingularity then
+            button.NormalTexture:SetTexture(SINGULARITY_BACKGROUND_TEXTURE)
+            button.PushedTexture:SetTexture(SINGULARITY_BACKGROUND_TEXTURE)
+        elseif delveBackgroundAtlas then
+            button.NormalTexture:SetAtlas(delveBackgroundAtlas, false)
+            button.PushedTexture:SetAtlas(delveBackgroundAtlas, false)
+        else
+            if default then
+                Restore(button.NormalTexture,
+                    default.normalAtlas, default.normalTexture)
+                Restore(button.PushedTexture,
+                    default.pushedAtlas, default.pushedTexture)
+            end
+        end
         button.PushedTexture:SetAlpha(1)
     end
 
@@ -160,9 +307,28 @@ local function StyleJourneyCard(button)
             texture:SetPoint("BOTTOMRIGHT", surface, "BOTTOMRIGHT", -pixel, pixel)
             -- The bevel is baked into the atlas. Crop it away while retaining
             -- the card artwork that lies inside it.
-            texture:SetTexCoord(
-                JOURNEY_CARD_CROP_X, 1 - JOURNEY_CARD_CROP_X,
-                JOURNEY_CARD_CROP_Y, 1 - JOURNEY_CARD_CROP_Y)
+            if backgroundMode == JOURNEY_BACKGROUND_BLACK then
+                texture:SetTexCoord(0, 1, 0, 1)
+            elseif backgroundMode == JOURNEY_BACKGROUND_IMAGES
+                and (isHarati or isSingularity)
+            then
+                texture:SetTexCoord(
+                    0, 1,
+                    SINGULARITY_CROP_TOP, SINGULARITY_CROP_BOTTOM)
+            elseif backgroundMode == JOURNEY_BACKGROUND_IMAGES
+                and delveBackgroundAtlas
+            then
+                -- Use only the scenic half of the composed Delve atlas. The
+                -- proportional vertical crop keeps that region's aspect ratio
+                -- close to the wide Journey card instead of flattening it.
+                texture:SetTexCoord(
+                    0, AMANI_TRIBE_CROP_RIGHT,
+                    AMANI_TRIBE_CROP_TOP, AMANI_TRIBE_CROP_BOTTOM)
+            else
+                texture:SetTexCoord(
+                    JOURNEY_CARD_CROP_X, 1 - JOURNEY_CARD_CROP_X,
+                    JOURNEY_CARD_CROP_Y, 1 - JOURNEY_CARD_CROP_Y)
+            end
         end
     end
 
@@ -172,6 +338,22 @@ local function StyleJourneyCard(button)
     NSkin:SetPixelBorderSize(border, 1)
     NSkin:SetPixelBorderColor(border, unpack(color))
 
+    local progressBar = button.JourneyCardProgressBar
+        or button.ProgressBar or button.progressBar
+    if progressBar then
+        for _, artwork in pairs({
+            progressBar.JourneyCardProgressBarBG,
+            progressBar.BG,
+            progressBar.Background,
+        }) do
+            if artwork then
+                artwork:SetAlpha(0)
+                artwork:Hide()
+            end
+        end
+        NSkin:SkinProgressBar(progressBar, JOURNEY_PROGRESS_BAR_STYLE)
+    end
+
     local hover = GetOrCreateHover(button)
     hover:ClearAllPoints()
     hover:SetPoint("TOPLEFT", surface, "TOPLEFT", pixel, -pixel)
@@ -180,6 +362,7 @@ local function StyleJourneyCard(button)
 end
 
 local function StyleJourneyListFrame(frame)
+    ApplyGlobalTypography(frame)
     if frame and frame.CategoryDivider then
         frame.CategoryDivider:SetAlpha(0)
         frame.CategoryDivider:Hide()
@@ -190,6 +373,19 @@ end
 local function StyleVisibleJourneyCards(journeysList)
     if not journeysList or not journeysList.ForEachFrame then return end
     journeysList:ForEachFrame(StyleJourneyListFrame)
+end
+
+local function GetVisibleJourneyCards(journeysList)
+    local cards = {}
+    if journeysList and journeysList.ForEachFrame then
+        journeysList:ForEachFrame(function(frame)
+            if frame and (frame.RenownCardFactionName or frame.JourneyCardName)
+            then
+                cards[#cards + 1] = frame
+            end
+        end)
+    end
+    return cards
 end
 
 local cardFrameAtlases = {
@@ -363,6 +559,8 @@ function EncounterJournalSkin:StyleButton(button)
         return
     end
 
+    ApplyGlobalTypography(button)
+
     RemoveMasks(background)
 
     background:ClearAllPoints()
@@ -510,6 +708,9 @@ function EncounterJournalSkin:StyleInstanceControls(forceShown)
         end
         return
     end
+
+    ApplyGlobalTypography(instanceSelect.Title)
+    ApplyGlobalTypography(instanceSelect.ExpansionDropdown)
 
     local searchBox = journal.searchBox
     local scrollBar = instanceSelect.ScrollBar
@@ -846,12 +1047,16 @@ function EncounterJournalSkin:StyleJourneys(forceShown)
     local journeys = journal and journal.JourneysFrame
     local instanceSelect = journal and journal.instanceSelect
     local dropdown = instanceSelect and instanceSelect.ExpansionDropdown
+    local greatVaultButton = instanceSelect and instanceSelect.GreatVaultButton
     if not journal or not journeys then return end
     local journeysTabID = journal.JourneysTab and journal.JourneysTab:GetID()
     local selectedTab = journal.selectedTab
     local shown = forceShown
     if shown == nil then shown = selectedTab == journeysTabID end
-    if not shown then return end
+    if not shown then
+        if greatVaultIconFrame then greatVaultIconFrame:Hide() end
+        return
+    end
 
     -- QuestLogBorderFrameTemplate supplies the ornate outer frame and
     -- decorative flourishes behind the Journeys content.
@@ -860,8 +1065,96 @@ function EncounterJournalSkin:StyleJourneys(forceShown)
         journeys.BorderFrame:Hide()
     end
 
+    if greatVaultButton then
+        greatVaultButton:SetAlpha(0)
+        greatVaultButton:Hide()
+        if greatVaultButton.EnableMouse then
+            greatVaultButton:EnableMouse(false)
+        end
+
+        local data = NSkin:GetSkinData(
+            greatVaultButton, ENCOUNTER_JOURNAL_STATE)
+        if not data.hideHooked and greatVaultButton.HookScript then
+            greatVaultButton:HookScript("OnShow", function(button)
+                button:SetAlpha(0)
+                button:Hide()
+                if button.EnableMouse then button:EnableMouse(false) end
+            end)
+            data.hideHooked = true
+        end
+
+        if not greatVaultIconFrame then
+            greatVaultIconFrame = CreateFrame("Button", nil, instanceSelect)
+            greatVaultIconFrame:SetSize(32, 32)
+            greatVaultIconFrame:SetPoint(
+                "CENTER", greatVaultButton, "CENTER", 0, 0)
+            greatVaultIconFrame:RegisterForClicks("LeftButtonUp")
+            greatVaultIconFrame:SetScript("OnClick", function()
+                if greatVaultButton:IsEnabled() then
+                    greatVaultButton:Click()
+                end
+            end)
+
+            greatVaultIconTexture = greatVaultIconFrame:CreateTexture(
+                nil, "ARTWORK", nil, 5)
+            greatVaultIconTexture:SetSize(30, 30)
+            -- GreatVault-32x32 has asymmetric transparent padding, so its
+            -- visible glyph needs a slight optical correction to look centered.
+            greatVaultIconTexture:SetPoint(
+                "CENTER", greatVaultIconFrame, "CENTER", 1, 0)
+            greatVaultIconTexture:SetAtlas("GreatVault-32x32", false)
+            NSkin:ConfigureOwnedPixelTexture(greatVaultIconTexture)
+
+            local border = NSkin:CreatePixelBorder(
+                greatVaultIconFrame,
+                "NSkinJourneysGreatVaultIconBorder",
+                1,
+                NSkin:GetSharedBorderColor(),
+                false,
+                greatVaultIconFrame)
+            NSkin:SetPixelBorderSize(border, 1)
+
+            local hover = GetOrCreateHover(greatVaultIconFrame)
+            local pixel = NSkin:GetPhysicalPixelSize(greatVaultIconFrame)
+            hover:ClearAllPoints()
+            hover:SetPoint(
+                "TOPLEFT", greatVaultIconFrame, "TOPLEFT", pixel, -pixel)
+            hover:SetPoint(
+                "BOTTOMRIGHT", greatVaultIconFrame, "BOTTOMRIGHT",
+                -pixel, pixel)
+        end
+        greatVaultIconFrame:Show()
+    end
+
     local journeysList = journeys.JourneysList
     StyleVisibleJourneyCards(journeysList)
+    if journeysList and not journeyCardsRegistered then
+        NSkin:RegisterSkinningElement(IDs.Journeys.Cards, {
+            module = "EncounterJournal",
+            appearanceWindowID = IDs.Journeys.Scope,
+            label = "Journey cards",
+            kind = "JOURNEY_CARDS",
+            window = journal,
+            target = journeysList,
+            priority = 75,
+            draggable = false,
+            highlightRegions = function()
+                return GetVisibleJourneyCards(journeysList)
+            end,
+            editorOptions = {
+                { id = "encounterJournal.journeyCardsBackground",
+                    label = "Card backgrounds", presentation = "INLINE",
+                    category = "CUSTOMIZE" },
+            },
+            isEditable = function()
+                return journeys:IsVisible()
+                    and #GetVisibleJourneyCards(journeysList) > 0
+            end,
+        })
+        journeyCardsRegistered = true
+    elseif journeyCardsRegistered then
+        NSkin:NotifySkinningElementBoundsChanged(IDs.Journeys.Cards)
+    end
     if journeysList and not journeysListHooked then
         if type(journeysList.Update) == "function" and hooksecurefunc then
             hooksecurefunc(journeysList, "Update", function(updatedList)
@@ -873,13 +1166,18 @@ function EncounterJournalSkin:StyleJourneys(forceShown)
             and scrollEvents.OnInitializedFrame
         then
             journeysList:RegisterCallback(scrollEvents.OnInitializedFrame,
-                function(_, frame) StyleJourneyListFrame(frame) end, self)
+                function(_, frame)
+                    StyleJourneyListFrame(frame)
+                    NSkin:NotifySkinningElementBoundsChanged(
+                        IDs.Journeys.Cards)
+                end, self)
         end
         journeysListHooked = true
     end
 
     NSkin:SkinDropdown(dropdown, { style = NSkin:GetAppearanceStyle(
         "button", IDs.Journeys.Scope, IDs.Journeys.SeasonDropdown) })
+    ApplyGlobalTypography(dropdown)
     if not journeysRegistered and dropdown then
         NSkin:RegisterSimpleMovableElement({
             id = IDs.Journeys.SeasonDropdown,

@@ -1349,6 +1349,9 @@ function NSkin:SkinActionButton(button, options)
         nativeText:SetAlpha(0)
         data.actionNativeText = nativeText
     end
+    if data.label then
+        self:ApplyResolvedTypography(data.label, self:GetStyle("text"))
+    end
     if not data.actionTextHooked and button.SetText and _G.hooksecurefunc then
         _G.hooksecurefunc(button, "SetText", function(_, value)
             local state = NSkin:GetSkinData(button, COMPONENT_STATE, false)
@@ -1382,6 +1385,7 @@ function NSkin:SkinDropdown(dropdown, options)
     if dropdown.Text then
         dropdown.Text:SetTextColor(unpack(style.text))
         dropdown.Text:SetAlpha(1)
+        self:ApplyResolvedTypography(dropdown.Text, self:GetStyle("text"))
     end
     local data = self:GetSkinData(dropdown, COMPONENT_STATE)
     local arrow = data.dropdownArrow
@@ -1395,6 +1399,17 @@ function NSkin:SkinDropdown(dropdown, options)
     end
     arrow:SetVertexColor(unpack(self:GetSharedBorderColor()))
     arrow:Show()
+
+    data.dropdownMenuStyle = {
+        background = style.menuBackground or style.background,
+        border = options.border
+            or self:GetComponentBorderColor("button", style),
+        textStyle = self:GetStyle("text"),
+    }
+    self:HookDropdownMenuSkin(dropdown, function()
+        local state = NSkin:GetSkinData(dropdown, COMPONENT_STATE, false)
+        return state and state.dropdownMenuStyle
+    end)
 end
 
 local function SkinDropdownMenuText(frame, textStyle)
@@ -2795,9 +2810,11 @@ function NSkin:SkinProgressBar(bar, options)
         if background then
             -- Blizzard progress templates can alter their regions again while
             -- refreshing. Reassert the complete NSkin-owned surface each pass.
+            local pixel = self:GetPhysicalPixelSize(bar)
             background:ClearAllPoints()
-            background:SetPoint("TOPLEFT", bar, "TOPLEFT", 1, -1)
-            background:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", -1, 1)
+            background:SetPoint("TOPLEFT", bar, "TOPLEFT", pixel, -pixel)
+            background:SetPoint(
+                "BOTTOMRIGHT", bar, "BOTTOMRIGHT", -pixel, pixel)
             background:SetColorTexture(unpack(backgroundColor))
             background:SetAlpha(1)
             background:Show()
