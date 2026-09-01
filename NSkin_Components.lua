@@ -193,11 +193,17 @@ function NSkin:GetResolvedTypography(style, prefix)
         style[outlineKey] or global.outline
 end
 
-function NSkin:SkinText(fontString, style)
+function NSkin:SkinTextColor(fontString, style)
     if not fontString or not fontString.GetFont then return false end
     style = style or self:GetStyle("text")
     local color = self:GetResolvedAppearanceColor(style, "color")
     if color then fontString:SetTextColor(unpack(color)) end
+    return true
+end
+
+function NSkin:SkinText(fontString, style)
+    if not self:SkinTextColor(fontString, style) then return false end
+    style = style or self:GetStyle("text")
     self:ApplyResolvedTypography(fontString, style)
     return true
 end
@@ -1315,8 +1321,9 @@ local function RefreshActionButton(button)
     local enabled = not button.IsEnabled or button:IsEnabled()
     local color = data.actionTextColor
         or NSkin:GetStyle("text").color
+    local disabledAlpha = data.actionDisabledTextAlpha or 0.45
     data.label:SetTextColor(color[1], color[2], color[3],
-        (color[4] or 1) * (enabled and 1 or 0.45))
+        (color[4] or 1) * (enabled and 1 or disabledAlpha))
 end
 
 function NSkin:SkinActionButton(button, options)
@@ -1328,6 +1335,8 @@ function NSkin:SkinActionButton(button, options)
         or self:GetStyle("button")
     data.actionStyle = style
     data.actionTextColor = self:GetResolvedAppearanceColor(style, "text")
+    data.actionDisabledTextAlpha = options.disabledTextAlpha
+        or style.disabledTextAlpha or 0.45
     local nativeText = button.GetFontString and button:GetFontString()
     local label = button.GetText and button:GetText() or ""
     self:SkinFlatButton(button, label,
@@ -1377,13 +1386,285 @@ function NSkin:SkinDropdown(dropdown, options)
     local data = self:GetSkinData(dropdown, COMPONENT_STATE)
     local arrow = data.dropdownArrow
     if not arrow then
-        arrow = dropdown:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        arrow = dropdown:CreateTexture(nil, "OVERLAY")
+        arrow:SetSize(14, 14)
         arrow:SetPoint("RIGHT", dropdown, "RIGHT", -8, 0)
-        arrow:SetText("v")
+        arrow:SetTexture(self.mediaPath .. "angle-small-down.png")
+        self:ConfigureOwnedPixelTexture(arrow)
         data.dropdownArrow = arrow
     end
-    arrow:SetTextColor(unpack(self:GetSharedBorderColor()))
+    arrow:SetVertexColor(unpack(self:GetSharedBorderColor()))
     arrow:Show()
+end
+
+function NSkin:SkinIconButton(button, style)
+    if not button then return false end
+    style = style or self:GetStyle("iconButton")
+    local data = self:GetSkinData(button, COMPONENT_STATE)
+    local normal = button.NormalTexture
+        or (button.GetNormalTexture and button:GetNormalTexture())
+    local pushed = button.PushedTexture
+        or (button.GetPushedTexture and button:GetPushedTexture())
+    local crop = tonumber(style.crop) or 0
+    local iconScale = tonumber(style.iconScale) or 1
+
+    if not data.iconButtonHighlightSuppressed
+        and type(button.UpdateHighlightForState) == "function"
+    then
+        button.UpdateHighlightForState = function(target)
+            target:SetHighlightTexture(0)
+            local highlight = target.GetHighlightTexture
+                and target:GetHighlightTexture()
+            if highlight then highlight:SetAlpha(0) end
+        end
+        data.iconButtonHighlightSuppressed = true
+    end
+    if button.UpdateHighlightForState then
+        button:UpdateHighlightForState()
+    elseif button.SetHighlightTexture then
+        button:SetHighlightTexture(0)
+    end
+
+    local borderColor = style.border or self:GetSharedBorderColor()
+    local background = self:CreateFlatBackground(button,
+        "NSkinIconButtonBackground",
+        style.background or self:GetStyle("button").background, borderColor)
+    local border = self:GetPixelBorder(button,
+        "NSkinIconButtonBackgroundBorder")
+    self:SetPixelBorderColor(border, unpack(borderColor))
+    self:SetPixelBorderSize(border, 1)
+
+    -- A native button atlas may contain its ornamental frame. When a standalone
+    -- texture or atlas is supplied, render it on an NSkin-owned region so none
+    -- of the baked button artwork survives the skin.
+    local icon = normal
+    if style.texture or style.atlas then
+        if not data.iconButtonTexture then
+            data.iconButtonTexture = button:CreateTexture(
+                nil, "ARTWORK", nil, 5)
+            self:ConfigureOwnedPixelTexture(data.iconButtonTexture)
+        end
+        icon = data.iconButtonTexture
+    end
+    if icon then
+        if style.texture then
+            icon:SetTexture(style.texture)
+        elseif style.atlas then
+            icon:SetAtlas(style.atlas, false)
+        end
+        if normal and normal.IsDesaturated and icon ~= normal
+            and icon.SetDesaturated
+        then
+            icon:SetDesaturated(normal:IsDesaturated())
+        end
+        local width, height = button:GetSize()
+        local iconSize = math.min(width, height) * iconScale
+        icon:ClearAllPoints()
+        icon:SetPoint("CENTER", button, "CENTER")
+        icon:SetSize(iconSize, iconSize)
+        icon:SetTexCoord(crop, 1 - crop, crop, 1 - crop)
+        icon:SetAlpha(1)
+        icon:Show()
+    end
+    if pushed then
+        pushed:SetAlpha(0)
+        pushed:Hide()
+    end
+
+    -- Keep only the selected icon plus regions owned by this component and
+    -- suppress the remaining native decoration/state textures.
+    local owned = {}
+    if background then owned[background] = true end
+    if icon then owned[icon] = true end
+    if border then
+        owned[border.top] = true
+        owned[border.bottom] = true
+        owned[border.left] = true
+        owned[border.right] = true
+    end
+    if button.GetRegions then
+        for _, region in ipairs({ button:GetRegions() }) do
+            if region and region.IsObjectType and region:IsObjectType("Texture")
+                and not owned[region]
+            then
+                region:SetAlpha(0)
+                region:Hide()
+            end
+        end
+    end
+    return true
+end
+
+local function SkinDropdownMenuText(frame, textStyle)
+    if not frame then return end
+    for _, region in ipairs({ frame:GetRegions() }) do
+        if region.IsObjectType and region:IsObjectType("FontString") then
+            -- Blizzard_Menu compositor regions reject SetFont. Their native
+            -- typography is retained while color still resolves through the
+            -- shared NSkin text appearance.
+            NSkin:SkinTextColor(region, textStyle)
+        end
+    end
+    for _, child in ipairs({ frame:GetChildren() }) do
+        SkinDropdownMenuText(child, textStyle)
+    end
+end
+
+function NSkin:SkinDropdownMenu(menu, style)
+    if not menu or not menu.IsShown or not menu:IsShown() then return false end
+    style = style or {}
+    local backgroundColor = style.background or self:GetStyle("window").background
+    local borderColor = style.border or self:GetSharedBorderColor()
+    local textStyle = style.textStyle or self:GetStyle("text")
+    local data = self:GetSkinData(menu, COMPONENT_STATE)
+
+    for _, region in ipairs({ menu:GetRegions() }) do
+        if region.IsObjectType and region:IsObjectType("Texture") then
+            region:SetColorTexture(unpack(backgroundColor))
+            region:ClearAllPoints()
+            region:SetPoint("TOPLEFT", menu, "TOPLEFT", 1, -1)
+            region:SetPoint("BOTTOMRIGHT", menu, "BOTTOMRIGHT", -1, 1)
+            region:SetAlpha(1)
+            region:Show()
+        end
+    end
+    if not data.sharedMenuBorderFrame then
+        local borderFrame = CreateFrame("Frame", nil, UIParent)
+        borderFrame:EnableMouse(false)
+        data.sharedMenuBorderFrame = borderFrame
+        self:CreatePixelBorder(borderFrame, "NSkinSharedDropdownMenuBorder",
+            1, borderColor, false, borderFrame)
+    end
+    local borderFrame = data.sharedMenuBorderFrame
+    borderFrame:ClearAllPoints()
+    borderFrame:SetAllPoints(menu)
+    borderFrame:SetFrameStrata(menu:GetFrameStrata())
+    borderFrame:SetFrameLevel(menu:GetFrameLevel() + 1)
+    local border = self:GetPixelBorder(borderFrame,
+        "NSkinSharedDropdownMenuBorder")
+    self:SetPixelBorderColor(border, unpack(borderColor))
+    self:SetPixelBorderSize(border, 1)
+    self:SetPixelBorderShown(border, true)
+    borderFrame:Show()
+    SkinDropdownMenuText(menu, textStyle)
+    return true
+end
+
+function NSkin:SkinDropdownArrowButton(button, color)
+    if not button then return false end
+    local data = self:GetSkinData(button, COMPONENT_STATE)
+    self:HideTextureRegions(button, data.sharedDropdownArrow)
+    for _, child in ipairs({ button:GetChildren() }) do
+        self:HideTextureRegions(child)
+    end
+    if not data.sharedDropdownArrow then
+        local arrow = button:CreateTexture(nil, "OVERLAY")
+        arrow:SetSize(14, 14)
+        arrow:SetPoint("CENTER", button, "CENTER", 0, -1)
+        arrow:SetTexture(self.mediaPath .. "angle-small-down.png")
+        self:ConfigureOwnedPixelTexture(arrow)
+        data.sharedDropdownArrow = arrow
+    end
+    data.sharedDropdownArrow:SetVertexColor(unpack(color or self:GetSharedBorderColor()))
+    data.sharedDropdownArrow:SetAlpha(button.IsEnabled and button:IsEnabled() and 1 or 0.4)
+    data.sharedDropdownArrow:Show()
+    return true
+end
+
+function NSkin:HookDropdownMenuSkin(dropdown, styleProvider)
+    if not dropdown or not _G.hooksecurefunc then return false end
+    local data = self:GetSkinData(dropdown, COMPONENT_STATE)
+    data.sharedMenuStyleProvider = styleProvider
+    if data.sharedMenuSkinHooked then return true end
+    _G.hooksecurefunc(dropdown, "OnMenuOpened", function(_, menu)
+        menu = menu or dropdown.menu
+        C_Timer.After(0, function()
+            if not menu or not menu:IsShown() then return end
+            local state = NSkin:GetSkinData(dropdown, COMPONENT_STATE, false)
+            local provider = state and state.sharedMenuStyleProvider
+            NSkin:SkinDropdownMenu(menu,
+                type(provider) == "function" and provider() or provider)
+        end)
+    end)
+    _G.hooksecurefunc(dropdown, "OnMenuClosed", function(_, menu)
+        menu = menu or dropdown.menu
+        local menuData = menu and NSkin:GetSkinData(menu, COMPONENT_STATE, false)
+        if menuData and menuData.sharedMenuBorderFrame then
+            menuData.sharedMenuBorderFrame:Hide()
+        end
+    end)
+    data.sharedMenuSkinHooked = true
+    return true
+end
+
+local navigationBarAddButtonHooked = false
+
+function NSkin:SkinNavigationBar(navigationBar, style)
+    if not navigationBar then return false end
+    style = style or self:GetStyle("navigationBar")
+    local data = self:GetSkinData(navigationBar, COMPONENT_STATE)
+    data.navigationBarStyle = style
+
+    -- Both the bevel and gray edge are baked into Blizzard's tiled regions.
+    -- Replace those regions with a borderless NSkin-owned background.
+    for _, region in ipairs({ navigationBar:GetRegions() }) do
+        if region.IsObjectType and region:IsObjectType("Texture")
+            and region ~= data.navigationBarBackground
+        then
+            region:SetAlpha(0)
+        end
+    end
+    if navigationBar.overlay then navigationBar.overlay:SetAlpha(0) end
+    if not data.navigationBarBackground then
+        local background = navigationBar:CreateTexture(nil, "BACKGROUND", nil, -8)
+        background:SetAllPoints(navigationBar)
+        self:ConfigureOwnedPixelTexture(background)
+        data.navigationBarBackground = background
+    end
+    data.navigationBarBackground:SetColorTexture(unpack(style.background))
+
+    local buttons = navigationBar.navList
+    if not buttons or #buttons == 0 then
+        buttons = { navigationBar.home or navigationBar.homeButton }
+    end
+    for _, button in ipairs(buttons) do
+        if button then
+            self:SkinActionButton(button, {
+                style = {
+                    background = style.homeBackground,
+                    border = style.homeBorder,
+                    text = style.homeText,
+                    disabledTextAlpha = style.disabledTextAlpha,
+                    hoverAlpha = style.hoverAlpha,
+                },
+            })
+            local menuArrow = button.MenuArrowButton
+            if menuArrow then
+                self:SkinDropdownArrowButton(menuArrow,
+                    self:GetSharedBorderColor())
+                self:HookDropdownMenuSkin(menuArrow, function()
+                    return {
+                        background = style.menuBackground,
+                        border = style.menuBorder,
+                        textStyle = NSkin:GetStyle("text"),
+                    }
+                end)
+            end
+        end
+    end
+
+    if not navigationBarAddButtonHooked and _G.hooksecurefunc
+        and type(_G.NavBar_AddButton) == "function"
+    then
+        _G.hooksecurefunc("NavBar_AddButton", function(bar)
+            local barData = NSkin:GetSkinData(bar, COMPONENT_STATE, false)
+            if barData and barData.navigationBarStyle then
+                NSkin:SkinNavigationBar(bar, barData.navigationBarStyle)
+            end
+        end)
+        navigationBarAddButtonHooked = true
+    end
+    return true
 end
 
 local function RefreshScrollBarArrow(button)
@@ -1744,6 +2025,8 @@ local SHARED_TYPE_DEFINITIONS = {
     ACTION_BUTTON = { style = "button", skin = "SkinActionButton",
         editorPreset = "MOVABLE" },
     DROPDOWN = { style = "button", skin = "SkinDropdown", editorPreset = "MOVABLE" },
+    NAVIGATION_BAR = { style = "navigationBar", skin = "SkinNavigationBar",
+        editorPreset = "MOVABLE" },
     SEARCH_GROUP = { style = "searchBox", skin = "SkinSearchBox" },
     SEARCH_ACCESSORY = { style = "button", skin = "SkinDropdown" },
     PAGINATION_GROUP = { style = "button", skin = "SkinPagingControls" },
@@ -1751,6 +2034,8 @@ local SHARED_TYPE_DEFINITIONS = {
     PROGRESS_BAR = { style = "progressBar", skin = "SkinProgressBar",
         editorPreset = "MOVABLE" },
     ICON = { style = "icon", skin = "CreateQualityBorder", editorPreset = "MOVABLE" },
+    ICON_BUTTON = { style = "iconButton", skin = "SkinIconButton",
+        editorPreset = "MOVABLE" },
     SCROLLBAR = { style = "scrollBar", skin = "SkinScrollBar", editorPreset = "MOVABLE" },
     SECTION_HEADER = { style = "sectionHeader", editorPreset = "SECTION_HEADERS" },
     TEXT = { style = "text", skin = "SkinText",
@@ -2674,6 +2959,55 @@ function NSkin:RegisterSimpleMovableElement(definition)
     end
     if not self:RegisterMovableElement(definition) then return nil end
     return self:GetSkinningElement(definition.id)
+end
+
+function NSkin:RegisterNavigationBar(elementID, definition)
+    if type(elementID) ~= "string" or type(definition) ~= "table"
+        or not definition.target
+    then return nil end
+    definition.id = elementID
+    definition.kind = "NAVIGATION_BAR"
+    local style = self:GetAppearanceStyle("navigationBar",
+        definition.appearanceWindowID, elementID)
+    self:SkinNavigationBar(definition.target, style)
+
+    local data = self:GetSkinData(definition.target, COMPONENT_STATE)
+    if not data.navigationBarShowHooked and definition.target.HookScript then
+        definition.target:HookScript("OnShow", function(bar)
+            NSkin:SkinNavigationBar(bar, NSkin:GetAppearanceStyle(
+                "navigationBar", definition.appearanceWindowID, elementID))
+        end)
+        data.navigationBarShowHooked = true
+    end
+    return self:RegisterSimpleMovableElement(definition)
+end
+
+function NSkin:RegisterIconButton(elementID, definition)
+    if type(elementID) ~= "string" or type(definition) ~= "table"
+        or not definition.target
+    then return nil end
+    definition.id = elementID
+    definition.kind = "ICON_BUTTON"
+    local function GetIconButtonStyle()
+        return CopyWithOverrides(self:GetAppearanceStyle("iconButton",
+            definition.appearanceWindowID, elementID), definition.skinStyle)
+    end
+    local style = GetIconButtonStyle()
+    self:SkinIconButton(definition.target, style)
+
+    local data = self:GetSkinData(definition.target, COMPONENT_STATE)
+    if not data.iconButtonStateHooks and definition.target.HookScript then
+        local function Reapply(button)
+            NSkin:SkinIconButton(button, GetIconButtonStyle())
+        end
+        for _, script in ipairs({
+            "OnShow", "OnEnter", "OnLeave", "OnMouseDown", "OnMouseUp",
+        }) do
+            definition.target:HookScript(script, Reapply)
+        end
+        data.iconButtonStateHooks = true
+    end
+    return self:RegisterSimpleMovableElement(definition)
 end
 
 function NSkin:RegisterProgressBarElement(definition)

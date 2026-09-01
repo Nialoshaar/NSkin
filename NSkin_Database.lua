@@ -85,6 +85,23 @@ NSkin.baseAppearance = {
         arrowMode = "ACCENT",
     },
 
+    navigationBar = {
+        background = { 0.04, 0.04, 0.04, 0.90 },
+        homeBackground = { 0, 0, 0, 0.85 },
+        homeBorder = { 0.45, 0.45, 0.45, 1 },
+        homeText = { 1, 1, 1, 1 },
+        disabledTextAlpha = 1,
+        menuBackground = { 0.04, 0.04, 0.04, 0.95 },
+        menuBorder = { 0.45, 0.45, 0.45, 1 },
+        hoverAlpha = 0.10,
+    },
+
+    iconButton = {
+        background = { 0, 0, 0, 0.85 },
+        crop = 0.18,
+        iconScale = 0.62,
+    },
+
     icon = {
         border = { 0, 0, 0, 1 },
         crop = 0.06,

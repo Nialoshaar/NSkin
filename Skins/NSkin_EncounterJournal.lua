@@ -5,10 +5,12 @@ local ENCOUNTER_JOURNAL_STATE = "encounterJournal"
 local IDs = {
     AppearanceWindow = "EncounterJournal",
     Window = "EncounterJournal.Window",
+    NavigationBar = "EncounterJournal.NavigationBar",
     MainTabs = "EncounterJournal.MainTabs",
     Journeys = {
         Scope = "EncounterJournal.Journeys",
         SeasonDropdown = "EncounterJournal.Journeys.SeasonDropdown",
+        GreatVaultButton = "EncounterJournal.Journeys.GreatVaultButton",
         ScrollBar = "EncounterJournal.Journeys.ScrollBar",
     },
     TravelersLog = {
@@ -65,6 +67,9 @@ local CROP_LEFT = 0.035
 local CROP_RIGHT = 0.648
 local CROP_TOP = 0.045
 local CROP_BOTTOM = 0.697
+local JOURNEY_CARD_CROP_X = 0.05
+local JOURNEY_CARD_CROP_Y = 0.12
+local JOURNEY_CARD_INSET = 6
 
 local initialized = false
 local hookedScrollBox
@@ -73,6 +78,7 @@ local refreshPasses = 0
 local lastTabID
 local bossScrollBox
 local concealedScrollBox
+local greatVaultAtlasButton
 local concealedOriginalAlpha
 local journeysRegistered = false
 local windowRegistered = false
@@ -85,6 +91,7 @@ local instanceControlsRegistered = false
 local journeysScrollBarRegistered = false
 local travelersScrollBarRegistered = false
 local travelersFilterScrollBarRegistered = false
+local journeysListHooked = false
 
 local function GetAdventureGuideTabs(journal)
     local tabs = {}
@@ -108,6 +115,83 @@ local function GetSuggestionTextRegions(suggestion)
     AddTextRegion(regions, display and display.description and display.description.text)
     AddTextRegion(regions, suggestion and suggestion.reward and suggestion.reward.text)
     return regions
+end
+
+local GetOrCreateHover
+
+local function StyleJourneyCard(button)
+    if not button or not (button.RenownCardFactionName or button.JourneyCardName) then
+        return
+    end
+
+    local data = NSkin:GetSkinData(button, ENCOUNTER_JOURNAL_STATE)
+    local surface = data.journeyCardSurface
+    if not surface then
+        surface = CreateFrame("Frame", nil, button)
+        surface:SetFrameLevel(button:GetFrameLevel())
+        data.journeyCardSurface = surface
+    end
+    if not data.journeyCardHighlightSuppressed then
+        button.UpdateHighlightForState = function(card)
+            card:SetHighlightTexture(CLEAR_TEXTURE)
+            local highlight = card.GetHighlightTexture and card:GetHighlightTexture()
+            if highlight then highlight:SetAlpha(0) end
+        end
+        data.journeyCardHighlightSuppressed = true
+    end
+
+    -- AlphaHighlightButtonMixin uses the normal atlas on hover and the pushed
+    -- atlas while clicked. Disable that overlay, and make the pushed texture
+    -- reuse the normal artwork so clicking never makes the card disappear.
+    button:UpdateHighlightForState()
+    if button.NormalTexture and button.PushedTexture then
+        local normalAtlas = button.NormalTexture:GetAtlas()
+        if normalAtlas then button.PushedTexture:SetAtlas(normalAtlas, false) end
+        button.PushedTexture:SetAlpha(1)
+    end
+
+    local pixel = NSkin:GetPhysicalPixelSize(button)
+    local inset = JOURNEY_CARD_INSET * pixel
+    surface:ClearAllPoints()
+    surface:SetPoint("TOPLEFT", button, "TOPLEFT", inset, -inset)
+    surface:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -inset, inset)
+    for _, texture in ipairs({ button.NormalTexture, button.PushedTexture }) do
+        if texture then
+            texture:ClearAllPoints()
+            texture:SetPoint("TOPLEFT", surface, "TOPLEFT", pixel, -pixel)
+            texture:SetPoint("BOTTOMRIGHT", surface, "BOTTOMRIGHT", -pixel, pixel)
+            -- The bevel is baked into the atlas. Crop it away while retaining
+            -- the card artwork that lies inside it.
+            texture:SetTexCoord(
+                JOURNEY_CARD_CROP_X, 1 - JOURNEY_CARD_CROP_X,
+                JOURNEY_CARD_CROP_Y, 1 - JOURNEY_CARD_CROP_Y)
+        end
+    end
+
+    local color = NSkin:GetSharedBorderColor()
+    local border = NSkin:CreatePixelBorder(button,
+        "__NSkinJourneyCardBorder", 1, color, false, surface)
+    NSkin:SetPixelBorderSize(border, 1)
+    NSkin:SetPixelBorderColor(border, unpack(color))
+
+    local hover = GetOrCreateHover(button)
+    hover:ClearAllPoints()
+    hover:SetPoint("TOPLEFT", surface, "TOPLEFT", pixel, -pixel)
+    hover:SetPoint("BOTTOMRIGHT", surface, "BOTTOMRIGHT", -pixel, pixel)
+    if button.IsMouseOver then hover:SetShown(button:IsMouseOver()) end
+end
+
+local function StyleJourneyListFrame(frame)
+    if frame and frame.CategoryDivider then
+        frame.CategoryDivider:SetAlpha(0)
+        frame.CategoryDivider:Hide()
+    end
+    StyleJourneyCard(frame)
+end
+
+local function StyleVisibleJourneyCards(journeysList)
+    if not journeysList or not journeysList.ForEachFrame then return end
+    journeysList:ForEachFrame(StyleJourneyListFrame)
 end
 
 local cardFrameAtlases = {
@@ -242,7 +326,7 @@ local function StripCardFrameAtlases(button)
     end
 end
 
-local function GetOrCreateHover(button)
+GetOrCreateHover = function(button)
     local data = NSkin:GetSkinData(button, ENCOUNTER_JOURNAL_STATE)
     local hover = data.encounterHover
     if hover then
@@ -320,6 +404,7 @@ end
 
 function EncounterJournalSkin:RefreshAppearance()
     if not initialized then return end
+    self:RegisterSharedNavigationBar()
     self:StyleSharedWindow()
     self:StyleJourneys()
     self:StyleTravelersLog()
@@ -332,6 +417,24 @@ function EncounterJournalSkin:RefreshAppearance()
     self:StyleVisibleFrames(hookedScrollBox)
     self:StyleBossFrames(bossScrollBox)
     self:StyleInstancePage()
+end
+
+function EncounterJournalSkin:RegisterSharedNavigationBar()
+    local journal = _G.EncounterJournal
+    local navigationBar = journal and journal.navBar
+    if not journal or not navigationBar then return end
+    NSkin:RegisterNavigationBar(IDs.NavigationBar, {
+        module = "EncounterJournal",
+        appearanceWindowID = IDs.AppearanceWindow,
+        label = "Adventure Guide navigation bar",
+        window = journal,
+        target = navigationBar,
+        priority = 40,
+        highlightRegions = { navigationBar },
+        isEditable = function()
+            return journal:IsVisible() and navigationBar:IsVisible()
+        end,
+    })
 end
 
 function EncounterJournalSkin:StyleContentBackground(selectedTab)
@@ -745,15 +848,103 @@ function EncounterJournalSkin:StyleJourneys(forceShown)
     local journeys = journal and journal.JourneysFrame
     local instanceSelect = journal and journal.instanceSelect
     local dropdown = instanceSelect and instanceSelect.ExpansionDropdown
+    local greatVaultButton = instanceSelect and instanceSelect.GreatVaultButton
     if not journal or not journeys then return end
     local journeysTabID = journal.JourneysTab and journal.JourneysTab:GetID()
     local selectedTab = journal.selectedTab
     local shown = forceShown
     if shown == nil then shown = selectedTab == journeysTabID end
-    if not shown then return end
+    if not shown then
+        if greatVaultAtlasButton then greatVaultAtlasButton:Hide() end
+        return
+    end
+
+    -- QuestLogBorderFrameTemplate supplies the ornate outer frame and
+    -- decorative flourishes behind the Journeys content.
+    if journeys.BorderFrame then
+        journeys.BorderFrame:SetAlpha(0)
+        journeys.BorderFrame:Hide()
+    end
+
+    local journeysList = journeys.JourneysList
+    StyleVisibleJourneyCards(journeysList)
+    if journeysList and not journeysListHooked then
+        if type(journeysList.Update) == "function" and hooksecurefunc then
+            hooksecurefunc(journeysList, "Update", function(updatedList)
+                StyleVisibleJourneyCards(updatedList)
+            end)
+        end
+        local scrollEvents = _G.ScrollBoxListMixin and _G.ScrollBoxListMixin.Event
+        if journeysList.RegisterCallback and scrollEvents
+            and scrollEvents.OnInitializedFrame
+        then
+            journeysList:RegisterCallback(scrollEvents.OnInitializedFrame,
+                function(_, frame) StyleJourneyListFrame(frame) end, self)
+        end
+        journeysListHooked = true
+    end
 
     NSkin:SkinDropdown(dropdown, { style = NSkin:GetAppearanceStyle(
         "button", IDs.Journeys.Scope, IDs.Journeys.SeasonDropdown) })
+    if greatVaultButton then
+        greatVaultButton:SetAlpha(0)
+        if greatVaultButton.EnableMouse then
+            greatVaultButton:EnableMouse(false)
+        end
+        local nativeData = NSkin:GetSkinData(
+            greatVaultButton, ENCOUNTER_JOURNAL_STATE)
+        if not nativeData.replacementHideHooked
+            and greatVaultButton.HookScript
+        then
+            greatVaultButton:HookScript("OnShow", function(nativeButton)
+                nativeButton:SetAlpha(0)
+                if nativeButton.EnableMouse then
+                    nativeButton:EnableMouse(false)
+                end
+            end)
+            nativeData.replacementHideHooked = true
+        end
+
+        if not greatVaultAtlasButton then
+            local button = CreateFrame("Button", nil, instanceSelect)
+            button:SetSize(32, 32)
+            button:SetPoint("CENTER", greatVaultButton, "CENTER", 0, 0)
+            button:SetFrameLevel(greatVaultButton:GetFrameLevel() + 1)
+
+            button:SetScript("OnClick", function()
+                if greatVaultButton:IsEnabled() then
+                    greatVaultButton:Click()
+                end
+            end)
+            button:SetScript("OnEnter", function(target)
+                GameTooltip:SetOwner(target, "ANCHOR_RIGHT")
+                GameTooltip:SetText(GREAT_VAULT_REWARDS or "Great Vault")
+                GameTooltip:Show()
+            end)
+            button:SetScript("OnLeave", GameTooltip_Hide)
+            greatVaultAtlasButton = button
+        end
+        greatVaultAtlasButton:Show()
+
+        NSkin:RegisterIconButton(IDs.Journeys.GreatVaultButton, {
+            module = "EncounterJournal",
+            appearanceWindowID = IDs.Journeys.Scope,
+            label = "Journeys Great Vault button",
+            window = journal,
+            target = greatVaultAtlasButton,
+            skinStyle = {
+                atlas = "GreatVault-32x32",
+                crop = 0,
+                iconScale = 0.78,
+            },
+            priority = 81,
+            highlightRegions = { greatVaultAtlasButton },
+            isEditable = function()
+                return journeys:IsVisible()
+                    and greatVaultAtlasButton:IsVisible()
+            end,
+        })
+    end
     if not journeysRegistered and dropdown then
         NSkin:RegisterSimpleMovableElement({
             id = IDs.Journeys.SeasonDropdown,
@@ -868,6 +1059,7 @@ function EncounterJournalSkin:Initialize()
     end
 
     hookedScrollBox = scrollBox
+    self:RegisterSharedNavigationBar()
     if not windowRegistered then
         NSkin:RegisterSkinningElement(IDs.Window, {
             module = "EncounterJournal",
