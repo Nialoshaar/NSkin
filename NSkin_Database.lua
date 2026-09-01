@@ -96,12 +96,6 @@ NSkin.baseAppearance = {
         hoverAlpha = 0.10,
     },
 
-    iconButton = {
-        background = { 0, 0, 0, 0.85 },
-        crop = 0.18,
-        iconScale = 0.62,
-    },
-
     icon = {
         border = { 0, 0, 0, 1 },
         crop = 0.06,

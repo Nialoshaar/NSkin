@@ -10,7 +10,6 @@ local IDs = {
     Journeys = {
         Scope = "EncounterJournal.Journeys",
         SeasonDropdown = "EncounterJournal.Journeys.SeasonDropdown",
-        GreatVaultButton = "EncounterJournal.Journeys.GreatVaultButton",
         ScrollBar = "EncounterJournal.Journeys.ScrollBar",
     },
     TravelersLog = {
@@ -78,7 +77,6 @@ local refreshPasses = 0
 local lastTabID
 local bossScrollBox
 local concealedScrollBox
-local greatVaultAtlasButton
 local concealedOriginalAlpha
 local journeysRegistered = false
 local windowRegistered = false
@@ -848,16 +846,12 @@ function EncounterJournalSkin:StyleJourneys(forceShown)
     local journeys = journal and journal.JourneysFrame
     local instanceSelect = journal and journal.instanceSelect
     local dropdown = instanceSelect and instanceSelect.ExpansionDropdown
-    local greatVaultButton = instanceSelect and instanceSelect.GreatVaultButton
     if not journal or not journeys then return end
     local journeysTabID = journal.JourneysTab and journal.JourneysTab:GetID()
     local selectedTab = journal.selectedTab
     local shown = forceShown
     if shown == nil then shown = selectedTab == journeysTabID end
-    if not shown then
-        if greatVaultAtlasButton then greatVaultAtlasButton:Hide() end
-        return
-    end
+    if not shown then return end
 
     -- QuestLogBorderFrameTemplate supplies the ornate outer frame and
     -- decorative flourishes behind the Journeys content.
@@ -886,65 +880,6 @@ function EncounterJournalSkin:StyleJourneys(forceShown)
 
     NSkin:SkinDropdown(dropdown, { style = NSkin:GetAppearanceStyle(
         "button", IDs.Journeys.Scope, IDs.Journeys.SeasonDropdown) })
-    if greatVaultButton then
-        greatVaultButton:SetAlpha(0)
-        if greatVaultButton.EnableMouse then
-            greatVaultButton:EnableMouse(false)
-        end
-        local nativeData = NSkin:GetSkinData(
-            greatVaultButton, ENCOUNTER_JOURNAL_STATE)
-        if not nativeData.replacementHideHooked
-            and greatVaultButton.HookScript
-        then
-            greatVaultButton:HookScript("OnShow", function(nativeButton)
-                nativeButton:SetAlpha(0)
-                if nativeButton.EnableMouse then
-                    nativeButton:EnableMouse(false)
-                end
-            end)
-            nativeData.replacementHideHooked = true
-        end
-
-        if not greatVaultAtlasButton then
-            local button = CreateFrame("Button", nil, instanceSelect)
-            button:SetSize(32, 32)
-            button:SetPoint("CENTER", greatVaultButton, "CENTER", 0, 0)
-            button:SetFrameLevel(greatVaultButton:GetFrameLevel() + 1)
-
-            button:SetScript("OnClick", function()
-                if greatVaultButton:IsEnabled() then
-                    greatVaultButton:Click()
-                end
-            end)
-            button:SetScript("OnEnter", function(target)
-                GameTooltip:SetOwner(target, "ANCHOR_RIGHT")
-                GameTooltip:SetText(GREAT_VAULT_REWARDS or "Great Vault")
-                GameTooltip:Show()
-            end)
-            button:SetScript("OnLeave", GameTooltip_Hide)
-            greatVaultAtlasButton = button
-        end
-        greatVaultAtlasButton:Show()
-
-        NSkin:RegisterIconButton(IDs.Journeys.GreatVaultButton, {
-            module = "EncounterJournal",
-            appearanceWindowID = IDs.Journeys.Scope,
-            label = "Journeys Great Vault button",
-            window = journal,
-            target = greatVaultAtlasButton,
-            skinStyle = {
-                atlas = "GreatVault-32x32",
-                crop = 0,
-                iconScale = 0.78,
-            },
-            priority = 81,
-            highlightRegions = { greatVaultAtlasButton },
-            isEditable = function()
-                return journeys:IsVisible()
-                    and greatVaultAtlasButton:IsVisible()
-            end,
-        })
-    end
     if not journeysRegistered and dropdown then
         NSkin:RegisterSimpleMovableElement({
             id = IDs.Journeys.SeasonDropdown,
