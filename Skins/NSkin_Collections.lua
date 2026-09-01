@@ -12,6 +12,21 @@ local IDs = {
     AppearanceWindow = "Collections",
     Window = "Collections.Journal.Window",
     MainTabs = "Collections.MainTabs",
+    MountJournal = {
+        Scope = "Collections.MountJournal", Search = {
+            Group = "Collections.MountJournal.SearchBox",
+            Filter = "Collections.MountJournal.Filter",
+        },
+        Mount = "Collections.MountJournal.MountButton",
+    },
+    PetJournal = {
+        Scope = "Collections.PetJournal", Search = {
+            Group = "Collections.PetJournal.SearchBox",
+            Filter = "Collections.PetJournal.Filter",
+        },
+        Summon = "Collections.PetJournal.SummonButton",
+        FindBattle = "Collections.PetJournal.FindBattleButton",
+    },
     ToyBox = {
         Scope = "Collections.ToyBox", Search = {
             Group = "Collections.ToyBox.SearchBox",
@@ -47,6 +62,13 @@ local IDs = {
                 Text = "Collections.Appearances.Items.Pagination.Text" },
             ProgressBar = "Collections.Appearances.Items.ProgressBar" },
     },
+    Campsites = {
+        Scope = "Collections.Campsites",
+        Pagination = { Group = "Collections.Campsites.Pagination",
+            Previous = "Collections.Campsites.Pagination.Previous",
+            Next = "Collections.Campsites.Pagination.Next",
+            Text = "Collections.Campsites.Pagination.Text" },
+    },
 }
 local WINDOW_BUTTON_TEXT_SIZE = 20
 
@@ -56,6 +78,12 @@ NSkin:RegisterAppearanceScope(IDs.AppearanceWindow, {
 NSkin:RegisterAppearanceScope(IDs.ToyBox.Scope, {
     label = "Toy Box", parent = IDs.AppearanceWindow,
 })
+NSkin:RegisterAppearanceScope(IDs.MountJournal.Scope, {
+    label = "Mount Journal", parent = IDs.AppearanceWindow,
+})
+NSkin:RegisterAppearanceScope(IDs.PetJournal.Scope, {
+    label = "Pet Journal", parent = IDs.AppearanceWindow,
+})
 NSkin:RegisterAppearanceScope(IDs.Heirlooms.Scope, {
     label = "Heirlooms", parent = IDs.AppearanceWindow,
 })
@@ -64,6 +92,9 @@ NSkin:RegisterAppearanceScope(IDs.Appearances.Scope, {
 })
 NSkin:RegisterAppearanceScope(IDs.Appearances.Items.Scope, {
     label = "Appearances - Items", parent = IDs.Appearances.Scope,
+})
+NSkin:RegisterAppearanceScope(IDs.Campsites.Scope, {
+    label = "Campsites", parent = IDs.AppearanceWindow,
 })
 local HEIRLOOM_QUALITY = _G.Enum and _G.Enum.ItemQuality and _G.Enum.ItemQuality.Heirloom or 7
 local Item = _G.C_Item
@@ -79,31 +110,48 @@ local State = {
     initialized = { Collections = false, ToyBox = false,
         Heirlooms = false, AppearanceTabs = false },
     Main = { tabs = nil },
+    MountJournal = { searchController = nil, groupedAnchor = nil },
+    PetJournal = { searchController = nil, groupedAnchor = nil },
     ToyBox = { paginationController = nil, searchController = nil,
         groupedAnchor = nil, backgroundHooked = false },
     Heirlooms = { paginationController = nil, searchController = nil,
         groupedAnchor = nil },
     Appearances = { Items = { paginationController = nil,
         searchController = nil, groupedAnchor = nil } },
+    Campsites = { paginationController = nil },
     menu = { hooked = false, owners = setmetatable({}, { __mode = "k" }),
         activeDropdown = nil, activeMenu = nil },
 }
 local Adapters = {
+    MountJournal = { scopeID = IDs.MountJournal.Scope,
+        state = State.MountJournal },
+    PetJournal = { scopeID = IDs.PetJournal.Scope,
+        state = State.PetJournal },
     ToyBox = { scopeID = IDs.ToyBox.Scope, state = State.ToyBox },
     Heirlooms = { scopeID = IDs.Heirlooms.Scope,
         state = State.Heirlooms },
     AppearanceItems = { scopeID = IDs.Appearances.Items.Scope,
         state = State.Appearances.Items },
+    Campsites = { scopeID = IDs.Campsites.Scope,
+        state = State.Campsites },
 }
 local ACTIVE_ADAPTERS = {
-    Adapters.ToyBox, Adapters.Heirlooms, Adapters.AppearanceItems,
+    Adapters.MountJournal, Adapters.PetJournal, Adapters.ToyBox,
+    Adapters.Heirlooms,
+    Adapters.AppearanceItems,
+    Adapters.Campsites,
 }
 
 function Adapters.ToyBox:IsAvailable() return _G.ToyBox ~= nil end
+function Adapters.MountJournal:IsAvailable() return _G.MountJournal ~= nil end
+function Adapters.PetJournal:IsAvailable() return _G.PetJournal ~= nil end
 function Adapters.Heirlooms:IsAvailable() return _G.HeirloomsJournal ~= nil end
 function Adapters.AppearanceItems:IsAvailable()
     return _G.WardrobeCollectionFrame
         and _G.WardrobeCollectionFrame.ItemsCollectionFrame
+end
+function Adapters.Campsites:IsAvailable()
+    return _G.WarbandSceneJournal ~= nil
 end
 for name, adapter in pairs(Adapters) do
     adapter.name = name
@@ -246,13 +294,14 @@ local function SkinCollectionDropdownButton(button, fallbackLabel, preserveText)
 end
 
 local function RegisterCollectionMovableElement(id, appearanceWindowID, label,
-    journal, target, priority, anchorHighlight, editorOptions, isEditable)
+    journal, target, priority, anchorHighlight, editorOptions, isEditable, kind)
     if not journal or not target then return end
     return NSkin:RegisterSimpleMovableElement({
         id = id,
         module = "Collections",
         appearanceWindowID = appearanceWindowID,
         label = label,
+        kind = kind,
         window = journal,
         target = target,
         editorOptions = editorOptions,
@@ -362,6 +411,7 @@ local function RemoveCollectionPageBackgrounds()
 
     local scenes = _G.WarbandSceneJournal
     if scenes then
+        RemoveBackgroundFrame(scenes.IconsFrame)
         RemoveBackgroundFrame(scenes.iconsFrame)
         RemoveBackgroundFrame(scenes.ContentFrame)
         HideBackgroundTexture(scenes.Background)
@@ -496,6 +546,125 @@ SkinCollectionsWindow = function(adapterName)
     NSkin:SkinFlatButton(closeButton, "x", nil, nil, WINDOW_BUTTON_TEXT_SIZE)
 
     SkinCollectionTabs()
+    end
+
+    local mountJournal = _G.MountJournal
+    if mountJournal and (not adapterName or adapterName == "MountJournal") then
+        local searchBox = mountJournal.searchBox or mountJournal.SearchBox
+        local filterDropdown = mountJournal.FilterDropdown
+        local mountButton = mountJournal.MountButton
+        local searchStyle = NSkin:GetAppearanceStyle(
+            "searchBox", IDs.MountJournal.Scope,
+            IDs.MountJournal.Search.Group)
+        NSkin:SkinSearchBox(searchBox, searchStyle,
+            NSkin:GetAppearanceBorderColor("searchBox", searchStyle,
+                IDs.MountJournal.Scope, IDs.MountJournal.Search.Group))
+        SkinCollectionDropdownButton(filterDropdown, "Filter", false)
+        NSkin:SkinActionButton(mountButton)
+        if searchBox and filterDropdown
+            and not State.MountJournal.groupedAnchor
+        then
+            State.MountJournal.groupedAnchor = CaptureSearchAccessoryAnchor(
+                searchBox, filterDropdown)
+        end
+        RegisterCollectionMovableElement(
+            IDs.MountJournal.Mount, IDs.MountJournal.Scope,
+            "Mount Journal mount button", journal, mountButton, 82,
+            nil, nil, function()
+                return mountJournal:IsVisible() and mountButton:IsVisible()
+            end, "ACTION_BUTTON")
+        if not State.MountJournal.searchController then
+            State.MountJournal.searchController = NSkin:RegisterAccessoryGroup({
+                module = "Collections",
+                appearanceWindowID = IDs.MountJournal.Scope,
+                window = journal,
+                ids = { primary = IDs.MountJournal.Search.Group,
+                    accessory = IDs.MountJournal.Search.Filter },
+                primary = searchBox, accessory = filterDropdown,
+                primaryLabel = "Mount Journal search bar",
+                accessoryLabel = "Mount Journal filter",
+                primaryPriority = 80, accessoryPriority = 90,
+                visibilityFrame = mountJournal,
+                anchorGrouped = function(primary, accessory)
+                    local anchor = State.MountJournal.groupedAnchor
+                    if not anchor then return false end
+                    if accessory.IsProtected and accessory:IsProtected() then
+                        return false
+                    end
+                    if _G.InCombatLockdown and _G.InCombatLockdown() then
+                        return false
+                    end
+                    accessory:ClearAllPoints()
+                    accessory:SetPoint(anchor.point, primary,
+                        anchor.relativePoint, anchor.x, anchor.y)
+                    return true
+                end,
+            })
+        else
+            State.MountJournal.searchController:Refresh()
+        end
+    end
+
+    local petJournal = _G.PetJournal
+    if petJournal and (not adapterName or adapterName == "PetJournal") then
+        local searchBox = petJournal.searchBox or petJournal.SearchBox
+        local filterDropdown = petJournal.FilterDropdown
+        local summonButton = petJournal.SummonButton
+        local findBattleButton = petJournal.FindBattleButton
+        local searchStyle = NSkin:GetAppearanceStyle(
+            "searchBox", IDs.PetJournal.Scope, IDs.PetJournal.Search.Group)
+        NSkin:SkinSearchBox(searchBox, searchStyle,
+            NSkin:GetAppearanceBorderColor("searchBox", searchStyle,
+                IDs.PetJournal.Scope, IDs.PetJournal.Search.Group))
+        SkinCollectionDropdownButton(filterDropdown, "Filter", false)
+        NSkin:SkinActionButton(summonButton)
+        NSkin:SkinActionButton(findBattleButton)
+        if searchBox and filterDropdown and not State.PetJournal.groupedAnchor then
+            State.PetJournal.groupedAnchor = CaptureSearchAccessoryAnchor(
+                searchBox, filterDropdown)
+        end
+        RegisterCollectionMovableElement(
+            IDs.PetJournal.Summon, IDs.PetJournal.Scope,
+            "Pet Journal summon button", journal, summonButton, 82,
+            nil, nil, function()
+                return petJournal:IsVisible() and summonButton:IsVisible()
+            end, "ACTION_BUTTON")
+        RegisterCollectionMovableElement(
+            IDs.PetJournal.FindBattle, IDs.PetJournal.Scope,
+            "Pet Journal find battle button", journal, findBattleButton, 83,
+            nil, nil, function()
+                return petJournal:IsVisible() and findBattleButton:IsVisible()
+            end, "ACTION_BUTTON")
+        if not State.PetJournal.searchController then
+            State.PetJournal.searchController = NSkin:RegisterAccessoryGroup({
+                module = "Collections",
+                appearanceWindowID = IDs.PetJournal.Scope,
+                window = journal,
+                ids = { primary = IDs.PetJournal.Search.Group,
+                    accessory = IDs.PetJournal.Search.Filter },
+                primary = searchBox, accessory = filterDropdown,
+                primaryLabel = "Pet Journal search bar",
+                accessoryLabel = "Pet Journal filter",
+                primaryPriority = 80, accessoryPriority = 90,
+                visibilityFrame = petJournal,
+                anchorGrouped = function(primary, accessory)
+                    local anchor = State.PetJournal.groupedAnchor
+                    if not anchor then return false end
+                    if accessory.IsProtected and accessory:IsProtected() then
+                        return false
+                    end
+                    if _G.InCombatLockdown and _G.InCombatLockdown() then
+                        return false
+                    end
+                    accessory:ClearAllPoints()
+                    accessory:SetPoint(anchor.point, primary,
+                        anchor.relativePoint, anchor.x, anchor.y)
+                    return true
+                end,
+            })
+        else
+            State.PetJournal.searchController:Refresh()
+        end
     end
 
     local toyBox = _G.ToyBox
@@ -754,6 +923,35 @@ SkinCollectionsWindow = function(adapterName)
             })
         else
             State.Appearances.Items.paginationController:Refresh()
+        end
+    end
+
+    local campsites = _G.WarbandSceneJournal
+    if campsites and (not adapterName or adapterName == "Campsites") then
+        local iconsFrame = campsites.IconsFrame or campsites.iconsFrame
+        RemoveBackgroundFrame(iconsFrame)
+        local icons = iconsFrame and iconsFrame.Icons
+        local controls = icons and icons.Controls
+        local pagingControls = controls and controls.PagingControls
+        local pagingGroup, previousPage, nextPage, pageText =
+            ResolvePagingControls(campsites, pagingControls)
+        NSkin:SkinPagingControls(pagingGroup or pagingControls)
+        if not State.Campsites.paginationController then
+            State.Campsites.paginationController = NSkin:RegisterPaginationGroup({
+                module = "Collections",
+                appearanceWindowID = IDs.Campsites.Scope,
+                window = journal,
+                ids = { group = IDs.Campsites.Pagination.Group,
+                    previous = IDs.Campsites.Pagination.Previous,
+                    next = IDs.Campsites.Pagination.Next,
+                    text = IDs.Campsites.Pagination.Text },
+                controls = { group = pagingGroup, previous = previousPage,
+                    next = nextPage, text = pageText },
+                groupLabel = "Campsites pagination", groupPriority = 82,
+                visibilityFrame = campsites,
+            })
+        else
+            State.Campsites.paginationController:Refresh()
         end
     end
 end

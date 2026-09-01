@@ -46,7 +46,7 @@ end
 
 local RefreshInspector
 
-local function ResetElementToBlizzardDefaults(element)
+local function ResetElementCustomizations(element)
     if not element then return false end
     local resetGroups = {}
     local editorOptions = element.editorOptions
@@ -352,7 +352,7 @@ function NSkin:CreateDockedWindow(owner)
             button2 = NO,
             OnAccept = function(_, element)
                 if element then
-                    ResetElementToBlizzardDefaults(element)
+                    ResetElementCustomizations(element)
                     RefreshInspector()
                 end
             end,

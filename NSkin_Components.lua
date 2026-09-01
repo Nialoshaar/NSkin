@@ -3,16 +3,6 @@ local _, NSkin = ...
 
 local resolvedStyles = {}
 local appearanceScopes = {}
-local APPEARANCE_GEOMETRY_KEYS = {
-    typography = { size = true },
-    window = { header = { height = true } },
-    tab = { width = true, height = true, spacing = true, bottom = true },
-    searchBox = { width = true, height = true, textSize = true,
-        textOffsetX = true, textOffsetY = true, placeholderSize = true,
-        placeholderOffsetX = true, placeholderOffsetY = true },
-    sectionHeader = { textSize = true },
-    progressBar = { height = true },
-}
 
 local function RoundOne(value)
     value = tonumber(value) or 0
@@ -83,19 +73,6 @@ local function CopyWithOverrides(defaults, overrides)
     return result
 end
 
-local function RemoveGeometryValues(style, geometry)
-    for key, value in pairs(geometry or {}) do
-        if type(value) == "table" then
-            if type(style[key]) == "table" then
-                RemoveGeometryValues(style[key], value)
-                if not next(style[key]) then style[key] = nil end
-            end
-        elseif value then
-            style[key] = nil
-        end
-    end
-end
-
 function NSkin:GetStyle(name)
     local cached = resolvedStyles[name]
     if cached then return cached end
@@ -164,11 +141,10 @@ end
 function NSkin:GetAppearanceStyle(name, windowID, elementID)
     local style = self:GetStyle(name)
     if not style then return nil end
-    -- Global appearance controls provide visual inheritance only. Geometry is
-    -- opt-in per window or element so untouched Blizzard windows retain their
-    -- live dimensions and layout.
+    -- baseAppearance contains styling only. GetStyle() adds the sparse global
+    -- profile layer, whose explicit geometry must remain available to every
+    -- compatible component before window and element overrides are applied.
     style = CopyWithOverrides({}, style)
-    RemoveGeometryValues(style, APPEARANCE_GEOMETRY_KEYS[name])
     local profile = self:GetProfile()
     local overrides = profile.appearanceOverrides
     local chain = windowID and GetAppearanceScopeChain(windowID)
@@ -1320,6 +1296,140 @@ function NSkin:SkinFlatButton(button, label, backgroundColor, borderColor,
     if text then text:SetTextColor(unpack(style.text)) end
 end
 
+local function RefreshActionButton(button)
+    local data = NSkin:GetSkinData(button, COMPONENT_STATE, false)
+    if not data or not data.label then return end
+    local enabled = not button.IsEnabled or button:IsEnabled()
+    data.label:SetTextColor(1, 1, 1, enabled and 1 or 0.45)
+end
+
+function NSkin:SkinActionButton(button, options)
+    if not button then return end
+    options = options or {}
+    local data = self:GetSkinData(button, COMPONENT_STATE)
+    local nativeText = button.GetFontString and button:GetFontString()
+    local label = button.GetText and button:GetText() or ""
+    self:SkinFlatButton(button, label,
+        options.background or { 0, 0, 0, 0.85 },
+        options.border or self:GetComponentBorderColor(
+            "button", self:GetStyle("button")),
+        options.textSize)
+    local border = self:GetPixelBorder(button, "NSkinFlatBackgroundBorder")
+    self:SetPixelBorderSize(border, 1)
+    if nativeText and nativeText ~= data.label then
+        nativeText:SetAlpha(0)
+        data.actionNativeText = nativeText
+    end
+    if not data.actionTextHooked and button.SetText and _G.hooksecurefunc then
+        _G.hooksecurefunc(button, "SetText", function(_, value)
+            local state = NSkin:GetSkinData(button, COMPONENT_STATE, false)
+            if state and state.label then state.label:SetText(value or "") end
+        end)
+        data.actionTextHooked = true
+    end
+    if not data.actionStateHooked and button.HookScript then
+        button:HookScript("OnEnable", RefreshActionButton)
+        button:HookScript("OnDisable", RefreshActionButton)
+        data.actionStateHooked = true
+    end
+    RefreshActionButton(button)
+end
+
+function NSkin:SkinDropdown(dropdown, options)
+    if not dropdown then return end
+    options = options or {}
+    local style = self:GetStyle("button")
+    self:CreateFlatBackground(dropdown, nil,
+        options.background or style.background,
+        options.border or self:GetComponentBorderColor("button", style))
+    local border = self:GetPixelBorder(dropdown, "NSkinFlatBackgroundBorder")
+    self:SetPixelBorderSize(border, 1)
+    self:CreateFlatButtonGlow(dropdown, style.hoverAlpha)
+    if dropdown.Background then dropdown.Background:SetAlpha(0) end
+    if dropdown.Arrow then dropdown.Arrow:SetAlpha(0) end
+    if dropdown.NineSlice then dropdown.NineSlice:Hide() end
+    if dropdown.Text then
+        dropdown.Text:SetTextColor(unpack(style.text))
+        dropdown.Text:SetAlpha(1)
+    end
+    local data = self:GetSkinData(dropdown, COMPONENT_STATE)
+    local arrow = data.dropdownArrow
+    if not arrow then
+        arrow = dropdown:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        arrow:SetPoint("RIGHT", dropdown, "RIGHT", -8, 0)
+        arrow:SetText("v")
+        data.dropdownArrow = arrow
+    end
+    arrow:SetTextColor(unpack(self:GetSharedBorderColor()))
+    arrow:Show()
+end
+
+local function RefreshScrollBarArrow(button)
+    local data = NSkin:GetSkinData(button, COMPONENT_STATE, false)
+    if data and data.scrollArrow then
+        local enabled = not button.IsEnabled or button:IsEnabled()
+        data.scrollArrow:SetAlpha(enabled and 1 or 0.35)
+    end
+end
+
+function NSkin:SkinScrollBar(scrollBar)
+    if not scrollBar then return end
+    local accent = self:GetAccentColor()
+    local track = scrollBar.Track
+    local thumb = track and track.Thumb
+    local data = self:GetSkinData(scrollBar, COMPONENT_STATE)
+    if track then
+        for _, texture in ipairs({ track.Begin, track.Middle, track.End }) do
+            if texture then texture:SetAlpha(0) end
+        end
+        if not data.scrollTrack then
+            data.scrollTrack = track:CreateTexture(nil, "BACKGROUND", nil, -8)
+            data.scrollTrack:SetPoint("TOP", track, "TOP", 0, 0)
+            data.scrollTrack:SetPoint("BOTTOM", track, "BOTTOM", 0, 0)
+            data.scrollTrack:SetWidth(2)
+            self:ConfigureOwnedPixelTexture(data.scrollTrack)
+        end
+        data.scrollTrack:SetColorTexture(0.25, 0.25, 0.25, 1)
+    end
+    if thumb then
+        for _, texture in ipairs({ thumb.Begin, thumb.Middle, thumb.End }) do
+            if texture then texture:SetAlpha(0) end
+        end
+        if not data.scrollThumb then
+            data.scrollThumb = thumb:CreateTexture(nil, "ARTWORK", nil, 7)
+            data.scrollThumb:SetPoint("TOP", thumb, "TOP", 0, 0)
+            data.scrollThumb:SetPoint("BOTTOM", thumb, "BOTTOM", 0, 0)
+            data.scrollThumb:SetWidth(6)
+            self:ConfigureOwnedPixelTexture(data.scrollThumb)
+        end
+        data.scrollThumb:SetColorTexture(unpack(accent))
+    end
+    for _, entry in ipairs({ { scrollBar.Back, math.pi },
+        { scrollBar.Forward, 0 } })
+    do
+        local button, rotation = entry[1], entry[2]
+        if button then
+            if button.Texture then button.Texture:SetAlpha(0) end
+            local buttonData = self:GetSkinData(button, COMPONENT_STATE)
+            if not buttonData.scrollArrow then
+                buttonData.scrollArrow = button:CreateTexture(nil, "OVERLAY")
+                buttonData.scrollArrow:SetAllPoints(button)
+                buttonData.scrollArrow:SetTexture(
+                    self.mediaPath .. "angle-small-down.png")
+                buttonData.scrollArrow:SetRotation(rotation)
+                self:ConfigureOwnedPixelTexture(buttonData.scrollArrow)
+            end
+            if not buttonData.scrollArrowHooked and button.HookScript then
+                button:HookScript("OnEnable", RefreshScrollBarArrow)
+                button:HookScript("OnDisable", RefreshScrollBarArrow)
+                buttonData.scrollArrowHooked = true
+            end
+            buttonData.scrollArrow:SetVertexColor(unpack(accent))
+            RefreshScrollBarArrow(button)
+        end
+    end
+end
+
 function NSkin:SkinSearchBox(searchBox, style, borderColor)
     if not searchBox then return end
 
@@ -1363,16 +1473,25 @@ function NSkin:SkinSearchBox(searchBox, style, borderColor)
     end
     self:ApplyResolvedTypography(searchBox, style)
     if searchBox.GetTextInsets and searchBox.SetTextInsets then
-        if not searchData.searchTextInsets then
-            searchData.searchTextInsets = { searchBox:GetTextInsets() }
+        local hasInsetOverride = style.textOffsetX ~= nil
+            or style.textOffsetY ~= nil
+        if hasInsetOverride then
+            local baseline = self:GetComponentBaseline(searchData.baselineID)
+            local insets = baseline and baseline.textInsets
+            if insets then
+                local offsetX = style.textOffsetX or 0
+                local offsetY = style.textOffsetY or 0
+                self:MarkComponentGeometryModified(
+                    searchData.baselineID, "textInsets", true)
+                searchBox:SetTextInsets((insets[1] or 0) + offsetX,
+                    (insets[2] or 0) - offsetX,
+                    (insets[3] or 0) - offsetY,
+                    (insets[4] or 0) + offsetY)
+            end
+        else
+            self:RestoreComponentBaseline(
+                searchData.baselineID, { textInsets = true })
         end
-        local insets = searchData.searchTextInsets
-        local offsetX, offsetY = style.textOffsetX or 0, style.textOffsetY or 0
-        self:MarkComponentGeometryModified(searchData.baselineID, "textInsets",
-            style.textOffsetX ~= nil or style.textOffsetY ~= nil)
-        searchBox:SetTextInsets((insets[1] or 0) + offsetX,
-            (insets[2] or 0) - offsetX, (insets[3] or 0) - offsetY,
-            (insets[4] or 0) + offsetY)
     end
     local instructions = searchBox.Instructions or searchBox.instructions
     if instructions then
@@ -1380,18 +1499,34 @@ function NSkin:SkinSearchBox(searchBox, style, borderColor)
             self:GetResolvedAppearanceColor(style, "placeholderText")))
         self:ApplyResolvedTypography(instructions, style, "placeholder")
         local data = self:GetSkinData(instructions, COMPONENT_STATE)
-        if not data.searchPlaceholderPoints then
-            data.searchPlaceholderPoints = {}
-            for i = 1, instructions:GetNumPoints() do
-                data.searchPlaceholderPoints[i] = { instructions:GetPoint(i) }
-            end
+        if not data.placeholderBaselineID then
+            data.placeholderBaselineID =
+                "SearchPlaceholder:" .. tostring(instructions)
+            self:CaptureComponentBaseline(
+                data.placeholderBaselineID, instructions, {
+                points = true,
+            })
         end
-        instructions:ClearAllPoints()
-        for i = 1, #data.searchPlaceholderPoints do
-            local point = data.searchPlaceholderPoints[i]
-            instructions:SetPoint(point[1], point[2], point[3],
-                (point[4] or 0) + (style.placeholderOffsetX or 0),
-                (point[5] or 0) + (style.placeholderOffsetY or 0))
+        local hasPlaceholderOverride = style.placeholderOffsetX ~= nil
+            or style.placeholderOffsetY ~= nil
+        if hasPlaceholderOverride then
+            local baseline = self:GetComponentBaseline(
+                data.placeholderBaselineID)
+            local points = baseline and baseline.points
+            if points then
+                self:MarkComponentGeometryModified(
+                    data.placeholderBaselineID, "points", true)
+                instructions:ClearAllPoints()
+                for i = 1, #points do
+                    local point = points[i]
+                    instructions:SetPoint(point[1], point[2], point[3],
+                        (point[4] or 0) + (style.placeholderOffsetX or 0),
+                        (point[5] or 0) + (style.placeholderOffsetY or 0))
+                end
+            end
+        else
+            self:RestoreComponentBaseline(
+                data.placeholderBaselineID, { points = true })
         end
     end
     if searchIcon then searchIcon:Show() end
@@ -1577,6 +1712,8 @@ local SHARED_TYPE_DEFINITIONS = {
     TAB_GROUP = { style = "tab", skin = "SkinTab",
         appearanceControls = "shared.tabAppearance" },
     BUTTON = { style = "button", skin = "SkinFlatButton", editorPreset = "MOVABLE" },
+    ACTION_BUTTON = { style = "button", skin = "SkinActionButton",
+        editorPreset = "MOVABLE" },
     DROPDOWN = { style = "button", skin = "SkinDropdown", editorPreset = "MOVABLE" },
     SEARCH_GROUP = { style = "searchBox", skin = "SkinSearchBox" },
     SEARCH_ACCESSORY = { style = "button", skin = "SkinDropdown" },
@@ -2300,8 +2437,11 @@ function NSkin:RegisterMovableElement(definition)
     local customApply = definition.applyPlacement
     definition.kind = definition.kind or "MOVABLE"
     if not definition.editorOptions then
+        local sharedType = self:GetSharedElementType(definition.kind)
         definition.editorOptions = self:CreateEditorOptionsPreset(
-            definition.editorPreset or definition.kind,
+            definition.editorPreset
+                or (sharedType and sharedType.editorPreset)
+                or definition.kind,
             definition.extraEditorOptions)
     end
     definition.draggable = definition.draggable ~= false
