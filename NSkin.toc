@@ -10,6 +10,7 @@
 NSkin_Core.lua
 NSkin_Database.lua
 NSkin_Components.lua
+NSkin_Discovery.lua
 Options\NSkin_ComponentsOptions.lua
 Skins\NSkin_SpellBook.lua
 Skins\NSkin_Collections.lua

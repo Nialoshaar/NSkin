@@ -2516,6 +2516,20 @@ function NSkin:GetSkinningElement(elementID)
     return skinningElements[elementID]
 end
 
+function NSkin:RekeySkinningElement(oldID, newID, expectedElement)
+    if type(oldID) ~= "string" or type(newID) ~= "string"
+        or oldID == "" or newID == "" or oldID == newID
+    then return false end
+    local element = skinningElements[oldID]
+    if not element or (expectedElement and element ~= expectedElement)
+        or (skinningElements[newID] and skinningElements[newID] ~= element)
+    then return false end
+    skinningElements[oldID] = nil
+    element.id = newID
+    skinningElements[newID] = element
+    return true
+end
+
 function NSkin:IsSkinningElementEditable(element)
     if not element then return false end
     return type(element.isEditable) ~= "function" or element.isEditable(element) == true

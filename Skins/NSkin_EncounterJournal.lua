@@ -118,6 +118,7 @@ local travelersScrollBarRegistered = false
 local travelersFilterScrollBarRegistered = false
 local journeysListHooked = false
 local expansionMenuTypographyRegistered = false
+local discoveryAuditCompleted = false
 local expansionMenuFontObjects = {}
 local expansionMenuFontObjectCount = 0
 
@@ -1778,6 +1779,61 @@ function EncounterJournalSkin:Initialize()
         tabsRegistered = true
     end
     self:StyleAdventureGuideTabs()
+
+    -- V1 discovery remains audit-only until canonical IDs, reset behavior,
+    -- and both registration orders have been verified in-game. Recycled
+    -- ScrollBoxes and unusual controls stay under this adapter's ownership.
+    if not discoveryAuditCompleted and NSkin.DiscoverSharedElements then
+        local exclude = {}
+        local excludeChildrenOf = {}
+        for _, frame in ipairs({
+            instanceSelect and instanceSelect.ScrollBox,
+            journal.JourneysFrame and journal.JourneysFrame.ScrollBox,
+            journal.MonthlyActivitiesFrame
+                and journal.MonthlyActivitiesFrame.ScrollBox,
+            info and info.BossesScrollBox,
+            info and info.LootContainer and info.LootContainer.ScrollBox,
+        }) do
+            if frame then excludeChildrenOf[frame] = true end
+        end
+        for _, frame in ipairs({
+            journal.GreatVaultButton,
+            info and info.instanceButton,
+        }) do
+            if frame then exclude[frame] = true end
+        end
+        local semanticIDs = {}
+        local function Map(frame, id)
+            if frame then semanticIDs[frame] = id end
+        end
+        Map(instanceSelect and instanceSelect.SearchBox,
+            IDs.Instances.Search)
+        Map(instanceSelect and instanceSelect.ScrollBar,
+            IDs.Instances.ScrollBar)
+        Map(instanceSelect and instanceSelect.ExpansionDropdown,
+            IDs.Journeys.SeasonDropdown)
+        Map(journal.JourneysFrame and journal.JourneysFrame.ScrollBar,
+            IDs.Journeys.ScrollBar)
+        Map(journal.MonthlyActivitiesFrame
+                and journal.MonthlyActivitiesFrame.ScrollBar,
+            IDs.TravelersLog.ScrollBar)
+        Map(journal.MonthlyActivitiesFrame
+                and journal.MonthlyActivitiesFrame.FilterList
+                and journal.MonthlyActivitiesFrame.FilterList.ScrollBar,
+            IDs.TravelersLog.FilterScrollBar)
+        self.discoveryAuditSummary = NSkin:DiscoverSharedElements(
+            IDs.AppearanceWindow, journal, {
+                auditOnly = true,
+                module = "EncounterJournal",
+                appearanceWindowID = IDs.AppearanceWindow,
+                exclude = exclude,
+                excludeChildrenOf = excludeChildrenOf,
+                semanticIDs = semanticIDs,
+                maxDepth = 12,
+                maxCandidates = 500,
+            })
+        discoveryAuditCompleted = true
+    end
     initialized = true
     return true
 end
@@ -1813,6 +1869,13 @@ function EncounterJournalSkin:Debug()
         refreshPasses,
         tostring(concealedScrollBox ~= nil)
     ))
+    local audit = self.discoveryAuditSummary
+    if audit then
+        NSkin:Print(("discovery audit scanned=%d candidates=%d preserved=%d skipped=%d errors=%d registered=%d"):format(
+            audit.scanned or 0, audit.candidate or 0,
+            audit.preserved or 0, audit.skipped or 0,
+            audit.errors or 0, audit.registered or 0))
+    end
 
     local journal = _G.EncounterJournal
     local instanceSelect = journal and journal.instanceSelect
