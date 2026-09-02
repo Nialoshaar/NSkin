@@ -127,6 +127,8 @@ local journeysListHooked = false
 local expansionMenuTypographyRegistered = false
 local discoveryAuditCompleted = false
 local discoveryTabsScanned = {}
+local cleanupAudit = {}
+local cleanupAuditSummary = {}
 local expansionMenuFontObjects = {}
 local expansionMenuFontObjectCount = 0
 
@@ -1648,7 +1650,129 @@ function EncounterJournalSkin:RunSharedElementDiscovery()
             + (self.discoveryAuditSummary[key] or 0)
     end
     discoveryAuditCompleted = true
+    self:BuildCleanupEligibilityAudit()
     return self.discoveryAuditSummary
+end
+
+function EncounterJournalSkin:BuildCleanupEligibilityAudit()
+    local journal = _G.EncounterJournal
+    local instanceSelect = journal and journal.instanceSelect
+    local info = journal and journal.encounter and journal.encounter.info
+    if not journal or not instanceSelect or not info then return nil end
+
+    -- Pass 4 is deliberately audit-only. These are the only explicit
+    -- Encounter Journal registrations currently overlapped by the strict
+    -- discovery allowlist. Keep the discovery identity independent of the
+    -- live registry so an explicit registration cannot prove its own ID.
+    local candidates = {
+        {
+            canonicalID = IDs.Instances.Search,
+            discoveryID = IDs.Instances.Search,
+            target = instanceSelect.SearchBox,
+            explicitType = "editBox",
+            discoveryType = "editBox",
+            explicitScope = IDs.Instances.Scope,
+            discoveryScope = IDs.Instances.Scope,
+            specialMetadata = "label,priority,highlightRegions,isEditable,movable-layout",
+        },
+        {
+            canonicalID = IDs.Instances.ScrollBar,
+            discoveryID = IDs.Instances.ScrollBar,
+            target = instanceSelect.ScrollBar,
+            explicitType = "scrollBar",
+            discoveryType = "scrollBar",
+            explicitScope = IDs.Instances.Scope,
+            discoveryScope = IDs.Instances.Scope,
+            specialMetadata = "label,priority,highlightRegions,isEditable,movable-layout",
+        },
+        {
+            canonicalID = IDs.Journeys.SeasonDropdown,
+            discoveryID = IDs.Journeys.SeasonDropdown,
+            target = instanceSelect.ExpansionDropdown,
+            explicitType = "dropdown",
+            discoveryType = "dropdown",
+            explicitScope = IDs.Journeys.Scope,
+            discoveryScope = IDs.Journeys.Scope,
+            specialMetadata = "label,priority,highlightRegions,isEditable,movable-layout",
+        },
+    }
+
+    wipe(cleanupAudit)
+    local summary = { explicitOverlap = #candidates, eligible = 0,
+        retain = 0, idMismatch = 0, typeMismatch = 0,
+        specialMetadata = 0, resetMismatch = 0, unvalidated = 0 }
+    for _, candidate in ipairs(candidates) do
+        local record = candidate.target
+            and NSkin:GetComponentRegistrationByFrame(candidate.target)
+        local observed = record ~= nil
+        local canonicalMatch = observed
+            and candidate.discoveryID == candidate.canonicalID
+        local typeMatch = observed
+            and candidate.explicitType == candidate.discoveryType
+            and record.componentType == candidate.explicitType
+        local appearanceScopeMatch = observed
+            and candidate.explicitScope == candidate.discoveryScope
+            and record.appearanceWindowID == candidate.explicitScope
+        local editabilityExplicit = "custom"
+        local editabilityDiscovery = "default"
+        local editabilityMatch = false
+        -- The explicit movable path captures geometry and supplies placement
+        -- restoration in addition to the shared component baseline. Discovery
+        -- alone therefore cannot yet prove equivalent reset ownership.
+        local resetCompatible = false
+        local cleanupEligible = observed and canonicalMatch and typeMatch
+            and appearanceScopeMatch and editabilityMatch
+            and not candidate.specialMetadata and resetCompatible
+        local reason
+        if not observed then
+            reason = "not-observed"
+            summary.unvalidated = summary.unvalidated + 1
+        elseif not canonicalMatch then
+            reason = "id-continuity"
+            summary.idMismatch = summary.idMismatch + 1
+        elseif not typeMatch then
+            reason = "component-type"
+            summary.typeMismatch = summary.typeMismatch + 1
+        elseif not appearanceScopeMatch then
+            reason = "appearance-scope"
+            summary.unvalidated = summary.unvalidated + 1
+        elseif not editabilityMatch or candidate.specialMetadata then
+            reason = "special-metadata"
+            summary.specialMetadata = summary.specialMetadata + 1
+        elseif not resetCompatible then
+            reason = "reset-difference"
+            summary.resetMismatch = summary.resetMismatch + 1
+        end
+        if cleanupEligible then
+            summary.eligible = summary.eligible + 1
+        else
+            summary.retain = summary.retain + 1
+        end
+        cleanupAudit[#cleanupAudit + 1] = {
+            canonicalID = candidate.canonicalID,
+            discoveryID = candidate.discoveryID,
+            canonicalMatch = canonicalMatch,
+            componentTypeExplicit = candidate.explicitType,
+            componentTypeDiscovery = candidate.discoveryType,
+            typeMatch = typeMatch,
+            appearanceScopeExplicit = candidate.explicitScope,
+            appearanceScopeDiscovery = candidate.discoveryScope,
+            appearanceScopeMatch = appearanceScopeMatch,
+            editabilityExplicit = editabilityExplicit,
+            editabilityDiscovery = editabilityDiscovery,
+            editabilityMatch = editabilityMatch,
+            specialMetadata = candidate.specialMetadata ~= nil,
+            specialMetadataDetails = candidate.specialMetadata,
+            resetCompatible = resetCompatible,
+            cleanupEligible = cleanupEligible,
+            reason = reason,
+        }
+    end
+    table.sort(cleanupAudit, function(left, right)
+        return left.canonicalID < right.canonicalID
+    end)
+    cleanupAuditSummary = summary
+    return cleanupAudit, cleanupAuditSummary
 end
 
 function EncounterJournalSkin:Initialize()
@@ -1947,6 +2071,34 @@ function EncounterJournalSkin:Debug()
                     tostring(entry.reason)))
             end
         end
+    end
+    if not cleanupAudit[1] then self:BuildCleanupEligibilityAudit() end
+    NSkin:Print(("cleanup summary explicitOverlap=%d eligible=%d retain=%d idMismatch=%d typeMismatch=%d specialMetadata=%d resetMismatch=%d unvalidated=%d"):format(
+        cleanupAuditSummary.explicitOverlap or 0,
+        cleanupAuditSummary.eligible or 0,
+        cleanupAuditSummary.retain or 0,
+        cleanupAuditSummary.idMismatch or 0,
+        cleanupAuditSummary.typeMismatch or 0,
+        cleanupAuditSummary.specialMetadata or 0,
+        cleanupAuditSummary.resetMismatch or 0,
+        cleanupAuditSummary.unvalidated or 0))
+    for _, entry in ipairs(cleanupAudit) do
+        NSkin:Print(("cleanup canonicalID=%s discoveryID=%s canonicalMatch=%s componentTypeExplicit=%s componentTypeDiscovery=%s typeMatch=%s appearanceScopeExplicit=%s appearanceScopeDiscovery=%s appearanceScopeMatch=%s editabilityExplicit=%s editabilityDiscovery=%s editabilityMatch=%s specialMetadata=%s resetCompatible=%s cleanupEligible=%s reason=%s"):format(
+            tostring(entry.canonicalID), tostring(entry.discoveryID),
+            tostring(entry.canonicalMatch),
+            tostring(entry.componentTypeExplicit),
+            tostring(entry.componentTypeDiscovery), tostring(entry.typeMatch),
+            tostring(entry.appearanceScopeExplicit),
+            tostring(entry.appearanceScopeDiscovery),
+            tostring(entry.appearanceScopeMatch),
+            tostring(entry.editabilityExplicit),
+            tostring(entry.editabilityDiscovery),
+            tostring(entry.editabilityMatch), tostring(entry.specialMetadata),
+            tostring(entry.resetCompatible), tostring(entry.cleanupEligible),
+            tostring(entry.reason)))
+        NSkin:Print(("cleanup metadata canonicalID=%s details=%s"):format(
+            tostring(entry.canonicalID),
+            tostring(entry.specialMetadataDetails)))
     end
 
     local journal = _G.EncounterJournal
