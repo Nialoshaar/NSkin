@@ -193,72 +193,72 @@ function NSkin:GetResolvedTypography(style, prefix)
         style[outlineKey] or global.outline
 end
 
-local function CaptureShared(region, key, value, restore)
-    if NSkin.CaptureSharedRegionProperty then
-        NSkin:CaptureSharedRegionProperty(region, key, value, restore)
+function NSkin:CaptureShared(region, key, value, restore)
+    if self.CaptureSharedRegionProperty then
+        self:CaptureSharedRegionProperty(region, key, value, restore)
     end
 end
 
-local function CaptureSharedAlpha(region)
+function NSkin:CaptureSharedAlpha(region)
     if region and region.GetAlpha and region.SetAlpha then
-        CaptureShared(region, "alpha", region:GetAlpha(),
+        self:CaptureShared(region, "alpha", region:GetAlpha(),
             function(target, value) target:SetAlpha(value) end)
     end
 end
 
-local function CaptureSharedShown(region)
+function NSkin:CaptureSharedShown(region)
     if region and region.IsShown and region.SetShown then
-        CaptureShared(region, "shown", region:IsShown(),
+        self:CaptureShared(region, "shown", region:IsShown(),
             function(target, value) target:SetShown(value) end)
     end
 end
 
-local function CaptureSharedTexture(region)
+function NSkin:CaptureSharedTexture(region)
     if not region or not region.SetTexture then return end
     local value = { atlas = region.GetAtlas and region:GetAtlas(),
         texture = region.GetTexture and region:GetTexture() }
-    CaptureShared(region, "texture", value, function(target, saved)
+    self:CaptureShared(region, "texture", value, function(target, saved)
         if saved.atlas and target.SetAtlas then target:SetAtlas(saved.atlas)
         else target:SetTexture(saved.texture) end
     end)
 end
 
-local function CaptureSharedTextColor(region)
+function NSkin:CaptureSharedTextColor(region)
     if region and region.GetTextColor and region.SetTextColor then
-        CaptureShared(region, "textColor", { region:GetTextColor() },
+        self:CaptureShared(region, "textColor", { region:GetTextColor() },
             function(target, value) target:SetTextColor(unpack(value)) end)
     end
 end
 
-local function CaptureSharedFont(region)
+function NSkin:CaptureSharedFont(region)
     if region and region.GetFont and region.SetFont then
-        CaptureShared(region, "font", { region:GetFont() },
+        self:CaptureShared(region, "font", { region:GetFont() },
             function(target, value) target:SetFont(unpack(value)) end)
     end
 end
 
-local function CaptureSharedSize(region)
+function NSkin:CaptureSharedSize(region)
     if region and region.GetSize and region.SetSize then
-        CaptureShared(region, "size", { region:GetSize() },
+        self:CaptureShared(region, "size", { region:GetSize() },
             function(target, value) target:SetSize(unpack(value)) end)
     end
 end
 
-local function CaptureSharedPoints(region)
+function NSkin:CaptureSharedPoints(region)
     if not region or not region.GetNumPoints or not region.SetPoint then return end
     local points = {}
     for index = 1, region:GetNumPoints() do
         points[index] = { region:GetPoint(index) }
     end
-    CaptureShared(region, "points", points, function(target, value)
+    self:CaptureShared(region, "points", points, function(target, value)
         target:ClearAllPoints()
         for _, point in ipairs(value) do target:SetPoint(unpack(point)) end
     end)
 end
 
-local function CaptureSharedTextInsets(region)
+function NSkin:CaptureSharedTextInsets(region)
     if region and region.GetTextInsets and region.SetTextInsets then
-        CaptureShared(region, "textInsets", { region:GetTextInsets() },
+        self:CaptureShared(region, "textInsets", { region:GetTextInsets() },
             function(target, value) target:SetTextInsets(unpack(value)) end)
     end
 end
@@ -268,7 +268,7 @@ function NSkin:SkinTextColor(fontString, style)
     style = style or self:GetStyle("text")
     local color = self:GetResolvedAppearanceColor(style, "color")
     if color then
-        CaptureSharedTextColor(fontString)
+        self:CaptureSharedTextColor(fontString)
         fontString:SetTextColor(unpack(color))
     end
     return true
@@ -301,7 +301,7 @@ function NSkin:ApplyResolvedTypography(fontString, style, prefix)
     if not font or not size then return false end
     self:MarkComponentGeometryModified(data.baselineID, "font",
         hasSizeOverride)
-    CaptureSharedFont(fontString)
+    self:CaptureSharedFont(fontString)
     fontString:SetFont(font, size,
         outline ~= nil and outline or data.originalFont[3])
     return true
@@ -1003,9 +1003,9 @@ function NSkin:HideTextureRegions(frame, textureToKeep)
             and region:GetObjectType() == "Texture" then
             -- Blizzard frequently shows these regions again when control
             -- state changes. Alpha remains suppressed across those Show calls.
-            CaptureSharedAlpha(region)
-            CaptureSharedTexture(region)
-            CaptureSharedShown(region)
+            self:CaptureSharedAlpha(region)
+            self:CaptureSharedTexture(region)
+            self:CaptureSharedShown(region)
             region:SetAlpha(0)
             region:SetTexture(nil)
             region:Hide()
@@ -1458,20 +1458,20 @@ function NSkin:SkinDropdown(dropdown, options)
     self:SetPixelBorderSize(border, 1)
     self:CreateFlatButtonGlow(dropdown, style.hoverAlpha)
     if dropdown.Background then
-        CaptureSharedAlpha(dropdown.Background)
+        self:CaptureSharedAlpha(dropdown.Background)
         dropdown.Background:SetAlpha(0)
     end
     if dropdown.Arrow then
-        CaptureSharedAlpha(dropdown.Arrow)
+        self:CaptureSharedAlpha(dropdown.Arrow)
         dropdown.Arrow:SetAlpha(0)
     end
     if dropdown.NineSlice then
-        CaptureSharedShown(dropdown.NineSlice)
+        self:CaptureSharedShown(dropdown.NineSlice)
         dropdown.NineSlice:Hide()
     end
     if dropdown.Text then
-        CaptureSharedTextColor(dropdown.Text)
-        CaptureSharedAlpha(dropdown.Text)
+        self:CaptureSharedTextColor(dropdown.Text)
+        self:CaptureSharedAlpha(dropdown.Text)
         dropdown.Text:SetTextColor(unpack(style.text))
         dropdown.Text:SetAlpha(1)
         self:ApplyResolvedTypography(dropdown.Text, self:GetStyle("text"))
@@ -1548,7 +1548,7 @@ function NSkin:SkinCheckbox(checkBox, style)
     local text = checkBox.Text or checkBox.text
         or (checkBox.GetFontString and checkBox:GetFontString())
     if text then
-        CaptureSharedTextColor(text)
+        self:CaptureSharedTextColor(text)
         text:SetTextColor(unpack(style.text))
         self:ApplyResolvedTypography(text, self:GetStyle("text"))
     end
@@ -1746,7 +1746,7 @@ function NSkin:SkinScrollBar(scrollBar, style)
     if track then
         for _, texture in ipairs({ track.Begin, track.Middle, track.End }) do
             if texture then
-                CaptureSharedAlpha(texture)
+                self:CaptureSharedAlpha(texture)
                 texture:SetAlpha(0)
             end
         end
@@ -1763,7 +1763,7 @@ function NSkin:SkinScrollBar(scrollBar, style)
     if thumb then
         for _, texture in ipairs({ thumb.Begin, thumb.Middle, thumb.End }) do
             if texture then
-                CaptureSharedAlpha(texture)
+                self:CaptureSharedAlpha(texture)
                 texture:SetAlpha(0)
             end
         end
@@ -1783,7 +1783,7 @@ function NSkin:SkinScrollBar(scrollBar, style)
         local button, rotation = entry[1], entry[2]
         if button then
             if button.Texture then
-                CaptureSharedAlpha(button.Texture)
+                self:CaptureSharedAlpha(button.Texture)
                 button.Texture:SetAlpha(0)
             end
             local buttonData = self:GetSkinData(button, COMPONENT_STATE)
@@ -1826,7 +1826,7 @@ function NSkin:SkinSearchBox(searchBox, style, borderColor)
     configuredWidth = configuredWidth and configuredWidth > 0 and configuredWidth or nil
     configuredHeight = configuredHeight and configuredHeight > 0 and configuredHeight or nil
     if configuredWidth or configuredHeight then
-        CaptureSharedSize(searchBox)
+        self:CaptureSharedSize(searchBox)
         self:MarkComponentGeometryModified(searchData.baselineID, "size", true)
         if not searchData.searchOriginalSize then
             searchData.searchOriginalSize = { searchBox:GetWidth(), searchBox:GetHeight() }
@@ -1847,7 +1847,7 @@ function NSkin:SkinSearchBox(searchBox, style, borderColor)
     self:SetPixelBorderSize(searchBorder, style.borderSize or 1)
     self:SetPixelBorderPadding(searchBorder, style.borderPadding or 0)
     if searchBox.SetTextColor then
-        CaptureSharedTextColor(searchBox)
+        self:CaptureSharedTextColor(searchBox)
         searchBox:SetTextColor(unpack(self:GetResolvedAppearanceColor(style, "text")))
     end
     self:ApplyResolvedTypography(searchBox, style)
@@ -1862,7 +1862,7 @@ function NSkin:SkinSearchBox(searchBox, style, borderColor)
                 local offsetY = style.textOffsetY or 0
                 self:MarkComponentGeometryModified(
                     searchData.baselineID, "textInsets", true)
-                CaptureSharedTextInsets(searchBox)
+                self:CaptureSharedTextInsets(searchBox)
                 searchBox:SetTextInsets((insets[1] or 0) + offsetX,
                     (insets[2] or 0) - offsetX,
                     (insets[3] or 0) - offsetY,
@@ -1875,7 +1875,7 @@ function NSkin:SkinSearchBox(searchBox, style, borderColor)
     end
     local instructions = searchBox.Instructions or searchBox.instructions
     if instructions then
-        CaptureSharedTextColor(instructions)
+        self:CaptureSharedTextColor(instructions)
         instructions:SetTextColor(unpack(
             self:GetResolvedAppearanceColor(style, "placeholderText")))
         self:ApplyResolvedTypography(instructions, style, "placeholder")
@@ -1897,7 +1897,7 @@ function NSkin:SkinSearchBox(searchBox, style, borderColor)
             if points then
                 self:MarkComponentGeometryModified(
                     data.placeholderBaselineID, "points", true)
-                CaptureSharedPoints(instructions)
+                self:CaptureSharedPoints(instructions)
                 instructions:ClearAllPoints()
                 for i = 1, #points do
                     local point = points[i]
@@ -1912,7 +1912,7 @@ function NSkin:SkinSearchBox(searchBox, style, borderColor)
         end
     end
     if searchIcon then
-        CaptureSharedShown(searchIcon)
+        self:CaptureSharedShown(searchIcon)
         searchIcon:Show()
     end
 end
@@ -2239,7 +2239,7 @@ local function ApplyTabDimensions(tab, style, data)
     configuredWidth = configuredWidth and configuredWidth > 0 and configuredWidth or nil
     configuredHeight = configuredHeight and configuredHeight > 0 and configuredHeight or nil
     if configuredWidth or configuredHeight then
-        CaptureSharedSize(tab)
+        NSkin:CaptureSharedSize(tab)
         if not data.tabOriginalSize then
             data.tabOriginalSize = { tab:GetWidth(), tab:GetHeight() }
         end
@@ -2286,7 +2286,7 @@ function NSkin:SkinTab(tab, selected, style, borderColor)
             or self:GetResolvedAppearanceColor(style, "background")
     ))
     if tab.Text then
-        CaptureSharedTextColor(tab.Text)
+        self:CaptureSharedTextColor(tab.Text)
         tab.Text:SetTextColor(unpack(self:GetResolvedAppearanceColor(style, "text")))
         self:ApplyResolvedTypography(tab.Text, style)
     end
