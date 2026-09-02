@@ -1598,25 +1598,56 @@ end
 local function GetPlacementCoordinates(placement)
     if type(placement) ~= "table" then return nil, nil end
     if placement.mode == "GRID" then return placement.x, placement.y end
+    if placement.relativeTo then return placement.offsetX, placement.offsetY end
     return placement.alongOffset, placement.edgeOffset
+end
+
+local function GetPlacementAnchors(placement)
+    if type(placement) ~= "table" then return nil, nil, nil end
+    if placement.mode == "GRID" then
+        return placement.point, placement.relativeTo or "window",
+            placement.relativePoint
+    end
+    if placement.relativeTo then
+        return placement.point, placement.relativeTo, placement.relativePoint
+    end
+    local edge = placement.edge or "TOP"
+    local side = placement.side or "INSIDE"
+    local alignment = placement.alignment or "LEFT"
+    local point = edge == "TOP"
+        and (side == "INSIDE" and "TOP" or "BOTTOM")
+        or (side == "INSIDE" and "BOTTOM" or "TOP")
+    local relativePoint = edge
+    if alignment ~= "CENTER" then
+        point = point .. alignment
+        relativePoint = relativePoint .. alignment
+    end
+    return point, placement.relativeTo or "window", relativePoint
 end
 
 local function PlacementsMatch(stored, live)
     if type(stored) ~= "table" or type(live) ~= "table" then return false end
     local storedX, storedY = GetPlacementCoordinates(stored)
     local liveX, liveY = GetPlacementCoordinates(live)
-    return stored.mode == live.mode and stored.point == live.point
-        and stored.relativePoint == live.relativePoint
-        and math.abs((tonumber(storedX) or 0) - (tonumber(liveX) or 0)) < 0.01
-        and math.abs((tonumber(storedY) or 0) - (tonumber(liveY) or 0)) < 0.01
+    local storedPoint, storedRelativeTo, storedRelativePoint =
+        GetPlacementAnchors(stored)
+    local livePoint, liveRelativeTo, liveRelativePoint =
+        GetPlacementAnchors(live)
+    local epsilon = 0.11
+    return storedPoint == livePoint
+        and storedRelativeTo == liveRelativeTo
+        and storedRelativePoint == liveRelativePoint
+        and math.abs((tonumber(storedX) or 0) - (tonumber(liveX) or 0))
+            <= epsilon
+        and math.abs((tonumber(storedY) or 0) - (tonumber(liveY) or 0))
+            <= epsilon
 end
 
 function EncounterJournalSkin:CapturePlacementLifecycle(id, stage)
     local element = NSkin:GetSkinningElement(id)
     if not element or not element.target or not element.window then return end
     local stored = NSkin:GetSavedMovableElementPlacement(id)
-    local live = NSkin:GetCurrentWindowElementPlacement(
-        element.window, element.target)
+    local live = NSkin:SerializeCurrentMovableElementPlacement(element, stored)
     placementLifecycle[id] = placementLifecycle[id] or {}
     placementLifecycle[id][stage] = {
         source = element.source,
@@ -2445,23 +2476,27 @@ function EncounterJournalSkin:DebugProfile()
         local placement = moduleOptions and moduleOptions.movablePlacements
             and moduleOptions.movablePlacements[id]
         local stored = NSkin:GetSavedMovableElementPlacement(id)
-        local live = record and record.window and record.target
-            and NSkin:GetCurrentWindowElementPlacement(
-                record.window, record.target) or nil
+        local live = record
+            and NSkin:SerializeCurrentMovableElementPlacement(record, stored)
+            or nil
         local storedX, storedY = GetPlacementCoordinates(stored)
         local liveX, liveY = GetPlacementCoordinates(live)
-        NSkin:Print(("profile canonicalID=%s registered=%s source=%s revision=%s overridePresent=%s appearanceLeafCount=%d placementPresent=%s editable=%s storedPoint=%s storedRelativePoint=%s storedX=%s storedY=%s livePoint=%s liveRelativePoint=%s liveX=%s liveY=%s placementMatchesLive=%s"):format(
+        local storedPoint, storedRelativeTo, storedRelativePoint =
+            GetPlacementAnchors(stored)
+        local livePoint, liveRelativeTo, liveRelativePoint =
+            GetPlacementAnchors(live)
+        NSkin:Print(("profile canonicalID=%s registered=%s source=%s revision=%s overridePresent=%s appearanceLeafCount=%d placementPresent=%s editable=%s storedPoint=%s storedRelativeTo=%s storedRelativePoint=%s storedOffsetX=%s storedOffsetY=%s livePoint=%s liveRelativeTo=%s liveRelativePoint=%s liveNormalizedOffsetX=%s liveNormalizedOffsetY=%s placementMatchesLive=%s"):format(
             id, tostring(record ~= nil), tostring(record and record.source),
             tostring(record and record.definitionRevision),
             tostring(appearanceOverride ~= nil or placement ~= nil),
             appearanceOverride and CountLeaves(appearanceOverride) or 0,
             tostring(placement ~= nil),
             tostring(record and NSkin:IsSkinningElementEditable(record)),
-            tostring(stored and stored.point),
-            tostring(stored and stored.relativePoint),
+            tostring(storedPoint), tostring(storedRelativeTo),
+            tostring(storedRelativePoint),
             tostring(storedX), tostring(storedY),
-            tostring(live and live.point),
-            tostring(live and live.relativePoint),
+            tostring(livePoint), tostring(liveRelativeTo),
+            tostring(liveRelativePoint),
             tostring(liveX), tostring(liveY),
             tostring(PlacementsMatch(stored, live))))
         local stages = placementLifecycle[id]
@@ -2474,14 +2509,19 @@ function EncounterJournalSkin:DebugProfile()
                     GetPlacementCoordinates(entry.stored)
                 local stageLiveX, stageLiveY =
                     GetPlacementCoordinates(entry.live)
-                NSkin:Print(("placementStage canonicalID=%s stage=%s source=%s placementPresent=%s storedPoint=%s storedRelativePoint=%s storedX=%s storedY=%s livePoint=%s liveRelativePoint=%s liveX=%s liveY=%s placementMatchesLive=%s"):format(
+                local stageStoredPoint, stageStoredRelativeTo,
+                    stageStoredRelativePoint = GetPlacementAnchors(entry.stored)
+                local stageLivePoint, stageLiveRelativeTo,
+                    stageLiveRelativePoint = GetPlacementAnchors(entry.live)
+                NSkin:Print(("placementStage canonicalID=%s stage=%s source=%s placementPresent=%s storedPoint=%s storedRelativeTo=%s storedRelativePoint=%s storedOffsetX=%s storedOffsetY=%s livePoint=%s liveRelativeTo=%s liveRelativePoint=%s liveNormalizedOffsetX=%s liveNormalizedOffsetY=%s placementMatchesLive=%s"):format(
                     id, stage, tostring(entry.source),
                     tostring(entry.placementPresent),
-                    tostring(entry.stored and entry.stored.point),
-                    tostring(entry.stored and entry.stored.relativePoint),
+                    tostring(stageStoredPoint),
+                    tostring(stageStoredRelativeTo),
+                    tostring(stageStoredRelativePoint),
                     tostring(stageStoredX), tostring(stageStoredY),
-                    tostring(entry.live and entry.live.point),
-                    tostring(entry.live and entry.live.relativePoint),
+                    tostring(stageLivePoint), tostring(stageLiveRelativeTo),
+                    tostring(stageLiveRelativePoint),
                     tostring(stageLiveX), tostring(stageLiveY),
                     tostring(entry.placementMatchesLive)))
             end

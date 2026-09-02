@@ -3044,6 +3044,80 @@ function NSkin:GetCurrentWindowElementPlacement(window, target)
     return CopyPlacement(GetCurrentWindowPlacement(window, target))
 end
 
+function NSkin:SerializeCurrentMovableElementPlacement(elementOrID, basis)
+    local element = type(elementOrID) == "table"
+        and elementOrID or skinningElements[elementOrID]
+    local window, target = element and element.window, element and element.target
+    if not window or not target then return nil end
+    basis = basis or GetSavedMovablePlacement(element)
+    local point, relativeTo, relativePoint, offsetX, offsetY =
+        target:GetPoint(1)
+    if basis and basis.mode == "GRID" and relativeTo == window then
+        return { mode = "GRID", point = point, relativePoint = relativePoint,
+            x = offsetX, y = offsetY }
+    end
+    if basis and basis.relativeTo then
+        local relativeElement = skinningElements[basis.relativeTo]
+        if relativeElement and relativeTo == relativeElement.target then
+            return { relativeTo = basis.relativeTo, point = point,
+                relativePoint = relativePoint, offsetX = offsetX,
+                offsetY = offsetY }
+        end
+    elseif basis and not basis.mode then
+        local edge = basis.edge or "TOP"
+        local side = basis.side or "INSIDE"
+        local alignment = basis.alignment or "LEFT"
+        local expectedPoint = edge == "TOP"
+            and (side == "INSIDE" and "TOP" or "BOTTOM")
+            or (side == "INSIDE" and "BOTTOM" or "TOP")
+        local expectedRelativePoint = edge
+        if alignment ~= "CENTER" then
+            expectedPoint = expectedPoint .. alignment
+            expectedRelativePoint = expectedRelativePoint .. alignment
+        end
+        if relativeTo == window and point == expectedPoint
+            and relativePoint == expectedRelativePoint
+        then
+            return { edge = edge, side = side, alignment = alignment,
+                alongOffset = offsetX, edgeOffset = offsetY }
+        end
+    end
+
+    local windowLeft, windowTop = window:GetLeft(), window:GetTop()
+    local targetLeft, targetTop = target:GetLeft(), target:GetTop()
+    local windowWidth, windowHeight = window:GetWidth(), window:GetHeight()
+    local elementWidth, elementHeight = target:GetWidth(), target:GetHeight()
+    if not windowLeft or not windowTop or not targetLeft or not targetTop
+        or not windowWidth or not windowHeight
+        or not elementWidth or not elementHeight
+    then return nil end
+
+    local localX, localY = targetLeft - windowLeft, targetTop - windowTop
+    local centerY = localY - elementHeight / 2
+    local edge = centerY > -windowHeight / 2 and "TOP" or "BOTTOM"
+    local side = centerY <= 0 and centerY >= -windowHeight
+        and "INSIDE" or "OUTSIDE"
+    local alignment = basis and basis.alignment or "LEFT"
+    local alongOffset = alignment == "LEFT" and localX
+        or (alignment == "CENTER"
+            and localX + elementWidth / 2 - windowWidth / 2
+            or localX + elementWidth - windowWidth)
+    local edgeOffset = edge == "TOP"
+        and (side == "INSIDE" and localY or localY - elementHeight)
+        or (side == "INSIDE" and localY - elementHeight + windowHeight
+            or localY + windowHeight)
+    local function RoundOne(value)
+        if value >= 0 then return math.floor(value * 10 + 0.5) / 10 end
+        return math.ceil(value * 10 - 0.5) / 10
+    end
+    return {
+        edge = edge, side = side, alignment = alignment,
+        relativeTo = basis and basis.relativeTo or nil,
+        alongOffset = RoundOne(alongOffset),
+        edgeOffset = RoundOne(edgeOffset),
+    }
+end
+
 function NSkin:RegisterSimpleMovableElement(definition)
     if type(definition) ~= "table" then return nil end
     local existing = definition.id and self:GetSkinningElement(definition.id)
