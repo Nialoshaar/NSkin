@@ -1469,14 +1469,30 @@ function NSkin:SkinDropdown(dropdown, options)
         self:CaptureSharedShown(dropdown.NineSlice)
         dropdown.NineSlice:Hide()
     end
+    local data = self:GetSkinData(dropdown, COMPONENT_STATE)
+    data.dropdownTextColor = self:GetResolvedAppearanceColor(style, "text")
     if dropdown.Text then
         self:CaptureSharedTextColor(dropdown.Text)
         self:CaptureSharedAlpha(dropdown.Text)
-        dropdown.Text:SetTextColor(unpack(style.text))
+        dropdown.Text:SetTextColor(unpack(data.dropdownTextColor))
         dropdown.Text:SetAlpha(1)
         self:ApplyResolvedTypography(dropdown.Text, self:GetStyle("text"))
     end
-    local data = self:GetSkinData(dropdown, COMPONENT_STATE)
+    if not data.dropdownTextStateHooked and dropdown.HookScript then
+        local function RefreshText(self)
+            local state = NSkin:GetSkinData(self, COMPONENT_STATE, false)
+            local text = self.Text
+            if state and state.dropdownTextColor and text then
+                text:SetTextColor(unpack(state.dropdownTextColor))
+                text:SetAlpha(1)
+            end
+        end
+        dropdown:HookScript("OnEnter", RefreshText)
+        dropdown:HookScript("OnLeave", RefreshText)
+        dropdown:HookScript("OnEnable", RefreshText)
+        dropdown:HookScript("OnDisable", RefreshText)
+        data.dropdownTextStateHooked = true
+    end
     local arrow = data.dropdownArrow
     if not arrow then
         arrow = dropdown:CreateTexture(nil, "OVERLAY")
@@ -2778,6 +2794,76 @@ function NSkin:LayoutWindowElement(element, placement, options)
     return true
 end
 
+-- Scroll bars and similar layout controls commonly use both TOP and BOTTOM
+-- anchors. Moving them by replacing those anchors with one point changes
+-- their resolved height when Blizzard lays the parent out again. Translate
+-- the captured anchor set instead, preserving its complete span.
+function NSkin:LayoutWindowElementPreservingAnchorSpan(element, placement, options)
+    local target = element and element.target
+    local window = element and element.window
+    if not target or not window or type(placement) ~= "table"
+        or (target.IsProtected and target:IsProtected())
+        or (_G.InCombatLockdown and _G.InCombatLockdown())
+    then return false end
+
+    local baseline = self:GetComponentBaseline(element.id)
+    if not baseline or type(baseline.points) ~= "table"
+        or #baseline.points < 2
+    then return self:LayoutWindowElement(element, placement, options) end
+
+    RestoreFramePoints(target, baseline.points)
+    if baseline.width and baseline.height and target.SetSize
+        and baseline.options and baseline.options.size
+    then target:SetSize(baseline.width, baseline.height) end
+
+    local windowLeft, windowTop = window:GetLeft(), window:GetTop()
+    local targetLeft, targetTop = target:GetLeft(), target:GetTop()
+    local width, height = target:GetWidth(), target:GetHeight()
+    local windowWidth, windowHeight = window:GetWidth(), window:GetHeight()
+    if not windowLeft or not windowTop or not targetLeft or not targetTop
+        or not width or not height or not windowWidth or not windowHeight
+    then return false end
+
+    local desiredX, desiredY
+    if placement.mode == "GRID" then
+        desiredX = tonumber(placement.x) or 0
+        desiredY = tonumber(placement.y) or 0
+    elseif not placement.relativeTo then
+        local alignment, edge, side = placement.alignment,
+            placement.edge, placement.side
+        local along = tonumber(placement.alongOffset) or 0
+        local edgeOffset = tonumber(placement.edgeOffset) or 0
+        if alignment == "LEFT" then desiredX = along
+        elseif alignment == "CENTER" then
+            desiredX = along + windowWidth / 2 - width / 2
+        elseif alignment == "RIGHT" then
+            desiredX = along + windowWidth - width
+        end
+        if edge == "TOP" then
+            desiredY = side == "INSIDE" and edgeOffset or edgeOffset + height
+        elseif edge == "BOTTOM" then
+            desiredY = side == "INSIDE"
+                and edgeOffset + height - windowHeight
+                or edgeOffset - windowHeight
+        end
+    end
+    if desiredX == nil or desiredY == nil then return false end
+
+    local deltaX = desiredX - (targetLeft - windowLeft)
+    local deltaY = desiredY - (targetTop - windowTop)
+    target:ClearAllPoints()
+    for i = 1, #baseline.points do
+        local point = baseline.points[i]
+        target:SetPoint(point[1], point[2], point[3],
+            (tonumber(point[4]) or 0) + deltaX,
+            (tonumber(point[5]) or 0) + deltaY)
+    end
+    if not (options and options.suppressNotify) then
+        self:NotifySkinningElementBoundsChanged(element.id)
+    end
+    return true
+end
+
 local function GetSavedMovablePlacement(element)
     local options = NSkin:GetModuleOptions(element.module, false)
     return options and options.movablePlacements
@@ -2837,6 +2923,17 @@ function NSkin:RegisterMovableElement(definition)
         or not definition.target
     then return false end
     local id = definition.id
+    -- Keep a usable layout fallback for Blizzard controls whose original
+    -- anchors are not populated until a later tab/layout pass.  Resetting a
+    -- saved placement must never leave such a control unanchored.
+    if not definition.defaultPlacement
+        and self.GetCurrentWindowElementPlacement
+        and definition.target.GetNumPoints
+        and definition.target:GetNumPoints() > 0
+    then
+        definition.defaultPlacement = self:GetCurrentWindowElementPlacement(
+            definition.window, definition.target)
+    end
     self:CaptureComponentBaseline(id, definition.target, {
         points = true,
         size = definition.supportsResize == true,
@@ -2872,6 +2969,10 @@ function NSkin:RegisterMovableElement(definition)
             or GetCurrentWindowPlacement(element.window, element.target))
     end
     definition.applyPlacement = customApply or function(element, placement, applyOptions)
+        if element.preserveAnchorSpan then
+            return NSkin:LayoutWindowElementPreservingAnchorSpan(
+                element, placement, applyOptions)
+        end
         return NSkin:LayoutWindowElement(element, placement, applyOptions)
     end
     definition.setPlacement = definition.setPlacement or function(element, placement)
@@ -2887,9 +2988,10 @@ function NSkin:RegisterMovableElement(definition)
         return true
     end
     definition.resetPlacement = definition.resetPlacement or function(element)
-        if not NSkin:RestoreMovableElementOriginal(element) then return false end
         local options = NSkin:GetModuleOptions(element.module, false)
+        local removed
         if options and options.movablePlacements then
+            removed = options.movablePlacements[element.id] ~= nil
             options.movablePlacements[element.id] = nil
             if not next(options.movablePlacements) then options.movablePlacements = nil end
             if not next(options) then
@@ -2900,7 +3002,24 @@ function NSkin:RegisterMovableElement(definition)
                 end
             end
         end
-        return true
+        local restored = NSkin:RestoreMovableElementOriginal(element)
+        local points = element.target.GetNumPoints
+            and element.target:GetNumPoints() or 0
+        -- Only use a captured anchor fallback.  The edge-placement returned
+        -- when Blizzard has not laid a control out yet is merely a diagnostic
+        -- description and must not be applied during reset (it would move
+        -- dropdowns to the top-center of the window).
+        local fallback = element.defaultPlacement
+        if (not restored or points == 0) and fallback
+            and fallback.mode == "GRID"
+        then
+            restored = element.applyPlacement(element,
+                CopyPlacement(fallback), SUPPRESS_NOTIFICATION)
+            if restored then
+                NSkin:NotifySkinningElementBoundsChanged(element.id)
+            end
+        end
+        return restored == true or removed == true
     end
     self:RegisterSkinningElement(id, definition)
     local element = skinningElements[id]

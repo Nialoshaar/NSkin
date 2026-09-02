@@ -26,7 +26,8 @@ end
 local EFFECTIVE_DEFINITION_FIELDS = {
     "id", "componentType", "source", "module", "appearanceWindowID",
     "kind", "label", "priority", "isEditable", "draggable", "movable",
-    "supportsResize", "editorPreset", "editorOptions", "highlightRegions",
+    "supportsResize", "preserveAnchorSpan", "editorPreset", "editorOptions",
+    "highlightRegions", "highlightPadding",
     "layoutMode", "skinStyle", "style", "atlas", "texture", "texCoords",
     "callbackSemanticID", "callbackVersion",
 }
@@ -472,9 +473,14 @@ local COMPONENTS = {
         if text then text:SetTextColor(unpack(style.text)) end
     end },
     dropdown = { kind = "DROPDOWN", editorPreset = "BUTTON_APPEARANCE",
+        movableWhenDiscovered = true,
+        appearanceOption = "shared.buttonAppearance",
         skin = function(target, record)
-        NSkin:SkinDropdown(target, { style = NSkin:GetAppearanceStyle(
-            "button", record.appearanceWindowID, record.id) })
+        local style = NSkin:GetAppearanceStyle(
+            "button", record.appearanceWindowID, record.id)
+        NSkin:SkinDropdown(target, { style = style,
+            border = NSkin:GetAppearanceBorderColor(
+                "button", style, record.appearanceWindowID, record.id) })
     end },
     checkbox = { kind = "CHECKBOX", editorPreset = "BUTTON_APPEARANCE",
         skin = function(target, record)
@@ -485,6 +491,8 @@ local COMPONENTS = {
         NSkin:SkinSearchBox(target)
     end },
     scrollBar = { kind = "SCROLLBAR", editorPreset = "SCROLLBAR_APPEARANCE",
+        movableWhenDiscovered = true, preserveAnchorSpan = true,
+        appearanceOption = "shared.scrollBarAppearance",
         skin = function(target, record)
         NSkin:SkinScrollBar(target, NSkin:GetAppearanceStyle(
             "scrollBar", record.appearanceWindowID, record.id))
@@ -549,7 +557,53 @@ local function RegisterTyped(componentType, definition)
     definition.kind = definition.kind or component.kind
     definition.source = definition.source or "explicit"
     definition.isEditable = definition.isEditable or IsRegisteredTargetVisible
-    if not definition.editorOptions and component.editorPreset then
+    local discoveredMovable = definition.source == "discovered"
+        and component.movableWhenDiscovered == true
+    -- These two loot filters are explicitly anchored by Blizzard during the
+    -- Encounter Journal load sequence. Recreate those exact anchors on reset;
+    -- reselecting the current content tab is not safe here because it sends
+    -- an open instance page back to the Dungeons/Raids landing page.
+    if discoveredMovable and definition.module == "EncounterJournal"
+        and componentType == "dropdown"
+        and (definition.id == "EncounterJournal.Instances.LootSpecDropdown"
+            or definition.id == "EncounterJournal.Instances.LootSlotDropdown")
+        and not definition.refreshBlizzardLayout
+    then
+        definition.refreshBlizzardLayout = function()
+            local journal = _G.EncounterJournal
+            local loot = journal and journal.encounter and journal.encounter.info
+                and journal.encounter.info.LootContainer
+            if journal and loot and loot.filter and loot.slotFilter then
+                if definition.id == "EncounterJournal.Instances.LootSpecDropdown" then
+                    definition.target:ClearAllPoints()
+                    definition.target:SetPoint(
+                        "TOPLEFT", journal, "TOPRIGHT", -356, -77)
+                else
+                    definition.target:ClearAllPoints()
+                    definition.target:SetWidth(90)
+                    definition.target:SetPoint(
+                        "LEFT", loot.filter, "RIGHT", 10, 0)
+                end
+                return true
+            end
+            return false
+        end
+    end
+    if discoveredMovable then
+        local extras = {}
+        for i = 1, #(definition.extraEditorOptions or {}) do
+            extras[#extras + 1] = definition.extraEditorOptions[i]
+        end
+        if component.appearanceOption then
+            extras[#extras + 1] = { id = component.appearanceOption,
+                label = "Appearance", category = "CUSTOMIZE" }
+        end
+        definition.editorPreset = "MOVABLE"
+        definition.editorOptions = NSkin:CreateEditorOptionsPreset(
+            "MOVABLE", extras)
+        definition.preserveAnchorSpan = component.preserveAnchorSpan == true
+        definition.highlightPadding = definition.highlightPadding or 12
+    elseif not definition.editorOptions and component.editorPreset then
         definition.editorPreset = definition.editorPreset or component.editorPreset
         definition.editorOptions = NSkin:CreateEditorOptionsPreset(
             definition.editorPreset, definition.extraEditorOptions)
@@ -558,7 +612,13 @@ local function RegisterTyped(componentType, definition)
         local restored = NSkin:RestoreOriginalProperties(element.target)
         return NSkin:RestoreComponentBaseline(element.id) or restored
     end
-    if not NSkin:RegisterSkinningElement(definition.id, definition) then return nil end
+    local registered
+    if discoveredMovable then
+        registered = NSkin:RegisterMovableElement(definition)
+    else
+        registered = NSkin:RegisterSkinningElement(definition.id, definition)
+    end
+    if not registered then return nil end
     local record = NSkin.registeredElementByFrame[definition.target]
     local registrationAction = record and record._upsertAction or "noop"
     if record and record.source == definition.source

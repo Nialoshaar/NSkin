@@ -4,6 +4,9 @@ local controller
 local GRID_SIZES = { 2, 4, 8, 16 }
 local VALID_GRID_SIZES = { [2] = true, [4] = true, [8] = true, [16] = true }
 local TRANSPARENT = { 0, 0, 0, 0 }
+-- Keep semantic left/center/right placement internally, but hide its broad
+-- visual zones until drag interaction is fully stabilized.
+local SHOW_DROP_ALIGNMENT_ZONES = false
 local StopDrag
 local RefreshGrid
 local HideGrid
@@ -65,7 +68,10 @@ local function AnchorOverlay(overlay, element)
         -- Ordinary movable elements already expose the exact frame to
         -- highlight. Anchoring directly avoids applying a scaled window's
         -- coordinate conversion twice.
-        overlay:SetAllPoints(element.target)
+        local padding = tonumber(element.highlightPadding) or 0
+        overlay:SetPoint("TOPLEFT", element.target, "TOPLEFT", -padding, padding)
+        overlay:SetPoint("BOTTOMRIGHT", element.target, "BOTTOMRIGHT",
+            padding, -padding)
         return true
     end
     local left, right, bottom, top = GetElementBounds(element)
@@ -81,8 +87,11 @@ local function RefreshOverlayAppearance(element)
     if not overlay then return end
     local style = NSkin:GetStyle("skinningMode")
     local selected = controller.selectedElement == element
-    local visible = not overlay.dragHidden
-        and (selected or (not controller.dragging and overlay.hovered == true))
+    local hovered = overlay.hovered == true
+    -- dragHidden is transient. Never let an interrupted drag leave an
+    -- otherwise selected/hovered element permanently invisible.
+    local visible = not (controller.dragging and overlay.dragHidden)
+        and (selected or (not controller.dragging and hovered))
     overlay.texture:SetColorTexture(unpack(visible and style.highlight or TRANSPARENT))
     NSkin:SetPixelBorderColor(overlay.border, unpack(style.hover))
     NSkin:SetPixelBorderShown(overlay.border, visible)
@@ -127,12 +136,17 @@ end
 
 local function SelectElement(element)
     if not element then return end
+    if controller.dragging then StopDrag(false) end
     NSkin:MarkSkinningWindowActive(element.window)
     local previous = controller.selectedElement
     controller.selectedElement = element
+    for id, overlay in pairs(controller.overlays) do
+        if id ~= element.id then overlay.hovered = nil end
+        overlay.dragHidden = nil
+    end
     if previous ~= element then controller.dockedWindow:ResetScroll() end
     if previous and previous ~= element then RefreshOverlayAppearance(previous) end
-    RefreshOverlayAppearance(element)
+    RefreshAllOverlayAppearances()
     DockInspector(element)
     RefreshInspector()
 end
@@ -246,7 +260,7 @@ RefreshGrid = function(window)
     local marginX, marginY = 30, 30
     local style = NSkin:GetStyle("skinningMode")
     local gridAlpha = tonumber(style.gridAlpha) or 0.4
-    if #pool.alignmentZones == 0 then
+    if SHOW_DROP_ALIGNMENT_ZONES and #pool.alignmentZones == 0 then
         local labels = { "LEFT", "CENTER", "RIGHT" }
         for i = 1, 3 do
             local zone = CreateFrame("Frame", nil, window)
@@ -260,14 +274,16 @@ RefreshGrid = function(window)
             pool.alignmentZones[i] = zone
         end
     end
-    for i = 1, 3 do
-        local zone = pool.alignmentZones[i]
-        zone:ClearAllPoints()
-        zone:SetPoint("TOPLEFT", window, "TOPLEFT", (i - 1) * width / 3, 0)
-        zone:SetPoint("BOTTOMRIGHT", window, "BOTTOMLEFT", i * width / 3, 0)
-        zone.texture:SetColorTexture(style.activeDropZone[1],
-            style.activeDropZone[2], style.activeDropZone[3], 0.05)
-        zone:Show()
+    if SHOW_DROP_ALIGNMENT_ZONES then
+        for i = 1, 3 do
+            local zone = pool.alignmentZones[i]
+            zone:ClearAllPoints()
+            zone:SetPoint("TOPLEFT", window, "TOPLEFT", (i - 1) * width / 3, 0)
+            zone:SetPoint("BOTTOMRIGHT", window, "BOTTOMLEFT", i * width / 3, 0)
+            zone.texture:SetColorTexture(style.activeDropZone[1],
+                style.activeDropZone[2], style.activeDropZone[3], 0.05)
+            zone:Show()
+        end
     end
     local firstX = math.ceil(-marginX / visualGridSize)
     local lastX = math.floor((width + marginX) / visualGridSize)
@@ -368,7 +384,7 @@ local function UpdateDrag()
     local alignmentIndex = centerX < window:GetWidth() / 3 and 1
         or (centerX < window:GetWidth() * 2 / 3 and 2 or 3)
     controller.dropAlignmentIndex = alignmentIndex
-    if controller.activeGridPool then
+    if SHOW_DROP_ALIGNMENT_ZONES and controller.activeGridPool then
         for i = 1, 3 do
             local zone = controller.activeGridPool.alignmentZones[i]
             local alpha = i == alignmentIndex and 0.22 or 0.05
@@ -406,6 +422,24 @@ local function BeginDrag(element)
     if not element or (element.kind ~= "TAB_GROUP" and not element.draggable)
         or controller.dragging then return end
     controller.dragging = true
+    controller.dragMouseState = {}
+    -- While dragging, only the selected overlay may receive mouse input.
+    -- Other highlights otherwise steal the release/click and make a drag
+    -- appear to select the window instead.
+    for id, otherOverlay in pairs(controller.overlays) do
+        local enabled = true
+        if otherOverlay.IsMouseEnabled then
+            enabled = otherOverlay:IsMouseEnabled()
+        end
+        local headerEnabled
+        if otherOverlay.headerHitTarget then
+            headerEnabled = otherOverlay.headerHitTarget:IsMouseEnabled()
+            otherOverlay.headerHitTarget:EnableMouse(id == element.id)
+        end
+        controller.dragMouseState[id] = { overlay = enabled,
+            header = headerEnabled }
+        otherOverlay:EnableMouse(id == element.id)
+    end
     local overlay = controller.overlays[element.id]
     local coordinateScale = 1
     if overlay and overlay.usesAbsoluteBounds then
@@ -498,6 +532,18 @@ StopDrag = function(apply)
     if overlay then
         overlay.dragHidden = nil
         AnchorOverlay(overlay, element)
+    end
+    if controller.dragMouseState then
+        for id, state in pairs(controller.dragMouseState) do
+            local otherOverlay = controller.overlays[id]
+            if otherOverlay then
+                otherOverlay:EnableMouse(state.overlay == true)
+                if otherOverlay.headerHitTarget and state.header ~= nil then
+                    otherOverlay.headerHitTarget:EnableMouse(state.header == true)
+                end
+            end
+        end
+        controller.dragMouseState = nil
     end
     controller.originalPlacement = nil
     controller.previewPlacement = nil
@@ -602,8 +648,7 @@ local function CreateOverlay(element)
             if candidate.kind ~= "WINDOW" and candidate.window == element.window
                 and NSkin:IsSkinningElementEditable(candidate)
             then
-                local left, right, bottom, top =
-                    NSkin:GetSkinningElementBounds(candidate)
+                local left, right, bottom, top = GetElementBounds(candidate)
                 if left and cursorX >= left and cursorX <= right
                     and cursorY >= bottom and cursorY <= top
                 then

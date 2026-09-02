@@ -59,11 +59,17 @@ local function ResetElementCustomizations(element)
             if type(id) == "string" then resetGroups[id] = true end
         end
     end
-    for id in pairs(resetGroups) do
-        NSkin:ResetOptionGroup(id, element)
+    -- Close an active color picker before deleting its sparse values so a
+    -- delayed swatch callback cannot recreate the element override.
+    if ColorPickerFrame and ColorPickerFrame.IsShown
+        and ColorPickerFrame:IsShown()
+    then
+        ColorPickerFrame:Hide()
     end
 
-    -- Clear anything not represented by the visible compact subsets too.
+    -- The element-level deletion is authoritative for every appearance
+    -- subset. Refresh the option groups only after this deletion; resetting
+    -- each subset first exposes stale resolved values to live editor widgets.
     NSkin:ResetElementAppearanceOverride(element.id)
     if type(element.resetPlacement) == "function" then
         element.resetPlacement(element)
@@ -74,6 +80,12 @@ local function ResetElementCustomizations(element)
         NSkin:RestoreTabGroupOriginalPlacement(element.id)
     end
     NSkin:RefreshAppearance()
+    if element.componentType and NSkin.ReapplyComponentRegistration then
+        NSkin:ReapplyComponentRegistration(element.id)
+    end
+    for id in pairs(resetGroups) do
+        NSkin:NotifyOptionGroupChanged(id)
+    end
     NSkin:NotifySkinningElementBoundsChanged(element.id)
     return true
 end

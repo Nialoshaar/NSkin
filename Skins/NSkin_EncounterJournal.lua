@@ -12,6 +12,7 @@ local IDs = {
         SeasonDropdown = "EncounterJournal.Journeys.SeasonDropdown",
         Cards = "EncounterJournal.Journeys.Cards",
         ScrollBar = "EncounterJournal.Journeys.ScrollBar",
+        EncountersTitle = "EncounterJournal.Journeys.EncountersTitle",
     },
     TravelersLog = {
         Scope = "EncounterJournal.TravelersLog",
@@ -112,6 +113,7 @@ local greatVaultIconFrame
 local greatVaultIconTexture
 local concealedOriginalAlpha
 local journeysRegistered = false
+local journeysEncountersTitleRegistered = false
 local journeyCardsRegistered = false
 local windowRegistered = false
 local tabsRegistered = false
@@ -672,8 +674,12 @@ function EncounterJournalSkin:StyleEncounterInfoHeaders()
 
     local textStyle = NSkin:GetStyle("text")
     StyleEncounterText(encounter.infoFrame, textStyle)
-    NSkin:SkinScrollBar(GetScrollFrameScrollBar(info.detailsScroll))
-    NSkin:SkinScrollBar(GetScrollFrameScrollBar(info.overviewScroll))
+    NSkin:SkinScrollBar(GetScrollFrameScrollBar(info.detailsScroll),
+        NSkin:GetAppearanceStyle("scrollBar", IDs.Instances.Scope,
+            IDs.Instances.DetailsScrollBar))
+    NSkin:SkinScrollBar(GetScrollFrameScrollBar(info.overviewScroll),
+        NSkin:GetAppearanceStyle("scrollBar", IDs.Instances.Scope,
+            IDs.Instances.OverviewScrollBar))
 
     for _, header in pairs(encounter.usedHeaders or {}) do
         StyleEncounterInfoHeader(header)
@@ -752,21 +758,35 @@ function EncounterJournalSkin:StyleInstancePage()
     end
 
     if info.difficulty then
-        NSkin:SkinDropdown(info.difficulty)
+        local style = NSkin:GetAppearanceStyle(
+            "button", IDs.Instances.Scope, IDs.Instances.Difficulty)
+        NSkin:SkinDropdown(info.difficulty, { style = style,
+            border = NSkin:GetAppearanceBorderColor("button", style,
+                IDs.Instances.Scope, IDs.Instances.Difficulty) })
         ApplyGlobalTypography(info.difficulty)
     end
 
     local lootContainer = info.LootContainer
     if lootContainer then
         if lootContainer.filter then
-            NSkin:SkinDropdown(lootContainer.filter)
+            local style = NSkin:GetAppearanceStyle(
+                "button", IDs.Instances.Scope, IDs.Instances.LootSpec)
+            NSkin:SkinDropdown(lootContainer.filter, { style = style,
+                border = NSkin:GetAppearanceBorderColor("button", style,
+                    IDs.Instances.Scope, IDs.Instances.LootSpec) })
             ApplyGlobalTypography(lootContainer.filter)
         end
         if lootContainer.slotFilter then
-            NSkin:SkinDropdown(lootContainer.slotFilter)
+            local style = NSkin:GetAppearanceStyle(
+                "button", IDs.Instances.Scope, IDs.Instances.LootSlot)
+            NSkin:SkinDropdown(lootContainer.slotFilter, { style = style,
+                border = NSkin:GetAppearanceBorderColor("button", style,
+                    IDs.Instances.Scope, IDs.Instances.LootSlot) })
             ApplyGlobalTypography(lootContainer.slotFilter)
         end
-        NSkin:SkinScrollBar(lootContainer.ScrollBar)
+        NSkin:SkinScrollBar(lootContainer.ScrollBar,
+            NSkin:GetAppearanceStyle("scrollBar", IDs.Instances.Scope,
+                IDs.Instances.LootScrollBar))
 
         local classFilter = lootContainer.classClearFilter
         if classFilter then
@@ -781,7 +801,9 @@ function EncounterJournalSkin:StyleInstancePage()
 
         self:StyleLootFrames(lootContainer.ScrollBox)
     end
-    NSkin:SkinScrollBar(info.BossesScrollBar)
+    NSkin:SkinScrollBar(info.BossesScrollBar,
+        NSkin:GetAppearanceStyle("scrollBar", IDs.Instances.Scope,
+            IDs.Instances.BossesScrollBar))
 
     NSkin:SkinTextColor(info.instanceTitle, sharedTextStyle)
     NSkin:SkinTextColor(info.encounterTitle, sharedTextStyle)
@@ -1041,6 +1063,10 @@ function EncounterJournalSkin:StyleInstanceControls(forceShown)
     NSkin:SkinDropdown(instanceSelect.ExpansionDropdown, {
         style = NSkin:GetAppearanceStyle(
             "button", IDs.Journeys.Scope, IDs.Journeys.SeasonDropdown),
+        border = NSkin:GetAppearanceBorderColor("button",
+            NSkin:GetAppearanceStyle(
+                "button", IDs.Journeys.Scope, IDs.Journeys.SeasonDropdown),
+            IDs.Journeys.Scope, IDs.Journeys.SeasonDropdown),
     })
     ApplyGlobalTypography(instanceSelect.ExpansionDropdown)
 
@@ -1079,10 +1105,15 @@ function EncounterJournalSkin:StyleInstanceControls(forceShown)
             appearanceWindowID = IDs.Instances.Scope,
             label = "Dungeons and raids scroll bar",
             kind = "SCROLLBAR",
+            extraEditorOptions = {
+                { id = "shared.scrollBarAppearance", label = "Appearance",
+                    category = "CUSTOMIZE" },
+            },
             window = journal,
             target = scrollBar,
             priority = 81,
-            highlightRegions = { scrollBar },
+            preserveAnchorSpan = true,
+            highlightPadding = 12,
             isEditable = function()
                 return IsInstanceTabVisible(scrollBar)
             end,
@@ -1116,10 +1147,15 @@ function EncounterJournalSkin:StyleJournalScrollBars()
             appearanceWindowID = IDs.Journeys.Scope,
             label = "Journeys scroll bar",
             kind = "SCROLLBAR",
+            extraEditorOptions = {
+                { id = "shared.scrollBarAppearance", label = "Appearance",
+                    category = "CUSTOMIZE" },
+            },
             window = journal,
             target = journeysScrollBar,
             priority = 81,
-            highlightRegions = { journeysScrollBar },
+            preserveAnchorSpan = true,
+            highlightPadding = 12,
             isEditable = function()
                 return journeys:IsVisible() and journeysScrollBar:IsVisible()
             end,
@@ -1137,10 +1173,15 @@ function EncounterJournalSkin:StyleJournalScrollBars()
             appearanceWindowID = IDs.TravelersLog.Scope,
             label = "Traveler's Log scroll bar",
             kind = "SCROLLBAR",
+            extraEditorOptions = {
+                { id = "shared.scrollBarAppearance", label = "Appearance",
+                    category = "CUSTOMIZE" },
+            },
             window = journal,
             target = travelersScrollBar,
             priority = 81,
-            highlightRegions = { travelersScrollBar },
+            preserveAnchorSpan = true,
+            highlightPadding = 12,
             isEditable = function()
                 return travelersLog:IsVisible()
                     and travelersScrollBar:IsVisible()
@@ -1158,10 +1199,15 @@ function EncounterJournalSkin:StyleJournalScrollBars()
             appearanceWindowID = IDs.TravelersLog.Scope,
             label = "Traveler's Log filter scroll bar",
             kind = "SCROLLBAR",
+            extraEditorOptions = {
+                { id = "shared.scrollBarAppearance", label = "Appearance",
+                    category = "CUSTOMIZE" },
+            },
             window = journal,
             target = travelersFilterScrollBar,
             priority = 82,
-            highlightRegions = { travelersFilterScrollBar },
+            preserveAnchorSpan = true,
+            highlightPadding = 12,
             isEditable = function()
                 return travelersLog:IsVisible()
                     and travelersFilterScrollBar:IsVisible()
@@ -1374,6 +1420,69 @@ function EncounterJournalSkin:StyleSharedWindow()
         NSkin:ApplyResolvedTypography(title, windowStyle.header)
     end
     NSkin:SkinFlatButton(journal.CloseButton, "x", nil, nil, 20)
+
+    local pageTitle = journal.instanceSelect and journal.instanceSelect.Title
+    if pageTitle and not tutorialsTextRegistered then
+        NSkin:RegisterSkinningElement(IDs.Tutorials.Text, {
+            module = "EncounterJournal",
+            appearanceWindowID = IDs.AppearanceWindow,
+            label = "Page title",
+            kind = "TEXT",
+            window = journal,
+            target = pageTitle,
+            draggable = false,
+            priority = 70,
+            highlightPadding = 4,
+            isEditable = function() return pageTitle:IsVisible() end,
+        })
+        tutorialsTextRegistered = true
+    elseif tutorialsTextRegistered then
+        NSkin:NotifySkinningElementBoundsChanged(IDs.Tutorials.Text)
+    end
+end
+
+local function RefreshCurrentEncounterJournalTabLayout()
+    local journal = _G.EncounterJournal
+    if journal and journal:IsShown() and journal.selectedTab
+        and type(_G.EJ_ContentTab_Select) == "function"
+    then
+        _G.EJ_ContentTab_Select(journal.selectedTab)
+        return true
+    end
+    return false
+end
+
+-- The Journeys encounter heading is created as a plain FontString by the
+-- Blizzard page template and has no stable global name. Resolve it through
+-- the UI tree (not discovery identity traversal) using its localized text.
+local function FindJourneysEncountersTitle(root)
+    if not root then return nil end
+    local expected = _G.ENCOUNTERS or "Encounters"
+    local visited = {}
+    local function visit(frame, depth)
+        if not frame or depth > 8 or visited[frame] then return nil end
+        visited[frame] = true
+        if frame.GetRegions then
+            local regions = { frame:GetRegions() }
+            for i = 1, #regions do
+                local region = regions[i]
+                if region and region.IsObjectType
+                    and region:IsObjectType("FontString")
+                    and region.GetText and region:GetText() == expected
+                then
+                    return region
+                end
+            end
+        end
+        if frame.GetChildren then
+            local children = { frame:GetChildren() }
+            for i = 1, #children do
+                local found = visit(children[i], depth + 1)
+                if found then return found end
+            end
+        end
+    end
+    return visit(root, 0)
 end
 
 function EncounterJournalSkin:StyleJourneys(forceShown)
@@ -1390,6 +1499,38 @@ function EncounterJournalSkin:StyleJourneys(forceShown)
     if not shown then
         if greatVaultIconFrame then greatVaultIconFrame:Hide() end
         return
+    end
+
+    local pageTitle = instanceSelect and instanceSelect.Title
+    if pageTitle then
+        NSkin:SkinText(pageTitle, NSkin:GetAppearanceStyle(
+            "text", IDs.AppearanceWindow, IDs.Tutorials.Text))
+        NSkin:NotifySkinningElementBoundsChanged(IDs.Tutorials.Text)
+    end
+
+    local encountersTitle = FindJourneysEncountersTitle(journeys)
+    if encountersTitle and not journeysEncountersTitleRegistered then
+        NSkin:RegisterSkinningElement(IDs.Journeys.EncountersTitle, {
+            module = "EncounterJournal",
+            appearanceWindowID = IDs.Journeys.Scope,
+            label = "Journeys encounters title",
+            kind = "TEXT",
+            window = journal,
+            target = encountersTitle,
+            draggable = false,
+            priority = 71,
+            highlightPadding = 4,
+            isEditable = function()
+                return journeys:IsVisible() and encountersTitle:IsVisible()
+            end,
+        })
+        journeysEncountersTitleRegistered = true
+    elseif journeysEncountersTitleRegistered then
+        NSkin:NotifySkinningElementBoundsChanged(IDs.Journeys.EncountersTitle)
+    end
+    if encountersTitle then
+        NSkin:SkinText(encountersTitle, NSkin:GetAppearanceStyle(
+            "text", IDs.Journeys.Scope, IDs.Journeys.EncountersTitle))
     end
 
     -- QuestLogBorderFrameTemplate supplies the ornate outer frame and
@@ -1509,8 +1650,11 @@ function EncounterJournalSkin:StyleJourneys(forceShown)
         journeysListHooked = true
     end
 
-    NSkin:SkinDropdown(dropdown, { style = NSkin:GetAppearanceStyle(
-        "button", IDs.Journeys.Scope, IDs.Journeys.SeasonDropdown) })
+    local dropdownStyle = NSkin:GetAppearanceStyle(
+        "button", IDs.Journeys.Scope, IDs.Journeys.SeasonDropdown)
+    NSkin:SkinDropdown(dropdown, { style = dropdownStyle,
+        border = NSkin:GetAppearanceBorderColor("button", dropdownStyle,
+            IDs.Journeys.Scope, IDs.Journeys.SeasonDropdown) })
     ApplyGlobalTypography(dropdown)
     if not journeysRegistered and dropdown then
         local dungeonTabID = journal.dungeonsTab and journal.dungeonsTab:GetID()
@@ -1529,6 +1673,7 @@ function EncounterJournalSkin:StyleJourneys(forceShown)
             target = dropdown,
             priority = 80,
             highlightRegions = { dropdown },
+            refreshBlizzardLayout = RefreshCurrentEncounterJournalTabLayout,
             isEditable = function()
                 local selected = journal.selectedTab
                 return dropdown:IsVisible() and (journeys:IsVisible()
