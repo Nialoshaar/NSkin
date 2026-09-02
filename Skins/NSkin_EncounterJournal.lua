@@ -129,6 +129,8 @@ local discoveryAuditCompleted = false
 local discoveryTabsScanned = {}
 local cleanupAudit = {}
 local cleanupAuditSummary = {}
+local placementRestorePending = false
+local placementLifecycle = {}
 local expansionMenuFontObjects = {}
 local expansionMenuFontObjectCount = 0
 
@@ -1100,6 +1102,8 @@ function EncounterJournalSkin:StyleJournalScrollBars()
             end,
         })
         journeysScrollBarRegistered = true
+        self:CapturePlacementLifecycle(IDs.Journeys.ScrollBar,
+            "after-registration")
     elseif journeysScrollBarRegistered then
         NSkin:NotifySkinningElementBoundsChanged(IDs.Journeys.ScrollBar)
     end
@@ -1501,6 +1505,8 @@ function EncounterJournalSkin:StyleJourneys(forceShown)
             end,
         })
         journeysRegistered = true
+        self:CapturePlacementLifecycle(IDs.Journeys.SeasonDropdown,
+            "after-explicit-promotion")
     elseif journeysRegistered then
         NSkin:NotifySkinningElementBoundsChanged(
             IDs.Journeys.SeasonDropdown)
@@ -1566,6 +1572,11 @@ function EncounterJournalSkin:OnTabSet(journal, tabID)
         and journal.JourneysTab:GetID()
     self:StyleJourneys(tabID == journeysTabID)
     self:StyleJournalScrollBars()
+    self:CapturePlacementLifecycle(IDs.Journeys.ScrollBar,
+        "after-normal-layout")
+    self:CapturePlacementLifecycle(IDs.Journeys.SeasonDropdown,
+        "after-normal-layout")
+    self:QueueSavedPlacementRestore()
 
     local dungeonTabID = journal and journal.dungeonsTab and journal.dungeonsTab:GetID()
     local raidTabID = journal and journal.raidsTab and journal.raidsTab:GetID()
@@ -1582,6 +1593,60 @@ function EncounterJournalSkin:OnTabSet(journal, tabID)
         self:StyleVisibleFrames(hookedScrollBox)
     end
     self:QueueRefresh()
+end
+
+local function GetPlacementCoordinates(placement)
+    if type(placement) ~= "table" then return nil, nil end
+    if placement.mode == "GRID" then return placement.x, placement.y end
+    return placement.alongOffset, placement.edgeOffset
+end
+
+local function PlacementsMatch(stored, live)
+    if type(stored) ~= "table" or type(live) ~= "table" then return false end
+    local storedX, storedY = GetPlacementCoordinates(stored)
+    local liveX, liveY = GetPlacementCoordinates(live)
+    return stored.mode == live.mode and stored.point == live.point
+        and stored.relativePoint == live.relativePoint
+        and math.abs((tonumber(storedX) or 0) - (tonumber(liveX) or 0)) < 0.01
+        and math.abs((tonumber(storedY) or 0) - (tonumber(liveY) or 0)) < 0.01
+end
+
+function EncounterJournalSkin:CapturePlacementLifecycle(id, stage)
+    local element = NSkin:GetSkinningElement(id)
+    if not element or not element.target or not element.window then return end
+    local stored = NSkin:GetSavedMovableElementPlacement(id)
+    local live = NSkin:GetCurrentWindowElementPlacement(
+        element.window, element.target)
+    placementLifecycle[id] = placementLifecycle[id] or {}
+    placementLifecycle[id][stage] = {
+        source = element.source,
+        placementPresent = stored ~= nil,
+        stored = stored,
+        live = live,
+        placementMatchesLive = PlacementsMatch(stored, live),
+    }
+end
+
+function EncounterJournalSkin:QueueSavedPlacementRestore()
+    if placementRestorePending then return end
+    placementRestorePending = true
+    C_Timer.After(0, function()
+        placementRestorePending = false
+        for _, id in ipairs({ IDs.Journeys.ScrollBar,
+            IDs.Journeys.SeasonDropdown }) do
+            local element = NSkin:GetSkinningElement(id)
+            local stored = NSkin:GetSavedMovableElementPlacement(id)
+            if element and stored and NSkin:IsSkinningElementEditable(element)
+                and type(element.applyPlacement) == "function"
+            then
+                element.applyPlacement(element, stored,
+                    { suppressNotify = true })
+            end
+            EncounterJournalSkin:CapturePlacementLifecycle(id,
+                "after-stable-layout")
+            NSkin:NotifySkinningElementBoundsChanged(id)
+        end
+    end)
 end
 
 function EncounterJournalSkin:RunSharedElementDiscovery()
@@ -1865,6 +1930,11 @@ function EncounterJournalSkin:Initialize()
             EncounterJournalSkin:StyleInstanceControls()
             EncounterJournalSkin:StyleJournalScrollBars()
             EncounterJournalSkin:StyleAdventureGuideTabs()
+            EncounterJournalSkin:CapturePlacementLifecycle(
+                IDs.Journeys.ScrollBar, "after-normal-layout")
+            EncounterJournalSkin:CapturePlacementLifecycle(
+                IDs.Journeys.SeasonDropdown, "after-normal-layout")
+            EncounterJournalSkin:QueueSavedPlacementRestore()
             EncounterJournalSkin:ConcealUntilStyled(scrollBox)
             EncounterJournalSkin:QueueRefresh()
         end)
@@ -2367,19 +2437,55 @@ function EncounterJournalSkin:DebugProfile()
     for _, id in ipairs(runtimeIDs) do NSkin:Print("profile runtimeID=" .. id) end
 
     for _, id in ipairs({ IDs.Instances.ScrollBar,
-        IDs.Journeys.SeasonDropdown, IDs.Instances.Difficulty,
+        IDs.Journeys.ScrollBar, IDs.Journeys.SeasonDropdown,
+        IDs.Instances.Difficulty,
         IDs.Instances.LootSpec, IDs.Instances.OverviewScrollBar }) do
         local record = NSkin:GetComponentRegistrationByID(id)
         local appearanceOverride = elements[id]
         local placement = moduleOptions and moduleOptions.movablePlacements
             and moduleOptions.movablePlacements[id]
-        NSkin:Print(("profile canonicalID=%s registered=%s source=%s revision=%s overridePresent=%s appearanceLeafCount=%d placementPresent=%s editable=%s"):format(
+        local stored = NSkin:GetSavedMovableElementPlacement(id)
+        local live = record and record.window and record.target
+            and NSkin:GetCurrentWindowElementPlacement(
+                record.window, record.target) or nil
+        local storedX, storedY = GetPlacementCoordinates(stored)
+        local liveX, liveY = GetPlacementCoordinates(live)
+        NSkin:Print(("profile canonicalID=%s registered=%s source=%s revision=%s overridePresent=%s appearanceLeafCount=%d placementPresent=%s editable=%s storedPoint=%s storedRelativePoint=%s storedX=%s storedY=%s livePoint=%s liveRelativePoint=%s liveX=%s liveY=%s placementMatchesLive=%s"):format(
             id, tostring(record ~= nil), tostring(record and record.source),
             tostring(record and record.definitionRevision),
             tostring(appearanceOverride ~= nil or placement ~= nil),
             appearanceOverride and CountLeaves(appearanceOverride) or 0,
             tostring(placement ~= nil),
-            tostring(record and NSkin:IsSkinningElementEditable(record))))
+            tostring(record and NSkin:IsSkinningElementEditable(record)),
+            tostring(stored and stored.point),
+            tostring(stored and stored.relativePoint),
+            tostring(storedX), tostring(storedY),
+            tostring(live and live.point),
+            tostring(live and live.relativePoint),
+            tostring(liveX), tostring(liveY),
+            tostring(PlacementsMatch(stored, live))))
+        local stages = placementLifecycle[id]
+        for _, stage in ipairs({ "after-registration",
+            "after-explicit-promotion", "after-normal-layout",
+            "after-stable-layout" }) do
+            local entry = stages and stages[stage]
+            if entry then
+                local stageStoredX, stageStoredY =
+                    GetPlacementCoordinates(entry.stored)
+                local stageLiveX, stageLiveY =
+                    GetPlacementCoordinates(entry.live)
+                NSkin:Print(("placementStage canonicalID=%s stage=%s source=%s placementPresent=%s storedPoint=%s storedRelativePoint=%s storedX=%s storedY=%s livePoint=%s liveRelativePoint=%s liveX=%s liveY=%s placementMatchesLive=%s"):format(
+                    id, stage, tostring(entry.source),
+                    tostring(entry.placementPresent),
+                    tostring(entry.stored and entry.stored.point),
+                    tostring(entry.stored and entry.stored.relativePoint),
+                    tostring(stageStoredX), tostring(stageStoredY),
+                    tostring(entry.live and entry.live.point),
+                    tostring(entry.live and entry.live.relativePoint),
+                    tostring(stageLiveX), tostring(stageLiveY),
+                    tostring(entry.placementMatchesLive)))
+            end
+        end
     end
 end
 
