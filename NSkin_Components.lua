@@ -1413,6 +1413,8 @@ function NSkin:SkinDropdown(dropdown, options)
     end)
 end
 
+local SHARED_DROPDOWN_MENU_BOTTOM_INSET = 8
+
 function NSkin:SkinDropdownMenu(menu, style)
     if not menu or not menu.IsShown or not menu:IsShown() then return false end
     style = style or {}
@@ -1425,7 +1427,8 @@ function NSkin:SkinDropdownMenu(menu, style)
             region:SetColorTexture(unpack(backgroundColor))
             region:ClearAllPoints()
             region:SetPoint("TOPLEFT", menu, "TOPLEFT", 1, -1)
-            region:SetPoint("BOTTOMRIGHT", menu, "BOTTOMRIGHT", -1, 1)
+            region:SetPoint("BOTTOMRIGHT", menu, "BOTTOMRIGHT", -1,
+                SHARED_DROPDOWN_MENU_BOTTOM_INSET + 1)
             region:SetAlpha(1)
             region:Show()
         end
@@ -1439,7 +1442,9 @@ function NSkin:SkinDropdownMenu(menu, style)
     end
     local borderFrame = data.sharedMenuBorderFrame
     borderFrame:ClearAllPoints()
-    borderFrame:SetAllPoints(menu)
+    borderFrame:SetPoint("TOPLEFT", menu, "TOPLEFT")
+    borderFrame:SetPoint("BOTTOMRIGHT", menu, "BOTTOMRIGHT", 0,
+        SHARED_DROPDOWN_MENU_BOTTOM_INSET)
     borderFrame:SetFrameStrata(menu:GetFrameStrata())
     borderFrame:SetFrameLevel(menu:GetFrameLevel() + 1)
     local border = self:GetPixelBorder(borderFrame,

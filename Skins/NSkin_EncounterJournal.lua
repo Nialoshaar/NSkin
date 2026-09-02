@@ -99,6 +99,7 @@ local refreshPending = false
 local refreshPasses = 0
 local lastTabID
 local bossScrollBox
+local lootScrollBox
 local concealedScrollBox
 local greatVaultIconFrame
 local greatVaultIconTexture
@@ -151,12 +152,11 @@ local function RegisterExpansionMenuTypography()
         return
     end
 
-    _G.Menu.ModifyMenu("MENU_EJ_EXPANSION",
-        function(_, rootDescription)
-            for _, description in
-                rootDescription:EnumerateElementDescriptions()
-            do
-                description:AddInitializer(function(frame)
+    local function StyleMenuDescriptions(_, rootDescription)
+        for _, description in
+            rootDescription:EnumerateElementDescriptions()
+        do
+            description:AddInitializer(function(frame)
                     local fontString = frame and frame.fontString
                     local fontObject = GetExpansionMenuFontObject(fontString)
                     if fontObject then
@@ -188,9 +188,17 @@ local function RegisterExpansionMenuTypography()
                     if radioCheck then
                         radioCheck:Hide()
                     end
-                end)
-            end
-        end)
+            end)
+        end
+    end
+
+    -- Both selectors are Blizzard_Menu dropdowns. Decorating their
+    -- descriptions keeps all popup-row work inside the supported compositor
+    -- initializer path.
+    _G.Menu.ModifyMenu("MENU_EJ_EXPANSION", StyleMenuDescriptions)
+    _G.Menu.ModifyMenu("MENU_EJ_DIFFICULTY", StyleMenuDescriptions)
+    _G.Menu.ModifyMenu("MENU_CLASS_FILTER", StyleMenuDescriptions)
+    _G.Menu.ModifyMenu("MENU_EJ_LOOT_SLOT_FILTER", StyleMenuDescriptions)
     expansionMenuTypographyRegistered = true
 end
 
@@ -503,6 +511,8 @@ local function RemoveMasks(texture)
     end
 end
 
+local HideParchmentTexture
+
 function EncounterJournalSkin:StyleBossButton(button)
     if not button or not button.creature or not button.text then return end
 
@@ -518,6 +528,7 @@ function EncounterJournalSkin:StyleBossButton(button)
     background:SetColorTexture(unpack(NSkin:GetStyle("encounterCard").background))
     background:Show()
     NSkin:SkinTextColor(button.text, NSkin:GetStyle("text"))
+    ApplyGlobalTypography(button.text)
 end
 
 function EncounterJournalSkin:StyleBossFrames(scrollBox)
@@ -527,7 +538,7 @@ function EncounterJournalSkin:StyleBossFrames(scrollBox)
     end)
 end
 
-local function HideParchmentTexture(texture)
+HideParchmentTexture = function(texture)
     if not texture then return end
     texture:SetAlpha(0)
     texture:Hide()
@@ -575,6 +586,8 @@ local function StyleEncounterInfoHeader(header)
         NSkin:SkinTextColor(button.title, NSkin:GetStyle("text"))
         NSkin:SkinTextColor(button.expandedIcon, NSkin:GetStyle("text"))
     end
+    ApplyGlobalTypography(button.title)
+    ApplyGlobalTypography(button.expandedIcon)
     local hover = GetOrCreateHover(button)
     if button.IsMouseOver then hover:SetShown(button:IsMouseOver()) end
 
@@ -592,16 +605,47 @@ local function StyleEncounterInfoHeader(header)
     HideParchmentTexture(header.descriptionBGBottom)
 end
 
+function EncounterJournalSkin:StyleLootButton(button)
+    if not button then return end
+
+    HideParchmentTexture(button.bossTexture)
+    HideParchmentTexture(button.bosslessTexture)
+
+    local textStyle = NSkin:GetStyle("text")
+    for _, text in ipairs({ button.armorType, button.slot }) do
+        if text then
+            NSkin:SkinTextColor(text, textStyle)
+            ApplyGlobalTypography(text)
+        end
+    end
+end
+
+function EncounterJournalSkin:StyleLootFrames(scrollBox)
+    if not scrollBox or not scrollBox.ForEachFrame then return end
+    scrollBox:ForEachFrame(function(button)
+        EncounterJournalSkin:StyleLootButton(button)
+    end)
+end
+
 local function StyleEncounterText(frame, textStyle)
     if not frame then return end
     for _, region in ipairs({ frame:GetRegions() }) do
         if IsFontString(region) then
             NSkin:SkinTextColor(region, textStyle)
+            ApplyGlobalTypography(region)
         end
     end
     for _, child in ipairs({ frame:GetChildren() }) do
         StyleEncounterText(child, textStyle)
     end
+end
+
+local function GetScrollFrameScrollBar(scrollFrame)
+    if not scrollFrame then return nil end
+    if scrollFrame.ScrollBar then return scrollFrame.ScrollBar end
+    if scrollFrame.scrollBar then return scrollFrame.scrollBar end
+    local name = scrollFrame.GetName and scrollFrame:GetName()
+    return name and _G[name .. "ScrollBar"] or nil
 end
 
 function EncounterJournalSkin:StyleEncounterInfoHeaders()
@@ -613,13 +657,18 @@ function EncounterJournalSkin:StyleEncounterInfoHeaders()
     HideParchmentTexture(info.leftShadow)
     HideParchmentTexture(info.rightShadow)
 
+    local textStyle = NSkin:GetStyle("text")
+    StyleEncounterText(encounter.infoFrame, textStyle)
+    NSkin:SkinScrollBar(GetScrollFrameScrollBar(info.detailsScroll))
+    NSkin:SkinScrollBar(GetScrollFrameScrollBar(info.overviewScroll))
+
     for _, header in pairs(encounter.usedHeaders or {}) do
         StyleEncounterInfoHeader(header)
     end
     local overviewFrame = encounter.overviewFrame
     if overviewFrame then
         HideParchmentTexture(overviewFrame.header)
-        StyleEncounterText(overviewFrame, NSkin:GetStyle("text"))
+        StyleEncounterText(overviewFrame, textStyle)
     end
     for _, header in pairs(
         overviewFrame and overviewFrame.overviews or {})
@@ -677,10 +726,61 @@ function EncounterJournalSkin:StyleInstancePage()
         instance.titleBG:Hide()
     end
 
-
     local sharedTextStyle = NSkin:GetStyle("text")
+    ApplyGlobalTypography(instance.title)
+
+    local mapButton = instance.mapButton
+    if mapButton then
+        local mapButtonName = mapButton.GetName and mapButton:GetName()
+        local mapShadow = mapButtonName and _G[mapButtonName .. "Shadow"]
+        local mapText = mapButtonName and _G[mapButtonName .. "Text"]
+        HideParchmentTexture(mapShadow)
+        ApplyGlobalTypography(mapText)
+    end
+
+    if info.difficulty then
+        NSkin:SkinDropdown(info.difficulty)
+        ApplyGlobalTypography(info.difficulty)
+    end
+
+    local lootContainer = info.LootContainer
+    if lootContainer then
+        if lootContainer.filter then
+            NSkin:SkinDropdown(lootContainer.filter)
+            ApplyGlobalTypography(lootContainer.filter)
+        end
+        if lootContainer.slotFilter then
+            NSkin:SkinDropdown(lootContainer.slotFilter)
+            ApplyGlobalTypography(lootContainer.slotFilter)
+        end
+        NSkin:SkinScrollBar(lootContainer.ScrollBar)
+
+        local classFilter = lootContainer.classClearFilter
+        if classFilter then
+            for _, region in ipairs({ classFilter:GetRegions() }) do
+                if IsTexture(region) then HideParchmentTexture(region) end
+            end
+            if classFilter.text then
+                NSkin:SkinTextColor(classFilter.text, sharedTextStyle)
+                ApplyGlobalTypography(classFilter.text)
+            end
+        end
+
+        self:StyleLootFrames(lootContainer.ScrollBox)
+    end
+    NSkin:SkinScrollBar(info.BossesScrollBar)
+
     NSkin:SkinTextColor(info.instanceTitle, sharedTextStyle)
     NSkin:SkinTextColor(info.encounterTitle, sharedTextStyle)
+    ApplyGlobalTypography(info.instanceTitle)
+    ApplyGlobalTypography(info.encounterTitle)
+
+    -- Instance lore uses a separate ScrollingFont/ScrollBox rather than the
+    -- encounter overview frame. Style its generated FontString recursively so
+    -- both its color and font follow NSkin while retaining Blizzard's size.
+    if instance.LoreScrollingFont then
+        StyleEncounterText(instance.LoreScrollingFont, sharedTextStyle)
+    end
 
     self:StyleEncounterInfoHeaders()
 
@@ -1505,6 +1605,8 @@ function EncounterJournalSkin:Initialize()
     end
     local info = journal.encounter and journal.encounter.info
     bossScrollBox = info and info.BossesScrollBox
+    lootScrollBox = info and info.LootContainer
+        and info.LootContainer.ScrollBox
     hooksecurefunc(scrollBox, "Update", function(updatedScrollBox)
         EncounterJournalSkin:StyleVisibleFrames(updatedScrollBox)
         FinishConcealment(updatedScrollBox)
@@ -1603,6 +1705,25 @@ function EncounterJournalSkin:Initialize()
             bossScrollBox:RegisterCallback(
                 scrollEvents.OnInitializedFrame,
                 self.StyleBossButton,
+                self
+            )
+        end
+    end
+
+    if lootScrollBox and lootScrollBox.ForEachFrame
+        and type(lootScrollBox.Update) == "function"
+    then
+        hooksecurefunc(lootScrollBox, "Update", function(updatedScrollBox)
+            EncounterJournalSkin:StyleLootFrames(updatedScrollBox)
+        end)
+
+        if lootScrollBox.RegisterCallback
+            and scrollEvents
+            and scrollEvents.OnInitializedFrame
+        then
+            lootScrollBox:RegisterCallback(
+                scrollEvents.OnInitializedFrame,
+                self.StyleLootButton,
                 self
             )
         end
