@@ -34,6 +34,14 @@ commands.journalresetdebug = function()
     )
 end
 
+commands.journalprofiledebug = function()
+    RunModuleMethod(
+        "EncounterJournal",
+        "DebugProfile",
+        "Encounter Journal profile diagnostics are unavailable."
+    )
+end
+
 commands.skinning = function()
     if type(NSkin.ToggleSkinningMode) == "function" then
         NSkin:ToggleSkinningMode()
@@ -75,7 +83,7 @@ local function HandleSlashCommand(message)
         return
     end
 
-    NSkin:Print("commands: /nskin, /nskin edit, /nskin skinning, /nskin resettabs, /nskin journaldebug, /nskin journalresetdebug")
+    NSkin:Print("commands: /nskin, /nskin edit, /nskin skinning, /nskin resettabs, /nskin journaldebug, /nskin journalresetdebug, /nskin journalprofiledebug")
 end
 
 SLASH_NSKIN1 = "/nskin"

@@ -2217,8 +2217,34 @@ function EncounterJournalSkin:DebugResetRestoration()
         IDs.Instances.ScrollBar, IDs.Journeys.SeasonDropdown }) do
         local record = NSkin:GetComponentRegistrationByID(id)
         if record and record.target then
-            local restored = NSkin:RestoreOriginalProperties(record.target)
-            local reapplied, errorMessage = NSkin:ReapplyComponentRegistration(id)
+            local function CountOwnedRegions(target)
+                local seen, count = {}, 0
+                local function Visit(value)
+                    if type(value) ~= "table" or seen[value] then return end
+                    seen[value] = true
+                    if value ~= target and value.GetObjectType then
+                        count = count + 1
+                        return
+                    end
+                    for _, child in pairs(value) do Visit(child) end
+                end
+                Visit(NSkin:GetSkinData(target, "components", false))
+                if target.GetChildren then
+                    for _, child in ipairs({ target:GetChildren() }) do
+                        Visit(NSkin:GetSkinData(child, "components", false))
+                    end
+                end
+                return count
+            end
+            local baselineBefore = #NSkin:GetOriginalPropertyKeys(record.target)
+            local ownedRegionsBefore = CountOwnedRegions(record.target)
+            local restored, reapplied, errorMessage
+            for _ = 1, 2 do
+                restored = NSkin:RestoreOriginalProperties(record.target)
+                reapplied, errorMessage = NSkin:ReapplyComponentRegistration(id)
+            end
+            local baselineAfter = #NSkin:GetOriginalPropertyKeys(record.target)
+            local ownedRegionsAfter = CountOwnedRegions(record.target)
             local stranded = 0
             local function CheckChild(child)
                 if child ~= record.target
@@ -2240,8 +2266,12 @@ function EncounterJournalSkin:DebugResetRestoration()
                     end
                 end
             end
-            NSkin:Print(("resetTest id=%s restored=%s reapplied=%s strandedChildOwners=%d error=%s"):format(
+            NSkin:Print(("resetTest id=%s cycles=2 restored=%s reapplied=%s strandedChildOwners=%d baselinePropertyCountBefore=%d baselinePropertyCountAfter=%d baselineStable=%s ownedRegionCountBefore=%d ownedRegionCountAfter=%d ownedRegionsStable=%s error=%s"):format(
                 id, tostring(restored), tostring(reapplied), stranded,
+                baselineBefore, baselineAfter,
+                tostring(baselineBefore == baselineAfter),
+                ownedRegionsBefore, ownedRegionsAfter,
+                tostring(ownedRegionsBefore == ownedRegionsAfter),
                 tostring(errorMessage)))
             tested = tested + 1
         else
@@ -2249,6 +2279,108 @@ function EncounterJournalSkin:DebugResetRestoration()
         end
     end
     return tested > 0
+end
+
+
+local function CollectEncounterJournalCanonicalIDs(value, result, visited)
+    if type(value) ~= "table" or visited[value] then return end
+    visited[value] = true
+    for _, child in pairs(value) do
+        if type(child) == "string"
+            and child:sub(1, #IDs.AppearanceWindow) == IDs.AppearanceWindow
+        then
+            result[child] = true
+        elseif type(child) == "table" then
+            CollectEncounterJournalCanonicalIDs(child, result, visited)
+        end
+    end
+end
+
+local function IsRuntimeGeneratedProfileID(id)
+    if type(id) ~= "string" then return true end
+    local lower = id:lower()
+    if lower:find("table:", 1, true) or lower:find("0x", 1, true)
+        or lower:find("anonymous", 1, true)
+        or lower:find("debug", 1, true)
+    then return true end
+    for segment in id:gmatch("[^.]+") do
+        if segment:match("^%d+$") then return true end
+    end
+    return false
+end
+
+local function CountLeaves(value)
+    if type(value) ~= "table" then return 1 end
+    local count = 0
+    for _, child in pairs(value) do count = count + CountLeaves(child) end
+    return count
+end
+
+function EncounterJournalSkin:DebugProfile()
+    local profile = NSkin:GetProfile()
+    local canonicalIDs = {}
+    CollectEncounterJournalCanonicalIDs(IDs, canonicalIDs, {})
+
+    local registeredIDs, targetOwners = {}, setmetatable({}, { __mode = "k" })
+    NSkin:ForEachRegisteredSkinningElement(function(element)
+        if element.componentType and type(element.id) == "string"
+            and element.id:sub(1, #IDs.AppearanceWindow)
+                == IDs.AppearanceWindow
+        then
+            registeredIDs[element.id] = true
+            if element.target then
+                targetOwners[element.target] = (targetOwners[element.target] or 0) + 1
+            end
+        end
+    end)
+
+    local overrideIDs = {}
+    local elements = profile.appearanceOverrides
+        and profile.appearanceOverrides.elements or {}
+    for id in pairs(elements) do
+        if type(id) == "string"
+            and id:sub(1, #IDs.AppearanceWindow) == IDs.AppearanceWindow
+        then overrideIDs[id] = true end
+    end
+    local moduleOptions = profile.moduleOptions
+        and profile.moduleOptions.EncounterJournal
+    for id in pairs(moduleOptions and moduleOptions.movablePlacements or {}) do
+        overrideIDs[id] = true
+    end
+
+    local orphanedIDs, runtimeIDs, duplicateIDs = {}, {}, 0
+    for id in pairs(overrideIDs) do
+        if IsRuntimeGeneratedProfileID(id) then runtimeIDs[#runtimeIDs + 1] = id end
+        if not canonicalIDs[id] and not registeredIDs[id] then
+            orphanedIDs[#orphanedIDs + 1] = id
+        end
+    end
+    for _, count in pairs(targetOwners) do
+        if count > 1 then duplicateIDs = duplicateIDs + count - 1 end
+    end
+    table.sort(orphanedIDs)
+    table.sort(runtimeIDs)
+
+    NSkin:Print(("profileAudit duplicateIDs=%d orphanedIDs=%d runtimeIDs=%d"):format(
+        duplicateIDs, #orphanedIDs, #runtimeIDs))
+    for _, id in ipairs(orphanedIDs) do NSkin:Print("profile orphanedID=" .. id) end
+    for _, id in ipairs(runtimeIDs) do NSkin:Print("profile runtimeID=" .. id) end
+
+    for _, id in ipairs({ IDs.Instances.ScrollBar,
+        IDs.Journeys.SeasonDropdown, IDs.Instances.Difficulty,
+        IDs.Instances.LootSpec, IDs.Instances.OverviewScrollBar }) do
+        local record = NSkin:GetComponentRegistrationByID(id)
+        local appearanceOverride = elements[id]
+        local placement = moduleOptions and moduleOptions.movablePlacements
+            and moduleOptions.movablePlacements[id]
+        NSkin:Print(("profile canonicalID=%s registered=%s source=%s revision=%s overridePresent=%s appearanceLeafCount=%d placementPresent=%s editable=%s"):format(
+            id, tostring(record ~= nil), tostring(record and record.source),
+            tostring(record and record.definitionRevision),
+            tostring(appearanceOverride ~= nil or placement ~= nil),
+            appearanceOverride and CountLeaves(appearanceOverride) or 0,
+            tostring(placement ~= nil),
+            tostring(record and NSkin:IsSkinningElementEditable(record))))
+    end
 end
 
 NSkin:RegisterWindowSkin({
