@@ -2095,6 +2095,16 @@ function EncounterJournalSkin:Debug()
             end
         end
     end
+    if NSkin.GetOriginalPropertyKeys then
+        for _, id in ipairs({ IDs.Instances.Difficulty,
+            IDs.Instances.ScrollBar, IDs.Journeys.SeasonDropdown }) do
+            local record = NSkin:GetComponentRegistrationByID(id)
+            local properties = record and NSkin:GetOriginalPropertyKeys(
+                record.target) or {}
+            NSkin:Print(("resetCapture id=%s owner=component properties=%s"):format(
+                id, #properties > 0 and table.concat(properties, ",") or "none"))
+        end
+    end
     if NSkin.GetDiscoveryAudit then
         for _, entry in ipairs(NSkin:GetDiscoveryAudit(
             IDs.AppearanceWindow)) do
@@ -2194,6 +2204,51 @@ function EncounterJournalSkin:Debug()
             end
         end
     end
+end
+
+
+function EncounterJournalSkin:DebugResetRestoration()
+    if _G.InCombatLockdown and _G.InCombatLockdown() then
+        NSkin:Print("Encounter Journal reset diagnostics cannot run during combat.")
+        return false
+    end
+    local tested = 0
+    for _, id in ipairs({ IDs.Instances.Difficulty,
+        IDs.Instances.ScrollBar, IDs.Journeys.SeasonDropdown }) do
+        local record = NSkin:GetComponentRegistrationByID(id)
+        if record and record.target then
+            local restored = NSkin:RestoreOriginalProperties(record.target)
+            local reapplied, errorMessage = NSkin:ReapplyComponentRegistration(id)
+            local stranded = 0
+            local function CheckChild(child)
+                if child ~= record.target
+                    and #NSkin:GetOriginalPropertyKeys(child) > 0
+                then stranded = stranded + 1 end
+            end
+            if record.target.GetRegions then
+                for _, region in ipairs({ record.target:GetRegions() }) do
+                    CheckChild(region)
+                end
+            end
+            if record.target.GetChildren then
+                for _, child in ipairs({ record.target:GetChildren() }) do
+                    CheckChild(child)
+                    if child.GetRegions then
+                        for _, region in ipairs({ child:GetRegions() }) do
+                            CheckChild(region)
+                        end
+                    end
+                end
+            end
+            NSkin:Print(("resetTest id=%s restored=%s reapplied=%s strandedChildOwners=%d error=%s"):format(
+                id, tostring(restored), tostring(reapplied), stranded,
+                tostring(errorMessage)))
+            tested = tested + 1
+        else
+            NSkin:Print("resetTest id=" .. id .. " result=not-observed")
+        end
+    end
+    return tested > 0
 end
 
 NSkin:RegisterWindowSkin({

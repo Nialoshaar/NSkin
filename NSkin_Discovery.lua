@@ -114,6 +114,36 @@ function NSkin:CaptureOriginalProperty(target, propertyKey, value, restore)
     return true
 end
 
+function NSkin:CaptureSharedRegionProperty(region, propertyKey, value, restore)
+    local owner = self.activeSharedMutationOwner
+    if not owner or not region or type(propertyKey) ~= "string" then return false end
+    local state = self.originalStateByFrame[owner]
+    if not state then
+        state = { properties = {}, restorers = {}, captured = {} }
+        self.originalStateByFrame[owner] = state
+    end
+    state.regionKeys = state.regionKeys or setmetatable({}, { __mode = "k" })
+    local regionKey = state.regionKeys[region]
+    if not regionKey then
+        state.regionSequence = (state.regionSequence or 0) + 1
+        regionKey = region == owner and "component"
+            or "region." .. state.regionSequence
+        state.regionKeys[region] = regionKey
+    end
+    return self:CaptureOriginalProperty(owner,
+        regionKey .. "." .. propertyKey, value, function(_, saved)
+            return restore(region, saved)
+        end)
+end
+
+function NSkin:GetOriginalPropertyKeys(target)
+    local result = {}
+    local state = target and self.originalStateByFrame[target]
+    for key in pairs(state and state.properties or {}) do result[#result + 1] = key end
+    table.sort(result)
+    return result
+end
+
 function NSkin:RestoreOriginalProperties(target, requested)
     local state = target and self.originalStateByFrame[target]
     if not state then return false end
@@ -470,16 +500,22 @@ local function ApplyRegistration(record)
         record.applyState, record.applyError = "failed", "unsupported-component"
         return false, record.applyError
     end
-    CaptureCommonState(record.target)
-    CaptureVisualState(record.target)
-    CaptureFontString(GetButtonFontString(record.target), "text")
+    local previousOwner = NSkin.activeSharedMutationOwner
+    NSkin.activeSharedMutationOwner = record.target
     local ok, result = pcall(component.skin, record.target, record)
+    NSkin.activeSharedMutationOwner = previousOwner
     if ok then
         record.applyState, record.applyError = "applied", nil
         return result ~= false
     end
     record.applyState, record.applyError = "failed", tostring(result)
     return false, record.applyError
+end
+
+function NSkin:ReapplyComponentRegistration(id)
+    local record = self:GetComponentRegistrationByID(id)
+    if not record then return false, "not-registered" end
+    return ApplyRegistration(record)
 end
 
 function NSkin:GetComponentRegistrar(componentType)
@@ -547,7 +583,13 @@ local function IsFrame(value)
     return ok and result == true
 end
 
-local function FindStableFieldPath(target, roots, maxDepth)
+local function IsIdentityStructuralValue(value, key, context)
+    if IsFrame(value) then return true end
+    local approved = context and context.identityStructuralFields
+    return type(value) == "table" and approved and approved[key] == true
+end
+
+local function FindStableFieldPath(target, roots, maxDepth, context)
     local best
     local visited = {}
     local function Visit(value, path, depth)
@@ -568,7 +610,7 @@ local function FindStableFieldPath(target, roots, maxDepth)
         table.sort(keys)
         for _, key in ipairs(keys) do
             local ok, child = pcall(function() return value[key] end)
-            if ok and type(child) == "table" then
+            if ok and IsIdentityStructuralValue(child, key, context) then
                 Visit(child, path == "" and key or path .. "." .. key, depth + 1)
             end
         end
@@ -588,11 +630,6 @@ function NSkin:ResolveDiscoveredElementIdentity(windowID, rootFrame, frame, cont
         return { id = semantic, stable = true, source = "semantic",
             fieldName = semantic:match("([^.]+)$") }
     end
-    local existing = self.registeredElementByFrame[frame]
-    if existing then
-        return { id = existing.id, stable = true, source = "existing",
-            fieldName = existing.id:match("([^.]+)$") }
-    end
     local indexed = context.identityByFrame and context.identityByFrame[frame]
     if indexed then
         return { id = windowID .. "." .. NormalizePath(indexed),
@@ -605,7 +642,7 @@ function NSkin:ResolveDiscoveredElementIdentity(windowID, rootFrame, frame, cont
             and root or { value = root, path = "" }
     end
     local path = FindStableFieldPath(frame, roots,
-        tonumber(context.identityDepth) or 4)
+        tonumber(context.identityDepth) or 4, context)
     if path and path ~= "" then
         return { id = windowID .. "." .. NormalizePath(path), stable = true,
             source = "field-path", fieldPath = path,
@@ -698,7 +735,7 @@ function NSkin:DiscoverSharedElements(windowID, rootFrame, options)
         table.sort(keys)
         for _, key in ipairs(keys) do
             local ok, child = pcall(function() return value[key] end)
-            if ok and type(child) == "table" then
+            if ok and IsIdentityStructuralValue(child, key, options) then
                 local childPath = path == "" and key or path .. "." .. key
                 if IsFrame(child) then
                     local current = identityByFrame[child]
