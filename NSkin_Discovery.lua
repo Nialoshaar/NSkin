@@ -8,6 +8,7 @@ NSkin.originalStateByFrame = NSkin.originalStateByFrame
     or setmetatable({}, { __mode = "k" })
 NSkin.discoveryAudit = NSkin.discoveryAudit or {}
 NSkin.registrationActionCounts = NSkin.registrationActionCounts or {}
+NSkin.applicationActionCounts = NSkin.applicationActionCounts or {}
 
 local registrationByID = {}
 local deferredApplications = {}
@@ -22,17 +23,42 @@ local function CopyTable(source)
     return result
 end
 
-local function SameDefinition(left, right)
-    local ignored = { applyState = true, applyError = true,
-        definitionVersion = true, definitionRevision = true,
-        _registrationChanged = true, _upsertAction = true }
-    for key, value in pairs(left or {}) do
-        if not ignored[key] and right[key] ~= value then return false end
+local EFFECTIVE_DEFINITION_FIELDS = {
+    "id", "componentType", "source", "module", "appearanceWindowID",
+    "kind", "label", "priority", "isEditable", "draggable", "movable",
+    "supportsResize", "editorPreset", "editorOptions", "highlightRegions",
+    "layoutMode", "skinStyle", "style", "atlas", "texture", "texCoords",
+    "callbackSemanticID", "callbackVersion",
+}
+
+local function EquivalentValue(left, right, visited)
+    if left == right then return true end
+    if type(left) ~= type(right) then return false end
+    if type(left) ~= "table" then return false end
+    visited = visited or {}
+    if visited[left] == right then return true end
+    visited[left] = right
+    for key, value in pairs(left) do
+        if not EquivalentValue(value, right[key], visited) then return false end
     end
-    for key, value in pairs(right or {}) do
-        if not ignored[key] and left[key] ~= value then return false end
+    for key in pairs(right) do
+        if left[key] == nil then return false end
     end
     return true
+end
+
+local function ChangedEffectiveFields(left, right)
+    local changed = {}
+    for _, key in ipairs(EFFECTIVE_DEFINITION_FIELDS) do
+        if not EquivalentValue(left and left[key], right and right[key]) then
+            changed[#changed + 1] = key
+        end
+    end
+    return changed
+end
+
+local function SameDefinition(left, right)
+    return #ChangedEffectiveFields(left, right) == 0
 end
 
 local function AuditLine(data)
@@ -143,6 +169,8 @@ function NSkin:UpsertComponentRegistration(definition)
     local idOwner = registrationByID[definition.id]
         or self:GetSkinningElement(definition.id)
     if idOwner and idOwner.target ~= target then
+        self.registrationActionCounts.conflict =
+            (self.registrationActionCounts.conflict or 0) + 1
         AuditLine({ id = definition.id, type = definition.componentType,
             action = "error", reason = "id-conflict" })
         return nil, false, "id-conflict"
@@ -158,12 +186,15 @@ function NSkin:UpsertComponentRegistration(definition)
     for key, value in pairs(definition) do proposed[key] = value end
     proposed.source = definition.source
     proposed.applyState = proposed.applyState or "pending"
+    local changedFields = existing and ChangedEffectiveFields(existing, proposed)
+        or EFFECTIVE_DEFINITION_FIELDS
+    local materiallyChanged = not existing or #changedFields > 0
     proposed.definitionRevision = (existing
         and (existing.definitionRevision or existing.definitionVersion) or 0)
-        + (existing and SameDefinition(existing, proposed) and 0 or 1)
+        + (materiallyChanged and 1 or 0)
     proposed.definitionVersion = proposed.definitionRevision
 
-    if existing and SameDefinition(existing, proposed) then
+    if existing and not materiallyChanged then
         return existing, false, nil, "noop"
     end
     local action = not existing and "register"
@@ -179,7 +210,7 @@ function NSkin:UpsertComponentRegistration(definition)
     end
     self.registeredElementByFrame[target] = proposed
     registrationByID[proposed.id] = proposed
-    return proposed, true, nil, action
+    return proposed, true, nil, action, changedFields
 end
 
 function NSkin:RegisterSkinningElement(elementID, definition)
@@ -198,6 +229,8 @@ function NSkin:RegisterSkinningElement(elementID, definition)
         and self.registeredElementByFrame[definition.target]
     local idOwner = self:GetSkinningElement(elementID)
     if idOwner and idOwner.target ~= definition.target then
+        self.registrationActionCounts.conflict =
+            (self.registrationActionCounts.conflict or 0) + 1
         AuditLine({ id = elementID, type = definition.componentType,
             action = "error", reason = "id-conflict" })
         return false
@@ -211,7 +244,10 @@ function NSkin:RegisterSkinningElement(elementID, definition)
         return legacyRegisterSkinningElement(self, elementID, definition)
     end
     local previousID = indexed and indexed.id
-    local record, changed, _, action = self:UpsertComponentRegistration(definition)
+    local oldRevision = indexed
+        and (indexed.definitionRevision or indexed.definitionVersion) or 0
+    local record, changed, _, action, changedFields =
+        self:UpsertComponentRegistration(definition)
     if not record then return false end
     record._registrationChanged = changed
     record._upsertAction = action
@@ -220,7 +256,10 @@ function NSkin:RegisterSkinningElement(elementID, definition)
             (self.registrationActionCounts[action] or 0) + 1
         if action == "promote" or action == "refresh" then
             AuditLine({ windowID = record.appearanceWindowID, id = record.id,
-                type = record.componentType, action = action })
+                type = record.componentType, action = action,
+                oldRevision = oldRevision,
+                newRevision = record.definitionRevision,
+                changedFields = changedFields and table.concat(changedFields, ",") })
         end
     end
     if not changed and self:GetSkinningElement(record.id) then return true end
@@ -242,6 +281,10 @@ end
 
 function NSkin:GetRegistrationActionCounts()
     return CopyTable(self.registrationActionCounts)
+end
+
+function NSkin:GetApplicationActionCounts()
+    return CopyTable(self.applicationActionCounts)
 end
 
 function NSkin:GetComponentRegistryDump(prefix)
@@ -459,10 +502,22 @@ local function RegisterTyped(componentType, definition)
     end
     if not NSkin:RegisterSkinningElement(definition.id, definition) then return nil end
     local record = NSkin.registeredElementByFrame[definition.target]
+    local registrationAction = record and record._upsertAction or "noop"
     if record and record.source == definition.source
         and (record._registrationChanged or record.applyState ~= "applied")
     then
+        local applicationAction = record.applyState == "applied"
+            and "reapply" or "apply"
         ApplyRegistration(record)
+        if record.applyState == "pending" then applicationAction = "defer"
+        elseif record.applyState == "failed" then applicationAction = "fail" end
+        NSkin.applicationActionCounts[applicationAction] =
+            (NSkin.applicationActionCounts[applicationAction] or 0) + 1
+        record._applicationAction = applicationAction
+    elseif record and registrationAction == "noop" then
+        NSkin.applicationActionCounts.noop =
+            (NSkin.applicationActionCounts.noop or 0) + 1
+        record._applicationAction = "noop"
     end
     if record then record._registrationChanged = nil end
     return record
@@ -528,15 +583,15 @@ end
 
 function NSkin:ResolveDiscoveredElementIdentity(windowID, rootFrame, frame, context)
     context = context or {}
-    local existing = self.registeredElementByFrame[frame]
-    if existing then
-        return { id = existing.id, stable = true, source = "existing",
-            fieldName = existing.id:match("([^.]+)$") }
-    end
     local semantic = context.semanticIDs and context.semanticIDs[frame]
     if type(semantic) == "string" and semantic ~= "" then
         return { id = semantic, stable = true, source = "semantic",
             fieldName = semantic:match("([^.]+)$") }
+    end
+    local existing = self.registeredElementByFrame[frame]
+    if existing then
+        return { id = existing.id, stable = true, source = "existing",
+            fieldName = existing.id:match("([^.]+)$") }
     end
     local indexed = context.identityByFrame and context.identityByFrame[frame]
     if indexed then
@@ -669,7 +724,10 @@ function NSkin:DiscoverSharedElements(windowID, rootFrame, options)
         { candidate = 0, classified = 0, unclassified = 0,
             registered = 0, preserved = 0, promoted = 0, noop = 0,
             refreshed = 0, applied = 0, skipped = 0, rejected = 0,
-            errors = 0, deferred = 0, failed = 0 }
+            errors = 0, deferred = 0, failed = 0,
+            applicationApply = 0, applicationReapply = 0,
+            applicationNoop = 0, applicationDefer = 0,
+            applicationFail = 0 }
     local enabled = {
         button = options.buttons ~= false, editBox = options.editBoxes ~= false,
         scrollBar = options.scrollBars ~= false,
@@ -751,6 +809,18 @@ function NSkin:DiscoverSharedElements(windowID, rootFrame, options)
                 action = "fail"
             elseif registered.applyState == "applied" then
                 summary.applied = summary.applied + 1
+            end
+            local applicationAction = registered._applicationAction or "noop"
+            if applicationAction == "apply" then
+                summary.applicationApply = summary.applicationApply + 1
+            elseif applicationAction == "reapply" then
+                summary.applicationReapply = summary.applicationReapply + 1
+            elseif applicationAction == "defer" then
+                summary.applicationDefer = summary.applicationDefer + 1
+            elseif applicationAction == "fail" then
+                summary.applicationFail = summary.applicationFail + 1
+            else
+                summary.applicationNoop = summary.applicationNoop + 1
             end
             AuditLine({ windowID = windowID, id = identity.id,
                 type = componentType, fieldPath = identity.fieldPath, stable = true,

@@ -1596,8 +1596,14 @@ function EncounterJournalSkin:RunSharedElementDiscovery()
     local overviewScrollBar = GetScrollFrameScrollBar(info.overviewScroll)
     local exclude, excludeChildrenOf, semanticIDs = {}, {}, {}
     local classifyAs, appearanceScopes = {}, {}
+    local observedIDs = {}
+    local missingApproved = {}
     local function Approve(frame, id, componentType, scope)
-        if not frame then return end
+        if not frame then
+            missingApproved[#missingApproved + 1] = id
+            return
+        end
+        observedIDs[id] = true
         semanticIDs[frame] = id
         classifyAs[frame] = componentType
         appearanceScopes[frame] = scope or IDs.Instances.Scope
@@ -1617,6 +1623,13 @@ function EncounterJournalSkin:RunSharedElementDiscovery()
     Approve(loot and loot.ScrollBar, IDs.Instances.LootScrollBar, "scrollBar")
     Approve(detailsScrollBar, IDs.Instances.DetailsScrollBar, "scrollBar")
     Approve(overviewScrollBar, IDs.Instances.OverviewScrollBar, "scrollBar")
+    table.sort(missingApproved)
+    self.discoveryObservedIDs = observedIDs
+    self.discoveryCoverage = {
+        approved = 10,
+        observed = 10 - #missingApproved,
+        missingApproved = missingApproved,
+    }
 
     for _, frame in ipairs({ instanceSelect.ScrollBox,
         journal.JourneysFrame and journal.JourneysFrame.ScrollBox,
@@ -1702,9 +1715,11 @@ function EncounterJournalSkin:BuildCleanupEligibilityAudit()
         retain = 0, idMismatch = 0, typeMismatch = 0,
         specialMetadata = 0, resetMismatch = 0, unvalidated = 0 }
     for _, candidate in ipairs(candidates) do
-        local record = candidate.target
+        local observed = self.discoveryObservedIDs
+            and self.discoveryObservedIDs[candidate.canonicalID] == true
+        local record = observed and candidate.target
             and NSkin:GetComponentRegistrationByFrame(candidate.target)
-        local observed = record ~= nil
+        observed = observed and record ~= nil
         local canonicalMatch = observed
             and candidate.discoveryID == candidate.canonicalID
         local typeMatch = observed
@@ -1714,7 +1729,7 @@ function EncounterJournalSkin:BuildCleanupEligibilityAudit()
             and candidate.explicitScope == candidate.discoveryScope
             and record.appearanceWindowID == candidate.explicitScope
         local editabilityExplicit = "custom"
-        local editabilityDiscovery = "default"
+        local editabilityDiscovery = observed and "default" or nil
         local editabilityMatch = false
         -- The explicit movable path captures geometry and supplies placement
         -- restoration in addition to the shared component baseline. Discovery
@@ -1750,13 +1765,14 @@ function EncounterJournalSkin:BuildCleanupEligibilityAudit()
         end
         cleanupAudit[#cleanupAudit + 1] = {
             canonicalID = candidate.canonicalID,
-            discoveryID = candidate.discoveryID,
+            discoveryID = observed and candidate.discoveryID or nil,
             canonicalMatch = canonicalMatch,
             componentTypeExplicit = candidate.explicitType,
-            componentTypeDiscovery = candidate.discoveryType,
+            componentTypeDiscovery = observed and candidate.discoveryType or nil,
             typeMatch = typeMatch,
             appearanceScopeExplicit = candidate.explicitScope,
-            appearanceScopeDiscovery = candidate.discoveryScope,
+            appearanceScopeDiscovery = observed and candidate.discoveryScope or nil,
+            observed = observed,
             appearanceScopeMatch = appearanceScopeMatch,
             editabilityExplicit = editabilityExplicit,
             editabilityDiscovery = editabilityDiscovery,
@@ -2026,13 +2042,16 @@ function EncounterJournalSkin:Debug()
     ))
     local audit = self.discoveryAuditSummary
     if audit then
-        NSkin:Print(("discovery live scanned=%d classified=%d unclassified=%d candidates=%d preserved=%d registered=%d promoted=%d noop=%d deferred=%d applied=%d failed=%d rejected=%d errors=%d"):format(
+        NSkin:Print(("discovery live scanned=%d classified=%d unclassified=%d candidates=%d preserved=%d registered=%d promoted=%d refresh=%d noop=%d deferred=%d applied=%d failed=%d rejected=%d errors=%d applicationApply=%d applicationReapply=%d applicationNoop=%d applicationDefer=%d applicationFail=%d"):format(
             audit.scanned or 0, audit.classified or 0,
             audit.unclassified or 0, audit.candidate or 0,
             audit.preserved or 0, audit.registered or 0,
-            audit.promoted or 0, audit.noop or 0,
+            audit.promoted or 0, audit.refreshed or 0, audit.noop or 0,
             audit.deferred or 0, audit.applied or 0,
-            audit.failed or 0, audit.rejected or 0, audit.errors or 0))
+            audit.failed or 0, audit.rejected or 0, audit.errors or 0,
+            audit.applicationApply or 0, audit.applicationReapply or 0,
+            audit.applicationNoop or 0, audit.applicationDefer or 0,
+            audit.applicationFail or 0))
     end
     local totals = self.discoveryLiveTotals
     if totals then
@@ -2044,10 +2063,25 @@ function EncounterJournalSkin:Debug()
     end
     if NSkin.GetRegistrationActionCounts then
         local actions = NSkin:GetRegistrationActionCounts()
-        NSkin:Print(("registry actions register=%d preserve=%d promote=%d refresh=%d noop=%d"):format(
+        NSkin:Print(("registry actions register=%d preserve=%d promote=%d refresh=%d noop=%d conflict=%d"):format(
             actions.register or 0, actions.preserve or 0,
             actions.promote or 0, actions.refresh or 0,
-            actions.noop or 0))
+            actions.noop or 0, actions.conflict or 0))
+    end
+    if NSkin.GetApplicationActionCounts then
+        local actions = NSkin:GetApplicationActionCounts()
+        NSkin:Print(("application actions apply=%d reapply=%d noop=%d defer=%d fail=%d"):format(
+            actions.apply or 0, actions.reapply or 0, actions.noop or 0,
+            actions.defer or 0, actions.fail or 0))
+    end
+    local coverage = self.discoveryCoverage
+    if coverage then
+        NSkin:Print(("discovery coverage approved=%d observed=%d missingApproved=%d"):format(
+            coverage.approved or 0, coverage.observed or 0,
+            #(coverage.missingApproved or {})))
+        for _, id in ipairs(coverage.missingApproved or {}) do
+            NSkin:Print("discovery missingApproved=" .. id)
+        end
     end
     if NSkin.GetComponentRegistryDump then
         for _, record in ipairs(NSkin:GetComponentRegistryDump(
@@ -2065,26 +2099,28 @@ function EncounterJournalSkin:Debug()
         for _, entry in ipairs(NSkin:GetDiscoveryAudit(
             IDs.AppearanceWindow)) do
             if entry.id then
-                NSkin:Print(("audit id=%s type=%s field=%s action=%s reason=%s"):format(
+                NSkin:Print(("audit id=%s type=%s field=%s action=%s reason=%s oldRevision=%s newRevision=%s changedFields=%s"):format(
                     entry.id, tostring(entry.type),
                     tostring(entry.fieldPath), tostring(entry.action),
-                    tostring(entry.reason)))
+                    tostring(entry.reason), tostring(entry.oldRevision),
+                    tostring(entry.newRevision), tostring(entry.changedFields)))
             end
         end
     end
     if not cleanupAudit[1] then self:BuildCleanupEligibilityAudit() end
-    NSkin:Print(("cleanup summary explicitOverlap=%d eligible=%d retain=%d idMismatch=%d typeMismatch=%d specialMetadata=%d resetMismatch=%d unvalidated=%d"):format(
+    NSkin:Print(("cleanup summary explicitOverlap=%d eligible=%d retain=%d retainedSpecialMetadata=%d retainedUnvalidated=%d retainedIDMismatch=%d retainedTypeMismatch=%d retainedResetMismatch=%d"):format(
         cleanupAuditSummary.explicitOverlap or 0,
         cleanupAuditSummary.eligible or 0,
         cleanupAuditSummary.retain or 0,
+        cleanupAuditSummary.specialMetadata or 0,
+        cleanupAuditSummary.unvalidated or 0,
         cleanupAuditSummary.idMismatch or 0,
         cleanupAuditSummary.typeMismatch or 0,
-        cleanupAuditSummary.specialMetadata or 0,
-        cleanupAuditSummary.resetMismatch or 0,
-        cleanupAuditSummary.unvalidated or 0))
+        cleanupAuditSummary.resetMismatch or 0))
     for _, entry in ipairs(cleanupAudit) do
-        NSkin:Print(("cleanup canonicalID=%s discoveryID=%s canonicalMatch=%s componentTypeExplicit=%s componentTypeDiscovery=%s typeMatch=%s appearanceScopeExplicit=%s appearanceScopeDiscovery=%s appearanceScopeMatch=%s editabilityExplicit=%s editabilityDiscovery=%s editabilityMatch=%s specialMetadata=%s resetCompatible=%s cleanupEligible=%s reason=%s"):format(
-            tostring(entry.canonicalID), tostring(entry.discoveryID),
+        NSkin:Print(("cleanup canonicalID=%s observed=%s discoveryID=%s canonicalMatch=%s componentTypeExplicit=%s componentTypeDiscovery=%s typeMatch=%s appearanceScopeExplicit=%s appearanceScopeDiscovery=%s appearanceScopeMatch=%s editabilityExplicit=%s editabilityDiscovery=%s editabilityMatch=%s specialMetadata=%s resetCompatible=%s cleanupEligible=%s reason=%s"):format(
+            tostring(entry.canonicalID), tostring(entry.observed),
+            tostring(entry.discoveryID),
             tostring(entry.canonicalMatch),
             tostring(entry.componentTypeExplicit),
             tostring(entry.componentTypeDiscovery), tostring(entry.typeMatch),
