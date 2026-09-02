@@ -1018,7 +1018,30 @@ function EncounterJournalSkin:StyleInstanceControls(forceShown)
         return
     end
 
-    ApplyGlobalTypography(instanceSelect.Title)
+    NSkin:SkinText(instanceSelect.Title, NSkin:GetAppearanceStyle(
+        "text", IDs.AppearanceWindow, IDs.Tutorials.Text))
+    if not tutorialsTextRegistered and instanceSelect.Title then
+        local title = instanceSelect.Title
+        NSkin:RegisterSkinningElement(IDs.Tutorials.Text, {
+            module = "EncounterJournal",
+            appearanceWindowID = IDs.AppearanceWindow,
+            label = "Page title",
+            kind = "TEXT",
+            window = journal,
+            target = title,
+            draggable = false,
+            priority = 70,
+            highlightRegions = { title },
+            isEditable = function() return title:IsVisible() end,
+        })
+        tutorialsTextRegistered = true
+    elseif tutorialsTextRegistered then
+        NSkin:NotifySkinningElementBoundsChanged(IDs.Tutorials.Text)
+    end
+    NSkin:SkinDropdown(instanceSelect.ExpansionDropdown, {
+        style = NSkin:GetAppearanceStyle(
+            "button", IDs.Journeys.Scope, IDs.Journeys.SeasonDropdown),
+    })
     ApplyGlobalTypography(instanceSelect.ExpansionDropdown)
 
     local searchBox = journal.searchBox
@@ -1281,8 +1304,8 @@ function EncounterJournalSkin:StyleTutorials(forceShown)
         if not tutorialsTextRegistered then
             NSkin:RegisterSkinningElement(IDs.Tutorials.Text, {
                 module = "EncounterJournal",
-                appearanceWindowID = IDs.Tutorials.Scope,
-                label = "Tutorials title",
+                appearanceWindowID = IDs.AppearanceWindow,
+                label = "Page title",
                 kind = "TEXT",
                 window = journal,
                 target = title,
@@ -1290,7 +1313,7 @@ function EncounterJournalSkin:StyleTutorials(forceShown)
                 priority = 70,
                 highlightRegions = { title },
                 isEditable = function()
-                    return tutorialsFrame:IsVisible() and title:IsVisible()
+                    return title:IsVisible()
                 end,
             })
             tutorialsTextRegistered = true
@@ -1490,18 +1513,26 @@ function EncounterJournalSkin:StyleJourneys(forceShown)
         "button", IDs.Journeys.Scope, IDs.Journeys.SeasonDropdown) })
     ApplyGlobalTypography(dropdown)
     if not journeysRegistered and dropdown then
+        local dungeonTabID = journal.dungeonsTab and journal.dungeonsTab:GetID()
+        local raidTabID = journal.raidsTab and journal.raidsTab:GetID()
         NSkin:RegisterSimpleMovableElement({
             id = IDs.Journeys.SeasonDropdown,
             module = "EncounterJournal",
             appearanceWindowID = IDs.Journeys.Scope,
-            label = "Journeys current season dropdown",
+            label = "Expansion and season dropdown",
             kind = "DROPDOWN",
+            extraEditorOptions = {
+                { id = "shared.buttonAppearance", label = "Appearance",
+                    category = "CUSTOMIZE" },
+            },
             window = journal,
             target = dropdown,
             priority = 80,
             highlightRegions = { dropdown },
             isEditable = function()
-                return journeys:IsVisible() and dropdown:IsVisible()
+                local selected = journal.selectedTab
+                return dropdown:IsVisible() and (journeys:IsVisible()
+                    or selected == dungeonTabID or selected == raidTabID)
             end,
         })
         journeysRegistered = true

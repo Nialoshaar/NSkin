@@ -2042,6 +2042,14 @@ local EDITOR_PRESETS = {
         { id = "shared.textAppearance", label = "Text",
             category = "CUSTOMIZE" },
     },
+    BUTTON_APPEARANCE = {
+        { id = "shared.buttonAppearance", label = "Appearance",
+            category = "CUSTOMIZE" },
+    },
+    SCROLLBAR_APPEARANCE = {
+        { id = "shared.scrollBarAppearance", label = "Appearance",
+            category = "CUSTOMIZE" },
+    },
 }
 
 local SHARED_ELEMENT_TYPES = {}

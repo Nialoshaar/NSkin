@@ -3086,6 +3086,74 @@ local function ResetElementPaths(context, paths)
     return NSkin:ResetElementAppearanceOverrides(context.id, paths)
 end
 
+local function ReapplyDiscoveredElement(context, changed)
+    if changed and context and context.id and NSkin.ReapplyComponentRegistration then
+        NSkin:ReapplyComponentRegistration(context.id)
+    end
+    return changed == true
+end
+
+NSkin:RegisterOptionGroup("shared.buttonAppearance", {
+    controls = {
+        { type = "COLOR", key = "background", label = "Background" },
+        { type = "COLOR", key = "border", label = "Border" },
+        { type = "COLOR", key = "text", label = "Text" },
+        { type = "SLIDER", key = "hoverAlpha", label = "Mouseover glow",
+            min = 0, max = 1, step = 0.05, decimals = 2 },
+    },
+    get = function(context)
+        local style = NSkin:GetAppearanceStyle(
+            "button", GetAppearanceWindowID(context), context.id)
+        return { background = CopyColor(style.background),
+            border = CopyColor(style.border), text = CopyColor(style.text),
+            hoverAlpha = style.hoverAlpha }
+    end,
+    set = function(context, values)
+        local changed
+        for key, value in pairs(values) do
+            changed = SetElementValue(context, "button." .. key, value) or changed
+        end
+        return ReapplyDiscoveredElement(context, changed)
+    end,
+    reset = function(context)
+        return ReapplyDiscoveredElement(context, ResetElementPaths(context, {
+            "button.background", "button.border", "button.text",
+            "button.hoverAlpha",
+        }))
+    end,
+})
+
+NSkin:RegisterOptionGroup("shared.scrollBarAppearance", {
+    controls = {
+        { type = "COLOR", key = "track", modeKey = "trackMode",
+            label = "Track" },
+        { type = "COLOR", key = "thumb", modeKey = "thumbMode",
+            label = "Thumb" },
+        { type = "COLOR", key = "arrow", modeKey = "arrowMode",
+            label = "Arrows" },
+    },
+    get = function(context)
+        local style = NSkin:GetAppearanceStyle(
+            "scrollBar", GetAppearanceWindowID(context), context.id)
+        return { track = CopyColor(style.track), trackMode = style.trackMode,
+            thumb = CopyColor(style.thumb), thumbMode = style.thumbMode,
+            arrow = CopyColor(style.arrow), arrowMode = style.arrowMode }
+    end,
+    set = function(context, values)
+        local changed
+        for key, value in pairs(values) do
+            changed = SetElementValue(context, "scrollBar." .. key, value) or changed
+        end
+        return ReapplyDiscoveredElement(context, changed)
+    end,
+    reset = function(context)
+        return ReapplyDiscoveredElement(context, ResetElementPaths(context, {
+            "scrollBar.track", "scrollBar.trackMode", "scrollBar.thumb",
+            "scrollBar.thumbMode", "scrollBar.arrow", "scrollBar.arrowMode",
+        }))
+    end,
+})
+
 local function CreateBorderGeometryControls(order)
     return { type = "SLIDER_PAIR", order = order, centerReset = true,
         resetTooltip = "Reset border size and padding",

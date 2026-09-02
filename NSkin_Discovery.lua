@@ -463,20 +463,31 @@ local function GetButtonFontString(target)
 end
 
 local COMPONENTS = {
-    button = { kind = "BUTTON", skin = function(target)
-        NSkin:SkinFlatButton(target)
+    button = { kind = "BUTTON", editorPreset = "BUTTON_APPEARANCE",
+        skin = function(target, record)
+        local style = NSkin:GetAppearanceStyle(
+            "button", record.appearanceWindowID, record.id)
+        NSkin:SkinFlatButton(target, nil, style.background, style.border)
+        local text = GetButtonFontString(target)
+        if text then text:SetTextColor(unpack(style.text)) end
     end },
-    dropdown = { kind = "DROPDOWN", skin = function(target)
-        NSkin:SkinDropdown(target)
+    dropdown = { kind = "DROPDOWN", editorPreset = "BUTTON_APPEARANCE",
+        skin = function(target, record)
+        NSkin:SkinDropdown(target, { style = NSkin:GetAppearanceStyle(
+            "button", record.appearanceWindowID, record.id) })
     end },
-    checkbox = { kind = "CHECKBOX", skin = function(target)
-        NSkin:SkinCheckbox(target)
+    checkbox = { kind = "CHECKBOX", editorPreset = "BUTTON_APPEARANCE",
+        skin = function(target, record)
+        NSkin:SkinCheckbox(target, NSkin:GetAppearanceStyle(
+            "button", record.appearanceWindowID, record.id))
     end },
     editBox = { kind = "SEARCH_GROUP", skin = function(target)
         NSkin:SkinSearchBox(target)
     end },
-    scrollBar = { kind = "SCROLLBAR", skin = function(target)
-        NSkin:SkinScrollBar(target)
+    scrollBar = { kind = "SCROLLBAR", editorPreset = "SCROLLBAR_APPEARANCE",
+        skin = function(target, record)
+        NSkin:SkinScrollBar(target, NSkin:GetAppearanceStyle(
+            "scrollBar", record.appearanceWindowID, record.id))
     end },
     tab = { kind = "BUTTON", skin = function(target)
         NSkin:SkinTab(target, false)
@@ -525,6 +536,11 @@ function NSkin:GetComponentRegistrar(componentType)
     return method and self[method] or nil
 end
 
+local function IsRegisteredTargetVisible(element)
+    local target = element and element.target
+    return target ~= nil and (not target.IsVisible or target:IsVisible())
+end
+
 local function RegisterTyped(componentType, definition)
     local component = COMPONENTS[componentType]
     if not component or type(definition) ~= "table" then return nil end
@@ -532,6 +548,12 @@ local function RegisterTyped(componentType, definition)
     definition.componentType = componentType
     definition.kind = definition.kind or component.kind
     definition.source = definition.source or "explicit"
+    definition.isEditable = definition.isEditable or IsRegisteredTargetVisible
+    if not definition.editorOptions and component.editorPreset then
+        definition.editorPreset = definition.editorPreset or component.editorPreset
+        definition.editorOptions = NSkin:CreateEditorOptionsPreset(
+            definition.editorPreset, definition.extraEditorOptions)
+    end
     definition.restoreGeometry = definition.restoreGeometry or function(element)
         local restored = NSkin:RestoreOriginalProperties(element.target)
         return NSkin:RestoreComponentBaseline(element.id) or restored
