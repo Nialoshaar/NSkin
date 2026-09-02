@@ -1413,6 +1413,69 @@ function NSkin:SkinDropdown(dropdown, options)
     end)
 end
 
+local function RefreshSharedCheckbox(checkBox)
+    local data = NSkin:GetSkinData(checkBox, COMPONENT_STATE, false)
+    if not data or not data.sharedCheckboxMark then return end
+    if not data.sharedCheckboxEnabled then
+        data.sharedCheckboxMark:Hide()
+        return
+    end
+    local checked = checkBox.GetChecked and checkBox:GetChecked()
+    data.sharedCheckboxMark:SetShown(checked == true)
+end
+
+function NSkin:SkinCheckbox(checkBox, style)
+    if not checkBox then return false end
+    style = style or self:GetStyle("button")
+    local data = self:GetSkinData(checkBox, COMPONENT_STATE)
+    data.sharedCheckboxEnabled = true
+    self:HideTextureRegions(checkBox, data.sharedCheckboxBox,
+        data.sharedCheckboxMark)
+    if not data.sharedCheckboxBox then
+        local box = checkBox:CreateTexture(nil, "ARTWORK")
+        box:SetPoint("LEFT", checkBox, "LEFT", 1, 0)
+        box:SetSize(16, 16)
+        self:ConfigureOwnedPixelTexture(box)
+        data.sharedCheckboxBox = box
+    end
+    data.sharedCheckboxBox:SetColorTexture(unpack(style.background))
+    if not data.sharedCheckboxBorderFrame then
+        local borderFrame = CreateFrame("Frame", nil, checkBox)
+        borderFrame:SetAllPoints(data.sharedCheckboxBox)
+        data.sharedCheckboxBorderFrame = borderFrame
+    end
+    local border = self:CreatePixelBorder(data.sharedCheckboxBorderFrame,
+        "NSkinSharedCheckboxBorder", 1,
+        self:GetComponentBorderColor("button", style), false)
+    self:SetPixelBorderPadding(border, 0)
+    if not data.sharedCheckboxMark then
+        local mark = checkBox:CreateTexture(nil, "OVERLAY")
+        mark:SetPoint("CENTER", data.sharedCheckboxBox, "CENTER")
+        mark:SetSize(8, 8)
+        mark:SetColorTexture(unpack(self:GetAccentColor()))
+        self:ConfigureOwnedPixelTexture(mark)
+        data.sharedCheckboxMark = mark
+    end
+    local text = checkBox.Text or checkBox.text
+        or (checkBox.GetFontString and checkBox:GetFontString())
+    if text then
+        text:SetTextColor(unpack(style.text))
+        self:ApplyResolvedTypography(text, self:GetStyle("text"))
+    end
+    if not data.sharedCheckboxHooked then
+        if checkBox.HookScript then
+            checkBox:HookScript("OnClick", RefreshSharedCheckbox)
+            checkBox:HookScript("OnShow", RefreshSharedCheckbox)
+        end
+        if checkBox.SetChecked and _G.hooksecurefunc then
+            _G.hooksecurefunc(checkBox, "SetChecked", RefreshSharedCheckbox)
+        end
+        data.sharedCheckboxHooked = true
+    end
+    RefreshSharedCheckbox(checkBox)
+    return true
+end
+
 local SHARED_DROPDOWN_MENU_BOTTOM_INSET = 8
 
 function NSkin:SkinDropdownMenu(menu, style)
@@ -2532,6 +2595,9 @@ end
 
 function NSkin:IsSkinningElementEditable(element)
     if not element then return false end
+    if element.componentType and element.applyState ~= "applied" then
+        return false
+    end
     return type(element.isEditable) ~= "function" or element.isEditable(element) == true
 end
 
@@ -2870,6 +2936,16 @@ function NSkin:RegisterSimpleMovableElement(definition)
     if type(definition) ~= "table" then return nil end
     local existing = definition.id and self:GetSkinningElement(definition.id)
     if existing then
+        local indexed = definition.target
+            and self.GetComponentRegistrationByFrame
+            and self:GetComponentRegistrationByFrame(definition.target)
+        if indexed and indexed == existing and indexed.source == "discovered" then
+            definition.source = "explicit"
+            definition.componentType = indexed.componentType
+            if not self:RegisterMovableElement(definition) then return nil end
+            existing = self:GetSkinningElement(definition.id) or existing
+            existing.applyState = "applied"
+        end
         local saved = self:GetSavedMovableElementPlacement(definition.id)
         if saved and self:IsSkinningElementEditable(existing) then
             existing.applyPlacement(existing, saved, SUPPRESS_NOTIFICATION)

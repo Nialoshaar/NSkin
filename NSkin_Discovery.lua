@@ -7,6 +7,7 @@ NSkin.registeredElementByFrame = NSkin.registeredElementByFrame
 NSkin.originalStateByFrame = NSkin.originalStateByFrame
     or setmetatable({}, { __mode = "k" })
 NSkin.discoveryAudit = NSkin.discoveryAudit or {}
+NSkin.registrationActionCounts = NSkin.registrationActionCounts or {}
 
 local registrationByID = {}
 local deferredApplications = {}
@@ -23,7 +24,8 @@ end
 
 local function SameDefinition(left, right)
     local ignored = { applyState = true, applyError = true,
-        definitionVersion = true, _registrationChanged = true }
+        definitionVersion = true, definitionRevision = true,
+        _registrationChanged = true, _upsertAction = true }
     for key, value in pairs(left or {}) do
         if not ignored[key] and right[key] ~= value then return false end
     end
@@ -45,8 +47,24 @@ local function AuditLine(data)
     if NSkin.discoveryAuditVerbose then NSkin:Print(table.concat(parts, " ")) end
 end
 
-function NSkin:GetDiscoveryAudit()
-    return self.discoveryAudit
+function NSkin:GetDiscoveryAudit(windowID)
+    local result = {}
+    for _, entry in ipairs(self.discoveryAudit) do
+        if not windowID or entry.windowID == windowID
+            or (type(entry.windowID) == "string"
+                and entry.windowID:sub(1, #windowID + 1) == windowID .. ".")
+        then
+            result[#result + 1] = entry
+        end
+    end
+    table.sort(result, function(left, right)
+        local leftKey = table.concat({ left.id or "", left.type or "",
+            left.fieldPath or "" }, "\031")
+        local rightKey = table.concat({ right.id or "", right.type or "",
+            right.fieldPath or "" }, "\031")
+        return leftKey < rightKey
+    end)
+    return result
 end
 
 function NSkin:ClearDiscoveryAudit()
@@ -86,8 +104,11 @@ function NSkin:RestoreOriginalProperties(target, requested)
     end
     local data = self:GetSkinData(target, "components", false)
     if data then
+        data.sharedCheckboxEnabled = false
         for _, key in ipairs({ "flatBackground", "flatButtonGlow",
-            "dropdownArrow", "scrollTrack", "scrollThumb" }) do
+            "dropdownArrow", "scrollTrack", "scrollThumb",
+            "sharedCheckboxBox", "sharedCheckboxMark",
+            "sharedCheckboxBorderFrame" }) do
             local region = data[key]
             if region and region.Hide then region:Hide() end
         end
@@ -130,20 +151,24 @@ function NSkin:UpsertComponentRegistration(definition)
     if existing and existing.source == "explicit"
         and definition.source == "discovered"
     then
-        return existing, false
+        return existing, false, nil, "preserve"
     end
 
     local proposed = CopyTable(existing or {})
-    if existing and definition.source == "explicit" then
-        for key in pairs(proposed) do proposed[key] = nil end
-    end
     for key, value in pairs(definition) do proposed[key] = value end
     proposed.source = definition.source
     proposed.applyState = proposed.applyState or "pending"
-    proposed.definitionVersion = (existing and existing.definitionVersion or 0)
+    proposed.definitionRevision = (existing
+        and (existing.definitionRevision or existing.definitionVersion) or 0)
         + (existing and SameDefinition(existing, proposed) and 0 or 1)
+    proposed.definitionVersion = proposed.definitionRevision
 
-    if existing and SameDefinition(existing, proposed) then return existing, false end
+    if existing and SameDefinition(existing, proposed) then
+        return existing, false, nil, "noop"
+    end
+    local action = not existing and "register"
+        or (existing.source == "discovered"
+            and definition.source == "explicit" and "promote" or "refresh")
     if existing and existing.id ~= proposed.id then
         registrationByID[existing.id] = nil
     end
@@ -154,7 +179,7 @@ function NSkin:UpsertComponentRegistration(definition)
     end
     self.registeredElementByFrame[target] = proposed
     registrationByID[proposed.id] = proposed
-    return proposed, true
+    return proposed, true, nil, action
 end
 
 function NSkin:RegisterSkinningElement(elementID, definition)
@@ -186,9 +211,18 @@ function NSkin:RegisterSkinningElement(elementID, definition)
         return legacyRegisterSkinningElement(self, elementID, definition)
     end
     local previousID = indexed and indexed.id
-    local record, changed = self:UpsertComponentRegistration(definition)
+    local record, changed, _, action = self:UpsertComponentRegistration(definition)
     if not record then return false end
     record._registrationChanged = changed
+    record._upsertAction = action
+    if action then
+        self.registrationActionCounts[action] =
+            (self.registrationActionCounts[action] or 0) + 1
+        if action == "promote" or action == "refresh" then
+            AuditLine({ windowID = record.appearanceWindowID, id = record.id,
+                type = record.componentType, action = action })
+        end
+    end
     if not changed and self:GetSkinningElement(record.id) then return true end
     if previousID and previousID ~= record.id
         and self:GetSkinningElement(previousID) == record
@@ -204,6 +238,30 @@ end
 
 function NSkin:GetComponentRegistrationByID(id)
     return type(id) == "string" and registrationByID[id] or nil
+end
+
+function NSkin:GetRegistrationActionCounts()
+    return CopyTable(self.registrationActionCounts)
+end
+
+function NSkin:GetComponentRegistryDump(prefix)
+    local result = {}
+    for id, record in pairs(registrationByID) do
+        if not prefix or id:sub(1, #prefix) == prefix then
+            result[#result + 1] = {
+                id = id, componentType = record.componentType,
+                source = record.source, applyState = record.applyState,
+                definitionRevision = record.definitionRevision
+                    or record.definitionVersion or 0,
+                identitySource = record.identitySource,
+                appearanceWindowID = record.appearanceWindowID,
+                isEditable = record.isEditable,
+                target = record.target,
+            }
+        end
+    end
+    table.sort(result, function(left, right) return left.id < right.id end)
+    return result
 end
 
 local function CaptureCommonState(target)
@@ -338,6 +396,9 @@ local COMPONENTS = {
     dropdown = { kind = "DROPDOWN", skin = function(target)
         NSkin:SkinDropdown(target)
     end },
+    checkbox = { kind = "CHECKBOX", skin = function(target)
+        NSkin:SkinCheckbox(target)
+    end },
     editBox = { kind = "SEARCH_GROUP", skin = function(target)
         NSkin:SkinSearchBox(target)
     end },
@@ -354,7 +415,7 @@ local function ApplyRegistration(record)
     if _G.InCombatLockdown and _G.InCombatLockdown() then
         record.applyState, record.applyError = "pending", nil
         deferredApplications[record] = {
-            id = record.id, version = record.definitionVersion,
+            id = record.id, revision = record.definitionRevision,
             target = record.target,
         }
         AuditLine({ id = record.id, type = record.componentType,
@@ -413,6 +474,10 @@ function NSkin:RegisterDropdown(definition) return RegisterTyped("dropdown", def
 function NSkin:RegisterCheckbox(definition) return RegisterTyped("checkbox", definition) end
 function NSkin:RegisterScrollBar(definition) return RegisterTyped("scrollBar", definition) end
 function NSkin:RegisterTab(definition) return RegisterTyped("tab", definition) end
+
+NSkin:RegisterSharedElementType("CHECKBOX", {
+    style = "button", skin = "SkinCheckbox", editorPreset = "MOVABLE",
+})
 
 local unsafeFieldKeys = {
     parent = true, owner = true, owningMenu = true, menu = true,
@@ -506,6 +571,7 @@ function NSkin:ClassifySharedElement(frame, context)
     context = context or {}
     local forced = context.classifyAs and context.classifyAs[frame]
     if COMPONENTS[forced] or forced == "checkbox" then return forced end
+    if context.requireClassifyAs then return nil end
     local role = (context.fieldName or ""):lower()
     if frame.SetupMenu and (role:find("dropdown", 1, true)
         or role:find("filter", 1, true) or role:find("difficulty", 1, true))
@@ -541,7 +607,6 @@ function NSkin:IsSharedElementDiscoverable(frame, componentType, context)
         if not ok then return false, "unsafe-frame-access" end
         if forbidden then return false, "forbidden" end
     end
-    if componentType == "checkbox" then return false, "incomplete-reset-support" end
     if not COMPONENTS[componentType] then return false, "unsupported-component" end
     return true
 end
@@ -601,8 +666,10 @@ function NSkin:DiscoverSharedElements(windowID, rootFrame, options)
     local maxDepth = tonumber(options.maxDepth) or MAX_DEPTH
     local maxCandidates = tonumber(options.maxCandidates) or MAX_CANDIDATES
     local visited, candidates, summary = {}, 0,
-        { candidate = 0, registered = 0, preserved = 0, skipped = 0,
-            errors = 0, deferred = 0 }
+        { candidate = 0, classified = 0, unclassified = 0,
+            registered = 0, preserved = 0, promoted = 0, noop = 0,
+            refreshed = 0, applied = 0, skipped = 0, rejected = 0,
+            errors = 0, deferred = 0, failed = 0 }
     local enabled = {
         button = options.buttons ~= false, editBox = options.editBoxes ~= false,
         scrollBar = options.scrollBars ~= false,
@@ -625,25 +692,33 @@ function NSkin:DiscoverSharedElements(windowID, rootFrame, options)
             AuditLine({ action = "skip", reason = "unsafe-frame-access" })
             return
         end
-        if not componentType or not enabled[componentType] then return end
+        if not componentType or not enabled[componentType] then
+            summary.unclassified = summary.unclassified + 1
+            return
+        end
+        summary.classified = summary.classified + 1
         local eligible, reason = self:IsSharedElementDiscoverable(
             frame, componentType, context)
         local existing = self.registeredElementByFrame[frame]
         if not eligible then
             summary.skipped = summary.skipped + 1
-            AuditLine({ id = identity.id, type = componentType,
-                stable = identity.stable, action = "skip", reason = reason })
+            summary.rejected = summary.rejected + 1
+            AuditLine({ windowID = windowID, id = identity.id,
+                type = componentType, fieldPath = identity.fieldPath,
+                stable = identity.stable, action = "reject", reason = reason })
             return
         end
         if existing and existing.source == "explicit" then
             summary.preserved = summary.preserved + 1
-            AuditLine({ id = existing.id, type = componentType, stable = true,
+            AuditLine({ windowID = windowID, id = existing.id,
+                type = componentType, fieldPath = identity.fieldPath, stable = true,
                 existing = "explicit", action = "preserve" })
             return
         end
         summary.candidate = summary.candidate + 1
         if options.auditOnly then
-            AuditLine({ id = identity.id, type = componentType, stable = true,
+            AuditLine({ windowID = windowID, id = identity.id,
+                type = componentType, fieldPath = identity.fieldPath, stable = true,
                 existing = existing and existing.source or "none",
                 action = "candidate" })
             return
@@ -656,19 +731,35 @@ function NSkin:DiscoverSharedElements(windowID, rootFrame, options)
             label = identity.fieldName or identity.globalName or identity.id,
             priority = tonumber(options.priority) or 0,
             isEditable = options.isEditable,
+            identitySource = identity.source,
         }
+        if options.appearanceScopes and options.appearanceScopes[frame] then
+            definition.appearanceWindowID = options.appearanceScopes[frame]
+        end
         local registered = registrar and registrar(self, definition)
         if registered then
-            summary.registered = summary.registered + 1
-            AuditLine({ id = identity.id, type = componentType, stable = true,
-                action = registered.applyState == "pending" and "defer"
-                    or "register",
-                reason = registered.applyState == "pending"
-                    and "combat-lockdown" or nil })
+            local action = registered._upsertAction or "noop"
+            if action == "register" then summary.registered = summary.registered + 1
+            elseif action == "promote" then summary.promoted = summary.promoted + 1
+            elseif action == "refresh" then summary.refreshed = summary.refreshed + 1
+            else summary.noop = summary.noop + 1 end
+            if registered.applyState == "pending" then
+                summary.deferred = summary.deferred + 1
+                action = "defer"
+            elseif registered.applyState == "failed" then
+                summary.failed = summary.failed + 1
+                action = "fail"
+            elseif registered.applyState == "applied" then
+                summary.applied = summary.applied + 1
+            end
+            AuditLine({ windowID = windowID, id = identity.id,
+                type = componentType, fieldPath = identity.fieldPath, stable = true,
+                action = action, reason = registered.applyError })
         else
-            summary.errors = summary.errors + 1
-            AuditLine({ id = identity.id, type = componentType,
-                action = "error", reason = "registration-failed" })
+            summary.failed = summary.failed + 1
+            AuditLine({ windowID = windowID, id = identity.id,
+                type = componentType, fieldPath = identity.fieldPath,
+                action = "fail", reason = "registration-failed" })
         end
     end
 
@@ -703,7 +794,7 @@ NSkin:RegisterEvent("PLAYER_REGEN_ENABLED", function()
     for record, queued in pairs(deferredApplications) do
         deferredApplications[record] = nil
         if record.target == queued.target and record.id == queued.id
-            and record.definitionVersion == queued.version
+            and record.definitionRevision == queued.revision
             and NSkin.registeredElementByFrame[queued.target] == record
             and registrationByID[queued.id] == record
             and (not record.module or NSkin:IsModuleEnabled(record.module))

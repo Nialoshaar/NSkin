@@ -36,6 +36,13 @@ local IDs = {
         Scope = "EncounterJournal.Instances",
         Search = "EncounterJournal.Instances.SearchBox",
         ScrollBar = "EncounterJournal.Instances.ScrollBar",
+        Difficulty = "EncounterJournal.Instances.DifficultyDropdown",
+        LootSpec = "EncounterJournal.Instances.LootSpecDropdown",
+        LootSlot = "EncounterJournal.Instances.LootSlotDropdown",
+        BossesScrollBar = "EncounterJournal.Instances.BossesScrollBar",
+        LootScrollBar = "EncounterJournal.Instances.LootScrollBar",
+        DetailsScrollBar = "EncounterJournal.Instances.DetailsScrollBar",
+        OverviewScrollBar = "EncounterJournal.Instances.OverviewScrollBar",
     },
 }
 
@@ -119,6 +126,7 @@ local travelersFilterScrollBarRegistered = false
 local journeysListHooked = false
 local expansionMenuTypographyRegistered = false
 local discoveryAuditCompleted = false
+local discoveryTabsScanned = {}
 local expansionMenuFontObjects = {}
 local expansionMenuFontObjectCount = 0
 
@@ -1561,6 +1569,10 @@ function EncounterJournalSkin:OnTabSet(journal, tabID)
     local raidTabID = journal and journal.raidsTab and journal.raidsTab:GetID()
     self:StyleInstanceControls(
         tabID == dungeonTabID or tabID == raidTabID)
+    if initialized and not discoveryTabsScanned[tabID] then
+        self:RunSharedElementDiscovery()
+        discoveryTabsScanned[tabID] = true
+    end
     if tabID ~= dungeonTabID and tabID ~= raidTabID then return end
 
     if hookedScrollBox then
@@ -1568,6 +1580,75 @@ function EncounterJournalSkin:OnTabSet(journal, tabID)
         self:StyleVisibleFrames(hookedScrollBox)
     end
     self:QueueRefresh()
+end
+
+function EncounterJournalSkin:RunSharedElementDiscovery()
+    if not NSkin.DiscoverSharedElements then return nil end
+    local journal = _G.EncounterJournal
+    local instanceSelect = journal and journal.instanceSelect
+    local info = journal and journal.encounter and journal.encounter.info
+    if not journal or not instanceSelect or not info then return nil end
+
+    local loot = info.LootContainer
+    local detailsScrollBar = GetScrollFrameScrollBar(info.detailsScroll)
+    local overviewScrollBar = GetScrollFrameScrollBar(info.overviewScroll)
+    local exclude, excludeChildrenOf, semanticIDs = {}, {}, {}
+    local classifyAs, appearanceScopes = {}, {}
+    local function Approve(frame, id, componentType, scope)
+        if not frame then return end
+        semanticIDs[frame] = id
+        classifyAs[frame] = componentType
+        appearanceScopes[frame] = scope or IDs.Instances.Scope
+    end
+    local function ExcludeChildren(frame)
+        if frame then excludeChildrenOf[frame] = true end
+    end
+
+    Approve(instanceSelect.SearchBox, IDs.Instances.Search, "editBox")
+    Approve(instanceSelect.ExpansionDropdown,
+        IDs.Journeys.SeasonDropdown, "dropdown", IDs.Journeys.Scope)
+    Approve(instanceSelect.ScrollBar, IDs.Instances.ScrollBar, "scrollBar")
+    Approve(info.difficulty, IDs.Instances.Difficulty, "dropdown")
+    Approve(loot and loot.filter, IDs.Instances.LootSpec, "dropdown")
+    Approve(loot and loot.slotFilter, IDs.Instances.LootSlot, "dropdown")
+    Approve(info.BossesScrollBar, IDs.Instances.BossesScrollBar, "scrollBar")
+    Approve(loot and loot.ScrollBar, IDs.Instances.LootScrollBar, "scrollBar")
+    Approve(detailsScrollBar, IDs.Instances.DetailsScrollBar, "scrollBar")
+    Approve(overviewScrollBar, IDs.Instances.OverviewScrollBar, "scrollBar")
+
+    for _, frame in ipairs({ instanceSelect.ScrollBox,
+        journal.JourneysFrame and journal.JourneysFrame.ScrollBox,
+        journal.MonthlyActivitiesFrame and journal.MonthlyActivitiesFrame.ScrollBox,
+        info.BossesScrollBox, loot and loot.ScrollBox })
+    do ExcludeChildren(frame) end
+    for _, frame in ipairs({ journal.GreatVaultButton, info.instanceButton,
+        journal.navBar, instanceSelect.mapButton }) do
+        if frame then exclude[frame] = true end
+    end
+
+    self.discoveryAuditSummary = NSkin:DiscoverSharedElements(
+        IDs.AppearanceWindow, journal, {
+            auditOnly = false,
+            module = "EncounterJournal",
+            appearanceWindowID = IDs.AppearanceWindow,
+            appearanceScopes = appearanceScopes,
+            exclude = exclude,
+            excludeChildrenOf = excludeChildrenOf,
+            classifyAs = classifyAs,
+            requireClassifyAs = true,
+            semanticIDs = semanticIDs,
+            maxDepth = 12,
+            maxCandidates = 500,
+        })
+    self.discoveryLiveTotals = self.discoveryLiveTotals or {}
+    for _, key in ipairs({ "registered", "preserved", "promoted", "noop",
+        "refreshed", "deferred", "applied", "failed", "rejected",
+        "errors" }) do
+        self.discoveryLiveTotals[key] = (self.discoveryLiveTotals[key] or 0)
+            + (self.discoveryAuditSummary[key] or 0)
+    end
+    discoveryAuditCompleted = true
+    return self.discoveryAuditSummary
 end
 
 function EncounterJournalSkin:Initialize()
@@ -1608,6 +1689,9 @@ function EncounterJournalSkin:Initialize()
     bossScrollBox = info and info.BossesScrollBox
     lootScrollBox = info and info.LootContainer
         and info.LootContainer.ScrollBox
+    -- Discovery-first pass captures true Blizzard state. Existing explicit
+    -- registrations later in initialization then exercise promotion.
+    self:RunSharedElementDiscovery()
     hooksecurefunc(scrollBox, "Update", function(updatedScrollBox)
         EncounterJournalSkin:StyleVisibleFrames(updatedScrollBox)
         FinishConcealment(updatedScrollBox)
@@ -1779,61 +1863,8 @@ function EncounterJournalSkin:Initialize()
         tabsRegistered = true
     end
     self:StyleAdventureGuideTabs()
-
-    -- V1 discovery remains audit-only until canonical IDs, reset behavior,
-    -- and both registration orders have been verified in-game. Recycled
-    -- ScrollBoxes and unusual controls stay under this adapter's ownership.
-    if not discoveryAuditCompleted and NSkin.DiscoverSharedElements then
-        local exclude = {}
-        local excludeChildrenOf = {}
-        for _, frame in ipairs({
-            instanceSelect and instanceSelect.ScrollBox,
-            journal.JourneysFrame and journal.JourneysFrame.ScrollBox,
-            journal.MonthlyActivitiesFrame
-                and journal.MonthlyActivitiesFrame.ScrollBox,
-            info and info.BossesScrollBox,
-            info and info.LootContainer and info.LootContainer.ScrollBox,
-        }) do
-            if frame then excludeChildrenOf[frame] = true end
-        end
-        for _, frame in ipairs({
-            journal.GreatVaultButton,
-            info and info.instanceButton,
-        }) do
-            if frame then exclude[frame] = true end
-        end
-        local semanticIDs = {}
-        local function Map(frame, id)
-            if frame then semanticIDs[frame] = id end
-        end
-        Map(instanceSelect and instanceSelect.SearchBox,
-            IDs.Instances.Search)
-        Map(instanceSelect and instanceSelect.ScrollBar,
-            IDs.Instances.ScrollBar)
-        Map(instanceSelect and instanceSelect.ExpansionDropdown,
-            IDs.Journeys.SeasonDropdown)
-        Map(journal.JourneysFrame and journal.JourneysFrame.ScrollBar,
-            IDs.Journeys.ScrollBar)
-        Map(journal.MonthlyActivitiesFrame
-                and journal.MonthlyActivitiesFrame.ScrollBar,
-            IDs.TravelersLog.ScrollBar)
-        Map(journal.MonthlyActivitiesFrame
-                and journal.MonthlyActivitiesFrame.FilterList
-                and journal.MonthlyActivitiesFrame.FilterList.ScrollBar,
-            IDs.TravelersLog.FilterScrollBar)
-        self.discoveryAuditSummary = NSkin:DiscoverSharedElements(
-            IDs.AppearanceWindow, journal, {
-                auditOnly = true,
-                module = "EncounterJournal",
-                appearanceWindowID = IDs.AppearanceWindow,
-                exclude = exclude,
-                excludeChildrenOf = excludeChildrenOf,
-                semanticIDs = semanticIDs,
-                maxDepth = 12,
-                maxCandidates = 500,
-            })
-        discoveryAuditCompleted = true
-    end
+    -- Explicit-first follow-up pass verifies preservation/no-op behavior.
+    self:RunSharedElementDiscovery()
     initialized = true
     return true
 end
@@ -1871,10 +1902,51 @@ function EncounterJournalSkin:Debug()
     ))
     local audit = self.discoveryAuditSummary
     if audit then
-        NSkin:Print(("discovery audit scanned=%d candidates=%d preserved=%d skipped=%d errors=%d registered=%d"):format(
-            audit.scanned or 0, audit.candidate or 0,
-            audit.preserved or 0, audit.skipped or 0,
-            audit.errors or 0, audit.registered or 0))
+        NSkin:Print(("discovery live scanned=%d classified=%d unclassified=%d candidates=%d preserved=%d registered=%d promoted=%d noop=%d deferred=%d applied=%d failed=%d rejected=%d errors=%d"):format(
+            audit.scanned or 0, audit.classified or 0,
+            audit.unclassified or 0, audit.candidate or 0,
+            audit.preserved or 0, audit.registered or 0,
+            audit.promoted or 0, audit.noop or 0,
+            audit.deferred or 0, audit.applied or 0,
+            audit.failed or 0, audit.rejected or 0, audit.errors or 0))
+    end
+    local totals = self.discoveryLiveTotals
+    if totals then
+        NSkin:Print(("discovery totals registered=%d preserved=%d promoted=%d noop=%d deferred=%d applied=%d failed=%d rejected=%d errors=%d"):format(
+            totals.registered or 0, totals.preserved or 0,
+            totals.promoted or 0, totals.noop or 0,
+            totals.deferred or 0, totals.applied or 0,
+            totals.failed or 0, totals.rejected or 0, totals.errors or 0))
+    end
+    if NSkin.GetRegistrationActionCounts then
+        local actions = NSkin:GetRegistrationActionCounts()
+        NSkin:Print(("registry actions register=%d preserve=%d promote=%d refresh=%d noop=%d"):format(
+            actions.register or 0, actions.preserve or 0,
+            actions.promote or 0, actions.refresh or 0,
+            actions.noop or 0))
+    end
+    if NSkin.GetComponentRegistryDump then
+        for _, record in ipairs(NSkin:GetComponentRegistryDump(
+            IDs.AppearanceWindow)) do
+            if record.componentType then
+                NSkin:Print(("%s type=%s source=%s apply=%s revision=%d identity=%s"):format(
+                    record.id, tostring(record.componentType),
+                    tostring(record.source), tostring(record.applyState),
+                    record.definitionRevision or 0,
+                    tostring(record.identitySource)))
+            end
+        end
+    end
+    if NSkin.GetDiscoveryAudit then
+        for _, entry in ipairs(NSkin:GetDiscoveryAudit(
+            IDs.AppearanceWindow)) do
+            if entry.id then
+                NSkin:Print(("audit id=%s type=%s field=%s action=%s reason=%s"):format(
+                    entry.id, tostring(entry.type),
+                    tostring(entry.fieldPath), tostring(entry.action),
+                    tostring(entry.reason)))
+            end
+        end
     end
 
     local journal = _G.EncounterJournal
