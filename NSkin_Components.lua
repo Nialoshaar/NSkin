@@ -2723,6 +2723,23 @@ function NSkin:GetSkinningElement(elementID)
     return skinningElements[elementID]
 end
 
+-- A physical control may be reused by Blizzard in multiple logical pages.
+-- Keep its runtime registration identity stable while allowing profile-facing
+-- appearance, placement, labels, and editor state to follow the active page.
+function NSkin:GetSkinningElementProfileContext(element)
+    if type(element) ~= "table" then return nil, nil, nil end
+    local semantic
+    if type(element.getSemanticContext) == "function" then
+        local ok, result = pcall(element.getSemanticContext, element)
+        if ok and type(result) == "table" then semantic = result end
+    end
+    local id = semantic and semantic.id or element.id
+    local appearanceWindowID = semantic and semantic.appearanceWindowID
+        or element.appearanceWindowID
+    local label = semantic and semantic.label or element.label
+    return id, appearanceWindowID, label
+end
+
 function NSkin:RekeySkinningElement(oldID, newID, expectedElement)
     if type(oldID) ~= "string" or type(newID) ~= "string"
         or oldID == "" or newID == "" or oldID == newID
@@ -2872,10 +2889,12 @@ function NSkin:LayoutWindowElementPreservingAnchorSpan(element, placement, optio
     return true
 end
 
-local function GetSavedMovablePlacement(element)
+local function GetSavedMovablePlacement(element, requestedProfileID)
     local options = NSkin:GetModuleOptions(element.module, false)
+    local profileID = requestedProfileID
+        or NSkin:GetSkinningElementProfileContext(element)
     return options and options.movablePlacements
-        and options.movablePlacements[element.id]
+        and options.movablePlacements[profileID]
 end
 
 local function EnsureMovableWatcher(window)
@@ -2900,7 +2919,10 @@ end
 
 function NSkin:GetSavedMovableElementPlacement(elementID)
     local element = skinningElements[elementID]
-    local placement = element and element.module and GetSavedMovablePlacement(element)
+        or (self.GetComponentRegistrationByID
+            and self:GetComponentRegistrationByID(elementID))
+    local placement = element and element.module
+        and GetSavedMovablePlacement(element, elementID)
     return placement and CopyPlacement(placement) or nil
 end
 
@@ -2984,23 +3006,25 @@ function NSkin:RegisterMovableElement(definition)
         return NSkin:LayoutWindowElement(element, placement, applyOptions)
     end
     definition.setPlacement = definition.setPlacement or function(element, placement)
+        local profileID = NSkin:GetSkinningElementProfileContext(element)
         if placement.relativeTo
-            and NSkin:WouldCreateSkinningPlacementCycle(element.id, placement.relativeTo)
+            and NSkin:WouldCreateSkinningPlacementCycle(profileID, placement.relativeTo)
         then return false end
         if not element.applyPlacement(element, placement) then return false end
         local options = NSkin:GetModuleOptions(element.module, true)
         options.movablePlacements = options.movablePlacements or {}
-        options.movablePlacements[element.id] = CopyPlacement(placement)
+        options.movablePlacements[profileID] = CopyPlacement(placement)
         NSkin:MarkComponentGeometryModified(element.id, "points", true)
         EnsureMovableWatcher(element.window)
         return true
     end
     definition.resetPlacement = definition.resetPlacement or function(element)
+        local profileID = NSkin:GetSkinningElementProfileContext(element)
         local options = NSkin:GetModuleOptions(element.module, false)
         local removed
         if options and options.movablePlacements then
-            removed = options.movablePlacements[element.id] ~= nil
-            options.movablePlacements[element.id] = nil
+            removed = options.movablePlacements[profileID] ~= nil
+            options.movablePlacements[profileID] = nil
             if not next(options.movablePlacements) then options.movablePlacements = nil end
             if not next(options) then
                 local profile = NSkin:GetProfile()
@@ -3819,6 +3843,13 @@ function NSkin:NotifySkinningElementBoundsChanged(elementID)
     local element = skinningElements[elementID]
     if not element then return false end
     FireComponentCallback("SkinningElementBoundsChanged", element)
+    return true
+end
+
+function NSkin:NotifySkinningElementContextChanged(elementID)
+    local element = skinningElements[elementID]
+    if not element then return false end
+    FireComponentCallback("SkinningElementContextChanged", element)
     return true
 end
 

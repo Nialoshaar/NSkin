@@ -11,6 +11,7 @@ NSkin.registrationActionCounts = NSkin.registrationActionCounts or {}
 NSkin.applicationActionCounts = NSkin.applicationActionCounts or {}
 
 local registrationByID = {}
+local semanticRegistrationByID = {}
 local deferredApplications = {}
 local ORIGINAL_NIL = {}
 local legacyRegisterSkinningElement = NSkin.RegisterSkinningElement
@@ -28,6 +29,7 @@ local EFFECTIVE_DEFINITION_FIELDS = {
     "kind", "label", "priority", "isEditable", "draggable", "movable",
     "supportsResize", "preserveAnchorSpan", "editorPreset", "editorOptions",
     "highlightRegions", "highlightPadding",
+    "semanticIDs", "getSemanticContext",
     "layoutMode", "skinStyle", "style", "atlas", "texture", "texCoords",
     "callbackSemanticID", "callbackVersion",
 }
@@ -198,6 +200,7 @@ function NSkin:UpsertComponentRegistration(definition)
     local target = definition.target
     local existing = self.registeredElementByFrame[target]
     local idOwner = registrationByID[definition.id]
+        or semanticRegistrationByID[definition.id]
         or self:GetSkinningElement(definition.id)
     if idOwner and idOwner.target ~= target then
         self.registrationActionCounts.conflict =
@@ -231,6 +234,11 @@ function NSkin:UpsertComponentRegistration(definition)
     local action = not existing and "register"
         or (existing.source == "discovered"
             and definition.source == "explicit" and "promote" or "refresh")
+    if existing then
+        for semanticID, owner in pairs(semanticRegistrationByID) do
+            if owner == existing then semanticRegistrationByID[semanticID] = nil end
+        end
+    end
     if existing and existing.id ~= proposed.id then
         registrationByID[existing.id] = nil
     end
@@ -241,6 +249,11 @@ function NSkin:UpsertComponentRegistration(definition)
     end
     self.registeredElementByFrame[target] = proposed
     registrationByID[proposed.id] = proposed
+    for _, semanticID in ipairs(proposed.semanticIDs or {}) do
+        if type(semanticID) == "string" and semanticID ~= "" then
+            semanticRegistrationByID[semanticID] = proposed
+        end
+    end
     return proposed, true, nil, action, changedFields
 end
 
@@ -307,7 +320,8 @@ function NSkin:GetComponentRegistrationByFrame(frame)
 end
 
 function NSkin:GetComponentRegistrationByID(id)
-    return type(id) == "string" and registrationByID[id] or nil
+    return type(id) == "string"
+        and (registrationByID[id] or semanticRegistrationByID[id]) or nil
 end
 
 function NSkin:GetRegistrationActionCounts()
@@ -466,8 +480,10 @@ end
 local COMPONENTS = {
     button = { kind = "BUTTON", editorPreset = "BUTTON_APPEARANCE",
         skin = function(target, record)
+        local profileID, appearanceWindowID =
+            NSkin:GetSkinningElementProfileContext(record)
         local style = NSkin:GetAppearanceStyle(
-            "button", record.appearanceWindowID, record.id)
+            "button", appearanceWindowID, profileID)
         NSkin:SkinFlatButton(target, nil, style.background, style.border)
         local text = GetButtonFontString(target)
         if text then text:SetTextColor(unpack(style.text)) end
@@ -476,16 +492,20 @@ local COMPONENTS = {
         movableWhenDiscovered = true,
         appearanceOption = "shared.buttonAppearance",
         skin = function(target, record)
+        local profileID, appearanceWindowID =
+            NSkin:GetSkinningElementProfileContext(record)
         local style = NSkin:GetAppearanceStyle(
-            "button", record.appearanceWindowID, record.id)
+            "button", appearanceWindowID, profileID)
         NSkin:SkinDropdown(target, { style = style,
             border = NSkin:GetAppearanceBorderColor(
-                "button", style, record.appearanceWindowID, record.id) })
+                "button", style, appearanceWindowID, profileID) })
     end },
     checkbox = { kind = "CHECKBOX", editorPreset = "BUTTON_APPEARANCE",
         skin = function(target, record)
+        local profileID, appearanceWindowID =
+            NSkin:GetSkinningElementProfileContext(record)
         NSkin:SkinCheckbox(target, NSkin:GetAppearanceStyle(
-            "button", record.appearanceWindowID, record.id))
+            "button", appearanceWindowID, profileID))
     end },
     editBox = { kind = "SEARCH_GROUP", skin = function(target)
         NSkin:SkinSearchBox(target)
@@ -494,8 +514,10 @@ local COMPONENTS = {
         movableWhenDiscovered = true, preserveAnchorSpan = true,
         appearanceOption = "shared.scrollBarAppearance",
         skin = function(target, record)
+        local profileID, appearanceWindowID =
+            NSkin:GetSkinningElementProfileContext(record)
         NSkin:SkinScrollBar(target, NSkin:GetAppearanceStyle(
-            "scrollBar", record.appearanceWindowID, record.id))
+            "scrollBar", appearanceWindowID, profileID))
     end },
     tab = { kind = "BUTTON", skin = function(target)
         NSkin:SkinTab(target, false)

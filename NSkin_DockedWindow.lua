@@ -48,6 +48,7 @@ local RefreshInspector
 
 local function ResetElementCustomizations(element)
     if not element then return false end
+    local profileID = NSkin:GetSkinningElementProfileContext(element)
     local resetGroups = {}
     local editorOptions = element.editorOptions
     if type(editorOptions) == "string" then
@@ -70,7 +71,7 @@ local function ResetElementCustomizations(element)
     -- The element-level deletion is authoritative for every appearance
     -- subset. Refresh the option groups only after this deletion; resetting
     -- each subset first exposes stale resolved values to live editor widgets.
-    NSkin:ResetElementAppearanceOverride(element.id)
+    NSkin:ResetElementAppearanceOverride(profileID)
     if type(element.resetPlacement) == "function" then
         element.resetPlacement(element)
     elseif type(element.restoreGeometry) == "function" then
@@ -224,7 +225,8 @@ local function LoadEditorOptions(element)
                 end)
                 state.editorSections[sectionIndex] = section
             end
-            local key = element.id .. "\031" .. id
+            local profileID = NSkin:GetSkinningElementProfileContext(element)
+            local key = profileID .. "\031" .. id
             local expanded = state.expandedEditorSections[key] == true
             section:SetHeight(SnapInspectorOffset(48))
             section.sectionKey = key
@@ -276,8 +278,11 @@ end
 RefreshInspector = function()
     if not state then return end
     local element = state.selectedElement
+    local _, _, semanticLabel =
+        NSkin:GetSkinningElementProfileContext(element)
     state.inspector.selection:SetText(
-        element and ("Selected: " .. (element.label or element.id)) or "Select an element"
+        element and ("Selected: " .. (semanticLabel or element.label
+            or element.id)) or "Select an element"
     )
     state.inspector.resetElement:SetShown(element ~= nil)
     LoadEditorOptions(element)
@@ -425,8 +430,10 @@ function NSkin:CreateDockedWindow(owner)
         function()
             local element = state.selectedElement
             if element then
+                local _, _, semanticLabel =
+                    NSkin:GetSkinningElementProfileContext(element)
                 StaticPopup_Show(RESET_ELEMENT_DIALOG,
-                    element.label or element.id, nil, element)
+                    semanticLabel or element.label or element.id, nil, element)
             end
         end)
     resetElement:SetPoint("TOPRIGHT", inspector, "TOPRIGHT", -12, -27)

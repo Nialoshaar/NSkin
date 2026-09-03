@@ -742,6 +742,14 @@ local function HandleSkinningElementRegistered(_, element)
     ShowElementOverlay(element)
 end
 
+local function HandleSkinningElementContextChanged(_, element)
+    ShowElementOverlay(element)
+    if controller and controller.selectedElement == element then
+        DockInspector(element)
+        RefreshInspector()
+    end
+end
+
 local function HandleElementBoundsChanged(_, element)
     local overlay = controller and controller.overlays[element.id]
     if not overlay then return end
@@ -827,6 +835,10 @@ function NSkin:SetSkinningModeEnabled(enabled)
         self:RefreshSkinningModeAppearance()
         self:RegisterComponentCallback(
             "SkinningElementRegistered", HandleSkinningElementRegistered, controller
+        )
+        self:RegisterComponentCallback(
+            "SkinningElementContextChanged",
+            HandleSkinningElementContextChanged, controller
         )
         self:RegisterComponentCallback(
             "TabGroupLayoutApplied", HandleElementBoundsChanged, controller

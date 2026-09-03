@@ -3038,7 +3038,13 @@ end
 local SetElementValue
 
 local function GetAppearanceWindowID(context)
-    return context.appearanceWindowID
+    local _, appearanceWindowID =
+        NSkin:GetSkinningElementProfileContext(context)
+    return appearanceWindowID
+end
+
+local function GetAppearanceElementID(context)
+    return NSkin:GetSkinningElementProfileContext(context)
 end
 
 local function SetElementTypography(context, stylePath, values, keys, prefix)
@@ -3079,11 +3085,13 @@ end
 
 SetElementValue = function(context, path, value)
     return NSkin:SetElementAppearanceOverride(
-        context.id, GetAppearanceWindowID(context), path, value)
+        GetAppearanceElementID(context), GetAppearanceWindowID(context),
+        path, value)
 end
 
 local function ResetElementPaths(context, paths)
-    return NSkin:ResetElementAppearanceOverrides(context.id, paths)
+    return NSkin:ResetElementAppearanceOverrides(
+        GetAppearanceElementID(context), paths)
 end
 
 local function ReapplyDiscoveredElement(context, changed)
@@ -3103,7 +3111,8 @@ NSkin:RegisterOptionGroup("shared.buttonAppearance", {
     },
     get = function(context)
         local style = NSkin:GetAppearanceStyle(
-            "button", GetAppearanceWindowID(context), context.id)
+            "button", GetAppearanceWindowID(context),
+            GetAppearanceElementID(context))
         return { background = CopyColor(style.background),
             border = CopyColor(style.border), text = CopyColor(style.text),
             hoverAlpha = style.hoverAlpha }
@@ -3134,7 +3143,8 @@ NSkin:RegisterOptionGroup("shared.scrollBarAppearance", {
     },
     get = function(context)
         local style = NSkin:GetAppearanceStyle(
-            "scrollBar", GetAppearanceWindowID(context), context.id)
+            "scrollBar", GetAppearanceWindowID(context),
+            GetAppearanceElementID(context))
         return { track = CopyColor(style.track), trackMode = style.trackMode,
             thumb = CopyColor(style.thumb), thumbMode = style.thumbMode,
             arrow = CopyColor(style.arrow), arrowMode = style.arrowMode }
@@ -3233,7 +3243,8 @@ NSkin:RegisterOptionGroup("shared.tabAppearance", {
     controls = tabAppearanceControls,
     get = function(context)
         local style = NSkin:GetAppearanceStyle(
-            "tab", GetAppearanceWindowID(context), context.id)
+            "tab", GetAppearanceWindowID(context),
+            GetAppearanceElementID(context))
         local currentWidth, currentHeight = GetFirstTabSize(context)
         local tabGroup = NSkin:GetTabGroup(context.id)
         local spacing = tonumber(style.spacing)
@@ -3359,7 +3370,8 @@ NSkin:RegisterOptionGroup("shared.searchAppearance", {
     controls = searchAppearanceControls,
     get = function(context)
         local style = NSkin:GetAppearanceStyle(
-            "searchBox", GetAppearanceWindowID(context), context.id)
+            "searchBox", GetAppearanceWindowID(context),
+            GetAppearanceElementID(context))
         local values = { background = CopyColor(style.background), border = CopyColor(style.border),
             text = CopyColor(style.text), textMode = style.textMode,
             placeholderText = CopyColor(style.placeholderText),
@@ -3485,7 +3497,8 @@ NSkin:RegisterOptionGroup("shared.windowAppearance", {
     controls = windowAppearanceControls,
     get = function(context)
         local style = NSkin:GetAppearanceStyle(
-            "window", GetAppearanceWindowID(context), context.id)
+            "window", GetAppearanceWindowID(context),
+            GetAppearanceElementID(context))
         local values = { background = CopyColor(style.background),
             backgroundOpacity = style.background[4] or 1,
             border = CopyColor(style.border), borderMode = style.borderMode,
@@ -3504,7 +3517,8 @@ NSkin:RegisterOptionGroup("shared.windowAppearance", {
     end,
     set = function(context, values)
         local style = NSkin:GetAppearanceStyle(
-            "window", GetAppearanceWindowID(context), context.id)
+            "window", GetAppearanceWindowID(context),
+            GetAppearanceElementID(context))
         local mapping = {
             ["window.backgroundMode"] = values.backgroundMode,
             ["window.border"] = values.border,
@@ -3559,7 +3573,8 @@ NSkin:RegisterOptionGroup("shared.textAppearance", {
     controls = textAppearanceControls,
     get = function(context)
         local style = NSkin:GetAppearanceStyle(
-            "text", GetAppearanceWindowID(context), context.id)
+            "text", GetAppearanceWindowID(context),
+            GetAppearanceElementID(context))
         local values = { color = CopyColor(style.color), colorMode = style.colorMode }
         GetTypographyValues(values, style,
             { useGlobal = "useGlobal", font = "font", size = "textSize", outline = "outline" })
@@ -3612,7 +3627,8 @@ NSkin:RegisterOptionGroup("shared.sectionHeaderAppearance", {
     controls = headerAppearanceControls,
     get = function(context)
         local style = NSkin:GetAppearanceStyle(
-            "sectionHeader", GetAppearanceWindowID(context), context.id)
+            "sectionHeader", GetAppearanceWindowID(context),
+            GetAppearanceElementID(context))
         local values = { text = CopyColor(style.text), underline = CopyColor(style.underline),
             underlineVisible = style.underlineVisible, underlineSize = style.underlineSize,
             textMode = style.textMode, underlineMode = style.underlineMode }

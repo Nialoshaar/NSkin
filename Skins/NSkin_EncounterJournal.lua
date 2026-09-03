@@ -122,6 +122,8 @@ local greatVaultIconFrame
 local greatVaultIconTexture
 local concealedOriginalAlpha
 local journeysRegistered = false
+local sharedExpansionDropdownRegistered = false
+local sharedPageTitleRegistered = false
 local journeyCardsRegistered = false
 local windowRegistered = false
 local tabsRegistered = false
@@ -1051,47 +1053,143 @@ local function GetActivePageTitleDefinition(journal)
     end
 end
 
+local PAGE_TITLE_SEMANTIC_IDS = {
+    IDs.Dungeons.PageTitle,
+    IDs.Raids.PageTitle,
+    IDs.Journeys.PageTitle,
+    IDs.Tutorials.Text,
+}
+
+local function GetPageTitleSemanticContext()
+    local id, appearanceWindowID, label =
+        GetActivePageTitleDefinition(_G.EncounterJournal)
+    if not id then return nil end
+    return { id = id, appearanceWindowID = appearanceWindowID,
+        label = label }
+end
+
+local function IsSharedPageTitleEditable(element)
+    return GetPageTitleSemanticContext() ~= nil
+        and element.target and element.target:IsVisible()
+end
+
 local function RegisterActivePageTitle(journal)
     local title = journal and journal.instanceSelect
         and journal.instanceSelect.Title
     local id, scope, label = GetActivePageTitleDefinition(journal)
     if not title or not id then return nil end
 
-    -- Blizzard recycles instanceSelect.Title between these pages. Keep one
-    -- live element record for that physical FontString, but re-key it to the
-    -- active semantic page so appearance and placement remain independent.
-    for _, previousID in ipairs({
-        IDs.Dungeons.PageTitle,
-        IDs.Raids.PageTitle,
-        IDs.Journeys.PageTitle,
-        IDs.Tutorials.Text,
-    }) do
-        local previous = NSkin:GetSkinningElement(previousID)
-        if previousID ~= id and previous and previous.target == title then
-            NSkin:RekeySkinningElement(previousID, id, previous)
-            break
+    NSkin:SkinText(title, NSkin:GetAppearanceStyle("text", scope, id))
+    if not sharedPageTitleRegistered then
+        NSkin:RegisterMovableElement({
+            id = IDs.Tutorials.Text,
+            semanticIDs = PAGE_TITLE_SEMANTIC_IDS,
+            getSemanticContext = GetPageTitleSemanticContext,
+            module = "EncounterJournal",
+            appearanceWindowID = IDs.Tutorials.Scope,
+            label = "Page title",
+            kind = "TEXT",
+            window = journal,
+            target = title,
+            priority = 95,
+            highlightPadding = 6,
+            highlightRegions = { title },
+            isEditable = IsSharedPageTitleEditable,
+        })
+        sharedPageTitleRegistered =
+            NSkin:GetSkinningElement(IDs.Tutorials.Text) ~= nil
+    end
+    local element = NSkin:GetSkinningElement(IDs.Tutorials.Text)
+    local stored = NSkin:GetSavedMovableElementPlacement(id)
+    if element and stored then
+        element.applyPlacement(element, stored, { suppressNotify = true })
+    end
+    NSkin:NotifySkinningElementContextChanged(IDs.Tutorials.Text)
+    NSkin:NotifySkinningElementBoundsChanged(IDs.Tutorials.Text)
+    return title
+end
+
+local EXPANSION_DROPDOWN_SEMANTIC_IDS = {
+    IDs.Journeys.SeasonDropdown,
+    IDs.Dungeons.ExpansionDropdown,
+}
+
+local function GetExpansionDropdownSemanticContext()
+    local journal = _G.EncounterJournal
+    if not journal then return nil end
+    local selectedTab = journal.selectedTab
+    if journal.JourneysTab and selectedTab == journal.JourneysTab:GetID() then
+        return { id = IDs.Journeys.SeasonDropdown,
+            appearanceWindowID = IDs.Journeys.Scope,
+            label = "Expansion and season dropdown" }
+    end
+    if (journal.dungeonsTab and selectedTab == journal.dungeonsTab:GetID())
+        or (journal.raidsTab and selectedTab == journal.raidsTab:GetID())
+    then
+        return { id = IDs.Dungeons.ExpansionDropdown,
+            appearanceWindowID = IDs.Instances.Scope,
+            label = "Dungeons and raids expansion dropdown" }
+    end
+end
+
+local function IsSharedExpansionDropdownEditable(element)
+    return GetExpansionDropdownSemanticContext() ~= nil
+        and element.target and element.target:IsVisible()
+end
+
+local function RegisterSharedExpansionDropdown(journal, dropdown)
+    if not dropdown then return nil end
+    if not sharedExpansionDropdownRegistered then
+        NSkin:RegisterMovableElement({
+            id = IDs.Journeys.SeasonDropdown,
+            semanticIDs = EXPANSION_DROPDOWN_SEMANTIC_IDS,
+            getSemanticContext = GetExpansionDropdownSemanticContext,
+            componentType = "dropdown",
+            source = "explicit",
+            module = "EncounterJournal",
+            appearanceWindowID = IDs.Journeys.Scope,
+            label = "Expansion and season dropdown",
+            kind = "DROPDOWN",
+            extraEditorOptions = {
+                { id = "shared.buttonAppearance", label = "Appearance",
+                    category = "CUSTOMIZE" },
+            },
+            window = journal,
+            target = dropdown,
+            priority = 80,
+            highlightPadding = 8,
+            refreshBlizzardLayout = RefreshCurrentEncounterJournalTabLayout,
+            isEditable = IsSharedExpansionDropdownEditable,
+        })
+        local record = NSkin:GetSkinningElement(
+            IDs.Journeys.SeasonDropdown)
+        if record then
+            local applied = NSkin:ReapplyComponentRegistration(
+                IDs.Journeys.SeasonDropdown)
+            sharedExpansionDropdownRegistered = applied == true
         end
     end
+    return NSkin:GetSkinningElement(IDs.Journeys.SeasonDropdown)
+end
 
-    NSkin:SkinText(title, NSkin:GetAppearanceStyle("text", scope, id))
-    NSkin:RegisterMovableElement({
-        id = id,
-        module = "EncounterJournal",
-        appearanceWindowID = scope,
-        label = label,
-        kind = "TEXT",
-        window = journal,
-        target = title,
-        priority = 95,
-        highlightPadding = 6,
-        highlightRegions = { title },
-        isEditable = function()
-            local activeID = GetActivePageTitleDefinition(journal)
-            return activeID == id and title:IsVisible()
-        end,
-    })
-    NSkin:NotifySkinningElementBoundsChanged(id)
-    return title
+local function StyleActiveExpansionDropdown(journal, dropdown)
+    local context = GetExpansionDropdownSemanticContext()
+    if not context or not dropdown then return end
+    local element = RegisterSharedExpansionDropdown(journal, dropdown)
+    local style = NSkin:GetAppearanceStyle(
+        "button", context.appearanceWindowID, context.id)
+    NSkin:SkinDropdown(dropdown, { style = style,
+        border = NSkin:GetAppearanceBorderColor("button", style,
+            context.appearanceWindowID, context.id) })
+    ApplyGlobalTypography(dropdown)
+    local stored = NSkin:GetSavedMovableElementPlacement(context.id)
+    if element and stored then
+        element.applyPlacement(element, stored, { suppressNotify = true })
+    end
+    NSkin:NotifySkinningElementContextChanged(
+        IDs.Journeys.SeasonDropdown)
+    NSkin:NotifySkinningElementBoundsChanged(
+        IDs.Journeys.SeasonDropdown)
 end
 
 function EncounterJournalSkin:StyleInstanceControls(forceShown)
@@ -1114,36 +1212,7 @@ function EncounterJournalSkin:StyleInstanceControls(forceShown)
     end
 
     RegisterActivePageTitle(journal)
-    NSkin:SkinDropdown(instanceSelect.ExpansionDropdown, {
-        style = NSkin:GetAppearanceStyle(
-            "button", IDs.Instances.Scope, IDs.Dungeons.ExpansionDropdown),
-        border = NSkin:GetAppearanceBorderColor("button",
-            NSkin:GetAppearanceStyle(
-                "button", IDs.Instances.Scope, IDs.Dungeons.ExpansionDropdown),
-            IDs.Instances.Scope, IDs.Dungeons.ExpansionDropdown),
-    })
-    ApplyGlobalTypography(instanceSelect.ExpansionDropdown)
-    NSkin:RegisterSimpleMovableElement({
-        id = IDs.Dungeons.ExpansionDropdown,
-        module = "EncounterJournal",
-        appearanceWindowID = IDs.Instances.Scope,
-        label = "Dungeons and raids expansion dropdown",
-        kind = "DROPDOWN",
-        extraEditorOptions = {
-            { id = "shared.buttonAppearance", label = "Appearance",
-                category = "CUSTOMIZE" },
-        },
-        window = journal,
-        target = instanceSelect.ExpansionDropdown,
-        priority = 80,
-        highlightPadding = 8,
-        refreshBlizzardLayout = RefreshCurrentEncounterJournalTabLayout,
-        isEditable = function()
-            return instanceSelect.ExpansionDropdown:IsVisible()
-                and (journal.selectedTab == dungeonTabID
-                    or journal.selectedTab == raidTabID)
-        end,
-    })
+    StyleActiveExpansionDropdown(journal, instanceSelect.ExpansionDropdown)
 
     local searchBox = journal.searchBox
     local scrollBar = instanceSelect.ScrollBar
@@ -1509,6 +1578,15 @@ local function GetJourneysCategoryDefinition(frame)
     end
 end
 
+local function IsJourneysCategoryTitleEditable(element)
+    local frame = element and element.categoryFrame
+    local title, id = GetJourneysCategoryDefinition(frame)
+    local journeys = _G.EncounterJournal and _G.EncounterJournal.JourneysFrame
+    return journeys and journeys:IsVisible()
+        and id == element.profileCategoryID
+        and title == element.target and title:IsVisible()
+end
+
 local function RegisterJourneysCategoryTitle(journal, journeys, frame)
     local title, id, label = GetJourneysCategoryDefinition(frame)
     if not title then return false end
@@ -1520,18 +1598,15 @@ local function RegisterJourneysCategoryTitle(journal, journeys, frame)
         module = "EncounterJournal",
         appearanceWindowID = IDs.Journeys.Scope,
         label = label,
+        categoryFrame = frame,
+        profileCategoryID = id,
         kind = "TEXT",
         window = journal,
         target = title,
         priority = 96,
         highlightPadding = 6,
         highlightRegions = { title },
-        isEditable = function()
-            local activeTitle, activeID =
-                GetJourneysCategoryDefinition(frame)
-            return journeys:IsVisible() and activeID == id
-                and activeTitle == title and title:IsVisible()
-        end,
+        isEditable = IsJourneysCategoryTitleEditable,
     })
     NSkin:NotifySkinningElementBoundsChanged(id)
     return true
@@ -1683,40 +1758,10 @@ function EncounterJournalSkin:StyleJourneys(forceShown)
         journeysListHooked = true
     end
 
-    local dropdownStyle = NSkin:GetAppearanceStyle(
-        "button", IDs.Journeys.Scope, IDs.Journeys.SeasonDropdown)
-    NSkin:SkinDropdown(dropdown, { style = dropdownStyle,
-        border = NSkin:GetAppearanceBorderColor("button", dropdownStyle,
-            IDs.Journeys.Scope, IDs.Journeys.SeasonDropdown) })
-    ApplyGlobalTypography(dropdown)
-    if dropdown then
-        local dungeonTabID = journal.dungeonsTab and journal.dungeonsTab:GetID()
-        local raidTabID = journal.raidsTab and journal.raidsTab:GetID()
-        NSkin:RegisterSimpleMovableElement({
-            id = IDs.Journeys.SeasonDropdown,
-            module = "EncounterJournal",
-            appearanceWindowID = IDs.Journeys.Scope,
-            label = "Expansion and season dropdown",
-            kind = "DROPDOWN",
-            extraEditorOptions = {
-                { id = "shared.buttonAppearance", label = "Appearance",
-                    category = "CUSTOMIZE" },
-            },
-            window = journal,
-            target = dropdown,
-            priority = 80,
-            highlightRegions = { dropdown },
-            refreshBlizzardLayout = RefreshCurrentEncounterJournalTabLayout,
-            isEditable = function()
-                local selected = journal.selectedTab
-                return dropdown:IsVisible() and (journeys:IsVisible()
-                    or selected == dungeonTabID or selected == raidTabID)
-            end,
-        })
-        if not journeysRegistered then
-            self:CapturePlacementLifecycle(IDs.Journeys.SeasonDropdown,
-                "after-explicit-promotion")
-        end
+    StyleActiveExpansionDropdown(journal, dropdown)
+    if dropdown and not journeysRegistered then
+        self:CapturePlacementLifecycle(IDs.Journeys.SeasonDropdown,
+            "after-explicit-promotion")
         journeysRegistered = true
     end
 end
@@ -1855,7 +1900,10 @@ end
 
 function EncounterJournalSkin:CapturePlacementLifecycle(id, stage)
     local element = NSkin:GetSkinningElement(id)
+        or NSkin:GetComponentRegistrationByID(id)
     if not element or not element.target or not element.window then return end
+    local activeProfileID = NSkin:GetSkinningElementProfileContext(element)
+    if element.getSemanticContext and activeProfileID ~= id then return end
     local stored = NSkin:GetSavedMovableElementPlacement(id)
     local live = NSkin:SerializeCurrentMovableElementPlacement(element, stored)
     placementLifecycle[id] = placementLifecycle[id] or {}
@@ -1873,14 +1921,17 @@ function EncounterJournalSkin:QueueSavedPlacementRestore()
     placementRestorePending = true
     C_Timer.After(0, function()
         placementRestorePending = false
-        local restoreIDs = { IDs.Journeys.ScrollBar,
-            IDs.Journeys.SeasonDropdown,
-            IDs.Dungeons.ExpansionDropdown }
+        local restoreIDs = { IDs.Journeys.ScrollBar }
+        local dropdownContext = GetExpansionDropdownSemanticContext()
+        if dropdownContext then
+            restoreIDs[#restoreIDs + 1] = dropdownContext.id
+        end
         local activeTitleID = GetActivePageTitleDefinition(
             _G.EncounterJournal)
         if activeTitleID then restoreIDs[#restoreIDs + 1] = activeTitleID end
         for _, id in ipairs(restoreIDs) do
             local element = NSkin:GetSkinningElement(id)
+                or NSkin:GetComponentRegistrationByID(id)
             local stored = NSkin:GetSavedMovableElementPlacement(id)
             if element and stored and NSkin:IsSkinningElementEditable(element)
                 and type(element.applyPlacement) == "function"
@@ -1924,13 +1975,8 @@ function EncounterJournalSkin:RunSharedElementDiscovery()
     end
 
     Approve(instanceSelect.SearchBox, IDs.Instances.Search, "editBox")
-    local journeysTabID = journal.JourneysTab and journal.JourneysTab:GetID()
-    local expansionID = journal.selectedTab == journeysTabID
-        and IDs.Journeys.SeasonDropdown or IDs.Dungeons.ExpansionDropdown
-    local expansionScope = journal.selectedTab == journeysTabID
-        and IDs.Journeys.Scope or IDs.Instances.Scope
     Approve(instanceSelect.ExpansionDropdown,
-        expansionID, "dropdown", expansionScope)
+        IDs.Journeys.SeasonDropdown, "dropdown", IDs.Journeys.Scope)
     Approve(instanceSelect.ScrollBar, IDs.Instances.ScrollBar, "scrollBar")
     Approve(info.difficulty, IDs.Instances.Difficulty, "dropdown")
     Approve(loot and loot.filter, IDs.Instances.LootSpec, "dropdown")
@@ -2699,11 +2745,15 @@ function EncounterJournalSkin:DebugProfile()
         IDs.Instances.LootSpec, IDs.Instances.OverviewScrollBar }) do
         local record = NSkin:GetComponentRegistrationByID(id)
             or NSkin:GetSkinningElement(id)
+        local activeProfileID = record
+            and NSkin:GetSkinningElementProfileContext(record)
+        local contextActive = record and (not record.getSemanticContext
+            or activeProfileID == id)
         local appearanceOverride = elements[id]
         local placement = moduleOptions and moduleOptions.movablePlacements
             and moduleOptions.movablePlacements[id]
         local stored = NSkin:GetSavedMovableElementPlacement(id)
-        local live = record
+        local live = contextActive
             and NSkin:SerializeCurrentMovableElementPlacement(record, stored)
             or nil
         local storedX, storedY = GetPlacementCoordinates(stored)
@@ -2718,7 +2768,8 @@ function EncounterJournalSkin:DebugProfile()
             tostring(appearanceOverride ~= nil or placement ~= nil),
             appearanceOverride and CountLeaves(appearanceOverride) or 0,
             tostring(placement ~= nil),
-            tostring(record and NSkin:IsSkinningElementEditable(record)),
+            tostring(contextActive
+                and NSkin:IsSkinningElementEditable(record) or false),
             tostring(storedPoint), tostring(storedRelativeTo),
             tostring(storedRelativePoint),
             tostring(storedX), tostring(storedY),
