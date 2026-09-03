@@ -69,6 +69,16 @@ NSkin.baseAppearance = {
         outlineMode = "GLOBAL",
     },
 
+    sideTab = {
+        width = 0,
+        height = 0,
+        background = { 0.04, 0.04, 0.04, 0.90 },
+        backgroundMode = "CUSTOM",
+        border = { 0.45, 0.45, 0.45, 1 },
+        borderMode = "CUSTOM",
+        hoverAlpha = 0.10,
+    },
+
     button = {
         background = { 0.04, 0.04, 0.04, 0.90 },
         border = { 0.45, 0.45, 0.45, 1 },

@@ -3166,6 +3166,82 @@ NSkin:RegisterOptionGroup("shared.scrollBarAppearance", {
     end,
 })
 
+local sideTabResetPaths = {
+    width = "sideTab.width",
+    height = "sideTab.height",
+    border = "sideTab.border",
+    borderMode = "sideTab.borderMode",
+    background = "sideTab.background",
+    backgroundMode = "sideTab.backgroundMode",
+    hoverAlpha = "sideTab.hoverAlpha",
+}
+
+NSkin:RegisterOptionGroup("shared.sideTabAppearance", {
+    controls = {
+        {
+            type = "SLIDER_PAIR", order = 1, centerReset = true,
+            resetSubset = true,
+            resetTooltip = "Reset side-tab width and height",
+            left = { key = "width", label = "Width", min = 20,
+                max = 100, step = 1, decimals = 0, suffix = " px",
+                resetValue = 0 },
+            right = { key = "height", label = "Height", min = 20,
+                max = 100, step = 1, decimals = 0, suffix = " px",
+                resetValue = 0 },
+        },
+        {
+            type = "COLOR_PAIR", order = 2,
+            left = { type = "COLOR", key = "border",
+                modeKey = "borderMode", label = "Border" },
+            right = { type = "COLOR", key = "background",
+                modeKey = "backgroundMode", label = "Background" },
+        },
+        {
+            type = "SLIDER", key = "hoverAlpha",
+            label = "Highlight opacity", min = 0, max = 1,
+            step = 0.05, decimals = 2, order = 3,
+        },
+    },
+    get = function(context)
+        local style = NSkin:GetAppearanceStyle(
+            "sideTab", GetAppearanceWindowID(context), context.id)
+        local target = context.target
+        return {
+            width = tonumber(style.width) and style.width > 0 and style.width
+                or (target and target.GetWidth and target:GetWidth()) or 43,
+            height = tonumber(style.height) and style.height > 0 and style.height
+                or (target and target.GetHeight and target:GetHeight()) or 55,
+            border = CopyColor(style.border),
+            borderMode = style.borderMode,
+            background = CopyColor(style.background),
+            backgroundMode = style.backgroundMode,
+            hoverAlpha = tonumber(style.hoverAlpha) or 0.10,
+        }
+    end,
+    set = function(context, values)
+        local changed
+        for _, key in ipairs({ "width", "height", "border", "borderMode",
+            "background", "backgroundMode", "hoverAlpha" })
+        do
+            if values[key] ~= nil then
+                changed = SetElementValue(
+                    context, "sideTab." .. key, values[key]) or changed
+            end
+        end
+        return changed == true
+    end,
+    reset = function(context)
+        return ResetElementPaths(context, {
+            "sideTab.width", "sideTab.height", "sideTab.border",
+            "sideTab.borderMode", "sideTab.background",
+            "sideTab.backgroundMode", "sideTab.hoverAlpha",
+        })
+    end,
+    resetSubset = function(context, keys)
+        return ResetMappedElementKeys(context, keys, sideTabResetPaths)
+    end,
+})
+
 local windowHeaderControlsAppearance = {
     {
         type = "SLIDER_PAIR", order = 1, centerReset = true,

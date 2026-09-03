@@ -10,12 +10,18 @@ local IDs = {
     NavigationBar = "Map.NavigationBar",
     QuestLogSearchBox = "Map.QuestLog.SearchBox",
     QuestLogScrollBar = "Map.QuestLog.ScrollBar",
+    SideTabs = {
+        Quests = "Map.SideTabs.Quests",
+        Events = "Map.SideTabs.Events",
+        MapLegend = "Map.SideTabs.MapLegend",
+    },
 }
 
 local initialized = false
 local showHooked = false
 local applyPending = false
 local hookedScrollBar
+local sideTabDefaultPlacements
 
 NSkin:RegisterAppearanceScope(IDs.Scope, {
     label = "Map & Quest Log",
@@ -36,6 +42,19 @@ local function GetMapNavigationBar(map)
     return map and (map.NavBar or map.navBar or map.NavigationBar)
         or (borderFrame and (borderFrame.NavBar
             or borderFrame.navBar or borderFrame.NavigationBar))
+end
+
+local function GetMapSideTabs()
+    local questMapFrame = _G.QuestMapFrame
+    if not questMapFrame then return nil end
+    return {
+        { id = IDs.SideTabs.Quests, target = questMapFrame.QuestsTab,
+            label = "Map quests side tab" },
+        { id = IDs.SideTabs.Events, target = questMapFrame.EventsTab,
+            label = "Map events side tab" },
+        { id = IDs.SideTabs.MapLegend, target = questMapFrame.MapLegendTab,
+            label = "Map legend side tab" },
+    }
 end
 
 local function GetMapChromeParts(map)
@@ -180,6 +199,49 @@ function MapSkin:ApplySearchBox()
     return true
 end
 
+function MapSkin:ApplySideTabs()
+    local map = _G.WorldMapFrame
+    local tabs = GetMapSideTabs()
+    if not map or not tabs then return false end
+
+    if not sideTabDefaultPlacements then
+        if not map:GetLeft() or not map:GetTop() then return false end
+        sideTabDefaultPlacements = {}
+        for i = 1, #tabs do
+            local tab = tabs[i].target
+            if not tab or not tab:GetLeft() or not tab:GetTop() then
+                sideTabDefaultPlacements = nil
+                return false
+            end
+            sideTabDefaultPlacements[tabs[i].id] =
+                NSkin:GetCurrentWindowElementPlacement(map, tab)
+        end
+    end
+
+    for i = 1, #tabs do
+        local definition = tabs[i]
+        local tab = definition.target
+        if tab then
+            local editableTab = tab
+            NSkin:RegisterSideTab({
+                id = definition.id,
+                module = "Map",
+                appearanceWindowID = IDs.Scope,
+                label = definition.label,
+                window = map,
+                target = tab,
+                priority = 60 + i,
+                defaultPlacement = sideTabDefaultPlacements[definition.id],
+                highlightRegions = { tab },
+                isEditable = function()
+                    return map:IsVisible() and editableTab:IsVisible()
+                end,
+            })
+        end
+    end
+    return true
+end
+
 function MapSkin:ApplyNavigationBar()
     local map = _G.WorldMapFrame
     local navigationBar = GetMapNavigationBar(map)
@@ -207,6 +269,7 @@ function MapSkin:QueueScrollBarApply()
         applyPending = false
         MapSkin:ApplyWindowChrome()
         MapSkin:ApplyNavigationBar()
+        MapSkin:ApplySideTabs()
         MapSkin:ApplySearchBox()
         MapSkin:ApplyScrollBar()
     end)
@@ -237,6 +300,7 @@ function MapSkin:Initialize()
     initialized = true
     self:ApplyWindowChrome()
     self:ApplyNavigationBar()
+    self:ApplySideTabs()
     self:ApplySearchBox()
     self:ApplyScrollBar()
     if map:IsShown() then self:QueueScrollBarApply() end
@@ -247,6 +311,7 @@ function MapSkin:RefreshAppearance()
     if initialized then
         self:ApplyWindowChrome()
         self:ApplyNavigationBar()
+        self:ApplySideTabs()
         self:ApplySearchBox()
         self:ApplyScrollBar()
     end

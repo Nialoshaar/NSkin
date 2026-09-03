@@ -710,33 +710,52 @@ local function ApplyPixelBorderGeometry(border)
     border.effectiveSize = thickness
     border.effectivePadding = padding
 
-    for _, edge in ipairs({ border.top, border.bottom, border.left, border.right }) do
-        edge:ClearAllPoints()
-        NSkin:ConfigureOwnedPixelTexture(edge)
+    for _, key in ipairs({ "top", "bottom", "left", "right" }) do
+        local edge = border[key]
+        if edge then
+            edge:ClearAllPoints()
+            NSkin:ConfigureOwnedPixelTexture(edge)
+        end
     end
     if border.outside and requestedPadding == nil then
-        border.top:SetPoint("BOTTOMLEFT", anchor, "TOPLEFT", -thickness, 0)
-        border.top:SetPoint("BOTTOMRIGHT", anchor, "TOPRIGHT", thickness, 0)
-        border.bottom:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", -thickness, 0)
-        border.bottom:SetPoint("TOPRIGHT", anchor, "BOTTOMRIGHT", thickness, 0)
-        border.left:SetPoint("TOPRIGHT", anchor, "TOPLEFT", 0, thickness)
-        border.left:SetPoint("BOTTOMRIGHT", anchor, "BOTTOMLEFT", 0, -thickness)
-        border.right:SetPoint("TOPLEFT", anchor, "TOPRIGHT", 0, thickness)
-        border.right:SetPoint("BOTTOMLEFT", anchor, "BOTTOMRIGHT", 0, -thickness)
+        if border.top then
+            border.top:SetPoint("BOTTOMLEFT", anchor, "TOPLEFT", -thickness, 0)
+            border.top:SetPoint("BOTTOMRIGHT", anchor, "TOPRIGHT", thickness, 0)
+        end
+        if border.bottom then
+            border.bottom:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", -thickness, 0)
+            border.bottom:SetPoint("TOPRIGHT", anchor, "BOTTOMRIGHT", thickness, 0)
+        end
+        if border.left then
+            border.left:SetPoint("TOPRIGHT", anchor, "TOPLEFT", 0, thickness)
+            border.left:SetPoint("BOTTOMRIGHT", anchor, "BOTTOMLEFT", 0, -thickness)
+        end
+        if border.right then
+            border.right:SetPoint("TOPLEFT", anchor, "TOPRIGHT", 0, thickness)
+            border.right:SetPoint("BOTTOMLEFT", anchor, "BOTTOMRIGHT", 0, -thickness)
+        end
     else
-        border.top:SetPoint("TOPLEFT", anchor, "TOPLEFT", -padding, padding)
-        border.top:SetPoint("TOPRIGHT", anchor, "TOPRIGHT", padding, padding)
-        border.bottom:SetPoint("BOTTOMLEFT", anchor, "BOTTOMLEFT", -padding, -padding)
-        border.bottom:SetPoint("BOTTOMRIGHT", anchor, "BOTTOMRIGHT", padding, -padding)
-        border.left:SetPoint("TOPLEFT", anchor, "TOPLEFT", -padding, padding)
-        border.left:SetPoint("BOTTOMLEFT", anchor, "BOTTOMLEFT", -padding, -padding)
-        border.right:SetPoint("TOPRIGHT", anchor, "TOPRIGHT", padding, padding)
-        border.right:SetPoint("BOTTOMRIGHT", anchor, "BOTTOMRIGHT", padding, -padding)
+        if border.top then
+            border.top:SetPoint("TOPLEFT", anchor, "TOPLEFT", -padding, padding)
+            border.top:SetPoint("TOPRIGHT", anchor, "TOPRIGHT", padding, padding)
+        end
+        if border.bottom then
+            border.bottom:SetPoint("BOTTOMLEFT", anchor, "BOTTOMLEFT", -padding, -padding)
+            border.bottom:SetPoint("BOTTOMRIGHT", anchor, "BOTTOMRIGHT", padding, -padding)
+        end
+        if border.left then
+            border.left:SetPoint("TOPLEFT", anchor, "TOPLEFT", -padding, padding)
+            border.left:SetPoint("BOTTOMLEFT", anchor, "BOTTOMLEFT", -padding, -padding)
+        end
+        if border.right then
+            border.right:SetPoint("TOPRIGHT", anchor, "TOPRIGHT", padding, padding)
+            border.right:SetPoint("BOTTOMRIGHT", anchor, "BOTTOMRIGHT", padding, -padding)
+        end
     end
-    border.top:SetHeight(thickness)
-    border.bottom:SetHeight(thickness)
-    border.left:SetWidth(thickness)
-    border.right:SetWidth(thickness)
+    if border.top then border.top:SetHeight(thickness) end
+    if border.bottom then border.bottom:SetHeight(thickness) end
+    if border.left then border.left:SetWidth(thickness) end
+    if border.right then border.right:SetWidth(thickness) end
 end
 
 function NSkin:ResnapPixelBorder(border)
@@ -856,13 +875,76 @@ function NSkin:CreatePixelBorder(frame, key, size, color, outside, anchor)
     return border
 end
 
+-- Creates only the requested physical-pixel edges. Components that attach to
+-- a window edge can therefore omit that seam instead of drawing a full border
+-- and covering one side with another region.
+function NSkin:CreatePixelEdgeBorder(frame, key, edges, size, color, anchor)
+    if not frame or not frame.CreateTexture or type(edges) ~= "table" then
+        return nil
+    end
+    local data = self:GetSkinData(frame, "primitives")
+    data.borders = data.borders or {}
+    if key and data.borders[key] then return data.borders[key] end
+
+    color = color or self:GetStyle("icon").border
+    local border = {
+        frame = frame,
+        anchor = anchor or frame,
+        outside = false,
+        requestedSize = tonumber(size) or 1,
+    }
+    for _, edgeName in ipairs(edges) do
+        if (edgeName == "top" or edgeName == "bottom"
+            or edgeName == "left" or edgeName == "right")
+            and not border[edgeName]
+        then
+            local edge = frame:CreateTexture(nil, "OVERLAY", nil, 7)
+            edge:SetColorTexture(unpack(color))
+            self:ConfigureOwnedPixelTexture(edge)
+            border[edgeName] = edge
+        end
+    end
+    if not border.top and not border.bottom and not border.left
+        and not border.right
+    then return nil end
+
+    pixelBorders[border] = true
+    ApplyPixelBorderGeometry(border)
+    local watchTarget = border.anchor
+    if not (watchTarget.IsObjectType and watchTarget:IsObjectType("Frame")) then
+        watchTarget = frame
+    end
+    local watchData = self:GetSkinData(watchTarget, "physicalPixels")
+    watchData.borders = watchData.borders
+        or setmetatable({}, { __mode = "k" })
+    watchData.borders[border] = true
+    if not watchData.resnapHooked then
+        watchData.resnapHooked = true
+        if watchTarget.HookScript then
+            watchTarget:HookScript("OnSizeChanged", function()
+                QueueBorderSetResnap(watchData)
+            end)
+            watchTarget:HookScript("OnShow", function()
+                QueueBorderSetResnap(watchData)
+            end)
+        end
+        if _G.hooksecurefunc and watchTarget.SetScale then
+            pcall(_G.hooksecurefunc, watchTarget, "SetScale", function()
+                QueueBorderSetResnap(watchData)
+            end)
+        end
+    end
+    if key then data.borders[key] = border end
+    return border
+end
+
 function NSkin:SetPixelBorderShown(border, shown)
     if not border or border.shown == shown then return end
 
-    border.top:SetShown(shown)
-    border.bottom:SetShown(shown)
-    border.left:SetShown(shown)
-    border.right:SetShown(shown)
+    if border.top then border.top:SetShown(shown) end
+    if border.bottom then border.bottom:SetShown(shown) end
+    if border.left then border.left:SetShown(shown) end
+    if border.right then border.right:SetShown(shown) end
     border.shown = shown
 end
 
@@ -870,14 +952,13 @@ function NSkin:SetPixelBorderColor(border, red, green, blue, alpha)
     if not border then return end
 
     alpha = alpha or 1
-    border.top:SetColorTexture(red, green, blue, alpha)
-    border.bottom:SetColorTexture(red, green, blue, alpha)
-    border.left:SetColorTexture(red, green, blue, alpha)
-    border.right:SetColorTexture(red, green, blue, alpha)
-    self:ConfigureOwnedPixelTexture(border.top)
-    self:ConfigureOwnedPixelTexture(border.bottom)
-    self:ConfigureOwnedPixelTexture(border.left)
-    self:ConfigureOwnedPixelTexture(border.right)
+    for _, key in ipairs({ "top", "bottom", "left", "right" }) do
+        local edge = border[key]
+        if edge then
+            edge:SetColorTexture(red, green, blue, alpha)
+            self:ConfigureOwnedPixelTexture(edge)
+        end
+    end
 end
 
 function NSkin:SetPixelBorderSize(border, size)
@@ -1934,6 +2015,12 @@ local EDITOR_PRESETS = {
         { id = "shared.tabTextAppearance", label = "Tab Text",
             category = "CUSTOMIZE" },
     },
+    SIDE_TAB = {
+        { id = "shared.movable", label = "Position",
+            presentation = "INLINE", category = "POSITION" },
+        { id = "shared.sideTabAppearance", label = "Side Tab",
+            presentation = "INLINE", category = "CUSTOMIZE" },
+    },
     SEARCH_GROUP = {
         { id = "shared.searchPosition", label = "Position",
             presentation = "INLINE", category = "POSITION" },
@@ -2043,6 +2130,9 @@ local SHARED_TYPE_DEFINITIONS = {
         appearanceControls = "shared.windowHeaderControlsAppearance" },
     TAB_GROUP = { style = "tab", skin = "SkinTab",
         appearanceControls = "shared.tabAppearance" },
+    SIDE_TAB = { style = "sideTab", skin = "SkinSideTab",
+        appearanceControls = "shared.sideTabAppearance",
+        editorPreset = "SIDE_TAB" },
     BUTTON = { style = "button", skin = "SkinFlatButton", editorPreset = "MOVABLE" },
     ACTION_BUTTON = { style = "button", skin = "SkinActionButton",
         editorPreset = "MOVABLE" },
@@ -2600,6 +2690,135 @@ function NSkin:SkinTab(tab, selected, style, borderColor)
         tab.Text:SetTextColor(unpack(self:GetResolvedAppearanceColor(style, "text")))
         self:ApplyResolvedTypography(tab.Text, style)
     end
+end
+
+local SIDE_TAB_BORDER_KEY = "NSkinSideTabBorder"
+
+local function CenterSideTabIcon(tab)
+    local icon = tab and tab.Icon
+    if not icon then return end
+    icon:ClearAllPoints()
+    icon:SetPoint("CENTER", tab, "CENTER", 0, 0)
+end
+
+local function SuppressSideTabArtwork(tab)
+    if tab.Background then tab.Background:SetAlpha(0) end
+    if tab.SelectedTexture then tab.SelectedTexture:SetAlpha(0) end
+    if tab.HighlightTexture then tab.HighlightTexture:SetAlpha(0) end
+    if tab.TabGlow then
+        tab.TabGlow:SetAlpha(0)
+        tab.TabGlow:Hide()
+    end
+end
+
+local function CaptureSideTabArtwork(tab, data)
+    if data.sideTabArtworkBaseline then return end
+    data.sideTabArtworkBaseline = {}
+    for _, key in ipairs({ "Background", "SelectedTexture",
+        "HighlightTexture", "TabGlow" }) do
+        local region = tab[key]
+        if region then
+            data.sideTabArtworkBaseline[#data.sideTabArtworkBaseline + 1] = {
+                region = region,
+                alpha = region.GetAlpha and region:GetAlpha() or 1,
+                shown = region.IsShown and region:IsShown() or true,
+            }
+        end
+    end
+end
+
+function NSkin:RestoreSideTabOriginalState(tab, baselineID)
+    local data = tab and self:GetSkinData(tab, COMPONENT_STATE, false)
+    if not tab or not data then return false end
+    local restored = self:RestoreComponentBaseline(
+        baselineID or data.sideTabBaselineID)
+    if tab.Icon and data.sideTabOriginalIconPoints then
+        RestoreFramePoints(tab.Icon, data.sideTabOriginalIconPoints)
+        restored = true
+    end
+    for _, state in ipairs(data.sideTabArtworkBaseline or {}) do
+        if state.region.SetAlpha then state.region:SetAlpha(state.alpha) end
+        if state.region.SetShown then state.region:SetShown(state.shown) end
+    end
+    if data.sideTabBackground then data.sideTabBackground:Hide() end
+    if data.hoverGlow then data.hoverGlow:Hide() end
+    self:SetPixelBorderShown(
+        self:GetPixelBorder(tab, SIDE_TAB_BORDER_KEY), false)
+    return restored == true
+end
+
+function NSkin:SkinSideTab(tab, style, borderColor)
+    if not tab or not tab.CreateTexture then return false end
+    style = style or self:GetStyle("sideTab")
+    if not style then return false end
+    local data = self:GetSkinData(tab, COMPONENT_STATE)
+    if not data.sideTabBaselineID then
+        data.sideTabBaselineID = "SideTab:" .. tostring(tab)
+        self:CaptureComponentBaseline(data.sideTabBaselineID, tab, {
+            size = true,
+            points = true,
+        })
+    end
+    local baseline = self:GetComponentBaseline(data.sideTabBaselineID)
+    local width, height = tonumber(style.width), tonumber(style.height)
+    width = width and width > 0 and width or nil
+    height = height and height > 0 and height or nil
+    if width or height then
+        self:MarkComponentGeometryModified(
+            data.sideTabBaselineID, "size", true)
+        tab:SetSize(width or (baseline and baseline.width) or tab:GetWidth(),
+            height or (baseline and baseline.height) or tab:GetHeight())
+    elseif baseline and baseline.modified.size then
+        self:RestoreComponentBaseline(data.sideTabBaselineID, { size = true })
+    end
+
+    if tab.Icon and not data.sideTabOriginalIconPoints then
+        data.sideTabOriginalIconPoints = CaptureFramePoints(tab.Icon)
+    end
+    CaptureSideTabArtwork(tab, data)
+    CenterSideTabIcon(tab)
+    SuppressSideTabArtwork(tab)
+
+    if not data.sideTabBackground then
+        local background = tab:CreateTexture(nil, "BACKGROUND", nil, 7)
+        background:SetAllPoints(tab)
+        self:ConfigureOwnedPixelTexture(background)
+        data.sideTabBackground = background
+    end
+    data.sideTabBackground:SetColorTexture(unpack(
+        self:GetResolvedAppearanceColor(style, "background")))
+    data.sideTabBackground:Show()
+
+    local resolvedBorder = borderColor
+        or self:GetResolvedAppearanceColor(style, "border")
+        or self:GetComponentBorderColor("sideTab", style)
+    local border = self:GetPixelBorder(tab, SIDE_TAB_BORDER_KEY)
+        or self:CreatePixelEdgeBorder(tab, SIDE_TAB_BORDER_KEY,
+            { "top", "right", "bottom" }, 1, resolvedBorder, tab)
+    self:SetPixelBorderColor(border, unpack(resolvedBorder))
+    self:SetPixelBorderSize(border, 1)
+    self:SetPixelBorderPadding(border, 0)
+    self:SetPixelBorderShown(border, true)
+
+    local glow = self:CreateFlatButtonGlow(tab, style.hoverAlpha)
+    if glow then glow:SetColorTexture(1, 1, 1, style.hoverAlpha or 0.10) end
+    if not data.sideTabInteractionHooked and tab.HookScript then
+        tab:HookScript("OnMouseDown", CenterSideTabIcon)
+        tab:HookScript("OnMouseUp", CenterSideTabIcon)
+        tab:HookScript("OnShow", function(shownTab)
+            local shownData = NSkin:GetSkinData(
+                shownTab, COMPONENT_STATE, false)
+            local shownStyle = shownData and shownData.sideTabStyle
+            if shownStyle then
+                NSkin:SkinSideTab(shownTab, shownStyle,
+                    shownData.sideTabBorderColor)
+            end
+        end)
+        data.sideTabInteractionHooked = true
+    end
+    data.sideTabStyle = style
+    data.sideTabBorderColor = resolvedBorder
+    return true
 end
 
 function NSkin:LayoutTabGroup(tabs, options)
@@ -3180,6 +3399,22 @@ function NSkin:RestoreMovableElementOriginal(elementOrID, suppressNotify)
     return true
 end
 
+local function ClearSavedMovablePlacement(element)
+    local options = element and NSkin:GetModuleOptions(element.module, false)
+    if not options or not options.movablePlacements then return false end
+    if options.movablePlacements[element.id] == nil then return false end
+    options.movablePlacements[element.id] = nil
+    if not next(options.movablePlacements) then options.movablePlacements = nil end
+    if not next(options) then
+        local profile = NSkin:GetProfile()
+        if profile.moduleOptions then
+            profile.moduleOptions[element.module] = nil
+            if not next(profile.moduleOptions) then profile.moduleOptions = nil end
+        end
+    end
+    return true
+end
+
 function NSkin:RegisterMovableElement(definition)
     if type(definition) ~= "table" or type(definition.id) ~= "string"
         or type(definition.module) ~= "string" or not definition.window
@@ -3247,18 +3482,7 @@ function NSkin:RegisterMovableElement(definition)
     end
     definition.resetPlacement = definition.resetPlacement or function(element)
         if not NSkin:RestoreMovableElementOriginal(element) then return false end
-        local options = NSkin:GetModuleOptions(element.module, false)
-        if options and options.movablePlacements then
-            options.movablePlacements[element.id] = nil
-            if not next(options.movablePlacements) then options.movablePlacements = nil end
-            if not next(options) then
-                local profile = NSkin:GetProfile()
-                if profile.moduleOptions then
-                    profile.moduleOptions[element.module] = nil
-                    if not next(profile.moduleOptions) then profile.moduleOptions = nil end
-                end
-            end
-        end
+        ClearSavedMovablePlacement(element)
         return true
     end
     self:RegisterSkinningElement(id, definition)
@@ -3424,6 +3648,57 @@ function NSkin:RegisterSimpleMovableElement(definition)
     end
     if not self:RegisterMovableElement(definition) then return nil end
     return self:GetSkinningElement(definition.id)
+end
+
+function NSkin:RegisterSideTab(definition)
+    if type(definition) ~= "table" or type(definition.id) ~= "string"
+        or not definition.target
+    then return nil end
+    local id = definition.id
+    self:CaptureComponentBaseline(id, definition.target, {
+        points = true,
+        size = true,
+    })
+    local data = self:GetSkinData(definition.target, COMPONENT_STATE)
+    data.sideTabBaselineID = id
+    local style = self:GetAppearanceStyle(
+        "sideTab", definition.appearanceWindowID, id)
+    local borderColor = self:GetAppearanceBorderColor(
+        "sideTab", style, definition.appearanceWindowID, id)
+    self:SkinSideTab(definition.target, style, borderColor)
+
+    definition.kind = "SIDE_TAB"
+    definition.supportsResize = true
+    definition.restoreGeometry = definition.restoreGeometry or function(element)
+        return NSkin:RestoreSideTabOriginalState(element.target, element.id)
+    end
+    definition.defaultPlacement = definition.defaultPlacement
+        or GetCurrentWindowPlacement(definition.window, definition.target)
+    if not definition.resetPlacement then
+        definition.resetPlacement = function(element)
+            local restored
+            if element.defaultPlacement then
+                restored = element.applyPlacement(element,
+                    CopyPlacement(element.defaultPlacement), SUPPRESS_NOTIFICATION)
+            else
+                restored = NSkin:RestoreMovableElementOriginal(element, true)
+            end
+            if not restored then return false end
+            ClearSavedMovablePlacement(element)
+            NSkin:MarkComponentGeometryModified(element.id, "points", false)
+            NSkin:NotifySkinningElementBoundsChanged(element.id)
+            return true
+        end
+    end
+
+    local element = self:RegisterSimpleMovableElement(definition)
+    if element and not GetSavedMovablePlacement(element)
+        and element.defaultPlacement
+    then
+        element.applyPlacement(element,
+            CopyPlacement(element.defaultPlacement), SUPPRESS_NOTIFICATION)
+    end
+    return element
 end
 
 function NSkin:RegisterNavigationBar(elementID, definition)
