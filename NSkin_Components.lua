@@ -2090,8 +2090,8 @@ function NSkin:SkinStandardCloseButton(window, closeButton, options)
         options.background,
         options.border,
         options.textSize or 20,
-        options.textOffsetX or 0,
-        options.textOffsetY or 0
+        options.textOffsetX or 1,
+        options.textOffsetY or 1
     )
 
     local border = self:GetPixelBorder(
