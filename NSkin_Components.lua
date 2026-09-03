@@ -1097,7 +1097,15 @@ function NSkin:CaptureComponentBaseline(id, target, options)
         componentBaselines[target] = baselines
     end
     local existing = baselines[id]
-    if existing and not options.force then return existing end
+    if existing and not options.force then
+        -- An explicit promotion can add an authoritative layout-reset hook to
+        -- a baseline first captured by discovery. Preserve the captured
+        -- properties, but do not discard that later ownership metadata.
+        if type(options.refreshBlizzardLayout) == "function" then
+            existing.refreshBlizzardLayout = options.refreshBlizzardLayout
+        end
+        return existing
+    end
     if type(options.canCapture) == "function"
         and options.canCapture(target) ~= true
     then return nil end

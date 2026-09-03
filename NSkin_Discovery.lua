@@ -578,6 +578,14 @@ local function RegisterTyped(componentType, definition)
                     definition.target:ClearAllPoints()
                     definition.target:SetPoint(
                         "TOPLEFT", journal, "TOPRIGHT", -356, -77)
+                    if not NSkin:GetSavedMovableElementPlacement(
+                        "EncounterJournal.Instances.LootSlotDropdown")
+                    then
+                        loot.slotFilter:ClearAllPoints()
+                        loot.slotFilter:SetWidth(90)
+                        loot.slotFilter:SetPoint(
+                            "LEFT", loot.filter, "RIGHT", 10, 0)
+                    end
                 else
                     definition.target:ClearAllPoints()
                     definition.target:SetWidth(90)
@@ -587,6 +595,34 @@ local function RegisterTyped(componentType, definition)
                 return true
             end
             return false
+        end
+    end
+    if discoveredMovable and definition.module == "EncounterJournal"
+        and componentType == "dropdown"
+        and definition.id == "EncounterJournal.Instances.LootSpecDropdown"
+        and not definition.applyPlacement
+    then
+        definition.applyPlacement = function(element, placement, options)
+            local journal = _G.EncounterJournal
+            local loot = journal and journal.encounter and journal.encounter.info
+                and journal.encounter.info.LootContainer
+            local slot = loot and loot.slotFilter
+            -- Blizzard anchors Slot to Class/Spec by default. Before moving
+            -- Class/Spec, preserve Slot's current screen position as an
+            -- independent window anchor so the two customization owners do
+            -- not move each other.
+            if slot and journal and not NSkin:GetSavedMovableElementPlacement(
+                "EncounterJournal.Instances.LootSlotDropdown")
+            then
+                local left, top = slot:GetLeft(), slot:GetTop()
+                local windowLeft, windowTop = journal:GetLeft(), journal:GetTop()
+                if left and top and windowLeft and windowTop then
+                    slot:ClearAllPoints()
+                    slot:SetPoint("TOPLEFT", journal, "TOPLEFT",
+                        left - windowLeft, top - windowTop)
+                end
+            end
+            return NSkin:LayoutWindowElement(element, placement, options)
         end
     end
     if discoveredMovable then

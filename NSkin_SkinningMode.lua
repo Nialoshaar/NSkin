@@ -59,7 +59,8 @@ local function AnchorOverlay(overlay, element)
     then
         return true
     end
-    if element and element.kind ~= "TAB_GROUP"
+    if not overlay.usesAbsoluteBounds
+        and element and element.kind ~= "TAB_GROUP"
         and type(element.highlightRegions) ~= "table"
         and type(element.highlightRegions) ~= "function"
         and type(element.getHighlightBounds) ~= "function"
@@ -595,6 +596,7 @@ end
 
 local function CreateOverlay(element)
     local usesAbsoluteBounds = element.kind == "TAB_GROUP"
+        or element.movable == true
         or type(element.highlightRegions) == "table"
         or type(element.highlightRegions) == "function"
         or type(element.getHighlightBounds) == "function"
@@ -611,10 +613,11 @@ local function CreateOverlay(element)
     -- a dedicated higher strata instead of relying on priority alone.
     overlay:SetFrameStrata(element.kind == "WINDOW"
         and "DIALOG" or "FULLSCREEN_DIALOG")
-    -- The full-window overlay is visual only. If it owns the mouse it receives
-    -- MouseDown before child overlays in some Blizzard parent trees, which
-    -- prevents their drag handlers from ever starting.
-    overlay:EnableMouse(element.kind ~= "WINDOW")
+    -- The window owns hover/clicks only in empty space. Its click handler
+    -- resolves the highest-priority registered child under the cursor, while
+    -- child overlays themselves live on the higher FULLSCREEN_DIALOG strata.
+    -- This preserves window selection without stealing element selection.
+    overlay:EnableMouse(true)
     overlay:SetFrameLevel(math.max(1,
         (element.window:GetFrameLevel() or 0) + 10 + (element.priority or 0)))
     overlay:RegisterForClicks("LeftButtonUp")
