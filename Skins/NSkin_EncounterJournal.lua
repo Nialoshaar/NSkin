@@ -2,6 +2,7 @@ local _, NSkin = ...
 
 local EncounterJournalSkin = NSkin:NewModule("EncounterJournal")
 local ENCOUNTER_JOURNAL_STATE = "encounterJournal"
+local LEGACY_TUTORIALS_TITLE_ID = "EncounterJournal.Tutorials.Text"
 local IDs = {
     AppearanceWindow = "EncounterJournal",
     Window = "EncounterJournal.Window",
@@ -30,6 +31,7 @@ local IDs = {
     },
     Suggested = {
         Scope = "EncounterJournal.SuggestedContent",
+        PageTitle = "EncounterJournal.SuggestedContent.PageTitle",
         Text = "EncounterJournal.SuggestedContent.Text",
         Buttons = {
             "EncounterJournal.SuggestedContent.AcceptQuest1",
@@ -39,7 +41,7 @@ local IDs = {
     },
     Tutorials = {
         Scope = "EncounterJournal.Tutorials",
-        Text = "EncounterJournal.Tutorials.Text",
+        PageTitle = "EncounterJournal.Tutorials.PageTitle",
         StartButton = "EncounterJournal.Tutorials.StartButton",
     },
     Instances = {
@@ -124,6 +126,7 @@ local concealedOriginalAlpha
 local journeysRegistered = false
 local sharedExpansionDropdownRegistered = false
 local sharedPageTitleRegistered = false
+local migratedPageTitleProfiles = setmetatable({}, { __mode = "k" })
 local journeyCardsRegistered = false
 local windowRegistered = false
 local tabsRegistered = false
@@ -1045,11 +1048,40 @@ local function GetActivePageTitleDefinition(journal)
         return IDs.Journeys.PageTitle, IDs.Journeys.Scope,
             "Journeys page title"
     end
+    if journal.suggestTab and selectedTab == journal.suggestTab:GetID() then
+        return IDs.Suggested.PageTitle, IDs.Suggested.Scope,
+            "Suggested Content page title"
+    end
     if journal.TutorialsTab and selectedTab == journal.TutorialsTab:GetID() then
-        -- Keep the existing Tutorials ID so current profiles do not need a
-        -- migration.  The other tabs now have their own semantic IDs.
-        return IDs.Tutorials.Text, IDs.Tutorials.Scope,
+        return IDs.Tutorials.PageTitle, IDs.Tutorials.Scope,
             "Tutorials page title"
+    end
+end
+
+local function MigrateLegacyPageTitleProfile()
+    local profile = NSkin:GetProfile()
+    if not profile or migratedPageTitleProfiles[profile] then return end
+    migratedPageTitleProfiles[profile] = true
+
+    local elements = profile.appearanceOverrides
+        and profile.appearanceOverrides.elements
+    if elements and elements[LEGACY_TUTORIALS_TITLE_ID] then
+        if not elements[IDs.Tutorials.PageTitle] then
+            elements[IDs.Tutorials.PageTitle] =
+                elements[LEGACY_TUTORIALS_TITLE_ID]
+        end
+        elements[LEGACY_TUTORIALS_TITLE_ID] = nil
+    end
+
+    local moduleOptions = profile.moduleOptions
+        and profile.moduleOptions.EncounterJournal
+    local placements = moduleOptions and moduleOptions.movablePlacements
+    if placements and placements[LEGACY_TUTORIALS_TITLE_ID] then
+        if not placements[IDs.Tutorials.PageTitle] then
+            placements[IDs.Tutorials.PageTitle] =
+                placements[LEGACY_TUTORIALS_TITLE_ID]
+        end
+        placements[LEGACY_TUTORIALS_TITLE_ID] = nil
     end
 end
 
@@ -1057,7 +1089,8 @@ local PAGE_TITLE_SEMANTIC_IDS = {
     IDs.Dungeons.PageTitle,
     IDs.Raids.PageTitle,
     IDs.Journeys.PageTitle,
-    IDs.Tutorials.Text,
+    IDs.Suggested.PageTitle,
+    IDs.Tutorials.PageTitle,
 }
 
 local function GetPageTitleSemanticContext()
@@ -1076,13 +1109,14 @@ end
 local function RegisterActivePageTitle(journal)
     local title = journal and journal.instanceSelect
         and journal.instanceSelect.Title
-    local id, scope, label = GetActivePageTitleDefinition(journal)
+    local id, scope = GetActivePageTitleDefinition(journal)
     if not title or not id then return nil end
 
+    MigrateLegacyPageTitleProfile()
     NSkin:SkinText(title, NSkin:GetAppearanceStyle("text", scope, id))
     if not sharedPageTitleRegistered then
         NSkin:RegisterMovableElement({
-            id = IDs.Tutorials.Text,
+            id = IDs.Tutorials.PageTitle,
             semanticIDs = PAGE_TITLE_SEMANTIC_IDS,
             getSemanticContext = GetPageTitleSemanticContext,
             module = "EncounterJournal",
@@ -1097,15 +1131,22 @@ local function RegisterActivePageTitle(journal)
             isEditable = IsSharedPageTitleEditable,
         })
         sharedPageTitleRegistered =
-            NSkin:GetSkinningElement(IDs.Tutorials.Text) ~= nil
+            NSkin:GetSkinningElement(IDs.Tutorials.PageTitle) ~= nil
     end
-    local element = NSkin:GetSkinningElement(IDs.Tutorials.Text)
+    local element = NSkin:GetSkinningElement(IDs.Tutorials.PageTitle)
     local stored = NSkin:GetSavedMovableElementPlacement(id)
     if element and stored then
-        element.applyPlacement(element, stored, { suppressNotify = true })
+        if element.applyPlacement(element, stored, { suppressNotify = true }) then
+            NSkin:MarkComponentGeometryModified(element.id, "points", true)
+        end
+    elseif element then
+        -- The FontString is shared by all page contexts.  Without an override,
+        -- do not let the previous context's physical position leak into the
+        -- newly selected page.
+        NSkin:RestoreMovableElementOriginal(element, true)
     end
-    NSkin:NotifySkinningElementContextChanged(IDs.Tutorials.Text)
-    NSkin:NotifySkinningElementBoundsChanged(IDs.Tutorials.Text)
+    NSkin:NotifySkinningElementContextChanged(IDs.Tutorials.PageTitle)
+    NSkin:NotifySkinningElementBoundsChanged(IDs.Tutorials.PageTitle)
     return title
 end
 
@@ -1395,19 +1436,7 @@ function EncounterJournalSkin:StyleSuggestedContent(forceShown)
         if inset.Bg then inset.Bg:Hide() end
         if inset.Background then inset.Background:Hide() end
     end
-    local title = journal.instanceSelect and journal.instanceSelect.Title
-    if title then
-        local data = NSkin:GetSkinData(title, ENCOUNTER_JOURNAL_STATE)
-        if not data.suggestedOriginalColor then
-            data.suggestedOriginalColor = { title:GetTextColor() }
-        end
-        if shown then
-            NSkin:SkinText(title, NSkin:GetAppearanceStyle(
-                "text", IDs.Suggested.Scope, IDs.Suggested.Text))
-        else
-            title:SetTextColor(unpack(data.suggestedOriginalColor))
-        end
-    end
+    if shown then RegisterActivePageTitle(journal) end
     local textStyle = NSkin:GetAppearanceStyle(
         "text", IDs.Suggested.Scope, IDs.Suggested.Text)
     local suggestions = { suggestFrame.Suggestion1,
@@ -1425,19 +1454,19 @@ function EncounterJournalSkin:StyleSuggestedContent(forceShown)
             end
         end
     end
-    if shown and title and not suggestedTextRegistered then
+    if shown and not suggestedTextRegistered then
         NSkin:RegisterSkinningElement(IDs.Suggested.Text, {
             module = "EncounterJournal",
             appearanceWindowID = IDs.Suggested.Scope,
             label = "Suggested Content text",
             kind = "TEXT",
             window = journal,
-            target = title,
+            target = suggestFrame,
             draggable = false,
             priority = 70,
             highlightRegions = textRegions,
             isEditable = function()
-                return suggestFrame:IsVisible() and title:IsVisible()
+                return suggestFrame:IsVisible() and #textRegions > 0
             end,
         })
         suggestedTextRegistered = true
@@ -1485,8 +1514,6 @@ function EncounterJournalSkin:StyleTutorials(forceShown)
     local shown = forceShown
     if shown == nil then shown = journal.selectedTab == tutorialsTabID end
 
-    -- StyleSuggestedContent restores Blizzard's original section-title color
-    -- whenever its page is inactive. Tutorials then deliberately overrides it.
     if shown then RegisterActivePageTitle(journal) end
 
     local startButton = contents.StartButton
@@ -2740,7 +2767,8 @@ function EncounterJournalSkin:DebugProfile()
         IDs.Dungeons.ExpansionDropdown,
         IDs.Dungeons.PageTitle, IDs.Raids.PageTitle,
         IDs.Journeys.PageTitle, IDs.Journeys.RenownsTitle,
-        IDs.Journeys.EncountersTitle, IDs.Tutorials.Text,
+        IDs.Journeys.EncountersTitle, IDs.Suggested.PageTitle,
+        IDs.Tutorials.PageTitle,
         IDs.Instances.Difficulty,
         IDs.Instances.LootSpec, IDs.Instances.OverviewScrollBar }) do
         local record = NSkin:GetComponentRegistrationByID(id)
