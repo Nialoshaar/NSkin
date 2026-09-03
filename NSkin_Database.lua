@@ -76,6 +76,17 @@ NSkin.baseAppearance = {
         hoverAlpha = 0.10,
     },
 
+    windowHeaderButton = {
+        background = { 0.04, 0.04, 0.04, 0.90 },
+        backgroundMode = "CUSTOM",
+        border = { 0.45, 0.45, 0.45, 1 },
+        borderMode = "CUSTOM",
+        text = { 1, 1, 1, 1 },
+        textSize = 20,
+        hoverAlpha = 0.10,
+        disabledTextAlpha = 0.45,
+    },
+
     scrollBar = {
         track = { 0.25, 0.25, 0.25, 1 },
         trackMode = "CUSTOM",

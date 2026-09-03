@@ -1832,6 +1832,16 @@ local function CreateSliderPair(view, control, y)
                 view:Refresh()
                 return
             end
+            if control.resetSubset
+                and type(view.definition.resetSubset) == "function"
+            then
+                view.definition.resetSubset(view.context, {
+                    [control.left.key] = true,
+                    [control.right.key] = true,
+                })
+                view:Refresh()
+                return
+            end
             local values = CopyTable(view.definition.get(view.context))
             values[control.left.key] = control.left.resetValue or 0
             values[control.right.key] = control.right.resetValue or 0
@@ -3153,6 +3163,96 @@ NSkin:RegisterOptionGroup("shared.scrollBarAppearance", {
             "scrollBar.thumb", "scrollBar.thumbMode",
             "scrollBar.arrow", "scrollBar.arrowMode",
         })
+    end,
+})
+
+local windowHeaderControlsAppearance = {
+    {
+        type = "SLIDER_PAIR", order = 1, centerReset = true,
+        resetSubset = true,
+        resetTooltip = "Reset button width and height",
+        left = { key = "width", label = "Button size", min = 16,
+            max = 64, step = 1, decimals = 0, suffix = " px" },
+        right = { key = "height", label = "Height", min = 16,
+            max = 64, step = 1, decimals = 0, suffix = " px" },
+    },
+    {
+        type = "SLIDER", key = "textSize", label = "Text size",
+        min = 8, max = 32, step = 1, decimals = 0, suffix = " px",
+        order = 2,
+    },
+    {
+        type = "COLOR_PAIR", order = 3,
+        left = { type = "COLOR", key = "border", modeKey = "borderMode",
+            label = "Border" },
+        right = { type = "COLOR", key = "background",
+            modeKey = "backgroundMode", label = "Background" },
+    },
+    {
+        type = "SLIDER", key = "hoverAlpha", label = "Highlight intensity",
+        min = 0, max = 1, step = 0.05, decimals = 2, order = 4,
+    },
+}
+
+local windowHeaderControlResetPaths = {
+    width = "windowHeaderButton.width",
+    height = "windowHeaderButton.height",
+    textSize = "windowHeaderButton.textSize",
+    border = "windowHeaderButton.border",
+    borderMode = "windowHeaderButton.borderMode",
+    background = "windowHeaderButton.background",
+    backgroundMode = "windowHeaderButton.backgroundMode",
+    hoverAlpha = "windowHeaderButton.hoverAlpha",
+}
+
+NSkin:RegisterOptionGroup("shared.windowHeaderControlsAppearance", {
+    controls = windowHeaderControlsAppearance,
+    get = function(context)
+        local style = NSkin:GetAppearanceStyle(
+            "windowHeaderButton", GetAppearanceWindowID(context), context.id)
+        local regions = NSkin:GetWindowHeaderControlRegions(
+            context.window, context.id)
+        local closeButton = regions[1] or context.target
+        return {
+            width = tonumber(style.width) and style.width > 0 and style.width
+                or (closeButton
+                and closeButton.GetWidth and closeButton:GetWidth()) or 24,
+            height = tonumber(style.height) and style.height > 0 and style.height
+                or (closeButton
+                and closeButton.GetHeight and closeButton:GetHeight()) or 24,
+            textSize = tonumber(style.textSize) or 20,
+            border = CopyColor(style.border),
+            borderMode = style.borderMode,
+            background = CopyColor(style.background),
+            backgroundMode = style.backgroundMode,
+            hoverAlpha = tonumber(style.hoverAlpha) or 0.10,
+        }
+    end,
+    set = function(context, values)
+        local changed
+        for _, key in ipairs({ "width", "height", "textSize", "border",
+            "borderMode", "background", "backgroundMode", "hoverAlpha" })
+        do
+            if values[key] ~= nil then
+                changed = SetElementValue(context,
+                    "windowHeaderButton." .. key, values[key]) or changed
+            end
+        end
+        return changed == true
+    end,
+    reset = function(context)
+        return ResetElementPaths(context, {
+            "windowHeaderButton.width", "windowHeaderButton.height",
+            "windowHeaderButton.textSize", "windowHeaderButton.border",
+            "windowHeaderButton.borderMode",
+            "windowHeaderButton.background",
+            "windowHeaderButton.backgroundMode",
+            "windowHeaderButton.hoverAlpha",
+        })
+    end,
+    resetSubset = function(context, keys)
+        return ResetMappedElementKeys(
+            context, keys, windowHeaderControlResetPaths)
     end,
 })
 

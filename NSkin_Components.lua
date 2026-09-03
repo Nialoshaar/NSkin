@@ -1819,6 +1819,10 @@ local EDITOR_PRESETS = {
         { id = "shared.windowHeaderAppearance", label = "Header",
             category = "CUSTOMIZE" },
     },
+    WINDOW_HEADER_CONTROLS = {
+        { id = "shared.windowHeaderControlsAppearance",
+            label = "Header Buttons", category = "CUSTOMIZE" },
+    },
     TAB_GROUP = {
         { id = "tabs.layout", label = "Position",
             presentation = "INLINE", category = "POSITION" },
@@ -1931,6 +1935,9 @@ local SHARED_TYPE_DEFINITIONS = {
         appearanceControls = "shared.windowAppearance" },
     WINDOW_HEADER = { style = "window.header", skin = "SkinWindowHeader",
         appearanceControls = "shared.windowHeaderAppearance", editorPreset = "WINDOW" },
+    WINDOW_HEADER_CONTROLS = { style = "windowHeaderButton",
+        skin = "SkinWindowHeaderButton",
+        appearanceControls = "shared.windowHeaderControlsAppearance" },
     TAB_GROUP = { style = "tab", skin = "SkinTab",
         appearanceControls = "shared.tabAppearance" },
     BUTTON = { style = "button", skin = "SkinFlatButton", editorPreset = "MOVABLE" },
@@ -2067,10 +2074,10 @@ function NSkin:SkinWindowHeader(frame, style)
 end
 
 local STANDARD_WINDOW_HEADER_GLYPHS = {
-    close = { text = "X", textSize = 20, offsetX = 0, offsetY = 0 },
-    maximize = { text = "+", textSize = 20, offsetX = 0, offsetY = 0 },
-    minimize = { text = "-", textSize = 20, offsetX = 0, offsetY = 0 },
-    fullscreen = { text = "□", textSize = 18, offsetX = 0, offsetY = 0 },
+    close = { text = "X", offsetX = 0, offsetY = 0 },
+    maximize = { text = "+", offsetX = 0, offsetY = 0 },
+    minimize = { text = "-", offsetX = 0, offsetY = 0 },
+    fullscreen = { text = "□", offsetX = 0, offsetY = 0 },
 }
 
 local function RefreshWindowHeaderButtonAppearance(button)
@@ -2100,7 +2107,9 @@ function NSkin:SkinWindowHeaderButton(button, content, options)
     local background = self:GetFlatBackground(button)
     if not background then self:HideTextureRegions(button) end
     self:CreateFlatBackground(
-        button, nil, options.background or style.background,
+        button, nil, options.background
+            or self:GetResolvedAppearanceColor(style, "background")
+            or style.background,
         options.border or self:GetComponentBorderColor("button", style))
     self:CreateFlatButtonGlow(button, style.hoverAlpha)
 
@@ -2125,7 +2134,9 @@ function NSkin:SkinWindowHeaderButton(button, content, options)
         text:SetText(glyph.text)
         self:ApplyResolvedTypography(text, self:GetStyle("text"))
         local font, _, flags = text:GetFont()
-        if font then text:SetFont(font, glyph.textSize, flags) end
+        if font then
+            text:SetFont(font, tonumber(style.textSize) or 20, flags)
+        end
         text:SetAlpha(1)
         text:Show()
         if state.icon then state.icon:Hide() end
@@ -2170,21 +2181,31 @@ function NSkin:SkinStandardCloseButton(window, closeButton, options)
     if not window or not closeButton then return nil end
     options = options or {}
 
-    local size = tonumber(options.size)
-    if not size and closeButton.GetHeight then
-        local height = closeButton:GetHeight()
-        if tonumber(height) and height > 0 then size = height end
+    local data = self:GetSkinData(closeButton, COMPONENT_STATE)
+    if not data.standardHeaderOriginalSize and closeButton.GetSize then
+        local originalWidth, originalHeight = closeButton:GetSize()
+        if tonumber(originalWidth) and originalWidth > 0
+            and tonumber(originalHeight) and originalHeight > 0
+        then
+            data.standardHeaderOriginalSize = {
+                originalWidth, originalHeight,
+            }
+        end
     end
-    if not size and closeButton.GetWidth then
-        local width = closeButton:GetWidth()
-        if tonumber(width) and width > 0 then size = width end
-    end
+    local width = tonumber(options.width)
+    local height = tonumber(options.height)
+    local originalSize = data.standardHeaderOriginalSize
+    width = width or (originalSize and originalSize[1])
+    height = height or (originalSize and originalSize[2])
 
     closeButton:ClearAllPoints()
     closeButton:SetPoint("TOPRIGHT", window, "TOPRIGHT", 0, 0)
-    if size and closeButton.SetSize then closeButton:SetSize(size, size) end
+    if width and height and closeButton.SetSize then
+        closeButton:SetSize(width, height)
+    end
 
     self:SkinWindowHeaderButton(closeButton, { glyph = "close" }, {
+        style = options.style,
         background = options.background,
         border = options.border,
     })
@@ -2260,14 +2281,15 @@ function NSkin:RegisterWindowHeaderControls(definition)
     data.windowHeaderControlGroups = data.windowHeaderControlGroups or {}
     data.windowHeaderControlGroups[definition.id] = definition
 
-    local defaultSize = tonumber(definition.buttonSize)
-    if not defaultSize and closeButton.GetWidth then
+    local defaultWidth = tonumber(definition.buttonWidth)
+    if not defaultWidth and closeButton.GetWidth then
         local width = closeButton:GetWidth()
-        if tonumber(width) and width > 0 then defaultSize = width end
+        if tonumber(width) and width > 0 then defaultWidth = width end
     end
-    if not defaultSize and closeButton.GetHeight then
+    local defaultHeight = tonumber(definition.buttonHeight)
+    if not defaultHeight and closeButton.GetHeight then
         local height = closeButton:GetHeight()
-        if tonumber(height) and height > 0 then defaultSize = height end
+        if tonumber(height) and height > 0 then defaultHeight = height end
     end
 
     local previousControl = closeButton
@@ -2275,14 +2297,15 @@ function NSkin:RegisterWindowHeaderControls(definition)
     for _, controlDefinition in ipairs(definition.controls or {}) do
         local targets = ResolveWindowHeaderControlTargets(controlDefinition)
         local slotAnchor = targets[1] and targets[1].target
-        local size = tonumber(controlDefinition.size) or defaultSize
-        if slotAnchor and size then
+        local width = tonumber(controlDefinition.width) or defaultWidth
+        local height = tonumber(controlDefinition.height) or defaultHeight
+        if slotAnchor and width and height then
             for _, resolved in ipairs(targets) do
                 local target = resolved.target
                 target:ClearAllPoints()
                 target:SetPoint(
                     "TOPRIGHT", previousControl, "TOPLEFT", -spacing, 0)
-                if target.SetSize then target:SetSize(size, size) end
+                if target.SetSize then target:SetSize(width, height) end
                 ConfigureWindowHeaderControlBorder(
                     target, definition.borderSize)
             end
@@ -2291,6 +2314,23 @@ function NSkin:RegisterWindowHeaderControls(definition)
     end
 
     return data.windowHeaderControlGroups[definition.id]
+end
+
+function NSkin:GetWindowHeaderControlRegions(window, groupID)
+    local data = self:GetSkinData(window, COMPONENT_STATE, false)
+    local group = data and data.windowHeaderControlGroups
+        and data.windowHeaderControlGroups[groupID]
+    if not group then return {} end
+
+    local regions = { group.closeButton }
+    for _, controlDefinition in ipairs(group.controls or {}) do
+        for _, resolved in ipairs(
+            ResolveWindowHeaderControlTargets(controlDefinition))
+        do
+            regions[#regions + 1] = resolved.target
+        end
+    end
+    return regions
 end
 
 function NSkin:SkinStandardWindowChrome(definition)
@@ -2329,30 +2369,66 @@ function NSkin:SkinStandardWindowChrome(definition)
     local closeButton = definition.closeButton
     if closeButton == nil then closeButton = frame.CloseButton end
     if closeButton and definition.skinCloseButton ~= false then
+        local headerControlsID = definition.headerControlsID
+            or (elementID .. ".HeaderControls")
+        local headerButtonStyle = self:GetAppearanceStyle(
+            "windowHeaderButton", appearanceWindowID, headerControlsID)
+        local headerButtonBorder = self:GetAppearanceBorderColor(
+            "windowHeaderButton", headerButtonStyle,
+            appearanceWindowID, headerControlsID)
+        local buttonWidth = tonumber(headerButtonStyle.width)
+        local buttonHeight = tonumber(headerButtonStyle.height)
+        buttonWidth = buttonWidth and buttonWidth > 0 and buttonWidth or nil
+        buttonHeight = buttonHeight and buttonHeight > 0 and buttonHeight or nil
         self:SkinStandardCloseButton(frame, closeButton, {
+            style = headerButtonStyle,
             background = definition.closeButtonBackground,
-            border = definition.closeButtonBorder or borderColor,
+            border = definition.closeButtonBorder or headerButtonBorder,
             borderSize = style.borderSize,
-            size = definition.closeButtonSize,
+            width = buttonWidth,
+            height = buttonHeight,
         })
         for _, controlDefinition in ipairs(definition.headerControls or {}) do
             for _, resolved in ipairs(
                 ResolveWindowHeaderControlTargets(controlDefinition))
             do
-                self:SkinWindowHeaderButton(
-                    resolved.target, resolved.content)
+                self:SkinWindowHeaderButton(resolved.target, resolved.content, {
+                    style = headerButtonStyle,
+                    border = headerButtonBorder,
+                })
             end
         end
         self:RegisterWindowHeaderControls({
-            id = definition.headerControlsID
-                or (elementID .. ".HeaderControls"),
+            id = headerControlsID,
             window = frame,
             closeButton = closeButton,
             controls = definition.headerControls,
             spacing = definition.headerControlSpacing,
-            buttonSize = definition.headerControlSize,
+            buttonWidth = buttonWidth,
+            buttonHeight = buttonHeight,
             borderSize = style.borderSize,
         })
+        if not self:GetSkinningElement(headerControlsID) then
+            self:RegisterSkinningElement(headerControlsID, {
+                label = definition.headerControlsLabel
+                    or "Window header buttons",
+                kind = "WINDOW_HEADER_CONTROLS",
+                appearanceWindowID = appearanceWindowID,
+                window = frame,
+                target = closeButton,
+                priority = 95,
+                draggable = false,
+                highlightRegions = function()
+                    return NSkin:GetWindowHeaderControlRegions(
+                        frame, headerControlsID)
+                end,
+                isEditable = function()
+                    return frame:IsVisible() and closeButton:IsVisible()
+                end,
+            })
+        else
+            self:NotifySkinningElementBoundsChanged(headerControlsID)
+        end
     end
 
     return {
