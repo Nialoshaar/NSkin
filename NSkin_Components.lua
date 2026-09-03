@@ -1505,6 +1505,98 @@ end
 
 local navigationBarAddButtonHooked = false
 
+local function RefreshNavigationLeftButton(button)
+    local data = NSkin:GetSkinData(button, COMPONENT_STATE, false)
+    local arrow = data and data.navigationLeftArrow
+    if not arrow then return end
+    -- Blizzard collapses the overflow button by reducing it to zero width
+    -- without necessarily hiding the frame. Hide every NSkin-owned region in
+    -- that state so its coincident border edges do not leave a divider across
+    -- the first breadcrumb button.
+    local shown = (not button.IsShown or button:IsShown())
+        and (not button.GetWidth or button:GetWidth() > 2)
+    local background = NSkin:GetFlatBackground(button)
+    if background then background:SetShown(shown) end
+    NSkin:SetPixelBorderShown(
+        NSkin:GetPixelBorder(button, "NSkinFlatBackgroundBorder"), shown)
+    if not shown and data.hoverGlow then data.hoverGlow:Hide() end
+    arrow:SetShown(shown)
+    if not shown then return end
+    local color = data.navigationLeftArrowColor or { 1, 1, 1, 1 }
+    local enabled = not button.IsEnabled or button:IsEnabled()
+    arrow:SetVertexColor(color[1], color[2], color[3],
+        (color[4] or 1) * (enabled and 1 or 0.4))
+end
+
+local function GetNavigationLeftButton(navigationBar)
+    local button = navigationBar and (
+        navigationBar.overflow or navigationBar.Overflow
+        or navigationBar.overflowButton or navigationBar.OverflowButton
+        or navigationBar.backButton or navigationBar.BackButton)
+    if button and button.IsObjectType and button:IsObjectType("Button") then
+        return button
+    end
+    return button and (button.Button or button.button)
+end
+
+local function NormalizeNavigationButtonSpacing(navigationBar)
+    if not navigationBar then return end
+    local home = navigationBar.home or navigationBar.homeButton
+    local overflow = navigationBar.overflow or navigationBar.overflowButton
+    local changed = false
+
+    -- Blizzard's arrow-shaped navigation art overlaps the following button.
+    -- NSkin uses rectangular buttons, so retaining those negative offsets
+    -- leaves the home/overflow border inside the next entry.
+    if home and home.xoffset ~= 0 then
+        home.xoffset = 0
+        changed = true
+    end
+    if overflow and overflow.xoffset ~= 0 then
+        overflow.xoffset = 0
+        changed = true
+    end
+    if changed and type(_G.NavBar_CheckLength) == "function" then
+        _G.NavBar_CheckLength(navigationBar)
+    end
+end
+
+function NSkin:SkinNavigationLeftButton(button, style)
+    if not button then return false end
+    self:SkinActionButton(button, {
+        style = {
+            background = style.homeBackground,
+            border = style.homeBorder,
+            text = style.homeText,
+            disabledTextAlpha = style.disabledTextAlpha,
+            hoverAlpha = style.hoverAlpha,
+        },
+    })
+
+    local data = self:GetSkinData(button, COMPONENT_STATE)
+    if data.label then data.label:SetText("") end
+    if not data.navigationLeftArrow then
+        local arrow = button:CreateTexture(nil, "OVERLAY", nil, 2)
+        arrow:SetSize(14, 14)
+        arrow:SetPoint("CENTER", button, "CENTER", 0, 0)
+        arrow:SetTexture(self.mediaPath .. "angle-small-down.png")
+        self:ConfigureOwnedPixelTexture(arrow)
+        data.navigationLeftArrow = arrow
+    end
+    data.navigationLeftArrow:SetRotation(-math.pi / 2)
+    data.navigationLeftArrowColor = style.homeText
+    if not data.navigationLeftArrowStateHooked and button.HookScript then
+        button:HookScript("OnEnable", RefreshNavigationLeftButton)
+        button:HookScript("OnDisable", RefreshNavigationLeftButton)
+        button:HookScript("OnShow", RefreshNavigationLeftButton)
+        button:HookScript("OnHide", RefreshNavigationLeftButton)
+        button:HookScript("OnSizeChanged", RefreshNavigationLeftButton)
+        data.navigationLeftArrowStateHooked = true
+    end
+    RefreshNavigationLeftButton(button)
+    return true
+end
+
 function NSkin:SkinNavigationBar(navigationBar, style)
     if not navigationBar then return false end
     style = style or self:GetStyle("navigationBar")
@@ -1529,33 +1621,44 @@ function NSkin:SkinNavigationBar(navigationBar, style)
     end
     data.navigationBarBackground:SetColorTexture(unpack(style.background))
 
-    local buttons = navigationBar.navList
-    if not buttons or #buttons == 0 then
-        buttons = { navigationBar.home or navigationBar.homeButton }
+    NormalizeNavigationButtonSpacing(navigationBar)
+    self:SkinNavigationLeftButton(
+        GetNavigationLeftButton(navigationBar), style)
+
+    local skinnedButtons = setmetatable({}, { __mode = "k" })
+    local function SkinNavigationButton(button)
+        if not button or skinnedButtons[button] then return end
+        skinnedButtons[button] = true
+        self:SkinActionButton(button, {
+            style = {
+                background = style.homeBackground,
+                border = style.homeBorder,
+                text = style.homeText,
+                disabledTextAlpha = style.disabledTextAlpha,
+                hoverAlpha = style.hoverAlpha,
+            },
+        })
+        local menuArrow = button.MenuArrowButton
+        if menuArrow then
+            self:SkinDropdownArrowButton(menuArrow,
+                self:GetSharedBorderColor())
+            self:HookDropdownMenuSkin(menuArrow, function()
+                return {
+                    background = style.menuBackground,
+                    border = style.menuBorder,
+                    textStyle = NSkin:GetStyle("text"),
+                }
+            end)
+        end
     end
-    for _, button in ipairs(buttons) do
+
+    -- The home entry is not guaranteed to be part of navList. Always refresh
+    -- it explicitly because Blizzard can restore its tiled artwork while the
+    -- breadcrumb list changes.
+    SkinNavigationButton(navigationBar.home or navigationBar.homeButton)
+    for _, button in ipairs(navigationBar.navList or {}) do
         if button then
-            self:SkinActionButton(button, {
-                style = {
-                    background = style.homeBackground,
-                    border = style.homeBorder,
-                    text = style.homeText,
-                    disabledTextAlpha = style.disabledTextAlpha,
-                    hoverAlpha = style.hoverAlpha,
-                },
-            })
-            local menuArrow = button.MenuArrowButton
-            if menuArrow then
-                self:SkinDropdownArrowButton(menuArrow,
-                    self:GetSharedBorderColor())
-                self:HookDropdownMenuSkin(menuArrow, function()
-                    return {
-                        background = style.menuBackground,
-                        border = style.menuBorder,
-                        textStyle = NSkin:GetStyle("text"),
-                    }
-                end)
-            end
+            SkinNavigationButton(button)
         end
     end
 

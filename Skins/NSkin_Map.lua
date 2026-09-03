@@ -7,6 +7,8 @@ local IDs = {
     Window = "Map.Window",
     HeaderControls = "Map.HeaderControls",
     Fullscreen = "Map.FullscreenButton",
+    NavigationBar = "Map.NavigationBar",
+    QuestLogSearchBox = "Map.QuestLog.SearchBox",
     QuestLogScrollBar = "Map.QuestLog.ScrollBar",
 }
 
@@ -22,6 +24,18 @@ NSkin:RegisterAppearanceScope(IDs.Scope, {
 local function GetMapScrollBar()
     local questScrollFrame = _G.QuestScrollFrame
     return questScrollFrame and questScrollFrame.ScrollBar
+end
+
+local function GetMapSearchBox()
+    local questScrollFrame = _G.QuestScrollFrame
+    return questScrollFrame and questScrollFrame.SearchBox
+end
+
+local function GetMapNavigationBar(map)
+    local borderFrame = map and map.BorderFrame
+    return map and (map.NavBar or map.navBar or map.NavigationBar)
+        or (borderFrame and (borderFrame.NavBar
+            or borderFrame.navBar or borderFrame.NavigationBar))
 end
 
 local function GetMapChromeParts(map)
@@ -138,12 +152,62 @@ function MapSkin:ApplyScrollBar()
     return true
 end
 
+function MapSkin:ApplySearchBox()
+    local map = _G.WorldMapFrame
+    local searchBox = GetMapSearchBox()
+    if not map or not searchBox then return false end
+
+    local style = NSkin:GetAppearanceStyle(
+        "searchBox", IDs.Scope, IDs.QuestLogSearchBox)
+    NSkin:SkinSearchBox(searchBox, style,
+        NSkin:GetAppearanceBorderColor(
+            "searchBox", style, IDs.Scope, IDs.QuestLogSearchBox))
+
+    NSkin:RegisterSimpleMovableElement({
+        id = IDs.QuestLogSearchBox,
+        module = "Map",
+        appearanceWindowID = IDs.Scope,
+        label = "Map quest log search bar",
+        kind = "SEARCH_GROUP",
+        window = map,
+        target = searchBox,
+        priority = 70,
+        highlightRegions = { searchBox },
+        isEditable = function()
+            return map:IsVisible() and searchBox:IsVisible()
+        end,
+    })
+    return true
+end
+
+function MapSkin:ApplyNavigationBar()
+    local map = _G.WorldMapFrame
+    local navigationBar = GetMapNavigationBar(map)
+    if not map or not navigationBar then return false end
+
+    NSkin:RegisterNavigationBar(IDs.NavigationBar, {
+        module = "Map",
+        appearanceWindowID = IDs.Scope,
+        label = "Map navigation bar",
+        window = map,
+        target = navigationBar,
+        priority = 40,
+        highlightRegions = { navigationBar },
+        isEditable = function()
+            return map:IsVisible() and navigationBar:IsVisible()
+        end,
+    })
+    return true
+end
+
 function MapSkin:QueueScrollBarApply()
     if applyPending then return end
     applyPending = true
     C_Timer.After(0, function()
         applyPending = false
         MapSkin:ApplyWindowChrome()
+        MapSkin:ApplyNavigationBar()
+        MapSkin:ApplySearchBox()
         MapSkin:ApplyScrollBar()
     end)
 end
@@ -172,6 +236,8 @@ function MapSkin:Initialize()
 
     initialized = true
     self:ApplyWindowChrome()
+    self:ApplyNavigationBar()
+    self:ApplySearchBox()
     self:ApplyScrollBar()
     if map:IsShown() then self:QueueScrollBarApply() end
     return true
@@ -180,6 +246,8 @@ end
 function MapSkin:RefreshAppearance()
     if initialized then
         self:ApplyWindowChrome()
+        self:ApplyNavigationBar()
+        self:ApplySearchBox()
         self:ApplyScrollBar()
     end
 end
