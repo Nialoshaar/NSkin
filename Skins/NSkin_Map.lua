@@ -4,6 +4,7 @@ local MapSkin = NSkin:NewModule("Map")
 
 local IDs = {
     Scope = "Map",
+    Window = "Map.Window",
     QuestLogScrollBar = "Map.QuestLog.ScrollBar",
 }
 
@@ -19,6 +20,32 @@ NSkin:RegisterAppearanceScope(IDs.Scope, {
 local function GetMapScrollBar()
     local questScrollFrame = _G.QuestScrollFrame
     return questScrollFrame and questScrollFrame.ScrollBar
+end
+
+local function GetMapChromeParts(map)
+    local borderFrame = map and map.BorderFrame
+    local title = borderFrame and (borderFrame.TitleText
+        or (borderFrame.TitleContainer and borderFrame.TitleContainer.TitleText))
+        or (map and map.TitleContainer and map.TitleContainer.TitleText)
+    local closeButton = borderFrame and borderFrame.CloseButton
+        or (map and map.CloseButton)
+    return borderFrame, title, closeButton
+end
+
+function MapSkin:ApplyWindowChrome()
+    local map = _G.WorldMapFrame
+    if not map then return false end
+
+    local borderFrame, title, closeButton = GetMapChromeParts(map)
+    NSkin:SkinStandardWindowChrome({
+        frame = map,
+        artworkFrame = borderFrame,
+        appearanceWindowID = IDs.Scope,
+        elementID = IDs.Window,
+        title = title,
+        closeButton = closeButton,
+    })
+    return true
 end
 
 function MapSkin:ApplyScrollBar()
@@ -57,6 +84,7 @@ function MapSkin:QueueScrollBarApply()
     applyPending = true
     C_Timer.After(0, function()
         applyPending = false
+        MapSkin:ApplyWindowChrome()
         MapSkin:ApplyScrollBar()
     end)
 end
@@ -72,14 +100,29 @@ function MapSkin:Initialize()
         showHooked = true
     end
 
+    NSkin:RegisterSkinningElement(IDs.Window, {
+        label = "Map & Quest Log window",
+        kind = "WINDOW",
+        module = "Map",
+        appearanceWindowID = IDs.Scope,
+        window = map,
+        target = map,
+        priority = 0,
+        draggable = false,
+    })
+
     initialized = true
+    self:ApplyWindowChrome()
     self:ApplyScrollBar()
     if map:IsShown() then self:QueueScrollBarApply() end
     return true
 end
 
 function MapSkin:RefreshAppearance()
-    if initialized then self:ApplyScrollBar() end
+    if initialized then
+        self:ApplyWindowChrome()
+        self:ApplyScrollBar()
+    end
 end
 
 local function IsAddOnLoaded(addonName)

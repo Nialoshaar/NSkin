@@ -359,16 +359,13 @@ local function SkinSpellBookTabs()
     end
 end
 
-local function SkinWindowButtons(playerSpells, spellBook)
+local function SkinSpellBookResizeButtons(playerSpells, spellBook)
     if not playerSpells or not spellBook then return end
 
-    local closeButton = playerSpells.CloseButton
     local expandFrame = playerSpells.MaximizeMinimizeButton
     local maximizeButton = expandFrame and expandFrame.MaximizeButton
     local minimizeButton = expandFrame and expandFrame.MinimizeButton
 
-    NSkin:SkinFlatButton(closeButton, "x", nil, nil,
-        WINDOW_BUTTON_TEXT_SIZE, WINDOW_BUTTON_TEXT_OFFSET_X, WINDOW_BUTTON_TEXT_OFFSET_Y)
     NSkin:SkinFlatButton(maximizeButton, "+", nil, nil,
         WINDOW_BUTTON_TEXT_SIZE, WINDOW_BUTTON_TEXT_OFFSET_X, WINDOW_BUTTON_TEXT_OFFSET_Y)
     NSkin:SkinFlatButton(minimizeButton, "-", nil, nil,
@@ -442,35 +439,8 @@ local function SkinAssistedCombat(frame)
     end
 end
 
-local function SkinTitleBar(playerSpells, spellBook)
-    if not playerSpells or not spellBook then return end
-
-    if playerSpells.NineSlice then playerSpells.NineSlice:Hide() end
-    local style = NSkin:GetAppearanceStyle("window", IDs.AppearanceWindow, IDs.Window)
-    NSkin:SkinWindow(playerSpells, nil, style,
-        NSkin:GetAppearanceBorderColor(
-            "window", style, IDs.AppearanceWindow, IDs.Window))
-    if playerSpells.TitleContainer and playerSpells.TitleContainer.TitleText then
-        local title = playerSpells.TitleContainer.TitleText
-        title:SetTextColor(unpack(
-            NSkin:GetResolvedAppearanceColor(style.header, "text")))
-        NSkin:ApplyResolvedTypography(title, style.header)
-    end
-
-    NSkin:SkinWindowHeader(playerSpells, style.header)
-end
-
-local function RemoveSpellBookPortraitAndHelp(playerSpells, spellBook)
-    if not playerSpells or not spellBook then return end
-
-    if playerSpells.PortraitContainer then
-        playerSpells.PortraitContainer:SetAlpha(0)
-        playerSpells.PortraitContainer:Hide()
-    elseif playerSpells.portrait then
-        playerSpells.portrait:SetAlpha(0)
-        playerSpells.portrait:Hide()
-    end
-
+local function RemoveSpellBookHelp(spellBook)
+    if not spellBook then return end
     if spellBook.HelpPlateButton then
         spellBook.HelpPlateButton:SetAlpha(0)
         spellBook.HelpPlateButton:Hide()
@@ -484,8 +454,15 @@ local function SkinSpellBookControls()
     if not spellBook then return end
     if State.paginationController then State.paginationController:Refresh() end
 
-    RemoveSpellBookPortraitAndHelp(playerSpells, spellBook)
-    SkinTitleBar(playerSpells, spellBook)
+    RemoveSpellBookHelp(spellBook)
+    NSkin:SkinStandardWindowChrome({
+        frame = playerSpells,
+        appearanceWindowID = IDs.AppearanceWindow,
+        elementID = IDs.Window,
+        closeButtonTextSize = WINDOW_BUTTON_TEXT_SIZE,
+        closeButtonOffsetX = WINDOW_BUTTON_TEXT_OFFSET_X,
+        closeButtonOffsetY = WINDOW_BUTTON_TEXT_OFFSET_Y,
+    })
     SkinSpellBookTabs()
     local searchStyle = NSkin:GetAppearanceStyle(
         "searchBox", IDs.AppearanceWindow, IDs.Search.Group)
@@ -494,7 +471,7 @@ local function SkinSpellBookControls()
             "searchBox", searchStyle, IDs.AppearanceWindow, IDs.Search.Group))
     NSkin:SkinPagingControls(pagedSpells and pagedSpells.PagingControls)
     SkinAssistedCombat(spellBook.AssistedCombatRotationSpellFrame)
-    SkinWindowButtons(playerSpells, spellBook)
+    SkinSpellBookResizeButtons(playerSpells, spellBook)
 end
 
 local function CreateCircularBorder(button, icon)

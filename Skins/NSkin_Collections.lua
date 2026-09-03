@@ -518,34 +518,13 @@ SkinCollectionsWindow = function(adapterName)
     if not journal then return end
 
     if not adapterName or adapterName == "Main" then
-    if journal.NineSlice then journal.NineSlice:Hide() end
-    if journal.Bg then journal.Bg:Hide() end
-    if journal.PortraitContainer then
-        journal.PortraitContainer:SetAlpha(0)
-        journal.PortraitContainer:Hide()
-    elseif journal.portrait then
-        journal.portrait:SetAlpha(0)
-        journal.portrait:Hide()
-    end
-
-    local windowStyle = NSkin:GetAppearanceStyle("window",
-        IDs.AppearanceWindow, IDs.Window)
-    NSkin:SkinWindow(journal, nil, windowStyle,
-        NSkin:GetAppearanceBorderColor("window", windowStyle,
-            IDs.AppearanceWindow, IDs.Window))
-    NSkin:SkinWindowHeader(journal, windowStyle.header)
-
-    local title = journal.TitleContainer and journal.TitleContainer.TitleText
-    if title then
-        title:SetTextColor(unpack(
-            NSkin:GetResolvedAppearanceColor(windowStyle.header, "text")))
-        NSkin:ApplyResolvedTypography(title, windowStyle.header)
-    end
-
-    local closeButton = journal.CloseButton
-    NSkin:SkinFlatButton(closeButton, "x", nil, nil, WINDOW_BUTTON_TEXT_SIZE)
-
-    SkinCollectionTabs()
+        NSkin:SkinStandardWindowChrome({
+            frame = journal,
+            appearanceWindowID = IDs.AppearanceWindow,
+            elementID = IDs.Window,
+            closeButtonTextSize = WINDOW_BUTTON_TEXT_SIZE,
+        })
+        SkinCollectionTabs()
     end
 
     local mountJournal = _G.MountJournal

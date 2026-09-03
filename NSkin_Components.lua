@@ -2066,6 +2066,63 @@ function NSkin:SkinWindowHeader(frame, style)
     return background
 end
 
+function NSkin:SkinStandardWindowChrome(definition)
+    if type(definition) ~= "table" or not definition.frame
+        or type(definition.appearanceWindowID) ~= "string"
+        or type(definition.elementID) ~= "string"
+    then return nil end
+
+    local frame = definition.frame
+    local appearanceWindowID = definition.appearanceWindowID
+    local elementID = definition.elementID
+    local style = definition.style or self:GetAppearanceStyle(
+        "window", appearanceWindowID, elementID)
+    if not style then return nil end
+
+    local borderColor = definition.borderColor
+        or self:GetAppearanceBorderColor(
+            "window", style, appearanceWindowID, elementID)
+    if definition.artworkFrame and definition.artworkFrame ~= frame then
+        self:ConcealWindowArtwork(definition.artworkFrame)
+    end
+    local background, border = self:SkinWindow(
+        frame, definition.backgroundAnchor, style, borderColor)
+    local header = self:SkinWindowHeader(frame, style.header)
+
+    local title = definition.title
+    if title == nil then
+        title = frame.TitleContainer and frame.TitleContainer.TitleText
+    end
+    if title then
+        title:SetTextColor(unpack(
+            self:GetResolvedAppearanceColor(style.header, "text")))
+        self:ApplyResolvedTypography(title, style.header)
+    end
+
+    local closeButton = definition.closeButton
+    if closeButton == nil then closeButton = frame.CloseButton end
+    if closeButton and definition.skinCloseButton ~= false then
+        self:SkinFlatButton(
+            closeButton,
+            definition.closeButtonLabel or "x",
+            definition.closeButtonBackground,
+            definition.closeButtonBorder,
+            definition.closeButtonTextSize or 20,
+            definition.closeButtonOffsetX or 0,
+            definition.closeButtonOffsetY or 0
+        )
+    end
+
+    return {
+        style = style,
+        background = background,
+        border = border,
+        header = header,
+        title = title,
+        closeButton = closeButton,
+    }
+end
+
 -- Tab Skinning
 
 local function ApplyTabDimensions(tab, style, data)
