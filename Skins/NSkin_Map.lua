@@ -5,6 +5,8 @@ local MapSkin = NSkin:NewModule("Map")
 local IDs = {
     Scope = "Map",
     Window = "Map.Window",
+    HeaderControls = "Map.HeaderControls",
+    Fullscreen = "Map.FullscreenButton",
     QuestLogScrollBar = "Map.QuestLog.ScrollBar",
 }
 
@@ -32,11 +34,55 @@ local function GetMapChromeParts(map)
     return borderFrame, title, closeButton
 end
 
+local function GetMapResizeButtons(map, borderFrame)
+    local resizeFrame = borderFrame and (
+        borderFrame.MaximizeMinimizeButton
+        or borderFrame.MaximizeMinimizeFrame
+        or borderFrame.MaximizeMinimizeButtonFrame)
+        or (map and (map.MaximizeMinimizeButton
+            or map.MaximizeMinimizeFrame
+            or map.MaximizeMinimizeButtonFrame))
+    local maximizeButton = resizeFrame and (
+        resizeFrame.MaximizeButton or resizeFrame.maximizeButton)
+        or (borderFrame and borderFrame.MaximizeButton)
+    local minimizeButton = resizeFrame and (
+        resizeFrame.MinimizeButton or resizeFrame.minimizeButton)
+        or (borderFrame and borderFrame.MinimizeButton)
+    local singleButton
+    if not maximizeButton and not minimizeButton and resizeFrame
+        and resizeFrame.IsObjectType
+        and resizeFrame:IsObjectType("Button")
+    then
+        singleButton = resizeFrame
+    end
+    return maximizeButton, minimizeButton, singleButton
+end
+
+local function SkinMapResizeButtons(map, borderFrame)
+    local maximizeButton, minimizeButton, singleButton =
+        GetMapResizeButtons(map, borderFrame)
+    local targets = {}
+    if maximizeButton then
+        NSkin:SkinFlatButton(maximizeButton, "+")
+        targets[#targets + 1] = maximizeButton
+    end
+    if minimizeButton then
+        NSkin:SkinFlatButton(minimizeButton, "-")
+        targets[#targets + 1] = minimizeButton
+    end
+    if singleButton then
+        NSkin:SkinFlatButton(singleButton, "□")
+        targets[#targets + 1] = singleButton
+    end
+    return targets
+end
+
 function MapSkin:ApplyWindowChrome()
     local map = _G.WorldMapFrame
     if not map then return false end
 
     local borderFrame, title, closeButton = GetMapChromeParts(map)
+    local resizeTargets = SkinMapResizeButtons(map, borderFrame)
     NSkin:SkinStandardWindowChrome({
         frame = map,
         artworkFrame = borderFrame,
@@ -44,6 +90,13 @@ function MapSkin:ApplyWindowChrome()
         elementID = IDs.Window,
         title = title,
         closeButton = closeButton,
+        headerControlsID = IDs.HeaderControls,
+        headerControls = {
+            {
+                id = IDs.Fullscreen,
+                targets = resizeTargets,
+            },
+        },
     })
     return true
 end

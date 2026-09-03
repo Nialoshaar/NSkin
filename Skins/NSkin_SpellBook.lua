@@ -12,6 +12,8 @@ local WINDOW_BUTTON_TEXT_OFFSET_Y = 0
 local IDs = {
     AppearanceWindow = "PlayerSpells.SpellBook",
     Window = "SpellBook.Window",
+    HeaderControls = "SpellBook.HeaderControls",
+    ExpandCollapse = "SpellBook.ExpandCollapse",
     MainTabs = "SpellBook.MainTabs",
     CategoryTabs = "SpellBook.CategoryTabs",
     Headers = "SpellBook.Headers",
@@ -360,7 +362,7 @@ local function SkinSpellBookTabs()
 end
 
 local function SkinSpellBookResizeButtons(playerSpells, spellBook)
-    if not playerSpells or not spellBook then return end
+    if not playerSpells or not spellBook then return {} end
 
     local expandFrame = playerSpells.MaximizeMinimizeButton
     local maximizeButton = expandFrame and expandFrame.MaximizeButton
@@ -371,6 +373,10 @@ local function SkinSpellBookResizeButtons(playerSpells, spellBook)
     NSkin:SkinFlatButton(minimizeButton, "-", nil, nil,
         WINDOW_BUTTON_TEXT_SIZE, WINDOW_BUTTON_TEXT_OFFSET_X, WINDOW_BUTTON_TEXT_OFFSET_Y)
 
+    local targets = {}
+    if maximizeButton then targets[#targets + 1] = maximizeButton end
+    if minimizeButton then targets[#targets + 1] = minimizeButton end
+    return targets
 end
 
 local function SkinAssistedCombat(frame)
@@ -455,10 +461,18 @@ local function SkinSpellBookControls()
     if State.paginationController then State.paginationController:Refresh() end
 
     RemoveSpellBookHelp(spellBook)
+    local resizeTargets = SkinSpellBookResizeButtons(playerSpells, spellBook)
     NSkin:SkinStandardWindowChrome({
         frame = playerSpells,
         appearanceWindowID = IDs.AppearanceWindow,
         elementID = IDs.Window,
+        headerControlsID = IDs.HeaderControls,
+        headerControls = {
+            {
+                id = IDs.ExpandCollapse,
+                targets = resizeTargets,
+            },
+        },
         closeButtonTextSize = WINDOW_BUTTON_TEXT_SIZE,
         closeButtonOffsetX = WINDOW_BUTTON_TEXT_OFFSET_X,
         closeButtonOffsetY = WINDOW_BUTTON_TEXT_OFFSET_Y,
@@ -471,7 +485,6 @@ local function SkinSpellBookControls()
             "searchBox", searchStyle, IDs.AppearanceWindow, IDs.Search.Group))
     NSkin:SkinPagingControls(pagedSpells and pagedSpells.PagingControls)
     SkinAssistedCombat(spellBook.AssistedCombatRotationSpellFrame)
-    SkinSpellBookResizeButtons(playerSpells, spellBook)
 end
 
 local function CreateCircularBorder(button, icon)

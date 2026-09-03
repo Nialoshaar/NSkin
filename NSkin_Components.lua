@@ -2110,6 +2110,77 @@ function NSkin:SkinStandardCloseButton(window, closeButton, options)
     return closeButton
 end
 
+local function ConfigureWindowHeaderControlBorder(control, borderSize)
+    local border = NSkin:GetPixelBorder(
+        control, "NSkinFlatBackgroundBorder")
+    if not border then return end
+
+    NSkin:SetPixelBorderSize(border, borderSize or 1)
+    NSkin:SetPixelBorderPadding(border, 0)
+    -- The window supplies the shared top edge and the control to the right
+    -- supplies the shared vertical edge. Keep only this slot's left and
+    -- bottom separators so translucent borders are never drawn twice.
+    border.top:Hide()
+    border.right:Hide()
+    border.left:Show()
+    border.bottom:Show()
+end
+
+function NSkin:RegisterWindowHeaderControls(definition)
+    if type(definition) ~= "table"
+        or type(definition.id) ~= "string"
+        or not definition.window
+        or not definition.closeButton
+    then return nil end
+
+    local window = definition.window
+    local closeButton = definition.closeButton
+    local data = self:GetSkinData(window, COMPONENT_STATE)
+    data.windowHeaderControlGroups = data.windowHeaderControlGroups or {}
+    data.windowHeaderControlGroups[definition.id] = definition
+
+    local defaultSize = tonumber(definition.buttonSize)
+    if not defaultSize and closeButton.GetWidth then
+        local width = closeButton:GetWidth()
+        if tonumber(width) and width > 0 then defaultSize = width end
+    end
+    if not defaultSize and closeButton.GetHeight then
+        local height = closeButton:GetHeight()
+        if tonumber(height) and height > 0 then defaultSize = height end
+    end
+
+    local previousControl = closeButton
+    local spacing = tonumber(definition.spacing) or 0
+    for _, controlDefinition in ipairs(definition.controls or {}) do
+        local targets = {}
+        if type(controlDefinition.targets) == "table" then
+            for _, target in ipairs(controlDefinition.targets) do
+                if target then targets[#targets + 1] = target end
+            end
+        else
+            local target = controlDefinition.target
+            if type(target) == "function" then target = target() end
+            if target then targets[1] = target end
+        end
+
+        local slotAnchor = targets[1]
+        local size = tonumber(controlDefinition.size) or defaultSize
+        if slotAnchor and size then
+            for _, target in ipairs(targets) do
+                target:ClearAllPoints()
+                target:SetPoint(
+                    "TOPRIGHT", previousControl, "TOPLEFT", -spacing, 0)
+                if target.SetSize then target:SetSize(size, size) end
+                ConfigureWindowHeaderControlBorder(
+                    target, definition.borderSize)
+            end
+            previousControl = slotAnchor
+        end
+    end
+
+    return data.windowHeaderControlGroups[definition.id]
+end
+
 function NSkin:SkinStandardWindowChrome(definition)
     if type(definition) ~= "table" or not definition.frame
         or type(definition.appearanceWindowID) ~= "string"
@@ -2155,6 +2226,16 @@ function NSkin:SkinStandardWindowChrome(definition)
             textSize = definition.closeButtonTextSize,
             textOffsetX = definition.closeButtonOffsetX,
             textOffsetY = definition.closeButtonOffsetY,
+        })
+        self:RegisterWindowHeaderControls({
+            id = definition.headerControlsID
+                or (elementID .. ".HeaderControls"),
+            window = frame,
+            closeButton = closeButton,
+            controls = definition.headerControls,
+            spacing = definition.headerControlSpacing,
+            buttonSize = definition.headerControlSize,
+            borderSize = style.borderSize,
         })
     end
 
