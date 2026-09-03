@@ -1940,7 +1940,8 @@ local SHARED_TYPE_DEFINITIONS = {
     PROGRESS_BAR = { style = "progressBar", skin = "SkinProgressBar",
         editorPreset = "MOVABLE" },
     ICON = { style = "icon", skin = "CreateQualityBorder", editorPreset = "MOVABLE" },
-    SCROLLBAR = { style = "scrollBar", skin = "SkinScrollBar", editorPreset = "MOVABLE" },
+    SCROLLBAR = { style = "scrollBar", skin = "SkinScrollBar",
+        editorPreset = "MOVABLE", preserveAnchorSpan = true },
     SECTION_HEADER = { style = "sectionHeader", editorPreset = "SECTION_HEADERS" },
     TEXT = { style = "text", skin = "SkinText",
         appearanceControls = "shared.textAppearance", editorPreset = "TEXT" },
@@ -2578,6 +2579,73 @@ function NSkin:LayoutWindowElement(element, placement, options)
     return true
 end
 
+-- Scrollbars commonly use both TOP and BOTTOM anchors so their parent owns
+-- their height. Replacing that pair with one movable anchor changes the
+-- resolved height. Translate the complete captured anchor set instead.
+function NSkin:LayoutWindowElementPreservingAnchorSpan(element, placement, options)
+    local target = element and element.target
+    local window = element and element.window
+    if not target or not window or type(placement) ~= "table"
+        or (target.IsProtected and target:IsProtected())
+        or (_G.InCombatLockdown and _G.InCombatLockdown())
+    then return false end
+
+    local baseline = self:GetComponentBaseline(element.id)
+    if not baseline or type(baseline.points) ~= "table"
+        or #baseline.points < 2
+    then return self:LayoutWindowElement(element, placement, options) end
+
+    RestoreFramePoints(target, baseline.points)
+    local windowLeft, windowTop = window:GetLeft(), window:GetTop()
+    local targetLeft, targetTop = target:GetLeft(), target:GetTop()
+    local width, height = target:GetWidth(), target:GetHeight()
+    local windowWidth, windowHeight = window:GetWidth(), window:GetHeight()
+    if not windowLeft or not windowTop or not targetLeft or not targetTop
+        or not width or not height or not windowWidth or not windowHeight
+    then return false end
+
+    local desiredX, desiredY
+    if placement.mode == "GRID" then
+        desiredX = tonumber(placement.x) or 0
+        desiredY = tonumber(placement.y) or 0
+    elseif not placement.relativeTo then
+        local alignment, edge, side = placement.alignment,
+            placement.edge, placement.side
+        local along = tonumber(placement.alongOffset) or 0
+        local edgeOffset = tonumber(placement.edgeOffset) or 0
+        if alignment == "LEFT" then
+            desiredX = along
+        elseif alignment == "CENTER" then
+            desiredX = along + windowWidth / 2 - width / 2
+        elseif alignment == "RIGHT" then
+            desiredX = along + windowWidth - width
+        end
+        if edge == "TOP" then
+            desiredY = side == "INSIDE" and edgeOffset
+                or edgeOffset + height
+        elseif edge == "BOTTOM" then
+            desiredY = side == "INSIDE"
+                and edgeOffset + height - windowHeight
+                or edgeOffset - windowHeight
+        end
+    end
+    if desiredX == nil or desiredY == nil then return false end
+
+    local deltaX = desiredX - (targetLeft - windowLeft)
+    local deltaY = desiredY - (targetTop - windowTop)
+    target:ClearAllPoints()
+    for i = 1, #baseline.points do
+        local point = baseline.points[i]
+        target:SetPoint(point[1], point[2], point[3],
+            (tonumber(point[4]) or 0) + deltaX,
+            (tonumber(point[5]) or 0) + deltaY)
+    end
+    if not (options and options.suppressNotify) then
+        self:NotifySkinningElementBoundsChanged(element.id)
+    end
+    return true
+end
+
 local function GetSavedMovablePlacement(element)
     local options = NSkin:GetModuleOptions(element.module, false)
     return options and options.movablePlacements
@@ -2655,8 +2723,11 @@ function NSkin:RegisterMovableElement(definition)
     end
     local customApply = definition.applyPlacement
     definition.kind = definition.kind or "MOVABLE"
+    local sharedType = self:GetSharedElementType(definition.kind)
+    if definition.preserveAnchorSpan == nil and sharedType then
+        definition.preserveAnchorSpan = sharedType.preserveAnchorSpan
+    end
     if not definition.editorOptions then
-        local sharedType = self:GetSharedElementType(definition.kind)
         definition.editorOptions = self:CreateEditorOptionsPreset(
             definition.editorPreset
                 or (sharedType and sharedType.editorPreset)
@@ -2672,6 +2743,10 @@ function NSkin:RegisterMovableElement(definition)
             or GetCurrentWindowPlacement(element.window, element.target))
     end
     definition.applyPlacement = customApply or function(element, placement, applyOptions)
+        if element.preserveAnchorSpan then
+            return NSkin:LayoutWindowElementPreservingAnchorSpan(
+                element, placement, applyOptions)
+        end
         return NSkin:LayoutWindowElement(element, placement, applyOptions)
     end
     definition.setPlacement = definition.setPlacement or function(element, placement)
