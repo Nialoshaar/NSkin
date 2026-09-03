@@ -1313,29 +1313,12 @@ end
 function EncounterJournalSkin:StyleSharedWindow()
     local journal = _G.EncounterJournal
     if not journal then return end
-    if journal.NineSlice then journal.NineSlice:Hide() end
-    if journal.Bg then journal.Bg:Hide() end
-    if journal.PortraitContainer then
-        journal.PortraitContainer:SetAlpha(0)
-        journal.PortraitContainer:Hide()
-    elseif journal.portrait then
-        journal.portrait:SetAlpha(0)
-        journal.portrait:Hide()
-    end
-
-    local windowStyle = NSkin:GetAppearanceStyle(
-        "window", IDs.AppearanceWindow, IDs.Window)
-    NSkin:SkinWindow(journal, nil, windowStyle,
-        NSkin:GetAppearanceBorderColor(
-            "window", windowStyle, IDs.AppearanceWindow, IDs.Window))
-    NSkin:SkinWindowHeader(journal, windowStyle.header)
-    local title = journal.TitleContainer and journal.TitleContainer.TitleText
-    if title then
-        title:SetTextColor(unpack(
-            NSkin:GetResolvedAppearanceColor(windowStyle.header, "text")))
-        NSkin:ApplyResolvedTypography(title, windowStyle.header)
-    end
-    NSkin:SkinFlatButton(journal.CloseButton, "x", nil, nil, 20)
+    NSkin:SkinStandardWindowChrome({
+        frame = journal,
+        appearanceWindowID = IDs.AppearanceWindow,
+        elementID = IDs.Window,
+        closeButtonTextSize = 20,
+    })
 end
 
 function EncounterJournalSkin:StyleJourneys(forceShown)

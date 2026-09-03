@@ -2066,6 +2066,50 @@ function NSkin:SkinWindowHeader(frame, style)
     return background
 end
 
+function NSkin:SkinStandardCloseButton(window, closeButton, options)
+    if not window or not closeButton then return nil end
+    options = options or {}
+
+    local size = tonumber(options.size)
+    if not size and closeButton.GetHeight then
+        local height = closeButton:GetHeight()
+        if tonumber(height) and height > 0 then size = height end
+    end
+    if not size and closeButton.GetWidth then
+        local width = closeButton:GetWidth()
+        if tonumber(width) and width > 0 then size = width end
+    end
+
+    closeButton:ClearAllPoints()
+    closeButton:SetPoint("TOPRIGHT", window, "TOPRIGHT", 0, 0)
+    if size and closeButton.SetSize then closeButton:SetSize(size, size) end
+
+    self:SkinFlatButton(
+        closeButton,
+        options.label or "x",
+        options.background,
+        options.border,
+        options.textSize or 20,
+        options.textOffsetX or 0,
+        options.textOffsetY or 0
+    )
+
+    local border = self:GetPixelBorder(
+        closeButton, "NSkinFlatBackgroundBorder")
+    self:SetPixelBorderSize(border, options.borderSize or 1)
+    self:SetPixelBorderPadding(border, 0)
+    if border then
+        -- The window border supplies the two exterior edges. Drawing the
+        -- button edges over them would darken translucent borders and can
+        -- produce an apparent double-thickness seam.
+        border.top:Hide()
+        border.right:Hide()
+        border.left:Show()
+        border.bottom:Show()
+    end
+    return closeButton
+end
+
 function NSkin:SkinStandardWindowChrome(definition)
     if type(definition) ~= "table" or not definition.frame
         or type(definition.appearanceWindowID) ~= "string"
@@ -2102,15 +2146,16 @@ function NSkin:SkinStandardWindowChrome(definition)
     local closeButton = definition.closeButton
     if closeButton == nil then closeButton = frame.CloseButton end
     if closeButton and definition.skinCloseButton ~= false then
-        self:SkinFlatButton(
-            closeButton,
-            definition.closeButtonLabel or "x",
-            definition.closeButtonBackground,
-            definition.closeButtonBorder,
-            definition.closeButtonTextSize or 20,
-            definition.closeButtonOffsetX or 0,
-            definition.closeButtonOffsetY or 0
-        )
+        self:SkinStandardCloseButton(frame, closeButton, {
+            label = definition.closeButtonLabel,
+            background = definition.closeButtonBackground,
+            border = definition.closeButtonBorder or borderColor,
+            borderSize = style.borderSize,
+            size = definition.closeButtonSize,
+            textSize = definition.closeButtonTextSize,
+            textOffsetX = definition.closeButtonOffsetX,
+            textOffsetY = definition.closeButtonOffsetY,
+        })
     end
 
     return {
