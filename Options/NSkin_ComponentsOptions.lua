@@ -3112,6 +3112,50 @@ local function ResetMappedElementKeys(context, keys, pathsByKey)
     return #paths > 0 and ResetElementPaths(context, paths) or false
 end
 
+NSkin:RegisterOptionGroup("shared.scrollBarAppearance", {
+    controls = {
+        {
+            type = "COLOR_PAIR", order = 1,
+            left = { type = "COLOR", key = "track", modeKey = "trackMode",
+                label = "Bar" },
+            right = { type = "COLOR", key = "thumb", modeKey = "thumbMode",
+                label = "Thumb" },
+        },
+        {
+            type = "COLOR", key = "arrow", modeKey = "arrowMode",
+            label = "Arrows", order = 2,
+        },
+    },
+    get = function(context)
+        local style = NSkin:GetAppearanceStyle(
+            "scrollBar", GetAppearanceWindowID(context), context.id)
+        return {
+            track = CopyColor(style.track), trackMode = style.trackMode,
+            thumb = CopyColor(style.thumb), thumbMode = style.thumbMode,
+            arrow = CopyColor(style.arrow), arrowMode = style.arrowMode,
+        }
+    end,
+    set = function(context, values)
+        local changed
+        for _, key in ipairs({ "track", "trackMode", "thumb", "thumbMode",
+            "arrow", "arrowMode" })
+        do
+            if values[key] ~= nil then
+                changed = SetElementValue(
+                    context, "scrollBar." .. key, values[key]) or changed
+            end
+        end
+        return changed == true
+    end,
+    reset = function(context)
+        return ResetElementPaths(context, {
+            "scrollBar.track", "scrollBar.trackMode",
+            "scrollBar.thumb", "scrollBar.thumbMode",
+            "scrollBar.arrow", "scrollBar.arrowMode",
+        })
+    end,
+})
+
 local tabBorderGeometryControls = CreateBorderGeometryControls(13)
 local tabSizeControls = {
     type = "SLIDER_PAIR", order = 2, centerReset = true,

@@ -19,6 +19,14 @@ NSkin.moduleDefinitions = {
         key = "SpellBook", label = "Spellbook", defaultEnabled = false,
         optionsGroup = "windows", optionsOrder = 30,
     },
+    {
+        key = "Map", label = "Map & Quest Log", defaultEnabled = true,
+        optionsGroup = "windows", optionsOrder = 40,
+    },
+    {
+        key = "FriendsList", label = "Friends List", defaultEnabled = true,
+        optionsGroup = "windows", optionsOrder = 50,
+    },
 }
 
 NSkin.moduleDefinitionByKey = {}

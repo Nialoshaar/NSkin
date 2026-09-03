@@ -1865,6 +1865,12 @@ local EDITOR_PRESETS = {
         { id = "shared.movable", label = "Position",
             presentation = "INLINE", category = "POSITION" },
     },
+    SCROLLBAR = {
+        { id = "shared.movable", label = "Position",
+            presentation = "INLINE", category = "POSITION" },
+        { id = "shared.scrollBarAppearance", label = "Scrollbar",
+            category = "CUSTOMIZE" },
+    },
     TEXT = {
         { id = "shared.textAppearance", label = "Text",
             category = "CUSTOMIZE" },
@@ -1941,7 +1947,7 @@ local SHARED_TYPE_DEFINITIONS = {
         editorPreset = "MOVABLE" },
     ICON = { style = "icon", skin = "CreateQualityBorder", editorPreset = "MOVABLE" },
     SCROLLBAR = { style = "scrollBar", skin = "SkinScrollBar",
-        editorPreset = "MOVABLE", preserveAnchorSpan = true },
+        editorPreset = "SCROLLBAR", preserveAnchorSpan = true },
     SECTION_HEADER = { style = "sectionHeader", editorPreset = "SECTION_HEADERS" },
     TEXT = { style = "text", skin = "SkinText",
         appearanceControls = "shared.textAppearance", editorPreset = "TEXT" },

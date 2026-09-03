@@ -14,6 +14,8 @@ Options\NSkin_ComponentsOptions.lua
 Skins\NSkin_SpellBook.lua
 Skins\NSkin_Collections.lua
 Skins\NSkin_EncounterJournal.lua
+Skins\NSkin_Map.lua
+Skins\NSkin_FriendsList.lua
 Options\NSkin_WindowsOptions.lua
 Options\NSkin_Options.lua
 NSkin_SkinningMode.lua
