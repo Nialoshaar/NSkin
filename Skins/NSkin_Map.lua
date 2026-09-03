@@ -34,7 +34,7 @@ local function GetMapChromeParts(map)
     return borderFrame, title, closeButton
 end
 
-local function GetMapResizeButtons(map, borderFrame)
+local function ResolveMapResizeButtons(map, borderFrame)
     local resizeFrame = borderFrame and (
         borderFrame.MaximizeMinimizeButton
         or borderFrame.MaximizeMinimizeFrame
@@ -58,21 +58,27 @@ local function GetMapResizeButtons(map, borderFrame)
     return maximizeButton, minimizeButton, singleButton
 end
 
-local function SkinMapResizeButtons(map, borderFrame)
+local function GetMapHeaderControlTargets(map, borderFrame)
     local maximizeButton, minimizeButton, singleButton =
-        GetMapResizeButtons(map, borderFrame)
+        ResolveMapResizeButtons(map, borderFrame)
     local targets = {}
     if maximizeButton then
-        NSkin:SkinFlatButton(maximizeButton, "+")
-        targets[#targets + 1] = maximizeButton
+        targets[#targets + 1] = {
+            target = maximizeButton,
+            glyph = "maximize",
+        }
     end
     if minimizeButton then
-        NSkin:SkinFlatButton(minimizeButton, "-")
-        targets[#targets + 1] = minimizeButton
+        targets[#targets + 1] = {
+            target = minimizeButton,
+            glyph = "minimize",
+        }
     end
     if singleButton then
-        NSkin:SkinFlatButton(singleButton, "□")
-        targets[#targets + 1] = singleButton
+        targets[#targets + 1] = {
+            target = singleButton,
+            glyph = "fullscreen",
+        }
     end
     return targets
 end
@@ -82,7 +88,7 @@ function MapSkin:ApplyWindowChrome()
     if not map then return false end
 
     local borderFrame, title, closeButton = GetMapChromeParts(map)
-    local resizeTargets = SkinMapResizeButtons(map, borderFrame)
+    local resizeTargets = GetMapHeaderControlTargets(map, borderFrame)
     NSkin:SkinStandardWindowChrome({
         frame = map,
         artworkFrame = borderFrame,

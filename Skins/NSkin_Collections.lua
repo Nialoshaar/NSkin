@@ -70,8 +70,6 @@ local IDs = {
             Text = "Collections.Campsites.Pagination.Text" },
     },
 }
-local WINDOW_BUTTON_TEXT_SIZE = 20
-
 NSkin:RegisterAppearanceScope(IDs.AppearanceWindow, {
     label = "Collections",
 })
@@ -522,7 +520,6 @@ SkinCollectionsWindow = function(adapterName)
             frame = journal,
             appearanceWindowID = IDs.AppearanceWindow,
             elementID = IDs.Window,
-            closeButtonTextSize = WINDOW_BUTTON_TEXT_SIZE,
         })
         SkinCollectionTabs()
     end

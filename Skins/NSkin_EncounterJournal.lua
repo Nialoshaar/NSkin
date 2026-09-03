@@ -1317,7 +1317,6 @@ function EncounterJournalSkin:StyleSharedWindow()
         frame = journal,
         appearanceWindowID = IDs.AppearanceWindow,
         elementID = IDs.Window,
-        closeButtonTextSize = 20,
     })
 end
 

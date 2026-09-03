@@ -2066,6 +2066,106 @@ function NSkin:SkinWindowHeader(frame, style)
     return background
 end
 
+local STANDARD_WINDOW_HEADER_GLYPHS = {
+    close = { text = "X", textSize = 20, offsetX = 0, offsetY = 0 },
+    maximize = { text = "+", textSize = 20, offsetX = 0, offsetY = 0 },
+    minimize = { text = "-", textSize = 20, offsetX = 0, offsetY = 0 },
+    fullscreen = { text = "□", textSize = 18, offsetX = 0, offsetY = 0 },
+}
+
+local function RefreshWindowHeaderButtonAppearance(button)
+    local data = NSkin:GetSkinData(button, COMPONENT_STATE, false)
+    local state = data and data.windowHeaderButton
+    if not state then return end
+
+    local enabled = not button.IsEnabled or button:IsEnabled()
+    local alpha = enabled and 1 or state.disabledAlpha
+    local color = state.contentColor
+    if state.text then
+        state.text:SetTextColor(
+            color[1], color[2], color[3], (color[4] or 1) * alpha)
+    end
+    if state.icon then
+        state.icon:SetVertexColor(
+            color[1], color[2], color[3], (color[4] or 1) * alpha)
+    end
+    if not enabled and data.hoverGlow then data.hoverGlow:Hide() end
+end
+
+function NSkin:SkinWindowHeaderButton(button, content, options)
+    if not button or type(content) ~= "table" then return nil end
+    options = options or {}
+
+    local style = options.style or self:GetStyle("button")
+    local background = self:GetFlatBackground(button)
+    if not background then self:HideTextureRegions(button) end
+    self:CreateFlatBackground(
+        button, nil, options.background or style.background,
+        options.border or self:GetComponentBorderColor("button", style))
+    self:CreateFlatButtonGlow(button, style.hoverAlpha)
+
+    local data = self:GetSkinData(button, COMPONENT_STATE)
+    local state = data.windowHeaderButton or {}
+    data.windowHeaderButton = state
+    state.contentColor = self:GetResolvedAppearanceColor(style, "text")
+        or style.text or self:GetStyle("text").color
+    state.disabledAlpha = tonumber(style.disabledTextAlpha) or 0.45
+
+    local glyph = content.glyph
+        and STANDARD_WINDOW_HEADER_GLYPHS[content.glyph]
+    if glyph then
+        local text = state.text
+        if not text then
+            text = button:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+            state.text = text
+        end
+        text:ClearAllPoints()
+        text:SetPoint("CENTER", button, "CENTER",
+            glyph.offsetX or 0, glyph.offsetY or 0)
+        text:SetText(glyph.text)
+        self:ApplyResolvedTypography(text, self:GetStyle("text"))
+        local font, _, flags = text:GetFont()
+        if font then text:SetFont(font, glyph.textSize, flags) end
+        text:SetAlpha(1)
+        text:Show()
+        if state.icon then state.icon:Hide() end
+    elseif content.icon then
+        local iconDefinition = type(content.icon) == "table"
+            and content.icon or { texture = content.icon }
+        local icon = state.icon
+        if not icon then
+            icon = button:CreateTexture(nil, "OVERLAY", nil, 1)
+            self:ConfigureOwnedPixelTexture(icon)
+            state.icon = icon
+        end
+        icon:ClearAllPoints()
+        icon:SetPoint("CENTER", button, "CENTER",
+            tonumber(iconDefinition.offsetX) or 0,
+            tonumber(iconDefinition.offsetY) or 0)
+        local iconSize = tonumber(iconDefinition.size) or 14
+        icon:SetSize(iconSize, iconSize)
+        if iconDefinition.atlas and icon.SetAtlas then
+            icon:SetAtlas(iconDefinition.atlas, false)
+        else
+            icon:SetTexture(iconDefinition.texture)
+        end
+        icon:SetAlpha(1)
+        icon:Show()
+        if state.text then state.text:Hide() end
+    else
+        return nil
+    end
+
+    if not state.stateHooked and button.HookScript then
+        button:HookScript("OnEnable", RefreshWindowHeaderButtonAppearance)
+        button:HookScript("OnDisable", RefreshWindowHeaderButtonAppearance)
+        button:HookScript("OnShow", RefreshWindowHeaderButtonAppearance)
+        state.stateHooked = true
+    end
+    RefreshWindowHeaderButtonAppearance(button)
+    return state
+end
+
 function NSkin:SkinStandardCloseButton(window, closeButton, options)
     if not window or not closeButton then return nil end
     options = options or {}
@@ -2084,15 +2184,10 @@ function NSkin:SkinStandardCloseButton(window, closeButton, options)
     closeButton:SetPoint("TOPRIGHT", window, "TOPRIGHT", 0, 0)
     if size and closeButton.SetSize then closeButton:SetSize(size, size) end
 
-    self:SkinFlatButton(
-        closeButton,
-        options.label or "x",
-        options.background,
-        options.border,
-        options.textSize or 20,
-        options.textOffsetX or 1,
-        options.textOffsetY or 1
-    )
+    self:SkinWindowHeaderButton(closeButton, { glyph = "close" }, {
+        background = options.background,
+        border = options.border,
+    })
 
     local border = self:GetPixelBorder(
         closeButton, "NSkinFlatBackgroundBorder")
@@ -2126,6 +2221,32 @@ local function ConfigureWindowHeaderControlBorder(control, borderSize)
     border.bottom:Show()
 end
 
+local function ResolveWindowHeaderControlTargets(controlDefinition)
+    local resolved = {}
+    local function AddTarget(value)
+        if type(value) == "function" then value = value() end
+        if not value then return end
+
+        local target, content = value, controlDefinition
+        if type(value) == "table" and value.target
+            and (value.glyph or value.icon)
+        then
+            target, content = value.target, value
+            if type(target) == "function" then target = target() end
+        end
+        if target then
+            resolved[#resolved + 1] = { target = target, content = content }
+        end
+    end
+
+    if type(controlDefinition.targets) == "table" then
+        for _, value in ipairs(controlDefinition.targets) do AddTarget(value) end
+    else
+        AddTarget(controlDefinition.target)
+    end
+    return resolved
+end
+
 function NSkin:RegisterWindowHeaderControls(definition)
     if type(definition) ~= "table"
         or type(definition.id) ~= "string"
@@ -2152,21 +2273,12 @@ function NSkin:RegisterWindowHeaderControls(definition)
     local previousControl = closeButton
     local spacing = tonumber(definition.spacing) or 0
     for _, controlDefinition in ipairs(definition.controls or {}) do
-        local targets = {}
-        if type(controlDefinition.targets) == "table" then
-            for _, target in ipairs(controlDefinition.targets) do
-                if target then targets[#targets + 1] = target end
-            end
-        else
-            local target = controlDefinition.target
-            if type(target) == "function" then target = target() end
-            if target then targets[1] = target end
-        end
-
-        local slotAnchor = targets[1]
+        local targets = ResolveWindowHeaderControlTargets(controlDefinition)
+        local slotAnchor = targets[1] and targets[1].target
         local size = tonumber(controlDefinition.size) or defaultSize
         if slotAnchor and size then
-            for _, target in ipairs(targets) do
+            for _, resolved in ipairs(targets) do
+                local target = resolved.target
                 target:ClearAllPoints()
                 target:SetPoint(
                     "TOPRIGHT", previousControl, "TOPLEFT", -spacing, 0)
@@ -2218,15 +2330,19 @@ function NSkin:SkinStandardWindowChrome(definition)
     if closeButton == nil then closeButton = frame.CloseButton end
     if closeButton and definition.skinCloseButton ~= false then
         self:SkinStandardCloseButton(frame, closeButton, {
-            label = definition.closeButtonLabel,
             background = definition.closeButtonBackground,
             border = definition.closeButtonBorder or borderColor,
             borderSize = style.borderSize,
             size = definition.closeButtonSize,
-            textSize = definition.closeButtonTextSize,
-            textOffsetX = definition.closeButtonOffsetX,
-            textOffsetY = definition.closeButtonOffsetY,
         })
+        for _, controlDefinition in ipairs(definition.headerControls or {}) do
+            for _, resolved in ipairs(
+                ResolveWindowHeaderControlTargets(controlDefinition))
+            do
+                self:SkinWindowHeaderButton(
+                    resolved.target, resolved.content)
+            end
+        end
         self:RegisterWindowHeaderControls({
             id = definition.headerControlsID
                 or (elementID .. ".HeaderControls"),

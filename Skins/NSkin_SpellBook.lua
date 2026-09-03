@@ -6,9 +6,6 @@ local BORDER_SIZE = 1
 local CIRCLE_MASK_ATLAS = "talents-node-circle-mask"
 local SPELL_BOOK_BORDER_KEY = "NSkinSpellBookItemBorder"
 local SPELL_BOOK_STATE = "spellBook"
-local WINDOW_BUTTON_TEXT_SIZE = 20
-local WINDOW_BUTTON_TEXT_OFFSET_X = 0
-local WINDOW_BUTTON_TEXT_OFFSET_Y = 0
 local IDs = {
     AppearanceWindow = "PlayerSpells.SpellBook",
     Window = "SpellBook.Window",
@@ -361,21 +358,26 @@ local function SkinSpellBookTabs()
     end
 end
 
-local function SkinSpellBookResizeButtons(playerSpells, spellBook)
+local function GetSpellBookResizeButtons(playerSpells, spellBook)
     if not playerSpells or not spellBook then return {} end
 
     local expandFrame = playerSpells.MaximizeMinimizeButton
     local maximizeButton = expandFrame and expandFrame.MaximizeButton
     local minimizeButton = expandFrame and expandFrame.MinimizeButton
 
-    NSkin:SkinFlatButton(maximizeButton, "+", nil, nil,
-        WINDOW_BUTTON_TEXT_SIZE, WINDOW_BUTTON_TEXT_OFFSET_X, WINDOW_BUTTON_TEXT_OFFSET_Y)
-    NSkin:SkinFlatButton(minimizeButton, "-", nil, nil,
-        WINDOW_BUTTON_TEXT_SIZE, WINDOW_BUTTON_TEXT_OFFSET_X, WINDOW_BUTTON_TEXT_OFFSET_Y)
-
     local targets = {}
-    if maximizeButton then targets[#targets + 1] = maximizeButton end
-    if minimizeButton then targets[#targets + 1] = minimizeButton end
+    if maximizeButton then
+        targets[#targets + 1] = {
+            target = maximizeButton,
+            glyph = "maximize",
+        }
+    end
+    if minimizeButton then
+        targets[#targets + 1] = {
+            target = minimizeButton,
+            glyph = "minimize",
+        }
+    end
     return targets
 end
 
@@ -461,7 +463,7 @@ local function SkinSpellBookControls()
     if State.paginationController then State.paginationController:Refresh() end
 
     RemoveSpellBookHelp(spellBook)
-    local resizeTargets = SkinSpellBookResizeButtons(playerSpells, spellBook)
+    local resizeTargets = GetSpellBookResizeButtons(playerSpells, spellBook)
     NSkin:SkinStandardWindowChrome({
         frame = playerSpells,
         appearanceWindowID = IDs.AppearanceWindow,
@@ -473,9 +475,6 @@ local function SkinSpellBookControls()
                 targets = resizeTargets,
             },
         },
-        closeButtonTextSize = WINDOW_BUTTON_TEXT_SIZE,
-        closeButtonOffsetX = WINDOW_BUTTON_TEXT_OFFSET_X,
-        closeButtonOffsetY = WINDOW_BUTTON_TEXT_OFFSET_Y,
     })
     SkinSpellBookTabs()
     local searchStyle = NSkin:GetAppearanceStyle(
