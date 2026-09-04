@@ -31,6 +31,10 @@ NSkin.moduleDefinitions = {
         key = "PVE", label = "Dungeons & Raids", defaultEnabled = true,
         optionsGroup = "windows", optionsOrder = 60,
     },
+    {
+        key = "GreatVault", label = "Great Vault", defaultEnabled = true,
+        optionsGroup = "windows", optionsOrder = 70,
+    },
 }
 
 NSkin.moduleDefinitionByKey = {}
