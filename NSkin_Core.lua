@@ -27,6 +27,10 @@ NSkin.moduleDefinitions = {
         key = "FriendsList", label = "Friends List", defaultEnabled = true,
         optionsGroup = "windows", optionsOrder = 50,
     },
+    {
+        key = "PVE", label = "Dungeons & Raids", defaultEnabled = true,
+        optionsGroup = "windows", optionsOrder = 60,
+    },
 }
 
 NSkin.moduleDefinitionByKey = {}
