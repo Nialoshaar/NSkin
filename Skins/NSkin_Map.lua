@@ -10,18 +10,13 @@ local IDs = {
     NavigationBar = "Map.NavigationBar",
     QuestLogSearchBox = "Map.QuestLog.SearchBox",
     QuestLogScrollBar = "Map.QuestLog.ScrollBar",
-    SideTabs = {
-        Quests = "Map.SideTabs.Quests",
-        Events = "Map.SideTabs.Events",
-        MapLegend = "Map.SideTabs.MapLegend",
-    },
+    SideTabs = "Map.SideTabs",
 }
 
 local initialized = false
 local showHooked = false
 local applyPending = false
 local hookedScrollBar
-local sideTabDefaultPlacements
 
 NSkin:RegisterAppearanceScope(IDs.Scope, {
     label = "Map & Quest Log",
@@ -37,6 +32,12 @@ local function GetMapSearchBox()
     return questScrollFrame and questScrollFrame.SearchBox
 end
 
+local function HideDecorativeTexture(texture)
+    if not texture then return end
+    if texture.SetAlpha then texture:SetAlpha(0) end
+    if texture.Hide then texture:Hide() end
+end
+
 local function GetMapNavigationBar(map)
     local borderFrame = map and map.BorderFrame
     return map and (map.NavBar or map.navBar or map.NavigationBar)
@@ -48,12 +49,9 @@ local function GetMapSideTabs()
     local questMapFrame = _G.QuestMapFrame
     if not questMapFrame then return nil end
     return {
-        { id = IDs.SideTabs.Quests, target = questMapFrame.QuestsTab,
-            label = "Map quests side tab" },
-        { id = IDs.SideTabs.Events, target = questMapFrame.EventsTab,
-            label = "Map events side tab" },
-        { id = IDs.SideTabs.MapLegend, target = questMapFrame.MapLegendTab,
-            label = "Map legend side tab" },
+        questMapFrame.QuestsTab,
+        questMapFrame.EventsTab,
+        questMapFrame.MapLegendTab,
     }
 end
 
@@ -199,47 +197,55 @@ function MapSkin:ApplySearchBox()
     return true
 end
 
+function MapSkin:ApplyQuestListSurface()
+    local scrollFrame = _G.QuestScrollFrame
+    if not scrollFrame then return false end
+
+    -- Keep the quest rows and scrolling controls intact; only suppress the
+    -- Blizzard artwork that forms the ornamental panel behind them.
+    HideDecorativeTexture(scrollFrame.Background)
+    HideDecorativeTexture(scrollFrame.Edge)
+
+    local borderFrame = scrollFrame.BorderFrame
+    if borderFrame and borderFrame.GetRegions then
+        local regions = { borderFrame:GetRegions() }
+        for i = 1, #regions do
+            local region = regions[i]
+            if region.IsObjectType and region:IsObjectType("Texture") then
+                HideDecorativeTexture(region)
+            end
+        end
+    end
+
+    local contents = scrollFrame.Contents
+    local separator = contents and contents.Separator
+    HideDecorativeTexture(separator and separator.Divider)
+    return true
+end
+
 function MapSkin:ApplySideTabs()
     local map = _G.WorldMapFrame
     local tabs = GetMapSideTabs()
     if not map or not tabs then return false end
 
-    if not sideTabDefaultPlacements then
-        if not map:GetLeft() or not map:GetTop() then return false end
-        sideTabDefaultPlacements = {}
-        for i = 1, #tabs do
-            local tab = tabs[i].target
-            if not tab or not tab:GetLeft() or not tab:GetTop() then
-                sideTabDefaultPlacements = nil
-                return false
-            end
-            sideTabDefaultPlacements[tabs[i].id] =
-                NSkin:GetCurrentWindowElementPlacement(map, tab)
-        end
-    end
-
     for i = 1, #tabs do
-        local definition = tabs[i]
-        local tab = definition.target
-        if tab then
-            local editableTab = tab
-            NSkin:RegisterSideTab({
-                id = definition.id,
-                module = "Map",
-                appearanceWindowID = IDs.Scope,
-                label = definition.label,
-                window = map,
-                target = tab,
-                priority = 60 + i,
-                defaultPlacement = sideTabDefaultPlacements[definition.id],
-                highlightRegions = { tab },
-                isEditable = function()
-                    return map:IsVisible() and editableTab:IsVisible()
-                end,
-            })
-        end
+        if not tabs[i] then return false end
     end
-    return true
+    return NSkin:RegisterSideTabGroup(IDs.SideTabs, {
+        module = "Map",
+        appearanceWindowID = IDs.Scope,
+        label = "Map side tabs",
+        window = map,
+        targets = tabs,
+        priority = 60,
+        isEditable = function()
+            if not map:IsVisible() then return false end
+            for i = 1, #tabs do
+                if tabs[i]:IsVisible() then return true end
+            end
+            return false
+        end,
+    }) ~= nil
 end
 
 function MapSkin:ApplyNavigationBar()
@@ -271,6 +277,7 @@ function MapSkin:QueueScrollBarApply()
         MapSkin:ApplyNavigationBar()
         MapSkin:ApplySideTabs()
         MapSkin:ApplySearchBox()
+        MapSkin:ApplyQuestListSurface()
         MapSkin:ApplyScrollBar()
     end)
 end
@@ -302,6 +309,7 @@ function MapSkin:Initialize()
     self:ApplyNavigationBar()
     self:ApplySideTabs()
     self:ApplySearchBox()
+    self:ApplyQuestListSurface()
     self:ApplyScrollBar()
     if map:IsShown() then self:QueueScrollBarApply() end
     return true
@@ -313,6 +321,7 @@ function MapSkin:RefreshAppearance()
         self:ApplyNavigationBar()
         self:ApplySideTabs()
         self:ApplySearchBox()
+        self:ApplyQuestListSurface()
         self:ApplyScrollBar()
     end
 end

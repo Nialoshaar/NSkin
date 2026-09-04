@@ -3701,6 +3701,115 @@ function NSkin:RegisterSideTab(definition)
     return element
 end
 
+function NSkin:RegisterSideTabGroup(groupID, definition)
+    if type(groupID) ~= "string" or groupID == ""
+        or type(definition) ~= "table"
+        or type(definition.targets) ~= "table"
+        or #definition.targets == 0
+        or not definition.window
+    then return nil end
+
+    local targets = definition.targets
+    local primary = targets[1]
+    if not primary then return nil end
+
+    local baselineIDs = {}
+    local style = self:GetAppearanceStyle(
+        "sideTab", definition.appearanceWindowID, groupID)
+    local borderColor = self:GetAppearanceBorderColor(
+        "sideTab", style, definition.appearanceWindowID, groupID)
+    for i = 1, #targets do
+        local tab = targets[i]
+        if tab then
+            local baselineID = groupID .. ":tab:" .. i
+            baselineIDs[i] = baselineID
+            self:CaptureComponentBaseline(baselineID, tab, {
+                points = true,
+                size = true,
+            })
+            local data = self:GetSkinData(tab, COMPONENT_STATE)
+            data.sideTabBaselineID = baselineID
+            self:SkinSideTab(tab, style, borderColor)
+        end
+    end
+
+    definition.id = groupID
+    definition.target = primary
+    definition.kind = "SIDE_TAB"
+    definition.highlightRegions = definition.highlightRegions or targets
+    definition.defaultPlacement = definition.defaultPlacement
+        or GetCurrentWindowPlacement(definition.window, primary)
+
+    definition.applyPlacement = function(element, placement, applyOptions)
+        local window = element.window
+        if not window or not window.GetLeft or not window.GetTop then return false end
+
+        for i = 1, #targets do
+            self:RestoreComponentBaseline(baselineIDs[i], { points = true })
+        end
+        local windowLeft, windowTop = window:GetLeft(), window:GetTop()
+        local primaryLeft, primaryTop = primary:GetLeft(), primary:GetTop()
+        if not windowLeft or not windowTop or not primaryLeft or not primaryTop then
+            return false
+        end
+
+        local originalPositions = {}
+        for i = 1, #targets do
+            local tab = targets[i]
+            local left, top = tab:GetLeft(), tab:GetTop()
+            if not left or not top then return false end
+            originalPositions[i] = {
+                x = left - windowLeft,
+                y = top - windowTop,
+            }
+        end
+
+        if not self:LayoutWindowElement({
+            id = element.id,
+            window = window,
+            target = primary,
+        }, placement, SUPPRESS_NOTIFICATION) then
+            return false
+        end
+        local desiredLeft, desiredTop = primary:GetLeft(), primary:GetTop()
+        if not desiredLeft or not desiredTop then return false end
+        local deltaX = desiredLeft - primaryLeft
+        local deltaY = desiredTop - primaryTop
+
+        for i = 1, #targets do
+            local tab = targets[i]
+            tab:ClearAllPoints()
+            tab:SetPoint("TOPLEFT", window, "TOPLEFT",
+                originalPositions[i].x + deltaX,
+                originalPositions[i].y + deltaY)
+            self:MarkComponentGeometryModified(
+                baselineIDs[i], "points", true)
+        end
+        if not (applyOptions and applyOptions.suppressNotify) then
+            self:NotifySkinningElementBoundsChanged(element.id)
+        end
+        return true
+    end
+
+    definition.restoreGeometry = function()
+        local restored = true
+        for i = 1, #targets do
+            restored = self:RestoreComponentBaseline(
+                baselineIDs[i], { points = true }) and restored
+        end
+        return restored
+    end
+    definition.resetPlacement = function(element)
+        if not definition.restoreGeometry() then return false end
+        ClearSavedMovablePlacement(element)
+        self:MarkComponentGeometryModified(element.id, "points", false)
+        self:NotifySkinningElementBoundsChanged(element.id)
+        return true
+    end
+
+    return self:RegisterSimpleMovableElement(definition)
+end
+
 function NSkin:RegisterNavigationBar(elementID, definition)
     if type(elementID) ~= "string" or type(definition) ~= "table"
         or not definition.target
