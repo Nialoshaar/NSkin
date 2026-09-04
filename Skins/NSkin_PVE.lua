@@ -23,6 +23,26 @@ local IDs = {
             Leader = "PVE.RaidFinder.Role.Leader",
         },
     },
+    PremadeGroups = {
+        Scope = "PVE.PremadeGroups",
+        CategoryStartGroupButton =
+            "PVE.PremadeGroups.Category.StartGroupButton",
+        CategoryFindGroupButton =
+            "PVE.PremadeGroups.Category.FindGroupButton",
+        BackButton = "PVE.PremadeGroups.Search.BackButton",
+        SignUpButton = "PVE.PremadeGroups.Search.SignUpButton",
+        EmptyStartGroupButton =
+            "PVE.PremadeGroups.Search.EmptyStartGroupButton",
+        SearchBox = "PVE.PremadeGroups.Search.SearchBox",
+        FilterButton = "PVE.PremadeGroups.Search.FilterButton",
+        ScrollBar = "PVE.PremadeGroups.Search.ScrollBar",
+    },
+    PVP = {
+        Scope = "PVE.PVP",
+        RoleCheckboxes = "PVE.PVP.QuickMatch.RoleCheckboxes",
+        TypeDropdown = "PVE.PVP.QuickMatch.TypeDropdown",
+        QueueButton = "PVE.PVP.QuickMatch.QueueButton",
+    },
     Roles = {
         Tank = "PVE.DungeonFinder.Role.Tank",
         Healer = "PVE.DungeonFinder.Role.Healer",
@@ -46,12 +66,24 @@ local dungeonCheckboxTargets = {
 }
 local dungeonGroupAnchors = {}
 local dungeonGroupsRegistered = false
+local pvpRoleCheckboxes = setmetatable({}, { __mode = "k" })
+local pvpRoleCheckboxBaselines = setmetatable({}, { __mode = "k" })
+local pvpRoleGroupAnchor
+local pvpRoleGroupRegistered = false
 
 NSkin:RegisterAppearanceScope(IDs.Scope, {
     label = "Dungeons & Raids",
 })
 NSkin:RegisterAppearanceScope(IDs.RaidFinder.Scope, {
     label = "Raid Finder",
+    parent = IDs.Scope,
+})
+NSkin:RegisterAppearanceScope(IDs.PremadeGroups.Scope, {
+    label = "Premade Groups",
+    parent = IDs.Scope,
+})
+NSkin:RegisterAppearanceScope(IDs.PVP.Scope, {
+    label = "Player vs. Player",
     parent = IDs.Scope,
 })
 
@@ -317,6 +349,152 @@ function PVESkin:ApplyRaidFinderControls()
     return dropdown ~= nil or button ~= nil
 end
 
+local function ApplyPremadeActionButton(id, label, button, visibilityOwner)
+    local frame = _G.PVEFrame
+    local listFrame = _G.LFGListFrame
+    if not frame or not listFrame or not button then return false end
+
+    local scopeID = IDs.PremadeGroups.Scope
+    NSkin:SkinActionButton(button, { style = NSkin:GetAppearanceStyle(
+        "button", scopeID, id) })
+    NSkin:RegisterSimpleMovableElement({
+        id = id,
+        module = "PVE",
+        appearanceWindowID = scopeID,
+        label = label,
+        kind = "ACTION_BUTTON",
+        window = frame,
+        target = button,
+        priority = 80,
+        highlightRegions = { button },
+        isEditable = function()
+            return frame:IsVisible() and listFrame:IsVisible()
+                and (not visibilityOwner or visibilityOwner:IsVisible())
+                and button:IsVisible()
+        end,
+    })
+    HookRefresh(button)
+    return true
+end
+
+function PVESkin:ApplyPremadeGroupControls()
+    local frame = _G.PVEFrame
+    local listFrame = _G.LFGListFrame
+    if not frame or not listFrame then return false end
+
+    local ids = IDs.PremadeGroups
+    local scopeID = ids.Scope
+    local category = listFrame.CategorySelection
+    local searchPanel = listFrame.SearchPanel
+    local scrollBox = searchPanel and searchPanel.ScrollBox
+    local applied = false
+
+    if category then
+        applied = ApplyPremadeActionButton(ids.CategoryStartGroupButton,
+            "Premade Groups category start group button",
+            category.StartGroupButton, category) or applied
+        applied = ApplyPremadeActionButton(ids.CategoryFindGroupButton,
+            "Premade Groups category find group button",
+            category.FindGroupButton, category) or applied
+    end
+
+    if searchPanel then
+        applied = ApplyPremadeActionButton(ids.BackButton,
+            "Premade Groups back button", searchPanel.BackButton,
+            searchPanel) or applied
+        applied = ApplyPremadeActionButton(ids.SignUpButton,
+            "Premade Groups sign up button", searchPanel.SignUpButton,
+            searchPanel) or applied
+        applied = ApplyPremadeActionButton(ids.EmptyStartGroupButton,
+            "Premade Groups empty-results start group button",
+            scrollBox and scrollBox.StartGroupButton, searchPanel) or applied
+
+        local searchBox = searchPanel.SearchBox
+        if searchBox then
+            local style = NSkin:GetAppearanceStyle(
+                "searchBox", scopeID, ids.SearchBox)
+            NSkin:SkinSearchBox(searchBox, style,
+                NSkin:GetAppearanceBorderColor(
+                    "searchBox", style, scopeID, ids.SearchBox))
+            NSkin:RegisterSimpleMovableElement({
+                id = ids.SearchBox,
+                module = "PVE",
+                appearanceWindowID = scopeID,
+                label = "Premade Groups search bar",
+                kind = "SEARCH_GROUP",
+                window = frame,
+                target = searchBox,
+                priority = 82,
+                highlightRegions = { searchBox },
+                isEditable = function()
+                    return frame:IsVisible() and searchPanel:IsVisible()
+                        and searchBox:IsVisible()
+                end,
+            })
+            applied = true
+        end
+
+        local filterButton = searchPanel.FilterButton
+        if filterButton then
+            NSkin:SkinDropdown(filterButton, {
+                style = NSkin:GetAppearanceStyle(
+                    "button", scopeID, ids.FilterButton),
+            })
+            NSkin:RegisterSimpleMovableElement({
+                id = ids.FilterButton,
+                module = "PVE",
+                appearanceWindowID = scopeID,
+                label = "Premade Groups filter",
+                kind = "DROPDOWN",
+                window = frame,
+                target = filterButton,
+                priority = 81,
+                highlightRegions = { filterButton },
+                isEditable = function()
+                    return frame:IsVisible() and searchPanel:IsVisible()
+                        and filterButton:IsVisible()
+                end,
+            })
+            HookRefresh(filterButton)
+            applied = true
+        end
+
+        local scrollBar = searchPanel.ScrollBar
+            or (scrollBox and scrollBox.ScrollBar)
+        if scrollBar then
+            NSkin:SkinScrollBar(scrollBar, NSkin:GetAppearanceStyle(
+                "scrollBar", scopeID, ids.ScrollBar))
+            NSkin:RegisterSimpleMovableElement({
+                id = ids.ScrollBar,
+                module = "PVE",
+                appearanceWindowID = scopeID,
+                label = "Premade Groups results scroll bar",
+                kind = "SCROLLBAR",
+                window = frame,
+                target = scrollBar,
+                priority = 80,
+                highlightRegions = { scrollBar },
+                isEditable = function()
+                    return frame:IsVisible() and searchPanel:IsVisible()
+                        and scrollBar:IsVisible()
+                end,
+            })
+            applied = true
+        end
+    end
+
+    local showOwners = { listFrame }
+    if category then showOwners[#showOwners + 1] = category end
+    if searchPanel then showOwners[#showOwners + 1] = searchPanel end
+    for _, owner in ipairs(showOwners) do
+        if owner and not hookedShowControls[owner] and owner.HookScript then
+            owner:HookScript("OnShow", function() PVESkin:QueueApply() end)
+            hookedShowControls[owner] = true
+        end
+    end
+    return applied
+end
+
 local function CopyPlacement(placement)
     local copy = {}
     for key, value in pairs(placement or {}) do copy[key] = value end
@@ -505,6 +683,197 @@ function PVESkin:ApplyDungeonSelectionCheckboxes()
     return applied
 end
 
+local function GetPVPRoleGroupPlacement()
+    local options = NSkin:GetModuleOptions("PVE", false)
+    local placements = options and options.checkboxGroupPlacements
+    local saved = placements and placements[IDs.PVP.RoleCheckboxes]
+    return saved and CopyPlacement(saved) or {
+        edge = "TOP", side = "INSIDE", alignment = "LEFT",
+        alongOffset = 0, edgeOffset = 0,
+    }
+end
+
+local function CapturePVPRoleCheckboxBaseline(checkButton)
+    local baseline = pvpRoleCheckboxBaselines[checkButton]
+    if baseline then return baseline end
+    baseline = {}
+    for i = 1, checkButton:GetNumPoints() do
+        baseline[i] = { checkButton:GetPoint(i) }
+    end
+    pvpRoleCheckboxBaselines[checkButton] = baseline
+    return baseline
+end
+
+local function ApplyPVPRoleGroupPlacement(placement)
+    local x = tonumber(placement and (placement.alongOffset or placement.x)) or 0
+    local y = tonumber(placement and (placement.edgeOffset or placement.y)) or 0
+    for checkButton in pairs(pvpRoleCheckboxes) do
+        local baseline = CapturePVPRoleCheckboxBaseline(checkButton)
+        checkButton:ClearAllPoints()
+        for i = 1, #baseline do
+            local point = baseline[i]
+            checkButton:SetPoint(point[1], point[2], point[3],
+                (tonumber(point[4]) or 0) + x,
+                (tonumber(point[5]) or 0) + y)
+        end
+    end
+    NSkin:NotifySkinningElementBoundsChanged(IDs.PVP.RoleCheckboxes)
+    return true
+end
+
+local function SetPVPRoleGroupPlacement(placement)
+    ApplyPVPRoleGroupPlacement(placement)
+    local options = NSkin:GetModuleOptions("PVE", true)
+    options.checkboxGroupPlacements = options.checkboxGroupPlacements or {}
+    options.checkboxGroupPlacements[IDs.PVP.RoleCheckboxes] =
+        CopyPlacement(placement)
+    return true
+end
+
+local function ResetPVPRoleGroupPlacement()
+    ApplyPVPRoleGroupPlacement({ alongOffset = 0, edgeOffset = 0 })
+    local options = NSkin:GetModuleOptions("PVE", false)
+    local placements = options and options.checkboxGroupPlacements
+    if placements then
+        placements[IDs.PVP.RoleCheckboxes] = nil
+        if not next(placements) then options.checkboxGroupPlacements = nil end
+    end
+    return true
+end
+
+local function GetPVPRoleGroupRegions()
+    local regions = {}
+    for checkButton in pairs(pvpRoleCheckboxes) do
+        if checkButton:IsVisible() then regions[#regions + 1] = checkButton end
+    end
+    return regions
+end
+
+local function RegisterPVPRoleGroup(frame, honorFrame)
+    if pvpRoleGroupRegistered then return true end
+    if not pvpRoleGroupAnchor then
+        pvpRoleGroupAnchor = CreateFrame("Frame", nil, honorFrame)
+        pvpRoleGroupAnchor:SetSize(1, 1)
+        pvpRoleGroupAnchor:SetPoint("TOPLEFT")
+        pvpRoleGroupAnchor:EnableMouse(false)
+        pvpRoleGroupAnchor:Show()
+    end
+    pvpRoleGroupRegistered = NSkin:RegisterSkinningElement(
+        IDs.PVP.RoleCheckboxes, {
+            label = "PvP Quick Match role checkboxes",
+            kind = "CHECKBOX",
+            module = "PVE",
+            appearanceWindowID = IDs.PVP.Scope,
+            window = frame,
+            target = pvpRoleGroupAnchor,
+            priority = 82,
+            draggable = false,
+            editorOptions = NSkin:CreateEditorOptionsPreset("MOVABLE"),
+            highlightRegions = GetPVPRoleGroupRegions,
+            isEditable = function()
+                return frame:IsVisible() and honorFrame:IsVisible()
+                    and #GetPVPRoleGroupRegions() > 0
+            end,
+            getPlacement = GetPVPRoleGroupPlacement,
+            applyPlacement = function(_, placement)
+                return ApplyPVPRoleGroupPlacement(placement)
+            end,
+            setPlacement = function(_, placement)
+                return SetPVPRoleGroupPlacement(placement)
+            end,
+            resetPlacement = ResetPVPRoleGroupPlacement,
+        }) == true
+    return pvpRoleGroupRegistered
+end
+
+function PVESkin:ApplyPVPControls()
+    local frame = _G.PVEFrame
+    local pvpFrame = _G.PVPUIFrame
+    local honorFrame = _G.HonorFrame
+    if not frame or not pvpFrame or not honorFrame then return false end
+
+    local ids = IDs.PVP
+    local roleList = honorFrame.RoleList
+    local applied = false
+    if roleList then
+        for _, roleButton in ipairs({
+            roleList.TankIcon,
+            roleList.HealerIcon,
+            roleList.DPSIcon,
+        }) do
+            local checkButton = roleButton
+                and (roleButton.checkButton or roleButton.CheckButton)
+            if checkButton then
+                pvpRoleCheckboxes[checkButton] = true
+                CapturePVPRoleCheckboxBaseline(checkButton)
+                NSkin:SkinCheckButton(checkButton, {
+                    style = NSkin:GetAppearanceStyle(
+                        "button", ids.Scope, ids.RoleCheckboxes),
+                })
+                applied = true
+            end
+        end
+        if applied then
+            RegisterPVPRoleGroup(frame, honorFrame)
+            ApplyPVPRoleGroupPlacement(GetPVPRoleGroupPlacement())
+        end
+    end
+
+    local dropdown = honorFrame.TypeDropdown or _G.HonorFrameTypeDropdown
+    if dropdown then
+        NSkin:SkinDropdown(dropdown, { style = NSkin:GetAppearanceStyle(
+            "button", ids.Scope, ids.TypeDropdown) })
+        NSkin:RegisterSimpleMovableElement({
+            id = ids.TypeDropdown,
+            module = "PVE",
+            appearanceWindowID = ids.Scope,
+            label = "PvP Quick Match type dropdown",
+            kind = "DROPDOWN",
+            window = frame,
+            target = dropdown,
+            priority = 80,
+            highlightRegions = { dropdown },
+            isEditable = function()
+                return frame:IsVisible() and honorFrame:IsVisible()
+                    and dropdown:IsVisible()
+            end,
+        })
+        HookRefresh(dropdown)
+        applied = true
+    end
+
+    local queueButton = honorFrame.QueueButton or _G.HonorFrameQueueButton
+    if queueButton then
+        NSkin:SkinActionButton(queueButton, { style = NSkin:GetAppearanceStyle(
+            "button", ids.Scope, ids.QueueButton) })
+        NSkin:RegisterSimpleMovableElement({
+            id = ids.QueueButton,
+            module = "PVE",
+            appearanceWindowID = ids.Scope,
+            label = "PvP Quick Match join battle button",
+            kind = "ACTION_BUTTON",
+            window = frame,
+            target = queueButton,
+            priority = 80,
+            highlightRegions = { queueButton },
+            isEditable = function()
+                return frame:IsVisible() and honorFrame:IsVisible()
+                    and queueButton:IsVisible()
+            end,
+        })
+        HookRefresh(queueButton)
+        applied = true
+    end
+
+    for _, owner in ipairs({ pvpFrame, honorFrame }) do
+        if not hookedShowControls[owner] and owner.HookScript then
+            owner:HookScript("OnShow", function() PVESkin:QueueApply() end)
+            hookedShowControls[owner] = true
+        end
+    end
+    return applied
+end
+
 function PVESkin:ApplyBottomTabs()
     local frame = _G.PVEFrame
     if not frame then return false end
@@ -609,6 +978,8 @@ function PVESkin:QueueApply()
         PVESkin:ApplyFindGroupButton()
         PVESkin:ApplySpecificScrollBar()
         PVESkin:ApplyRaidFinderControls()
+        PVESkin:ApplyPremadeGroupControls()
+        PVESkin:ApplyPVPControls()
         PVESkin:ApplyDungeonSelectionCheckboxes()
         PVESkin:ApplyBottomTabs()
     end)
@@ -634,6 +1005,8 @@ function PVESkin:Initialize()
     self:ApplyFindGroupButton()
     self:ApplySpecificScrollBar()
     self:ApplyRaidFinderControls()
+    self:ApplyPremadeGroupControls()
+    self:ApplyPVPControls()
     self:ApplyDungeonSelectionCheckboxes()
     self:ApplyBottomTabs()
     if frame:IsShown() then self:QueueApply() end
@@ -648,6 +1021,8 @@ function PVESkin:RefreshAppearance()
     self:ApplyFindGroupButton()
     self:ApplySpecificScrollBar()
     self:ApplyRaidFinderControls()
+    self:ApplyPremadeGroupControls()
+    self:ApplyPVPControls()
     self:ApplyDungeonSelectionCheckboxes()
     self:ApplyBottomTabs()
 end
@@ -656,4 +1031,11 @@ NSkin:RegisterWindowSkin({
     module = "PVE",
     addon = "Blizzard_GroupFinder",
     apply = function() return PVESkin:Initialize() end,
+})
+
+NSkin:RegisterWindowSkin({
+    key = "PVE.PVP",
+    module = "PVE",
+    addon = "Blizzard_PVPUI",
+    apply = function() return PVESkin:ApplyPVPControls() end,
 })
