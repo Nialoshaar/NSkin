@@ -1397,9 +1397,60 @@ function NSkin:SkinFlatButton(button, label, backgroundColor, borderColor,
     if text then text:SetTextColor(unpack(style.text)) end
 end
 
+local function SuppressActionButtonNativeText(button)
+    local data = NSkin:GetSkinData(button, COMPONENT_STATE, false)
+    if not data then return end
+    data.actionNativeTexts = data.actionNativeTexts or setmetatable({}, {
+        __mode = "k",
+    })
+    data.actionNativeTextHooks = data.actionNativeTextHooks or setmetatable({}, {
+        __mode = "k",
+    })
+    local function AddNativeText(region)
+        if not region or region == data.label
+            or not region.GetObjectType
+            or region:GetObjectType() ~= "FontString"
+        then return end
+        data.actionNativeTexts[region] = true
+        if not data.actionNativeText then data.actionNativeText = region end
+        if not data.actionNativeTextHooks[region] and _G.hooksecurefunc then
+            data.actionNativeTextHooks[region] = true
+            _G.hooksecurefunc(region, "SetAlpha", function(_, alpha)
+                local state = NSkin:GetSkinData(
+                    button, COMPONENT_STATE, false)
+                if state and region ~= state.label and tonumber(alpha) ~= 0
+                    and not state.suppressingActionNativeText
+                then
+                    state.suppressingActionNativeText = true
+                    region:SetAlpha(0)
+                    state.suppressingActionNativeText = nil
+                end
+            end)
+        end
+    end
+    if button.GetFontString then AddNativeText(button:GetFontString()) end
+    AddNativeText(button.Text)
+    local buttonName = button.GetName and button:GetName()
+    if buttonName then AddNativeText(_G[buttonName .. "Text"]) end
+    if button.GetRegions then
+        for _, region in ipairs({ button:GetRegions() }) do
+            AddNativeText(region)
+        end
+    end
+    for region in pairs(data.actionNativeTexts) do
+        if region == data.label then
+            data.actionNativeTexts[region] = nil
+        else
+            region:SetAlpha(0)
+        end
+    end
+end
+
 local function RefreshActionButton(button)
     local data = NSkin:GetSkinData(button, COMPONENT_STATE, false)
     if not data or not data.label then return end
+    SuppressActionButtonNativeText(button)
+    NSkin:ApplyResolvedTypography(data.label, NSkin:GetStyle("text"))
     local enabled = not button.IsEnabled or button:IsEnabled()
     local color = data.actionTextColor
         or NSkin:GetStyle("text").color
@@ -1419,18 +1470,31 @@ function NSkin:SkinActionButton(button, options)
     data.actionTextColor = self:GetResolvedAppearanceColor(style, "text")
     data.actionDisabledTextAlpha = options.disabledTextAlpha
         or style.disabledTextAlpha or 0.45
-    local nativeText = button.GetFontString and button:GetFontString()
     local label = button.GetText and button:GetText() or ""
+    local nativeText = button.GetFontString and button:GetFontString()
+    if nativeText and nativeText.GetObjectType
+        and nativeText:GetObjectType() == "FontString"
+    then
+        local previousLabel = data.label
+        if previousLabel and previousLabel ~= nativeText then
+            previousLabel:SetAlpha(0)
+            previousLabel:Hide()
+            data.actionOwnedLabel = previousLabel
+        end
+        data.label = nativeText
+        if data.actionNativeTexts then
+            data.actionNativeTexts[nativeText] = nil
+        end
+        nativeText:SetAlpha(1)
+        nativeText:Show()
+    end
     self:SkinFlatButton(button, label,
         options.background or style.background,
         options.border or self:GetComponentBorderColor("button", style),
         options.textSize)
     local border = self:GetPixelBorder(button, "NSkinFlatBackgroundBorder")
     self:SetPixelBorderSize(border, 1)
-    if nativeText and nativeText ~= data.label then
-        nativeText:SetAlpha(0)
-        data.actionNativeText = nativeText
-    end
+    SuppressActionButtonNativeText(button)
     if data.label then
         self:ApplyResolvedTypography(data.label, self:GetStyle("text"))
     end
@@ -1438,12 +1502,17 @@ function NSkin:SkinActionButton(button, options)
         _G.hooksecurefunc(button, "SetText", function(_, value)
             local state = NSkin:GetSkinData(button, COMPONENT_STATE, false)
             if state and state.label then state.label:SetText(value or "") end
+            SuppressActionButtonNativeText(button)
         end)
         data.actionTextHooked = true
     end
     if not data.actionStateHooked and button.HookScript then
-        button:HookScript("OnEnable", RefreshActionButton)
-        button:HookScript("OnDisable", RefreshActionButton)
+        for _, script in ipairs({
+            "OnShow", "OnEnter", "OnLeave", "OnMouseDown", "OnMouseUp",
+            "OnEnable", "OnDisable",
+        }) do
+            button:HookScript(script, RefreshActionButton)
+        end
         data.actionStateHooked = true
     end
     RefreshActionButton(button)
