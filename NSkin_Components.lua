@@ -1449,6 +1449,46 @@ function NSkin:SkinActionButton(button, options)
     RefreshActionButton(button)
 end
 
+function NSkin:SkinCheckButton(checkButton, options)
+    if not checkButton or not checkButton.CreateTexture then return false end
+    options = options or {}
+    local style = options.style
+        or (options.background and options.text and options)
+        or self:GetStyle("button")
+    local data = self:GetSkinData(checkButton, COMPONENT_STATE)
+
+    if not data.checkButtonArtworkSuppressed then
+        self:HideTextureRegions(checkButton)
+        data.checkButtonArtworkSuppressed = true
+    end
+    self:CreateFlatBackground(checkButton, nil,
+        options.background or style.background,
+        options.border or self:GetComponentBorderColor("button", style))
+    self:CreateFlatButtonGlow(checkButton, style.hoverAlpha)
+
+    local checked = data.checkButtonCheckedTexture
+    if not checked then
+        checked = checkButton:CreateTexture(nil, "ARTWORK")
+        checked:SetPoint("TOPLEFT", checkButton, "TOPLEFT", 4, -4)
+        checked:SetPoint("BOTTOMRIGHT", checkButton, "BOTTOMRIGHT", -4, 4)
+        self:ConfigureOwnedPixelTexture(checked)
+        data.checkButtonCheckedTexture = checked
+    end
+    checked:SetColorTexture(unpack(
+        options.checked or self:GetSharedBorderColor()))
+    if checkButton.SetCheckedTexture then checkButton:SetCheckedTexture(checked) end
+
+    local label = options.text or checkButton.Text
+    if label then
+        label:SetTextColor(unpack(
+            options.textColor or style.text or self:GetStyle("text").color))
+        self:ApplyResolvedTypography(label, self:GetStyle("text"))
+        label:SetAlpha(1)
+        label:Show()
+    end
+    return true
+end
+
 function NSkin:SkinDropdown(dropdown, options)
     if not dropdown then return end
     options = options or {}
@@ -2135,6 +2175,8 @@ local SHARED_TYPE_DEFINITIONS = {
         editorPreset = "SIDE_TAB" },
     BUTTON = { style = "button", skin = "SkinFlatButton", editorPreset = "MOVABLE" },
     ACTION_BUTTON = { style = "button", skin = "SkinActionButton",
+        editorPreset = "MOVABLE" },
+    CHECKBOX = { style = "button", skin = "SkinCheckButton",
         editorPreset = "MOVABLE" },
     DROPDOWN = { style = "button", skin = "SkinDropdown", editorPreset = "MOVABLE" },
     NAVIGATION_BAR = { style = "navigationBar", skin = "SkinNavigationBar",
