@@ -35,6 +35,14 @@ NSkin.moduleDefinitions = {
         key = "GreatVault", label = "Great Vault", defaultEnabled = true,
         optionsGroup = "windows", optionsOrder = 70,
     },
+    {
+        key = "Merchant", label = "Merchant", defaultEnabled = true,
+        optionsGroup = "windows", optionsOrder = 80,
+    },
+    {
+        key = "Transmogrification", label = "Transmogrification",
+        defaultEnabled = true, optionsGroup = "windows", optionsOrder = 90,
+    },
 }
 
 NSkin.moduleDefinitionByKey = {}

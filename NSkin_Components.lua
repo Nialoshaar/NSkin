@@ -4227,7 +4227,14 @@ function NSkin:RegisterAccessoryGroup(definition)
         return not target or not target.IsVisible or target:IsVisible()
     end
     function controller:AnchorGrouped()
-        return definition.anchorGrouped(self.primary, self.accessory) == true
+        if definition.anchorGrouped(self.primary, self.accessory) ~= true then
+            return false
+        end
+        -- Grouping replaces the accessory's Blizzard anchor. Track that
+        -- mutation so placement and full-customization resets restore it
+        -- before restoring the primary control that may anchor back to it.
+        NSkin:MarkComponentGeometryModified(self.ids.accessory, "points", true)
+        return true
     end
     function controller:ApplyPrimary(element, placement, applyOptions)
         if self:GetMode() == "GROUPED"
@@ -4258,8 +4265,8 @@ function NSkin:RegisterAccessoryGroup(definition)
             if saved then
                 primaryElement.applyPlacement(primaryElement, saved, SUPPRESS_NOTIFICATION)
             else
-                NSkin:RestoreMovableElementOriginal(self.ids.primary, true)
                 NSkin:RestoreMovableElementOriginal(self.ids.accessory, true)
+                NSkin:RestoreMovableElementOriginal(self.ids.primary, true)
             end
         elseif mode == "INDEPENDENT" then
             local element = skinningElements[self.ids.accessory]
