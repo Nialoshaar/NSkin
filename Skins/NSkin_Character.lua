@@ -14,6 +14,17 @@ local IDs = {
         SaveButton = "Character.EquipmentManager.SaveButton",
     },
     ReputationDropdown = "Character.Reputation.FilterDropdown",
+    ReputationDetails = {
+        Scope = "Character.ReputationDetails",
+        Window = "Character.ReputationDetails.Window",
+        HeaderControls = "Character.ReputationDetails.HeaderControls",
+        DescriptionScrollBar =
+            "Character.ReputationDetails.DescriptionScrollBar",
+        AtWarCheckbox = "Character.ReputationDetails.AtWarCheckbox",
+        InactiveCheckbox = "Character.ReputationDetails.InactiveCheckbox",
+        WatchCheckbox = "Character.ReputationDetails.WatchCheckbox",
+        ViewRenownButton = "Character.ReputationDetails.ViewRenownButton",
+    },
     CurrencyDropdown = "Character.Currency.FilterDropdown",
     CurrencyOptions = {
         Scope = "Character.CurrencyOptions",
@@ -48,9 +59,14 @@ local tabsRegistered = false
 local applyPending = false
 local hookedTabs = setmetatable({}, { __mode = "k" })
 local hookedShowOwners = setmetatable({}, { __mode = "k" })
+local concealedDetailArtwork = setmetatable({}, { __mode = "k" })
 
 NSkin:RegisterAppearanceScope(IDs.Scope, {
     label = "Character",
+})
+NSkin:RegisterAppearanceScope(IDs.ReputationDetails.Scope, {
+    label = "Reputation Details",
+    parent = IDs.Scope,
 })
 NSkin:RegisterAppearanceScope(IDs.CurrencyOptions.Scope, {
     label = "Currency Options",
@@ -98,8 +114,8 @@ end
 
 local function GetCheckboxText(checkBox)
     if not checkBox then return nil end
-    return checkBox.Text or checkBox.text
-        or (checkBox.GetName and _G[checkBox:GetName() .. "Text"])
+    local name = checkBox.GetName and checkBox:GetName()
+    return checkBox.Text or checkBox.text or (name and _G[name .. "Text"])
 end
 
 local function ConcealTexture(texture)
@@ -267,6 +283,82 @@ function CharacterSkin:ApplyReputationDropdown(frame)
     })
     if result then HookOwnerRefresh(reputation) end
     return result ~= nil
+end
+
+function CharacterSkin:ApplyReputationDetails()
+    local reputation = _G.ReputationFrame
+    local details = reputation and reputation.ReputationDetailFrame
+    if not details then return false end
+
+    -- DialogBorderTemplate and the anonymous parchment/divider textures are
+    -- outside the standard window artwork keys.
+    if not concealedDetailArtwork[details] then
+        NSkin:HideTextureRegions(details)
+        concealedDetailArtwork[details] = true
+    end
+    NSkin:ConcealWindowArtwork(details.Border)
+    local applied = ApplyAuxiliaryWindowChrome(
+        details, IDs.ReputationDetails.Scope, IDs.ReputationDetails.Window,
+        IDs.ReputationDetails.HeaderControls, "Reputation Details window",
+        details.Title)
+
+    local scrollBar = details.ScrollingDescriptionScrollBar
+    local atWar = details.AtWarCheckbox
+    local inactive = details.MakeInactiveCheckbox
+    local watch = details.WatchFactionCheckbox
+    local viewRenown = details.ViewRenownButton
+    applied = NSkin:RegisterScrollBar({
+        id = IDs.ReputationDetails.DescriptionScrollBar,
+        module = "Character",
+        appearanceWindowID = IDs.ReputationDetails.Scope,
+        label = "Reputation description scroll bar", window = details,
+        target = scrollBar, priority = 70,
+        highlightRegions = { scrollBar },
+        isEditable = function()
+            return details:IsVisible() and scrollBar:IsVisible()
+        end,
+    }) ~= nil or applied
+    applied = NSkin:RegisterCheckbox({
+        id = IDs.ReputationDetails.AtWarCheckbox, module = "Character",
+        appearanceWindowID = IDs.ReputationDetails.Scope,
+        label = "At War checkbox", window = details,
+        target = atWar, text = atWar and atWar.Label, priority = 71,
+        highlightRegions = { atWar },
+        isEditable = function()
+            return details:IsVisible() and atWar:IsVisible()
+        end,
+    }) ~= nil or applied
+    applied = NSkin:RegisterCheckbox({
+        id = IDs.ReputationDetails.InactiveCheckbox, module = "Character",
+        appearanceWindowID = IDs.ReputationDetails.Scope,
+        label = "Move to inactive checkbox", window = details,
+        target = inactive, text = inactive and inactive.Label, priority = 72,
+        highlightRegions = { inactive },
+        isEditable = function()
+            return details:IsVisible() and inactive:IsVisible()
+        end,
+    }) ~= nil or applied
+    applied = NSkin:RegisterCheckbox({
+        id = IDs.ReputationDetails.WatchCheckbox, module = "Character",
+        appearanceWindowID = IDs.ReputationDetails.Scope,
+        label = "Experience bar checkbox", window = details,
+        target = watch, text = watch and watch.Label, priority = 73,
+        highlightRegions = { watch },
+        isEditable = function()
+            return details:IsVisible() and watch:IsVisible()
+        end,
+    }) ~= nil or applied
+    applied = NSkin:RegisterActionButton({
+        id = IDs.ReputationDetails.ViewRenownButton, module = "Character",
+        appearanceWindowID = IDs.ReputationDetails.Scope,
+        label = "View Renown button", window = details,
+        target = viewRenown, priority = 74,
+        highlightRegions = { viewRenown },
+        isEditable = function()
+            return details:IsVisible() and viewRenown:IsVisible()
+        end,
+    }) ~= nil or applied
+    return applied
 end
 
 function CharacterSkin:ApplyCurrencyDropdown(frame)
@@ -444,6 +536,7 @@ function CharacterSkin:Apply()
     self:ApplyTabs(frame)
     self:ApplyPaperDollControls(frame)
     self:ApplyReputationDropdown(frame)
+    self:ApplyReputationDetails()
     self:ApplyCurrencyDropdown(frame)
     self:ApplyCurrencyWindows()
     return true

@@ -1656,12 +1656,26 @@ local function SkinDropdownMenuDescription(frame, description)
     if not frame then return end
     local style = NSkin:GetStyle("text")
     local fontString = frame.fontString
-    local fontObject = GetDropdownMenuFontObject(fontString, style)
-    if fontObject and fontString and fontString.SetFontObject then
-        fontString:SetFontObject(fontObject)
+    local textColor = NSkin:GetStyle("button").text
+    local function SkinFontString(target)
+        if not target then return end
+        local fontObject = GetDropdownMenuFontObject(target, style)
+        if fontObject and target.SetFontObject then
+            target:SetFontObject(fontObject)
+        end
+        if target.SetTextColor then
+            target:SetTextColor(unpack(textColor))
+        end
     end
-    if fontString and fontString.SetTextColor then
-        fontString:SetTextColor(unpack(NSkin:GetStyle("button").text))
+    SkinFontString(fontString)
+    if frame.GetRegions then
+        for _, region in ipairs({ frame:GetRegions() }) do
+            if region ~= fontString and region.IsObjectType
+                and region:IsObjectType("FontString")
+            then
+                SkinFontString(region)
+            end
+        end
     end
 
     local borderColor = NSkin:GetSharedBorderColor()
