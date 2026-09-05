@@ -52,6 +52,12 @@ local IDs = {
         HeaderControls = "Character.CurrencyTransferLog.HeaderControls",
         ScrollBar = "Character.CurrencyTransferLog.ScrollBar",
     },
+    ItemSocketing = {
+        Scope = "Character.ItemSocketing",
+        Window = "Character.ItemSocketing.Window",
+        HeaderControls = "Character.ItemSocketing.HeaderControls",
+        ApplyButton = "Character.ItemSocketing.ApplyButton",
+    },
 }
 
 local initialized = false
@@ -62,6 +68,7 @@ local applyPending = false
 local hookedTabs = setmetatable({}, { __mode = "k" })
 local hookedShowOwners = setmetatable({}, { __mode = "k" })
 local concealedDetailArtwork = setmetatable({}, { __mode = "k" })
+local concealedSocketingArtwork = setmetatable({}, { __mode = "k" })
 
 NSkin:RegisterAppearanceScope(IDs.Scope, {
     label = "Character",
@@ -80,6 +87,10 @@ NSkin:RegisterAppearanceScope(IDs.CurrencyTransfer.Scope, {
 })
 NSkin:RegisterAppearanceScope(IDs.CurrencyTransferLog.Scope, {
     label = "Currency Transfer Log",
+    parent = IDs.Scope,
+})
+NSkin:RegisterAppearanceScope(IDs.ItemSocketing.Scope, {
+    label = "Item Socketing",
     parent = IDs.Scope,
 })
 
@@ -553,6 +564,38 @@ function CharacterSkin:ApplyCurrencyWindows()
     return applied
 end
 
+function CharacterSkin:ApplyItemSocketing()
+    local socketing = _G.ItemSocketingFrame
+    if not socketing then return false end
+
+    if not concealedSocketingArtwork[socketing] then
+        NSkin:HideTextureRegions(socketing)
+        concealedSocketingArtwork[socketing] = true
+    end
+    NSkin:ConcealWindowArtwork(socketing.Inset)
+    local applied = ApplyAuxiliaryWindowChrome(
+        socketing, IDs.ItemSocketing.Scope, IDs.ItemSocketing.Window,
+        IDs.ItemSocketing.HeaderControls, "Item Socketing window")
+
+    local container = socketing.SocketingContainer
+    local applyButton = container and container.ApplySocketsButton
+    applied = NSkin:RegisterActionButton({
+        id = IDs.ItemSocketing.ApplyButton,
+        module = "Character",
+        appearanceWindowID = IDs.ItemSocketing.Scope,
+        label = "Apply sockets button",
+        window = socketing,
+        target = applyButton,
+        priority = 70,
+        highlightRegions = { applyButton },
+        isEditable = function()
+            return socketing:IsVisible() and applyButton:IsVisible()
+        end,
+    }) ~= nil or applied
+    HookOwnerRefresh(container)
+    return applied
+end
+
 function CharacterSkin:Apply()
     local frame = _G.CharacterFrame
     if not frame then return false end
@@ -563,6 +606,7 @@ function CharacterSkin:Apply()
     self:ApplyReputationDetails()
     self:ApplyCurrencyDropdown(frame)
     self:ApplyCurrencyWindows()
+    self:ApplyItemSocketing()
     return true
 end
 
@@ -594,6 +638,10 @@ function CharacterSkin:InitializeCurrency()
     return self:Apply()
 end
 
+function CharacterSkin:InitializeItemSocketing()
+    return self:ApplyItemSocketing()
+end
+
 NSkin:RegisterWindowSkin({
     module = "Character",
     addon = "Blizzard_UIPanels_Game",
@@ -605,4 +653,11 @@ NSkin:RegisterWindowSkin({
     module = "Character",
     addon = "Blizzard_TokenUI",
     apply = function() return CharacterSkin:InitializeCurrency() end,
+})
+
+NSkin:RegisterWindowSkin({
+    key = "Character.ItemSocketing",
+    module = "Character",
+    addon = "Blizzard_ItemSocketingUI",
+    apply = function() return CharacterSkin:InitializeItemSocketing() end,
 })

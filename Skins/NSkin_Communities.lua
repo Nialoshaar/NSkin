@@ -224,6 +224,10 @@ local function ApplyFinderControls(frame, finder, ids, label,
 
     local searchButton = options.Search
     if searchButton then
+        if searchBox then
+            searchButton:ClearAllPoints()
+            searchButton:SetPoint("TOP", searchBox, "BOTTOM", -3, -1)
+        end
         NSkin:RegisterActionButton({
             id = ids.SearchButton,
             module = "Communities",
