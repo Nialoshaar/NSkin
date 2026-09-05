@@ -1518,6 +1518,337 @@ function NSkin:SkinActionButton(button, options)
     RefreshActionButton(button)
 end
 
+local SECTION_CARD_STATE = "sectionCardComponent"
+local SECTION_CARD_BACKGROUND = "NSkinSectionCardBackground"
+local SECTION_CARD_TEXT_STATE = "sectionCardTextAppearance"
+
+local function ResolveSectionCardValue(value, target)
+    if type(value) ~= "function" then return value end
+    local ok, resolved = pcall(value, target)
+    -- false is a valid collapsed state; only failed callbacks become unknown.
+    if ok then return resolved end
+    return nil
+end
+
+local function ResolveSectionCardExpanded(target, options)
+    local expanded = options.expanded
+    if type(expanded) == "function" then
+        expanded = ResolveSectionCardValue(expanded, target)
+    end
+    if type(expanded) == "boolean" then return expanded end
+
+    expanded = options.isExpanded
+    if type(expanded) == "function" then
+        expanded = ResolveSectionCardValue(expanded, target)
+    end
+    if type(expanded) == "boolean" then return expanded end
+
+    if type(options.getExpanded) == "function" then
+        expanded = ResolveSectionCardValue(options.getExpanded, target)
+        if type(expanded) == "boolean" then return expanded end
+    end
+
+    if type(target.IsExpanded) == "function" then
+        local ok, value = pcall(target.IsExpanded, target)
+        if ok and type(value) == "boolean" then return value end
+    end
+    if type(target.isExpanded) == "boolean" then return target.isExpanded end
+    if type(target.expanded) == "boolean" then return target.expanded end
+    return nil
+end
+
+local function HideSectionCardArtwork(region)
+    if not region or not region.GetObjectType then return end
+    if region.SetAlpha then region:SetAlpha(0) end
+    if region:GetObjectType() == "Texture" and region.SetTexture then
+        region:SetTexture(nil)
+    end
+    if region.Hide then region:Hide() end
+end
+
+local function AddSectionCardPreservedRegion(regions, value)
+    if not value then return end
+    if value.GetObjectType then
+        regions[value] = true
+        return
+    end
+    if type(value) == "table" then
+        for i = 1, #value do
+            AddSectionCardPreservedRegion(regions, value[i])
+        end
+    end
+end
+
+local function SuppressSectionCardArtwork(target, options, icon,
+    background, border, glow)
+    local preserved = {}
+    AddSectionCardPreservedRegion(preserved, icon)
+    AddSectionCardPreservedRegion(preserved, options.preserveTextures)
+    AddSectionCardPreservedRegion(preserved, background)
+    AddSectionCardPreservedRegion(preserved, glow)
+    if border then
+        AddSectionCardPreservedRegion(preserved, border.top)
+        AddSectionCardPreservedRegion(preserved, border.bottom)
+        AddSectionCardPreservedRegion(preserved, border.left)
+        AddSectionCardPreservedRegion(preserved, border.right)
+    end
+
+    -- Generic cards cannot know which Blizzard textures are decorative.  A
+    -- window adapter opts into direct-region stripping only after auditing its
+    -- row template, or supplies the exact artworkRegions it owns.
+    if options.stripArtwork == true and target.GetRegions then
+        for _, region in ipairs({ target:GetRegions() }) do
+            if not preserved[region] and region.GetObjectType
+                and region:GetObjectType() == "Texture"
+            then
+                HideSectionCardArtwork(region)
+            end
+        end
+    end
+    for _, region in ipairs(options.artworkRegions or {}) do
+        if not preserved[region] then HideSectionCardArtwork(region) end
+    end
+end
+
+local function ResolveSectionCardText(target, state, options)
+    local textRegion = ResolveSectionCardValue(options.textRegion, target)
+    local text = ResolveSectionCardValue(options.text, target)
+    if not textRegion and text and text.GetObjectType
+        and text:GetObjectType() == "FontString"
+    then
+        textRegion, text = text, nil
+    end
+    if not textRegion then
+        textRegion = target.GetFontString and target:GetFontString()
+            or target.Text or target.Label or target.Name
+    end
+    if not textRegion and type(text) == "string" and target.CreateFontString then
+        if not state.ownedText then
+            state.ownedText = target:CreateFontString(
+                nil, "OVERLAY", "GameFontHighlight")
+        end
+        textRegion = state.ownedText
+    end
+    if textRegion and type(text) == "string" and textRegion.SetText then
+        textRegion:SetText(text)
+    end
+    return textRegion
+end
+
+local function LayoutSectionCardText(target, textRegion, icon, style,
+    collapsible)
+    if not textRegion or not textRegion.ClearAllPoints
+        or not textRegion.SetPoint
+    then return end
+
+    local offsetX = tonumber(style.textOffsetX) or 0
+    local offsetY = tonumber(style.textOffsetY) or 0
+    local iconSpacing = tonumber(style.iconSpacing) or 0
+    textRegion:ClearAllPoints()
+    if icon and icon.GetObjectType then
+        textRegion:SetPoint("LEFT", icon, "RIGHT",
+            offsetX + iconSpacing, offsetY)
+    else
+        textRegion:SetPoint("LEFT", target, "LEFT", offsetX, offsetY)
+    end
+
+    local rightInset = math.max(0, offsetX)
+    if collapsible then
+        rightInset = math.max(rightInset,
+            math.max(0, -(tonumber(style.glyphOffsetX) or 0))
+                + math.max(1, tonumber(style.glyphSize) or 14))
+    end
+    textRegion:SetPoint("RIGHT", target, "RIGHT", -rightInset, offsetY)
+end
+
+local function RefreshSectionCardGlyph(target)
+    local state = NSkin:GetSkinData(target, SECTION_CARD_STATE, false)
+    if not state or not state.glyph then return end
+    if not state.collapsible then
+        state.glyph.horizontal:Hide()
+        state.glyph.vertical:Hide()
+        return
+    end
+
+    local expanded = ResolveSectionCardExpanded(target, state.options or {})
+    if type(expanded) ~= "boolean" then
+        state.glyph.horizontal:Hide()
+        state.glyph.vertical:Hide()
+        return
+    end
+    state.glyph.horizontal:Show()
+    state.glyph.vertical:SetShown(not expanded)
+end
+
+local function EnforceSectionCardTextAppearance(textRegion)
+    local data = NSkin:GetSkinData(
+        textRegion, SECTION_CARD_TEXT_STATE, false)
+    if not data or data.enforcing or not data.style then return end
+    data.enforcing = true
+    if data.color and textRegion.SetTextColor then
+        textRegion:SetTextColor(unpack(data.color))
+    end
+    NSkin:ApplyResolvedTypography(textRegion, data.style)
+    data.enforcing = nil
+end
+
+local function ConfigureSectionCardTextAppearance(textRegion, style, color)
+    local data = NSkin:GetSkinData(textRegion, SECTION_CARD_TEXT_STATE)
+    data.style = style
+    data.color = { unpack(color) }
+    if not data.colorHookInstalled and _G.hooksecurefunc
+        and type(textRegion.SetTextColor) == "function"
+    then
+        _G.hooksecurefunc(textRegion, "SetTextColor", function(region)
+            EnforceSectionCardTextAppearance(region)
+        end)
+        data.colorHookInstalled = true
+    end
+    EnforceSectionCardTextAppearance(textRegion)
+end
+
+local function RefreshSectionCardPresentation(target)
+    local state = NSkin:GetSkinData(target, SECTION_CARD_STATE, false)
+    if not state then return end
+    if state.textRegion then
+        EnforceSectionCardTextAppearance(state.textRegion)
+    end
+    RefreshSectionCardGlyph(target)
+end
+
+local function QueueSectionCardGlyphRefresh(target)
+    local state = NSkin:GetSkinData(target, SECTION_CARD_STATE, false)
+    if not state or state.glyphRefreshPending then return end
+    state.glyphRefreshPending = true
+    local function Refresh()
+        local current = NSkin:GetSkinData(
+            target, SECTION_CARD_STATE, false)
+        if current then current.glyphRefreshPending = nil end
+        RefreshSectionCardPresentation(target)
+    end
+    if C_Timer and C_Timer.After then C_Timer.After(0, Refresh) else Refresh() end
+end
+
+function NSkin:SkinSectionCard(target, options)
+    if not target or not target.CreateTexture or not target.CreateFontString
+        or (target.IsForbidden and target:IsForbidden())
+    then return nil end
+
+    options = options or {}
+    local style = options.style or self:GetStyle("sectionCard")
+    if not style then return nil end
+    local state = self:GetSkinData(target, SECTION_CARD_STATE)
+    state.options = options
+    state.collapsible = options.collapsible == true
+
+    if not state.originalHeight and target.GetHeight then
+        local originalHeight = target:GetHeight()
+        state.originalHeight = tonumber(originalHeight) and originalHeight > 0
+            and originalHeight or nil
+    end
+    local height = tonumber(options.height)
+    if height == nil then height = tonumber(style.height) end
+    if height and height > 0 and target.SetHeight then
+        target:SetHeight(height)
+        state.heightModified = true
+    elseif state.heightModified and state.originalHeight and target.SetHeight then
+        target:SetHeight(state.originalHeight)
+        state.heightModified = nil
+    end
+
+    local backgroundColor = options.background
+        or self:GetResolvedAppearanceColor(style, "background")
+    local borderColor = options.border
+        or self:GetComponentBorderColor("sectionCard", style)
+    local background = self:CreateFlatBackground(
+        target, SECTION_CARD_BACKGROUND, backgroundColor, borderColor)
+    local border = self:GetPixelBorder(
+        target, SECTION_CARD_BACKGROUND .. "Border")
+    self:SetPixelBorderColor(border, unpack(borderColor))
+    self:SetPixelBorderSize(border, style.borderSize or 1)
+    self:SetPixelBorderPadding(border, style.borderPadding or 0)
+    local glow = self:CreateFlatButtonGlow(target, style.hoverAlpha)
+
+    local icon = ResolveSectionCardValue(options.icon, target)
+    SuppressSectionCardArtwork(
+        target, options, icon, background, border, glow)
+
+    local textRegion = ResolveSectionCardText(target, state, options)
+    state.textRegion = textRegion
+    if textRegion and textRegion.GetFont then
+        ConfigureSectionCardTextAppearance(textRegion, style,
+            self:GetResolvedAppearanceColor(style, "text"))
+        LayoutSectionCardText(
+            target, textRegion, icon, style, state.collapsible)
+    end
+
+    if state.collapsible then
+        if not state.glyph then
+            local glyph = {
+                horizontal = target:CreateTexture(nil, "OVERLAY", nil, 7),
+                vertical = target:CreateTexture(nil, "OVERLAY", nil, 7),
+            }
+            self:ConfigureOwnedPixelTexture(glyph.horizontal)
+            self:ConfigureOwnedPixelTexture(glyph.vertical)
+            state.glyph = glyph
+        end
+        local glyph = state.glyph
+        local glyphSize = math.max(1, tonumber(style.glyphSize) or 14)
+        local strokeSize = math.max(1, math.floor(glyphSize / 7 + 0.5))
+        local offsetX = tonumber(style.glyphOffsetX) or 0
+        local offsetY = tonumber(style.glyphOffsetY) or 0
+        local glyphColor = self:GetResolvedAppearanceColor(style, "glyph")
+        glyph.horizontal:ClearAllPoints()
+        glyph.horizontal:SetPoint(
+            "CENTER", target, "RIGHT", offsetX, offsetY)
+        glyph.horizontal:SetSize(glyphSize, strokeSize)
+        glyph.horizontal:SetColorTexture(unpack(glyphColor))
+        glyph.vertical:ClearAllPoints()
+        glyph.vertical:SetPoint(
+            "CENTER", target, "RIGHT", offsetX, offsetY)
+        glyph.vertical:SetSize(strokeSize, glyphSize)
+        glyph.vertical:SetColorTexture(unpack(glyphColor))
+    elseif state.glyph then
+        state.glyph.horizontal:Hide()
+        state.glyph.vertical:Hide()
+    end
+
+    if not state.presentationHooksInstalled and target.HookScript then
+        for _, script in ipairs({ "OnShow", "OnEnter", "OnLeave" }) do
+            target:HookScript(script, RefreshSectionCardPresentation)
+        end
+        state.presentationHooksInstalled = true
+    end
+    if not state.titleColorHookInstalled and _G.hooksecurefunc
+        and type(target.CheckHighlightTitle) == "function"
+    then
+        local hooked = pcall(_G.hooksecurefunc, target,
+            "CheckHighlightTitle", RefreshSectionCardPresentation)
+        state.titleColorHookInstalled = hooked == true
+    end
+    if state.collapsible and not state.expansionHooksInstalled then
+        if target.HookScript and target.HasScript
+            and target:HasScript("OnClick")
+        then
+            target:HookScript("OnClick", QueueSectionCardGlyphRefresh)
+        end
+        if _G.hooksecurefunc then
+            for _, method in ipairs({
+                "SetExpanded", "SetCollapsed", "UpdateCollapsedState",
+            }) do
+                if type(target[method]) == "function" then
+                    pcall(_G.hooksecurefunc, target, method, function()
+                        QueueSectionCardGlyphRefresh(target)
+                    end)
+                end
+            end
+        end
+        state.expansionHooksInstalled = true
+    end
+    RefreshSectionCardPresentation(target)
+    return state
+end
+
 function NSkin:SkinCheckButton(checkButton, options)
     if not checkButton or not checkButton.CreateTexture then return false end
     options = options or {}
@@ -2430,6 +2761,12 @@ local EDITOR_PRESETS = {
         { id = "shared.headerUnderlineAppearance", label = "Underline",
             category = "CUSTOMIZE" },
     },
+    SECTION_CARD = {
+        { id = "shared.movable", label = "Position",
+            presentation = "INLINE", category = "POSITION" },
+        { id = "shared.sectionCardAppearance", label = "Section Card",
+            category = "CUSTOMIZE" },
+    },
     MOVABLE = {
         { id = "shared.movable", label = "Position",
             presentation = "INLINE", category = "POSITION" },
@@ -2526,6 +2863,9 @@ local SHARED_TYPE_DEFINITIONS = {
     SCROLLBAR = { style = "scrollBar", skin = "SkinScrollBar",
         editorPreset = "SCROLLBAR", preserveAnchorSpan = true },
     SECTION_HEADER = { style = "sectionHeader", editorPreset = "SECTION_HEADERS" },
+    SECTION_CARD = { style = "sectionCard", skin = "SkinSectionCard",
+        appearanceControls = "shared.sectionCardAppearance",
+        editorPreset = "SECTION_CARD" },
     TEXT = { style = "text", skin = "SkinText",
         appearanceControls = "shared.textAppearance", editorPreset = "TEXT" },
 }
@@ -4045,6 +4385,23 @@ function NSkin:RegisterSimpleMovableElement(definition)
 end
 
 local SHARED_SKIN_ADAPTERS = {
+    SECTION_CARD = function(self, skinMethod, target, style, borderColor,
+        definition)
+        local options = {}
+        for key, value in pairs(definition.skinOptions or {}) do
+            options[key] = value
+        end
+        options.style = style
+        if options.border == nil then options.border = borderColor end
+        for _, key in ipairs({
+            "collapsible", "expanded", "text", "textRegion", "icon",
+            "getExpanded", "isExpanded", "height", "stripArtwork",
+            "artworkRegions", "preserveTextures", "background",
+        }) do
+            if options[key] == nil then options[key] = definition[key] end
+        end
+        skinMethod(self, target, options)
+    end,
     ACTION_BUTTON = function(self, skinMethod, target, style, borderColor,
         definition)
         local options = {}
@@ -4144,6 +4501,10 @@ end
 
 function NSkin:RegisterActionButton(definition)
     return self:RegisterTypedElement("ACTION_BUTTON", definition)
+end
+
+function NSkin:RegisterSectionCard(definition)
+    return self:RegisterTypedElement("SECTION_CARD", definition)
 end
 
 function NSkin:RegisterCheckbox(definition)

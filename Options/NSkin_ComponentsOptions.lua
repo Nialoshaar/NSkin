@@ -2483,6 +2483,99 @@ RegisterColorAppearanceGroup("appearance.search", "searchBox", {
     { type = "RESET", label = "Reset Search Boxes" },
 })
 
+NSkin:RegisterOptionGroup("appearance.sectionCard", {
+    controls = {
+        { type = "COLOR", key = "background", label = "Card background" },
+        { type = "COLOR", key = "border", label = "Card border" },
+        { type = "COLOR", key = "text", label = "Card text" },
+        { type = "DROPDOWN", key = "font", label = "Font",
+            values = function() return NSkin:GetAvailableFontOptions(false) end },
+        { type = "SLIDER", key = "textSize", label = "Text size",
+            min = 8, max = 32, step = 1, suffix = " px" },
+        { type = "DROPDOWN", key = "outline", label = "Outline", values = {
+            { value = "", label = "None" },
+            { value = "OUTLINE", label = "Outline" },
+            { value = "THICKOUTLINE", label = "Thick outline" },
+            { value = "MONOCHROME,OUTLINE", label = "Monochrome outline" },
+        } },
+        { type = "SLIDER", key = "height", label = "Card height",
+            min = 0, max = 80, step = 1, suffix = " px" },
+        { type = "SLIDER_PAIR", centerReset = true,
+            resetTooltip = "Reset text offsets",
+            left = { key = "textOffsetX", label = "Text X", min = -40,
+                max = 40, step = 1, suffix = " px", resetValue = 10 },
+            right = { key = "textOffsetY", label = "Text Y", min = -20,
+                max = 20, step = 1, suffix = " px", resetValue = 0 } },
+        { type = "SLIDER", key = "iconSpacing", label = "Icon spacing",
+            min = -20, max = 40, step = 1, suffix = " px" },
+        { type = "SLIDER", key = "hoverAlpha", label = "Hover opacity",
+            min = 0, max = 0.5, step = 0.01, decimals = 2 },
+        { type = "COLOR", key = "glyph", label = "Expand/collapse glyph" },
+        { type = "SLIDER", key = "glyphSize", label = "Glyph size",
+            min = 8, max = 32, step = 1, suffix = " px" },
+        { type = "SLIDER_PAIR", centerReset = true,
+            resetTooltip = "Reset glyph offsets",
+            left = { key = "glyphOffsetX", label = "Glyph X", min = -40,
+                max = 40, step = 1, suffix = " px", resetValue = -10 },
+            right = { key = "glyphOffsetY", label = "Glyph Y", min = -20,
+                max = 20, step = 1, suffix = " px", resetValue = 0 } },
+        { type = "RESET", label = "Reset Section Cards" },
+    },
+    get = function()
+        local style = NSkin:GetStyle("sectionCard")
+        local font, textSize, outline = NSkin:GetResolvedTypography(style)
+        return {
+            background = CopyColor(style.background),
+            border = CopyColor(style.border),
+            text = CopyColor(style.text), font = font,
+            textSize = textSize, outline = outline,
+            height = style.height, textOffsetX = style.textOffsetX,
+            textOffsetY = style.textOffsetY, iconSpacing = style.iconSpacing,
+            hoverAlpha = style.hoverAlpha, glyph = CopyColor(style.glyph),
+            glyphSize = style.glyphSize, glyphOffsetX = style.glyphOffsetX,
+            glyphOffsetY = style.glyphOffsetY,
+        }
+    end,
+    set = function(_, values)
+        local style = NSkin:GetStyle("sectionCard")
+        local changed
+        for _, key in ipairs({ "background", "border", "text", "glyph" }) do
+            if values[key] then
+                changed = SetColor("sectionCard." .. key, style[key],
+                    values[key], values[key][4]) or changed
+            end
+        end
+        for _, key in ipairs({ "font", "textSize", "outline" }) do
+            if values[key] ~= nil then
+                local modeKey = key == "font" and "fontMode"
+                    or key == "textSize" and "sizeMode" or "outlineMode"
+                changed = SetScalar("sectionCard." .. modeKey, style[modeKey],
+                    "CUSTOM") or changed
+                changed = SetScalar("sectionCard." .. key, style[key],
+                    values[key]) or changed
+            end
+        end
+        for _, key in ipairs({ "height",
+            "textOffsetX", "textOffsetY", "iconSpacing", "hoverAlpha",
+            "glyphSize", "glyphOffsetX", "glyphOffsetY" }) do
+            changed = SetScalar("sectionCard." .. key, style[key], values[key])
+                or changed
+        end
+        return changed == true
+    end,
+    reset = function()
+        local paths = {}
+        for _, key in ipairs({ "background", "border", "text", "font",
+            "fontMode", "textSize", "sizeMode", "outline", "outlineMode",
+            "height", "textOffsetX", "textOffsetY",
+            "iconSpacing", "hoverAlpha", "glyph", "glyphSize",
+            "glyphOffsetX", "glyphOffsetY" }) do
+            paths[#paths + 1] = "sectionCard." .. key
+        end
+        return ResetPaths(paths)
+    end,
+})
+
 NSkin:RegisterOptionGroup("appearance.progress", {
     controls = {
         { type = "COLOR", key = "backgroundColor", label = "Bar background" },
@@ -2569,6 +2662,7 @@ local function BuildAppearanceOptions(parent)
         { "Windows", "appearance.window" },
         { "Buttons", "appearance.button" },
         { "Tabs", "appearance.tab" },
+        { "Section cards", "appearance.sectionCard" },
         { "Search boxes", "appearance.search" },
         { "Progress bars", "appearance.progress" },
         { "Icons", "appearance.icon" },
@@ -3732,6 +3826,118 @@ NSkin:RegisterOptionGroup("shared.textAppearance", {
         return ResetElementPaths(context, { "text.fontMode", "text.sizeMode",
             "text.outlineMode", "text.font", "text.textSize", "text.outline",
             "text.color", "text.colorMode" })
+    end,
+})
+
+local sectionCardAppearanceControls = {
+    { type = "SECTION", label = "Card", order = 10 },
+    {
+        type = "COLOR_PAIR", order = 11,
+        left = { type = "COLOR", key = "border", modeKey = "borderMode",
+            label = "Border" },
+        right = { type = "COLOR", key = "background",
+            modeKey = "backgroundMode", label = "Background" },
+    },
+    CreateBorderGeometryControls(12),
+    { type = "SLIDER", key = "height", label = "Height (0 keeps Blizzard)",
+        min = 0, max = 80, step = 1, decimals = 0, suffix = " px",
+        order = 13 },
+    { type = "SLIDER_PAIR", order = 14, centerReset = true,
+        resetSubset = true, resetTooltip = "Reset text offsets",
+        left = { key = "textOffsetX", label = "Text X", min = -40,
+            max = 40, step = 1, decimals = 0, suffix = " px",
+            resetValue = 10 },
+        right = { key = "textOffsetY", label = "Text Y", min = -20,
+            max = 20, step = 1, decimals = 0, suffix = " px",
+            resetValue = 0 } },
+    { type = "SLIDER", key = "iconSpacing", label = "Icon spacing",
+        min = -20, max = 40, step = 1, decimals = 0, suffix = " px",
+        order = 15 },
+    { type = "SLIDER", key = "hoverAlpha", label = "Hover opacity",
+        min = 0, max = 0.5, step = 0.01, decimals = 2, order = 16 },
+    { type = "SECTION", label = "Expand / Collapse Glyph", order = 20 },
+    { type = "COLOR", key = "glyph", modeKey = "glyphMode",
+        label = "Color", order = 21 },
+    { type = "SLIDER", key = "glyphSize", label = "Size", min = 8,
+        max = 32, step = 1, decimals = 0, suffix = " px", order = 22 },
+    { type = "SLIDER_PAIR", order = 23, centerReset = true,
+        resetSubset = true, resetTooltip = "Reset glyph offsets",
+        left = { key = "glyphOffsetX", label = "Glyph X", min = -40,
+            max = 40, step = 1, decimals = 0, suffix = " px",
+            resetValue = -10 },
+        right = { key = "glyphOffsetY", label = "Glyph Y", min = -20,
+            max = 20, step = 1, decimals = 0, suffix = " px",
+            resetValue = 0 } },
+}
+AddTypographyControls(sectionCardAppearanceControls,
+    { useGlobal = "useGlobal", font = "font", size = "textSize",
+        outline = "outline" }, "Card Text", 1,
+    { type = "COLOR", key = "text", modeKey = "textMode",
+        label = "Color" })
+
+local sectionCardResetPaths = {
+    font = { "sectionCard.fontMode", "sectionCard.font" },
+    textSize = { "sectionCard.sizeMode", "sectionCard.textSize" },
+    outline = { "sectionCard.outlineMode", "sectionCard.outline" },
+}
+for _, key in ipairs({ "text", "textMode", "background", "backgroundMode",
+    "border", "borderMode", "borderSize", "borderPadding", "height",
+    "textOffsetX", "textOffsetY", "iconSpacing", "hoverAlpha", "glyph",
+    "glyphMode", "glyphSize", "glyphOffsetX", "glyphOffsetY" }) do
+    sectionCardResetPaths[key] = "sectionCard." .. key
+end
+
+NSkin:RegisterOptionGroup("shared.sectionCardAppearance", {
+    controls = sectionCardAppearanceControls,
+    get = function(context)
+        local style = NSkin:GetAppearanceStyle(
+            "sectionCard", GetAppearanceWindowID(context), context.id)
+        local values = {
+            background = CopyColor(style.background),
+            backgroundMode = style.backgroundMode,
+            border = CopyColor(style.border), borderMode = style.borderMode,
+            borderSize = style.borderSize, borderPadding = style.borderPadding,
+            text = CopyColor(style.text), textMode = style.textMode,
+            height = style.height, textOffsetX = style.textOffsetX,
+            textOffsetY = style.textOffsetY, iconSpacing = style.iconSpacing,
+            hoverAlpha = style.hoverAlpha, glyph = CopyColor(style.glyph),
+            glyphMode = style.glyphMode, glyphSize = style.glyphSize,
+            glyphOffsetX = style.glyphOffsetX,
+            glyphOffsetY = style.glyphOffsetY,
+        }
+        GetTypographyValues(values, style,
+            { useGlobal = "useGlobal", font = "font", size = "textSize",
+                outline = "outline" })
+        return values
+    end,
+    set = function(context, values)
+        local changed = SetElementTypography(context, "sectionCard", values,
+            { font = "font", size = "textSize", outline = "outline" })
+        for _, key in ipairs({ "text", "textMode", "background",
+            "backgroundMode", "border", "borderMode", "borderSize",
+            "borderPadding", "height", "textOffsetX", "textOffsetY",
+            "iconSpacing", "hoverAlpha", "glyph", "glyphMode", "glyphSize",
+            "glyphOffsetX", "glyphOffsetY" }) do
+            if values[key] ~= nil then
+                changed = SetElementValue(context,
+                    "sectionCard." .. key, values[key]) or changed
+            end
+        end
+        return changed == true
+    end,
+    reset = function(context)
+        local paths = {}
+        for _, mapped in pairs(sectionCardResetPaths) do
+            if type(mapped) == "table" then
+                for i = 1, #mapped do paths[#paths + 1] = mapped[i] end
+            else
+                paths[#paths + 1] = mapped
+            end
+        end
+        return ResetElementPaths(context, paths)
+    end,
+    resetSubset = function(context, keys)
+        return ResetMappedElementKeys(context, keys, sectionCardResetPaths)
     end,
 })
 

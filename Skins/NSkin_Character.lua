@@ -15,6 +15,7 @@ local IDs = {
     },
     ReputationDropdown = "Character.Reputation.FilterDropdown",
     ReputationScrollBar = "Character.Reputation.ScrollBar",
+    ReputationSectionCards = "Character.Reputation.SectionCards",
     ReputationDetails = {
         Scope = "Character.ReputationDetails",
         Window = "Character.ReputationDetails.Window",
@@ -28,6 +29,7 @@ local IDs = {
     },
     CurrencyDropdown = "Character.Currency.FilterDropdown",
     CurrencyScrollBar = "Character.Currency.ScrollBar",
+    CurrencySectionCards = "Character.Currency.SectionCards",
     CurrencyOptions = {
         Scope = "Character.CurrencyOptions",
         Window = "Character.CurrencyOptions.Window",
@@ -65,6 +67,10 @@ local showHooked = false
 local toggleHooked = false
 local tabsRegistered = false
 local applyPending = false
+local reputationSectionCardsHooked = false
+local reputationSectionCardsRegistered = false
+local currencySectionCardsHooked = false
+local currencySectionCardsRegistered = false
 local hookedTabs = setmetatable({}, { __mode = "k" })
 local hookedShowOwners = setmetatable({}, { __mode = "k" })
 local concealedDetailArtwork = setmetatable({}, { __mode = "k" })
@@ -135,6 +141,81 @@ local function ConcealTexture(texture)
     if not texture then return end
     texture:SetAlpha(0)
     texture:Hide()
+end
+
+local CHARACTER_SECTION_ARTWORK = {
+    "Background", "Left", "Middle", "Right",
+    "HighlightLeft", "HighlightMiddle", "HighlightRight",
+}
+
+local function IsCharacterSectionCard(frame)
+    return frame and type(frame.IsCollapsed) == "function"
+        and frame.Right ~= nil
+end
+
+local function GetCharacterSectionCardArtwork(frame)
+    local artwork = {}
+    for i = 1, #CHARACTER_SECTION_ARTWORK do
+        local region = frame[CHARACTER_SECTION_ARTWORK[i]]
+        if region then artwork[#artwork + 1] = region end
+    end
+    return artwork
+end
+
+local function IsCharacterSectionCardExpanded(frame)
+    local elementData = frame.GetElementData and frame:GetElementData()
+        or frame.elementData
+    if elementData then
+        if elementData.isHeaderExpanded ~= nil
+            or elementData.currencyListDepth ~= nil
+        then
+            return elementData.isHeaderExpanded == true
+        end
+        if elementData.isCollapsed ~= nil then
+            return elementData.isCollapsed ~= true
+        end
+    end
+    local ok, collapsed = pcall(frame.IsCollapsed, frame)
+    if not ok or collapsed == nil then return nil end
+    if type(collapsed) == "number" then return collapsed == 0 end
+    if type(collapsed) == "boolean" then return not collapsed end
+    return nil
+end
+
+local function GetVisibleCharacterSectionCards(scrollBox)
+    local cards = {}
+    if scrollBox and scrollBox.ForEachFrame then
+        scrollBox:ForEachFrame(function(frame)
+            if IsCharacterSectionCard(frame) and frame:IsShown() then
+                cards[#cards + 1] = frame
+            end
+        end)
+    end
+    return cards
+end
+
+local function SkinCharacterSectionCards(scrollBox, elementID, registered)
+    if not scrollBox or not scrollBox.ForEachFrame then return false end
+    local style = NSkin:GetAppearanceStyle(
+        "sectionCard", IDs.Scope, elementID)
+    local border = NSkin:GetAppearanceBorderColor(
+        "sectionCard", style, IDs.Scope, elementID)
+    local applied
+    scrollBox:ForEachFrame(function(frame)
+        if IsCharacterSectionCard(frame) then
+            NSkin:SkinSectionCard(frame, {
+                style = style,
+                border = border,
+                collapsible = true,
+                getExpanded = IsCharacterSectionCardExpanded,
+                textRegion = frame.Name,
+                artworkRegions = GetCharacterSectionCardArtwork(frame),
+            })
+            applied = true
+        end
+    end)
+    if registered then NSkin:NotifySkinningElementBoundsChanged(elementID) end
+    return applied == true
 end
 
 local function ApplyAuxiliaryWindowChrome(frame, scopeID, windowID,
@@ -281,6 +362,7 @@ end
 
 function CharacterSkin:ApplyReputationDropdown(frame)
     local reputation = _G.ReputationFrame
+    local scrollBox = reputation and reputation.ScrollBox
     local dropdown = reputation and reputation.filterDropdown
     local applied = NSkin:RegisterDropdown({
         id = IDs.ReputationDropdown, module = "Character",
@@ -305,6 +387,42 @@ function CharacterSkin:ApplyReputationDropdown(frame)
                 and reputation.ScrollBar:IsVisible()
         end,
     }) or applied
+    applied = SkinCharacterSectionCards(scrollBox,
+        IDs.ReputationSectionCards, reputationSectionCardsRegistered) or applied
+    if scrollBox and not reputationSectionCardsRegistered then
+        reputationSectionCardsRegistered = NSkin:RegisterSkinningElement(
+            IDs.ReputationSectionCards, {
+                module = "Character",
+                appearanceWindowID = IDs.Scope,
+                label = "Reputation section cards",
+                kind = "SECTION_CARD",
+                window = frame,
+                target = scrollBox,
+                priority = 86,
+                draggable = false,
+                highlightRegions = function()
+                    return GetVisibleCharacterSectionCards(scrollBox)
+                end,
+                editorOptions = {
+                    { id = "shared.sectionCardAppearance",
+                        label = "Section cards", category = "CUSTOMIZE" },
+                },
+                isEditable = function()
+                    return frame:IsVisible() and reputation:IsVisible()
+                        and #GetVisibleCharacterSectionCards(scrollBox) > 0
+                end,
+            }) == true
+    end
+    if scrollBox and not reputationSectionCardsHooked
+        and _G.hooksecurefunc and type(scrollBox.Update) == "function"
+    then
+        _G.hooksecurefunc(scrollBox, "Update", function(updatedScrollBox)
+            SkinCharacterSectionCards(updatedScrollBox,
+                IDs.ReputationSectionCards,
+                reputationSectionCardsRegistered)
+        end)
+        reputationSectionCardsHooked = true
+    end
     if applied then HookOwnerRefresh(reputation) end
     return applied ~= nil
 end
@@ -387,6 +505,7 @@ end
 
 function CharacterSkin:ApplyCurrencyDropdown(frame)
     local currency = _G.TokenFrame
+    local scrollBox = currency and currency.ScrollBox
     local dropdown = currency and currency.filterDropdown
     local applied = NSkin:RegisterDropdown({
         id = IDs.CurrencyDropdown, module = "Character",
@@ -411,6 +530,41 @@ function CharacterSkin:ApplyCurrencyDropdown(frame)
                 and currency.ScrollBar:IsVisible()
         end,
     }) or applied
+    applied = SkinCharacterSectionCards(scrollBox,
+        IDs.CurrencySectionCards, currencySectionCardsRegistered) or applied
+    if scrollBox and not currencySectionCardsRegistered then
+        currencySectionCardsRegistered = NSkin:RegisterSkinningElement(
+            IDs.CurrencySectionCards, {
+                module = "Character",
+                appearanceWindowID = IDs.Scope,
+                label = "Currency section cards",
+                kind = "SECTION_CARD",
+                window = frame,
+                target = scrollBox,
+                priority = 87,
+                draggable = false,
+                highlightRegions = function()
+                    return GetVisibleCharacterSectionCards(scrollBox)
+                end,
+                editorOptions = {
+                    { id = "shared.sectionCardAppearance",
+                        label = "Section cards", category = "CUSTOMIZE" },
+                },
+                isEditable = function()
+                    return frame:IsVisible() and currency:IsVisible()
+                        and #GetVisibleCharacterSectionCards(scrollBox) > 0
+                end,
+            }) == true
+    end
+    if scrollBox and not currencySectionCardsHooked
+        and _G.hooksecurefunc and type(scrollBox.Update) == "function"
+    then
+        _G.hooksecurefunc(scrollBox, "Update", function(updatedScrollBox)
+            SkinCharacterSectionCards(updatedScrollBox,
+                IDs.CurrencySectionCards, currencySectionCardsRegistered)
+        end)
+        currencySectionCardsHooked = true
+    end
     if applied then HookOwnerRefresh(currency) end
     return applied ~= nil
 end
