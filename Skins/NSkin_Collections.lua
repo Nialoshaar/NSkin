@@ -7,7 +7,6 @@ local BORDER_SIZE = 1
 local UNCOLLECTED_ICON_ALPHA = 0.5
 local QUALITY_BORDER_KEY = "__NSkinCollectionQualityBorder"
 local COLLECTION_ITEM_STATE = "collectionItems"
-local FILTER_STATE = "collectionFilter"
 local IDs = {
     AppearanceWindow = "Collections",
     Window = "Collections.Journal.Window",
@@ -55,7 +54,8 @@ local IDs = {
         Items = { Scope = "Collections.Appearances.Items", Search = {
             Group = "Collections.Appearances.Items.SearchBox",
             Filter = "Collections.Appearances.Items.Filter",
-            Class = "Collections.Appearances.Items.ClassDropdown" },
+            Class = "Collections.Appearances.Items.ClassDropdown",
+            Weapon = "Collections.Appearances.Items.WeaponDropdown" },
             Pagination = { Group = "Collections.Appearances.Items.Pagination",
                 Previous = "Collections.Appearances.Items.Pagination.Previous",
                 Next = "Collections.Appearances.Items.Pagination.Next",
@@ -117,8 +117,6 @@ local State = {
     Appearances = { Items = { paginationController = nil,
         searchController = nil, groupedAnchor = nil } },
     Campsites = { paginationController = nil },
-    menu = { hooked = false, owners = setmetatable({}, { __mode = "k" }),
-        activeDropdown = nil, activeMenu = nil },
 }
 local Adapters = {
     MountJournal = { scopeID = IDs.MountJournal.Scope,
@@ -163,138 +161,10 @@ for name, adapter in pairs(Adapters) do
     adapter.RefreshAppearance = adapter.ApplySkin
 end
 
-local function SkinFilterMenuFrame(menu)
-    if not menu or not menu.GetRegions then return end
-
-    if menu == State.menu.activeMenu and State.menu.activeDropdown then
-        menu:ClearAllPoints()
-        menu:SetPoint("TOPLEFT", State.menu.activeDropdown, "BOTTOMLEFT", 0, 0)
-    end
-
-    for index = 1, menu:GetNumRegions() do
-        local region = select(index, menu:GetRegions())
-        if region and region.IsObjectType and region:IsObjectType("Texture") then
-            region:SetColorTexture(unpack(NSkin:GetStyle("window").background))
-            region:ClearAllPoints()
-            region:SetPoint("TOPLEFT", menu, "TOPLEFT", BORDER_SIZE, -BORDER_SIZE)
-            region:SetPoint("BOTTOMRIGHT", menu, "BOTTOMRIGHT", -BORDER_SIZE, BORDER_SIZE)
-        end
-    end
-
-    local data = NSkin:GetSkinData(menu, FILTER_STATE)
-    local border = data.border
-    if not border then
-        border = CreateFrame("Frame", nil, menu)
-        border:EnableMouse(false)
-        NSkin:CreateFlatBackground(border, nil, { 0, 0, 0, 0 }, NSkin:GetSharedBorderColor())
-        data.border = border
-    end
-    border:SetFrameLevel(menu:GetFrameLevel() + 20)
-    border:ClearAllPoints()
-    border:SetAllPoints(menu)
-    border:Show()
-end
-
-local function TintFilterMenuTexture(texture, color)
-    if not texture then return end
-    texture:SetDesaturated(true)
-    texture:SetVertexColor(unpack(color))
-end
-
-local function SkinFilterMenuElement(frame)
-    if not frame then return end
-    local color = NSkin:GetSharedBorderColor()
-    if frame.fontString then
-        frame.fontString:SetTextColor(unpack(NSkin:GetStyle("button").text))
-    end
-    if frame.highlight then
-        frame.highlight:SetBlendMode("BLEND")
-        frame.highlight:SetColorTexture(color[1], color[2], color[3], 0.14)
-    end
-    TintFilterMenuTexture(frame.leftTexture1, color)
-    TintFilterMenuTexture(frame.leftTexture2, color)
-    TintFilterMenuTexture(frame.arrow, color)
-end
-
-local function SkinFilterMenu(menu)
-    SkinFilterMenuFrame(menu)
-    for index = 1, menu:GetNumChildren() do
-        local child = select(index, menu:GetChildren())
-        SkinFilterMenuElement(child)
-    end
-end
-
-local function HookFilterMenu()
-    if State.menu.hooked or not _G.Menu or type(_G.Menu.GetManager) ~= "function" then return end
-    local manager = _G.Menu.GetManager()
-    if not manager or type(manager.OpenMenu) ~= "function" then return end
-
-    hooksecurefunc(manager, "OpenMenu", function(self, ownerRegion)
-        if not State.menu.owners[ownerRegion] then return end
-        local menu = self:GetOpenMenu()
-        if not menu then return end
-        State.menu.activeDropdown = ownerRegion
-        State.menu.activeMenu = menu
-
-        -- Defer until Blizzard has finished constructing the generated menu
-        -- regions; this is ordering, not a timing or taint boundary.
-        C_Timer.After(0, function()
-            if menu:IsShown() then SkinFilterMenu(menu) end
-        end)
-    end)
-
-    if _G.MenuStyle1Mixin and type(_G.MenuStyle1Mixin.Generate) == "function" then
-        hooksecurefunc(_G.MenuStyle1Mixin, "Generate", function(menu)
-            local root = State.menu.activeMenu
-            if not root or not root:IsShown() or menu == root then return end
-
-            -- Submenus bypass MenuManager:OpenMenu. Style their generated
-            -- frame only while the tracked Collections dropdown is still open.
-            C_Timer.After(0, function()
-                if root:IsShown() and menu:IsShown() then SkinFilterMenu(menu) end
-            end)
-        end)
-    end
-    State.menu.hooked = true
-end
-
-local function SkinCollectionDropdownButton(button, fallbackLabel, preserveText)
-    if not button then return end
-    State.menu.owners[button] = true
-    NSkin:CreateFlatBackground(button, nil, NSkin:GetStyle("button").background,
-        NSkin:GetComponentBorderColor("button", NSkin:GetStyle("button")))
-    NSkin:CreateFlatButtonGlow(button, NSkin:GetStyle("button").hoverAlpha)
-
-    if button.Background then button.Background:SetAlpha(0) end
-    if button.Arrow then button.Arrow:SetAlpha(0) end
-    if button.NineSlice then button.NineSlice:Hide() end
-    if button.Text then
-        button.Text:SetTextColor(unpack(NSkin:GetStyle("button").text))
-        button.Text:SetAlpha(preserveText and 1 or 0)
-    end
-
-    local data = NSkin:GetSkinData(button, FILTER_STATE)
-    if not preserveText then
-        local label = NSkin:SetFlatButtonLabel(button, fallbackLabel or "", 12)
-        if label then label:SetTextColor(unpack(NSkin:GetStyle("button").text)) end
-    end
-    local arrow = data.arrow
-    if not arrow then
-        arrow = button:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-        arrow:SetPoint("RIGHT", button, "RIGHT", -8, 0)
-        arrow:SetText("v")
-        data.arrow = arrow
-    end
-    arrow:SetTextColor(unpack(NSkin:GetSharedBorderColor()))
-    arrow:Show()
-
-    HookFilterMenu()
-end
-
 local function RegisterCollectionMovableElement(id, appearanceWindowID, label,
     journal, target, priority, anchorHighlight, editorOptions, isEditable, kind)
     if not journal or not target then return end
-    return NSkin:RegisterSimpleMovableElement({
+    local definition = {
         id = id,
         module = "Collections",
         appearanceWindowID = appearanceWindowID,
@@ -308,7 +178,14 @@ local function RegisterCollectionMovableElement(id, appearanceWindowID, label,
         anchorHighlight = anchorHighlight,
         highlightRegions = { target },
         isEditable = isEditable,
-    })
+    }
+    if kind == "ACTION_BUTTON" then
+        return NSkin:RegisterActionButton(definition)
+    elseif kind == "DROPDOWN" then
+        definition.skinOptions = { preserveText = true }
+        return NSkin:RegisterDropdown(definition)
+    end
+    return NSkin:RegisterSimpleMovableElement(definition)
 end
 
 local function AnchorToySearchAccessory(searchBox, filterDropdown)
@@ -529,14 +406,6 @@ SkinCollectionsWindow = function(adapterName)
         local searchBox = mountJournal.searchBox or mountJournal.SearchBox
         local filterDropdown = mountJournal.FilterDropdown
         local mountButton = mountJournal.MountButton
-        local searchStyle = NSkin:GetAppearanceStyle(
-            "searchBox", IDs.MountJournal.Scope,
-            IDs.MountJournal.Search.Group)
-        NSkin:SkinSearchBox(searchBox, searchStyle,
-            NSkin:GetAppearanceBorderColor("searchBox", searchStyle,
-                IDs.MountJournal.Scope, IDs.MountJournal.Search.Group))
-        SkinCollectionDropdownButton(filterDropdown, "Filter", false)
-        NSkin:SkinActionButton(mountButton)
         if searchBox and filterDropdown
             and not State.MountJournal.groupedAnchor
         then
@@ -560,6 +429,7 @@ SkinCollectionsWindow = function(adapterName)
                 primaryLabel = "Mount Journal search bar",
                 accessoryLabel = "Mount Journal filter",
                 primaryPriority = 80, accessoryPriority = 90,
+                accessorySkinOptions = { label = "Filter", preserveText = false },
                 visibilityFrame = mountJournal,
                 anchorGrouped = function(primary, accessory)
                     local anchor = State.MountJournal.groupedAnchor
@@ -587,14 +457,6 @@ SkinCollectionsWindow = function(adapterName)
         local filterDropdown = petJournal.FilterDropdown
         local summonButton = petJournal.SummonButton
         local findBattleButton = petJournal.FindBattleButton
-        local searchStyle = NSkin:GetAppearanceStyle(
-            "searchBox", IDs.PetJournal.Scope, IDs.PetJournal.Search.Group)
-        NSkin:SkinSearchBox(searchBox, searchStyle,
-            NSkin:GetAppearanceBorderColor("searchBox", searchStyle,
-                IDs.PetJournal.Scope, IDs.PetJournal.Search.Group))
-        SkinCollectionDropdownButton(filterDropdown, "Filter", false)
-        NSkin:SkinActionButton(summonButton)
-        NSkin:SkinActionButton(findBattleButton)
         if searchBox and filterDropdown and not State.PetJournal.groupedAnchor then
             State.PetJournal.groupedAnchor = CaptureSearchAccessoryAnchor(
                 searchBox, filterDropdown)
@@ -622,6 +484,7 @@ SkinCollectionsWindow = function(adapterName)
                 primaryLabel = "Pet Journal search bar",
                 accessoryLabel = "Pet Journal filter",
                 primaryPriority = 80, accessoryPriority = 90,
+                accessorySkinOptions = { label = "Filter", preserveText = false },
                 visibilityFrame = petJournal,
                 anchorGrouped = function(primary, accessory)
                     local anchor = State.PetJournal.groupedAnchor
@@ -652,12 +515,6 @@ SkinCollectionsWindow = function(adapterName)
             or toyBox.pagingFrame
         local pagingGroup, previousPage, nextPage, pageText =
             ResolvePagingControls(toyBox, pagingControls)
-        local searchStyle = NSkin:GetAppearanceStyle(
-            "searchBox", IDs.ToyBox.Scope, IDs.ToyBox.Search.Group)
-        NSkin:SkinSearchBox(searchBox, searchStyle,
-            NSkin:GetAppearanceBorderColor("searchBox", searchStyle,
-                IDs.ToyBox.Scope, IDs.ToyBox.Search.Group))
-        SkinCollectionDropdownButton(filterDropdown, "Filter", false)
         if searchBox and filterDropdown then
             if not State.ToyBox.groupedAnchor then
                 State.ToyBox.groupedAnchor = CaptureSearchAccessoryAnchor(
@@ -685,6 +542,7 @@ SkinCollectionsWindow = function(adapterName)
                 primary = searchBox, accessory = filterDropdown,
                 primaryLabel = "Toy Box search bar", accessoryLabel = "Toy Box filter",
                 primaryPriority = 81, accessoryPriority = 91,
+                accessorySkinOptions = { label = "Filter", preserveText = false },
                 legacyOptionKey = "searchAccessoryMode",
                 visibilityFrame = toyBox,
                 anchorGrouped = AnchorToySearchAccessory,
@@ -722,13 +580,6 @@ SkinCollectionsWindow = function(adapterName)
             ResolvePagingControls(heirlooms, pagingControls)
         local progressBar = ResolveProgressBar(
             heirlooms, heirlooms.progressBar or heirlooms.ProgressBar)
-        local searchStyle = NSkin:GetAppearanceStyle(
-            "searchBox", IDs.Heirlooms.Scope, IDs.Heirlooms.Search.Group)
-        NSkin:SkinSearchBox(searchBox, searchStyle,
-            NSkin:GetAppearanceBorderColor("searchBox", searchStyle,
-                IDs.Heirlooms.Scope, IDs.Heirlooms.Search.Group))
-        SkinCollectionDropdownButton(filterDropdown, "Filter", false)
-        SkinCollectionDropdownButton(classDropdown, "Class/spec", true)
         if searchBox and filterDropdown then
             if not State.Heirlooms.groupedAnchor then
                 State.Heirlooms.groupedAnchor = CaptureSearchAccessoryAnchor(
@@ -742,7 +593,7 @@ SkinCollectionsWindow = function(adapterName)
             "Heirlooms class/spec filter", journal, classDropdown, 79,
             nil, nil, function()
                 return heirlooms:IsVisible() and classDropdown:IsVisible()
-            end)
+            end, "DROPDOWN")
         RegisterCollectionMovableElement(
             IDs.Heirlooms.ProgressBar, IDs.Heirlooms.Scope,
             "Heirlooms progress bar", journal, progressBar, 80,
@@ -760,6 +611,7 @@ SkinCollectionsWindow = function(adapterName)
                 primaryLabel = "Heirlooms search bar",
                 accessoryLabel = "Heirlooms filter",
                 primaryPriority = 81, accessoryPriority = 91,
+                accessorySkinOptions = { label = "Filter", preserveText = false },
                 visibilityFrame = heirlooms,
                 anchorGrouped = AnchorHeirloomSearchAccessory,
             })
@@ -828,14 +680,6 @@ SkinCollectionsWindow = function(adapterName)
         local pagingControls = itemsFrame.PagingFrame or itemsFrame.PagingControls
         local pagingGroup, previousPage, nextPage, pageText =
             ResolvePagingControls(itemsFrame, pagingControls)
-        local searchStyle = NSkin:GetAppearanceStyle(
-            "searchBox", IDs.Appearances.Items.Scope, IDs.Appearances.Items.Search.Group)
-        NSkin:SkinSearchBox(searchBox, searchStyle,
-            NSkin:GetAppearanceBorderColor("searchBox", searchStyle,
-                IDs.Appearances.Items.Scope, IDs.Appearances.Items.Search.Group))
-        SkinCollectionDropdownButton(filterDropdown, "Filter", false)
-        SkinCollectionDropdownButton(classDropdown, "Class/spec", true)
-        SkinCollectionDropdownButton(weaponDropdown, "Weapon", true)
         if searchBox and filterDropdown then
             if not State.Appearances.Items.groupedAnchor then
                 State.Appearances.Items.groupedAnchor = CaptureSearchAccessoryAnchor(
@@ -849,7 +693,14 @@ SkinCollectionsWindow = function(adapterName)
             "Appearances class/spec filter", journal, classDropdown, 79,
             nil, nil, function()
                 return itemsFrame:IsVisible() and classDropdown:IsVisible()
-            end)
+            end, "DROPDOWN")
+        RegisterCollectionMovableElement(
+            IDs.Appearances.Items.Search.Weapon,
+            IDs.Appearances.Items.Scope,
+            "Appearances weapon filter", journal, weaponDropdown, 80,
+            nil, nil, function()
+                return itemsFrame:IsVisible() and weaponDropdown:IsVisible()
+            end, "DROPDOWN")
         RegisterCollectionMovableElement(
             IDs.Appearances.Items.ProgressBar, IDs.Appearances.Items.Scope,
             "Appearances progress bar", journal, progressBar, 81,
@@ -867,6 +718,7 @@ SkinCollectionsWindow = function(adapterName)
                 primaryLabel = "Appearances search bar",
                 accessoryLabel = "Appearances filter",
                 primaryPriority = 82, accessoryPriority = 92,
+                accessorySkinOptions = { label = "Filter", preserveText = false },
                 visibilityFrame = itemsFrame,
                 anchorGrouped = function(primary, accessory)
                     if not State.Appearances.Items.groupedAnchor then return false end

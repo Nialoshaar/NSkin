@@ -1010,25 +1010,17 @@ function EncounterJournalSkin:StyleInstanceControls(forceShown)
 
     local searchBox = journal.searchBox
     local scrollBar = instanceSelect.ScrollBar
-    local searchStyle = NSkin:GetAppearanceStyle(
-        "searchBox", IDs.Instances.Scope, IDs.Instances.Search)
-    NSkin:SkinSearchBox(searchBox, searchStyle,
-        NSkin:GetAppearanceBorderColor("searchBox", searchStyle,
-            IDs.Instances.Scope, IDs.Instances.Search))
-    NSkin:SkinScrollBar(scrollBar, NSkin:GetAppearanceStyle(
-        "scrollBar", IDs.Instances.Scope, IDs.Instances.ScrollBar))
-    if not instanceControlsRegistered and searchBox and scrollBar then
+    if searchBox and scrollBar then
         local function IsInstanceTabVisible(target)
             local selected = journal.selectedTab
             return (selected == dungeonTabID or selected == raidTabID)
                 and target:IsVisible()
         end
-        NSkin:RegisterSimpleMovableElement({
+        local searchElement = NSkin:RegisterSearchBox({
             id = IDs.Instances.Search,
             module = "EncounterJournal",
             appearanceWindowID = IDs.Instances.Scope,
             label = "Dungeons and raids search bar",
-            kind = "SEARCH_GROUP",
             window = journal,
             target = searchBox,
             priority = 80,
@@ -1037,12 +1029,11 @@ function EncounterJournalSkin:StyleInstanceControls(forceShown)
                 return IsInstanceTabVisible(searchBox)
             end,
         })
-        NSkin:RegisterSimpleMovableElement({
+        local scrollElement = NSkin:RegisterScrollBar({
             id = IDs.Instances.ScrollBar,
             module = "EncounterJournal",
             appearanceWindowID = IDs.Instances.Scope,
             label = "Dungeons and raids scroll bar",
-            kind = "SCROLLBAR",
             window = journal,
             target = scrollBar,
             priority = 81,
@@ -1051,10 +1042,7 @@ function EncounterJournalSkin:StyleInstanceControls(forceShown)
                 return IsInstanceTabVisible(scrollBar)
             end,
         })
-        instanceControlsRegistered = true
-    elseif instanceControlsRegistered then
-        NSkin:NotifySkinningElementBoundsChanged(IDs.Instances.Search)
-        NSkin:NotifySkinningElementBoundsChanged(IDs.Instances.ScrollBar)
+        instanceControlsRegistered = searchElement ~= nil and scrollElement ~= nil
     end
 end
 
@@ -1067,19 +1055,12 @@ function EncounterJournalSkin:StyleJournalScrollBars()
     local travelersScrollBar = travelersLog and travelersLog.ScrollBar
     local travelersFilterScrollBar = travelersLog and travelersLog.FilterList
         and travelersLog.FilterList.ScrollBar
-    NSkin:SkinScrollBar(journeysScrollBar, NSkin:GetAppearanceStyle(
-        "scrollBar", IDs.Journeys.Scope, IDs.Journeys.ScrollBar))
-    NSkin:SkinScrollBar(travelersScrollBar, NSkin:GetAppearanceStyle(
-        "scrollBar", IDs.TravelersLog.Scope, IDs.TravelersLog.ScrollBar))
-    NSkin:SkinScrollBar(travelersFilterScrollBar, NSkin:GetAppearanceStyle(
-        "scrollBar", IDs.TravelersLog.Scope, IDs.TravelersLog.FilterScrollBar))
-    if journeysScrollBar and not journeysScrollBarRegistered then
-        NSkin:RegisterSimpleMovableElement({
+    if journeysScrollBar then
+        journeysScrollBarRegistered = NSkin:RegisterScrollBar({
             id = IDs.Journeys.ScrollBar,
             module = "EncounterJournal",
             appearanceWindowID = IDs.Journeys.Scope,
             label = "Journeys scroll bar",
-            kind = "SCROLLBAR",
             window = journal,
             target = journeysScrollBar,
             priority = 81,
@@ -1087,18 +1068,14 @@ function EncounterJournalSkin:StyleJournalScrollBars()
             isEditable = function()
                 return journeys:IsVisible() and journeysScrollBar:IsVisible()
             end,
-        })
-        journeysScrollBarRegistered = true
-    elseif journeysScrollBarRegistered then
-        NSkin:NotifySkinningElementBoundsChanged(IDs.Journeys.ScrollBar)
+        }) ~= nil
     end
-    if travelersScrollBar and not travelersScrollBarRegistered then
-        NSkin:RegisterSimpleMovableElement({
+    if travelersScrollBar then
+        travelersScrollBarRegistered = NSkin:RegisterScrollBar({
             id = IDs.TravelersLog.ScrollBar,
             module = "EncounterJournal",
             appearanceWindowID = IDs.TravelersLog.Scope,
             label = "Traveler's Log scroll bar",
-            kind = "SCROLLBAR",
             window = journal,
             target = travelersScrollBar,
             priority = 81,
@@ -1107,19 +1084,14 @@ function EncounterJournalSkin:StyleJournalScrollBars()
                 return travelersLog:IsVisible()
                     and travelersScrollBar:IsVisible()
             end,
-        })
-        travelersScrollBarRegistered = true
-    elseif travelersScrollBarRegistered then
-        NSkin:NotifySkinningElementBoundsChanged(
-            IDs.TravelersLog.ScrollBar)
+        }) ~= nil
     end
-    if travelersFilterScrollBar and not travelersFilterScrollBarRegistered then
-        NSkin:RegisterSimpleMovableElement({
+    if travelersFilterScrollBar then
+        travelersFilterScrollBarRegistered = NSkin:RegisterScrollBar({
             id = IDs.TravelersLog.FilterScrollBar,
             module = "EncounterJournal",
             appearanceWindowID = IDs.TravelersLog.Scope,
             label = "Traveler's Log filter scroll bar",
-            kind = "SCROLLBAR",
             window = journal,
             target = travelersFilterScrollBar,
             priority = 82,
@@ -1128,11 +1100,7 @@ function EncounterJournalSkin:StyleJournalScrollBars()
                 return travelersLog:IsVisible()
                     and travelersFilterScrollBar:IsVisible()
             end,
-        })
-        travelersFilterScrollBarRegistered = true
-    elseif travelersFilterScrollBarRegistered then
-        NSkin:NotifySkinningElementBoundsChanged(
-            IDs.TravelersLog.FilterScrollBar)
+        }) ~= nil
     end
 end
 
@@ -1221,16 +1189,11 @@ function EncounterJournalSkin:StyleSuggestedContent(forceShown)
             local suggestion = suggestions[i]
             local button = suggestion and suggestion.button
             if button then
-                NSkin:SkinActionButton(button, { style = NSkin:GetAppearanceStyle(
-                    "button", IDs.Suggested.Scope, IDs.Suggested.Buttons[i]) })
-            end
-            if button and not suggestedButtonsRegistered[i] then
-                NSkin:RegisterSimpleMovableElement({
+                suggestedButtonsRegistered[i] = NSkin:RegisterActionButton({
                     id = IDs.Suggested.Buttons[i],
                     module = "EncounterJournal",
                     appearanceWindowID = IDs.Suggested.Scope,
                     label = "Suggested Content accept quest button " .. i,
-                    kind = "ACTION_BUTTON",
                     window = journal,
                     target = button,
                     priority = 80 + i,
@@ -1238,10 +1201,7 @@ function EncounterJournalSkin:StyleSuggestedContent(forceShown)
                     isEditable = function()
                         return suggestFrame:IsVisible() and button:IsVisible()
                     end,
-                })
-                suggestedButtonsRegistered[i] = true
-            elseif suggestedButtonsRegistered[i] then
-                NSkin:NotifySkinningElementBoundsChanged(IDs.Suggested.Buttons[i])
+                }) ~= nil
             end
         end
     end
@@ -1286,16 +1246,12 @@ function EncounterJournalSkin:StyleTutorials(forceShown)
 
     local startButton = contents.StartButton
     if not startButton then return end
-    NSkin:SkinActionButton(startButton, { style = NSkin:GetAppearanceStyle(
-        "button", IDs.Tutorials.Scope, IDs.Tutorials.StartButton) })
-
-    if shown and not tutorialsButtonRegistered then
-        NSkin:RegisterSimpleMovableElement({
+    if shown then
+        tutorialsButtonRegistered = NSkin:RegisterActionButton({
             id = IDs.Tutorials.StartButton,
             module = "EncounterJournal",
             appearanceWindowID = IDs.Tutorials.Scope,
             label = "Tutorials start button",
-            kind = "ACTION_BUTTON",
             window = journal,
             target = startButton,
             priority = 80,
@@ -1303,10 +1259,7 @@ function EncounterJournalSkin:StyleTutorials(forceShown)
             isEditable = function()
                 return tutorialsFrame:IsVisible() and startButton:IsVisible()
             end,
-        })
-        tutorialsButtonRegistered = true
-    elseif tutorialsButtonRegistered then
-        NSkin:NotifySkinningElementBoundsChanged(IDs.Tutorials.StartButton)
+        }) ~= nil
     end
 end
 
@@ -1453,16 +1406,13 @@ function EncounterJournalSkin:StyleJourneys(forceShown)
         journeysListHooked = true
     end
 
-    NSkin:SkinDropdown(dropdown, { style = NSkin:GetAppearanceStyle(
-        "button", IDs.Journeys.Scope, IDs.Journeys.SeasonDropdown) })
     ApplyGlobalTypography(dropdown)
-    if not journeysRegistered and dropdown then
-        NSkin:RegisterSimpleMovableElement({
+    if dropdown then
+        journeysRegistered = NSkin:RegisterDropdown({
             id = IDs.Journeys.SeasonDropdown,
             module = "EncounterJournal",
             appearanceWindowID = IDs.Journeys.Scope,
             label = "Journeys current season dropdown",
-            kind = "DROPDOWN",
             window = journal,
             target = dropdown,
             priority = 80,
@@ -1470,11 +1420,7 @@ function EncounterJournalSkin:StyleJourneys(forceShown)
             isEditable = function()
                 return journeys:IsVisible() and dropdown:IsVisible()
             end,
-        })
-        journeysRegistered = true
-    elseif journeysRegistered then
-        NSkin:NotifySkinningElementBoundsChanged(
-            IDs.Journeys.SeasonDropdown)
+        }) ~= nil
     end
 end
 

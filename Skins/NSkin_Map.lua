@@ -143,15 +143,11 @@ function MapSkin:ApplyScrollBar()
     local scrollBar = GetMapScrollBar()
     if not map or not scrollBar then return false end
 
-    NSkin:SkinScrollBar(scrollBar, NSkin:GetAppearanceStyle(
-        "scrollBar", IDs.Scope, IDs.QuestLogScrollBar))
-
-    NSkin:RegisterSimpleMovableElement({
+    NSkin:RegisterScrollBar({
         id = IDs.QuestLogScrollBar,
         module = "Map",
         appearanceWindowID = IDs.Scope,
         label = "Map quest log scroll bar",
-        kind = "SCROLLBAR",
         window = map,
         target = scrollBar,
         priority = 80,
@@ -174,18 +170,11 @@ function MapSkin:ApplySearchBox()
     local searchBox = GetMapSearchBox()
     if not map or not searchBox then return false end
 
-    local style = NSkin:GetAppearanceStyle(
-        "searchBox", IDs.Scope, IDs.QuestLogSearchBox)
-    NSkin:SkinSearchBox(searchBox, style,
-        NSkin:GetAppearanceBorderColor(
-            "searchBox", style, IDs.Scope, IDs.QuestLogSearchBox))
-
-    NSkin:RegisterSimpleMovableElement({
+    NSkin:RegisterSearchBox({
         id = IDs.QuestLogSearchBox,
         module = "Map",
         appearanceWindowID = IDs.Scope,
         label = "Map quest log search bar",
-        kind = "SEARCH_GROUP",
         window = map,
         target = searchBox,
         priority = 70,

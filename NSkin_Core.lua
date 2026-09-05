@@ -43,6 +43,10 @@ NSkin.moduleDefinitions = {
         key = "Transmogrification", label = "Transmogrification",
         defaultEnabled = true, optionsGroup = "windows", optionsOrder = 90,
     },
+    {
+        key = "Character", label = "Character",
+        defaultEnabled = true, optionsGroup = "windows", optionsOrder = 100,
+    },
 }
 
 NSkin.moduleDefinitionByKey = {}

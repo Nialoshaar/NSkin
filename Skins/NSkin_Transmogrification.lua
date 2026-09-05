@@ -185,54 +185,6 @@ local function ResolvePagingControls(itemsFrame)
         group.PageText or group.pageText
 end
 
-local function RegisterCheckbox(frame, toggle, id, label, priority)
-    local checkButton = toggle and (toggle.Checkbox or toggle.CheckButton)
-    if not frame or not checkButton then return false end
-
-    NSkin:SkinCheckButton(checkButton, {
-        style = NSkin:GetAppearanceStyle("button", IDs.Scope, id),
-        text = toggle.Text,
-    })
-    NSkin:RegisterSimpleMovableElement({
-        id = id,
-        module = "Transmogrification",
-        appearanceWindowID = IDs.Scope,
-        label = label,
-        kind = "CHECKBOX",
-        window = frame,
-        target = checkButton,
-        priority = priority,
-        highlightRegions = { checkButton },
-        isEditable = function()
-            return frame:IsVisible() and toggle:IsVisible()
-                and checkButton:IsVisible()
-        end,
-    })
-    return true
-end
-
-local function RegisterActionButton(frame, owner, button, id, label, priority)
-    if not frame or not owner or not button then return false end
-    NSkin:SkinActionButton(button, { style = NSkin:GetAppearanceStyle(
-        "button", IDs.Scope, id) })
-    NSkin:RegisterSimpleMovableElement({
-        id = id,
-        module = "Transmogrification",
-        appearanceWindowID = IDs.Scope,
-        label = label,
-        kind = "ACTION_BUTTON",
-        window = frame,
-        target = button,
-        priority = priority,
-        highlightRegions = { button },
-        isEditable = function()
-            return frame:IsVisible() and owner:IsVisible()
-                and button:IsVisible()
-        end,
-    })
-    return true
-end
-
 function TransmogrificationSkin:ApplyWindowChrome(frame)
     NSkin:SkinStandardWindowChrome({
         frame = frame,
@@ -289,14 +241,6 @@ function TransmogrificationSkin:ApplySearch(itemsFrame, frame)
     local filterButton = itemsFrame and itemsFrame.FilterButton
     if not searchBox or not filterButton then return false end
 
-    local searchStyle = NSkin:GetAppearanceStyle(
-        "searchBox", IDs.Scope, IDs.Search.Group)
-    NSkin:SkinSearchBox(searchBox, searchStyle,
-        NSkin:GetAppearanceBorderColor(
-            "searchBox", searchStyle, IDs.Scope, IDs.Search.Group))
-    NSkin:SkinDropdown(filterButton, { style = NSkin:GetAppearanceStyle(
-        "button", IDs.Scope, IDs.Search.Filter) })
-
     if not State.groupedAnchor then
         State.groupedAnchor = CaptureAccessoryAnchor(searchBox, filterButton)
     end
@@ -341,14 +285,6 @@ function TransmogrificationSkin:ApplySetsSearch(setsFrame, frame)
     local searchBox = setsFrame and setsFrame.SearchBox
     local filterButton = setsFrame and setsFrame.FilterButton
     if not searchBox or not filterButton then return false end
-
-    local searchStyle = NSkin:GetAppearanceStyle(
-        "searchBox", IDs.Scope, IDs.Sets.Search.Group)
-    NSkin:SkinSearchBox(searchBox, searchStyle,
-        NSkin:GetAppearanceBorderColor(
-            "searchBox", searchStyle, IDs.Scope, IDs.Sets.Search.Group))
-    NSkin:SkinDropdown(filterButton, { style = NSkin:GetAppearanceStyle(
-        "button", IDs.Scope, IDs.Sets.Search.Filter) })
 
     if not State.Sets.groupedAnchor then
         State.Sets.groupedAnchor = CaptureAccessoryAnchor(
@@ -466,14 +402,11 @@ function TransmogrificationSkin:ApplyCustomSets(customSetsFrame, frame)
 
     local newButton = customSetsFrame.NewCustomSetButton
     if newButton then
-        NSkin:SkinActionButton(newButton, { style = NSkin:GetAppearanceStyle(
-            "button", IDs.Scope, IDs.CustomSets.NewButton) })
-        NSkin:RegisterSimpleMovableElement({
+        NSkin:RegisterActionButton({
             id = IDs.CustomSets.NewButton,
             module = "Transmogrification",
             appearanceWindowID = IDs.Scope,
             label = "New custom set button",
-            kind = "ACTION_BUTTON",
             window = frame,
             target = newButton,
             priority = 87,
@@ -529,13 +462,36 @@ function TransmogrificationSkin:ApplySituations(situationsFrame, frame)
             "Apply situation changes button", 90 },
     }) do
         local button, id, label, priority = unpack(definition)
-        RegisterActionButton(
-            frame, situationsFrame, button, id, label, priority)
+        if button then
+            NSkin:RegisterActionButton({
+                id = id, module = "Transmogrification",
+                appearanceWindowID = IDs.Scope, label = label,
+                window = frame, target = button, priority = priority,
+                highlightRegions = { button },
+                isEditable = function()
+                    return frame:IsVisible() and situationsFrame:IsVisible()
+                        and button:IsVisible()
+                end,
+            })
+        end
     end
 
-    RegisterCheckbox(frame, situationsFrame.EnabledToggle,
-        IDs.Situations.EnabledCheckbox,
-        "Situations enabled checkbox", 91)
+    local enabledToggle = situationsFrame.EnabledToggle
+    local enabledCheckbox = enabledToggle
+        and (enabledToggle.Checkbox or enabledToggle.CheckButton)
+    if enabledCheckbox then
+        NSkin:RegisterCheckbox({
+            id = IDs.Situations.EnabledCheckbox,
+            module = "Transmogrification", appearanceWindowID = IDs.Scope,
+            label = "Situations enabled checkbox", window = frame,
+            target = enabledCheckbox, priority = 91,
+            highlightRegions = { enabledCheckbox }, text = enabledToggle.Text,
+            isEditable = function()
+                return frame:IsVisible() and situationsFrame:IsVisible()
+                    and enabledToggle:IsVisible() and enabledCheckbox:IsVisible()
+            end,
+        })
+    end
 
     wipe(State.Situations.dropdowns)
     local pool = situationsFrame.SituationFramePool
@@ -596,14 +552,11 @@ function TransmogrificationSkin:ApplySaveButton(outfitCollection, frame)
     local button = outfitCollection and outfitCollection.SaveOutfitButton
     if not button then return false end
 
-    NSkin:SkinActionButton(button, { style = NSkin:GetAppearanceStyle(
-        "button", IDs.Scope, IDs.SaveOutfitButton) })
-    NSkin:RegisterSimpleMovableElement({
+    NSkin:RegisterActionButton({
         id = IDs.SaveOutfitButton,
         module = "Transmogrification",
         appearanceWindowID = IDs.Scope,
         label = "Save outfit button",
-        kind = "ACTION_BUTTON",
         window = frame,
         target = button,
         priority = 84,
@@ -629,12 +582,27 @@ function TransmogrificationSkin:Apply()
     self:ApplySetsPagination(setsFrame, frame)
     self:ApplyCustomSets(customSetsFrame, frame)
     self:ApplySituations(situationsFrame, frame)
-    RegisterCheckbox(frame,
-        toggleOptions and toggleOptions.HideIgnoredToggle,
-        IDs.HideIgnoredSlots, "Hide ignored slots checkbox", 81)
-    RegisterCheckbox(frame,
-        toggleOptions and toggleOptions.SheatheWeaponToggle,
-        IDs.SheatheWeapon, "Sheathe weapon checkbox", 82)
+    for _, definition in ipairs({
+        { toggleOptions and toggleOptions.HideIgnoredToggle,
+            IDs.HideIgnoredSlots, "Hide ignored slots checkbox", 81 },
+        { toggleOptions and toggleOptions.SheatheWeaponToggle,
+            IDs.SheatheWeapon, "Sheathe weapon checkbox", 82 },
+    }) do
+        local toggle, id, label, priority = unpack(definition)
+        local checkButton = toggle and (toggle.Checkbox or toggle.CheckButton)
+        if checkButton then
+            NSkin:RegisterCheckbox({
+                id = id, module = "Transmogrification",
+                appearanceWindowID = IDs.Scope, label = label,
+                window = frame, target = checkButton, priority = priority,
+                highlightRegions = { checkButton }, text = toggle.Text,
+                isEditable = function()
+                    return frame:IsVisible() and toggle:IsVisible()
+                        and checkButton:IsVisible()
+                end,
+            })
+        end
+    end
     self:ApplySaveButton(outfitCollection, frame)
     return true
 end

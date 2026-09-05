@@ -44,14 +44,11 @@ function MerchantSkin:ApplyFilterDropdown()
     local dropdown = frame and frame.FilterDropdown
     if not frame or not dropdown then return false end
 
-    NSkin:SkinDropdown(dropdown, { style = NSkin:GetAppearanceStyle(
-        "button", IDs.Scope, IDs.FilterDropdown) })
-    NSkin:RegisterSimpleMovableElement({
+    NSkin:RegisterDropdown({
         id = IDs.FilterDropdown,
         module = "Merchant",
         appearanceWindowID = IDs.Scope,
         label = "Merchant filter dropdown",
-        kind = "DROPDOWN",
         window = frame,
         target = dropdown,
         priority = 80,

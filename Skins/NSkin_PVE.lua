@@ -122,34 +122,6 @@ local function HookRefresh(control)
     hookedControls[control] = true
 end
 
-local function RegisterCheckbox(
-    id, label, checkButton, visibilityOwner, appearanceWindowID)
-    local frame = _G.PVEFrame
-    if not frame or not checkButton then return false end
-    appearanceWindowID = appearanceWindowID or IDs.Scope
-
-    NSkin:SkinCheckButton(checkButton, {
-        style = NSkin:GetAppearanceStyle("button", appearanceWindowID, id),
-    })
-    NSkin:RegisterSimpleMovableElement({
-        id = id,
-        module = "PVE",
-        appearanceWindowID = appearanceWindowID,
-        label = label,
-        kind = "CHECKBOX",
-        window = frame,
-        target = checkButton,
-        priority = 82,
-        highlightRegions = { checkButton },
-        isEditable = function()
-            return frame:IsVisible()
-                and (not visibilityOwner or visibilityOwner:IsVisible())
-                and checkButton:IsVisible()
-        end,
-    })
-    return true
-end
-
 local function GetRoleDefinitions()
     local queueFrame = _G.LFDQueueFrame
     if not queueFrame then return {} end
@@ -166,14 +138,24 @@ local function GetRoleDefinitions()
 end
 
 function PVESkin:ApplyRoleCheckboxes()
+    local frame = _G.PVEFrame
     local queueFrame = _G.LFDQueueFrame
-    if not queueFrame then return false end
+    if not frame or not queueFrame then return false end
     local applied = false
     for _, definition in ipairs(GetRoleDefinitions()) do
         local roleButton = definition[3]
         local checkButton = roleButton and roleButton.checkButton
-        if RegisterCheckbox(definition[1], definition[2], checkButton, queueFrame) then
-            applied = true
+        if checkButton then
+            local id, label = definition[1], definition[2]
+            applied = NSkin:RegisterCheckbox({
+                id = id, module = "PVE", appearanceWindowID = IDs.Scope,
+                label = label, window = frame, target = checkButton,
+                priority = 82, highlightRegions = { checkButton },
+                isEditable = function()
+                    return frame:IsVisible() and queueFrame:IsVisible()
+                        and checkButton:IsVisible()
+                end,
+            }) ~= nil or applied
         end
     end
     return applied
@@ -185,14 +167,11 @@ function PVESkin:ApplyTypeDropdown()
     local dropdown = queueFrame and queueFrame.TypeDropdown
     if not frame or not dropdown then return false end
 
-    NSkin:SkinDropdown(dropdown, { style = NSkin:GetAppearanceStyle(
-        "button", IDs.Scope, IDs.TypeDropdown) })
-    NSkin:RegisterSimpleMovableElement({
+    NSkin:RegisterDropdown({
         id = IDs.TypeDropdown,
         module = "PVE",
         appearanceWindowID = IDs.Scope,
         label = "Dungeon Finder type dropdown",
-        kind = "DROPDOWN",
         window = frame,
         target = dropdown,
         priority = 80,
@@ -213,14 +192,11 @@ function PVESkin:ApplyFindGroupButton()
         or (queueFrame and queueFrame.FindGroupButton)
     if not frame or not queueFrame or not button then return false end
 
-    NSkin:SkinActionButton(button, { style = NSkin:GetAppearanceStyle(
-        "button", IDs.Scope, IDs.FindGroupButton) })
-    NSkin:RegisterSimpleMovableElement({
+    NSkin:RegisterActionButton({
         id = IDs.FindGroupButton,
         module = "PVE",
         appearanceWindowID = IDs.Scope,
         label = "Dungeon Finder find group button",
-        kind = "ACTION_BUTTON",
         window = frame,
         target = button,
         priority = 80,
@@ -241,14 +217,11 @@ function PVESkin:ApplySpecificScrollBar()
     local scrollBar = specific and specific.ScrollBar
     if not frame or not scrollBar then return false end
 
-    NSkin:SkinScrollBar(scrollBar, NSkin:GetAppearanceStyle(
-        "scrollBar", IDs.Scope, IDs.SpecificScrollBar))
-    NSkin:RegisterSimpleMovableElement({
+    NSkin:RegisterScrollBar({
         id = IDs.SpecificScrollBar,
         module = "PVE",
         appearanceWindowID = IDs.Scope,
         label = "Specific dungeon scroll bar",
-        kind = "SCROLLBAR",
         window = frame,
         target = scrollBar,
         priority = 80,
@@ -290,21 +263,29 @@ function PVESkin:ApplyRaidFinderControls()
     }
     for _, definition in ipairs(roleDefinitions) do
         local roleButton = definition[3]
-        RegisterCheckbox(definition[1], definition[2],
-            roleButton and roleButton.checkButton, queueFrame, scopeID)
+        local checkButton = roleButton and roleButton.checkButton
+        if checkButton then
+            local id, label = definition[1], definition[2]
+            NSkin:RegisterCheckbox({
+                id = id, module = "PVE", appearanceWindowID = scopeID,
+                label = label, window = frame, target = checkButton,
+                priority = 82, highlightRegions = { checkButton },
+                isEditable = function()
+                    return frame:IsVisible() and queueFrame:IsVisible()
+                        and checkButton:IsVisible()
+                end,
+            })
+        end
     end
 
     local dropdown = queueFrame.SelectionDropdown
         or _G.RaidFinderQueueFrameSelectionDropdown
     if dropdown then
-        NSkin:SkinDropdown(dropdown, { style = NSkin:GetAppearanceStyle(
-            "button", scopeID, IDs.RaidFinder.SelectionDropdown) })
-        NSkin:RegisterSimpleMovableElement({
+        NSkin:RegisterDropdown({
             id = IDs.RaidFinder.SelectionDropdown,
             module = "PVE",
             appearanceWindowID = scopeID,
             label = "Raid Finder selection dropdown",
-            kind = "DROPDOWN",
             window = frame,
             target = dropdown,
             priority = 80,
@@ -320,14 +301,11 @@ function PVESkin:ApplyRaidFinderControls()
     local button = _G.RaidFinderFrameFindRaidButton
         or raidFinder.FindRaidButton
     if button then
-        NSkin:SkinActionButton(button, { style = NSkin:GetAppearanceStyle(
-            "button", scopeID, IDs.RaidFinder.FindGroupButton) })
-        NSkin:RegisterSimpleMovableElement({
+        NSkin:RegisterActionButton({
             id = IDs.RaidFinder.FindGroupButton,
             module = "PVE",
             appearanceWindowID = scopeID,
             label = "Raid Finder find group button",
-            kind = "ACTION_BUTTON",
             window = frame,
             target = button,
             priority = 80,
@@ -355,14 +333,11 @@ local function ApplyPremadeActionButton(id, label, button, visibilityOwner)
     if not frame or not listFrame or not button then return false end
 
     local scopeID = IDs.PremadeGroups.Scope
-    NSkin:SkinActionButton(button, { style = NSkin:GetAppearanceStyle(
-        "button", scopeID, id) })
-    NSkin:RegisterSimpleMovableElement({
+    NSkin:RegisterActionButton({
         id = id,
         module = "PVE",
         appearanceWindowID = scopeID,
         label = label,
-        kind = "ACTION_BUTTON",
         window = frame,
         target = button,
         priority = 80,
@@ -411,17 +386,11 @@ function PVESkin:ApplyPremadeGroupControls()
 
         local searchBox = searchPanel.SearchBox
         if searchBox then
-            local style = NSkin:GetAppearanceStyle(
-                "searchBox", scopeID, ids.SearchBox)
-            NSkin:SkinSearchBox(searchBox, style,
-                NSkin:GetAppearanceBorderColor(
-                    "searchBox", style, scopeID, ids.SearchBox))
-            NSkin:RegisterSimpleMovableElement({
+            NSkin:RegisterSearchBox({
                 id = ids.SearchBox,
                 module = "PVE",
                 appearanceWindowID = scopeID,
                 label = "Premade Groups search bar",
-                kind = "SEARCH_GROUP",
                 window = frame,
                 target = searchBox,
                 priority = 82,
@@ -436,16 +405,11 @@ function PVESkin:ApplyPremadeGroupControls()
 
         local filterButton = searchPanel.FilterButton
         if filterButton then
-            NSkin:SkinDropdown(filterButton, {
-                style = NSkin:GetAppearanceStyle(
-                    "button", scopeID, ids.FilterButton),
-            })
-            NSkin:RegisterSimpleMovableElement({
+            NSkin:RegisterDropdown({
                 id = ids.FilterButton,
                 module = "PVE",
                 appearanceWindowID = scopeID,
                 label = "Premade Groups filter",
-                kind = "DROPDOWN",
                 window = frame,
                 target = filterButton,
                 priority = 81,
@@ -462,14 +426,11 @@ function PVESkin:ApplyPremadeGroupControls()
         local scrollBar = searchPanel.ScrollBar
             or (scrollBox and scrollBox.ScrollBar)
         if scrollBar then
-            NSkin:SkinScrollBar(scrollBar, NSkin:GetAppearanceStyle(
-                "scrollBar", scopeID, ids.ScrollBar))
-            NSkin:RegisterSimpleMovableElement({
+            NSkin:RegisterScrollBar({
                 id = ids.ScrollBar,
                 module = "PVE",
                 appearanceWindowID = scopeID,
                 label = "Premade Groups results scroll bar",
-                kind = "SCROLLBAR",
                 window = frame,
                 target = scrollBar,
                 priority = 80,
@@ -821,14 +782,11 @@ function PVESkin:ApplyPVPControls()
 
     local dropdown = honorFrame.TypeDropdown or _G.HonorFrameTypeDropdown
     if dropdown then
-        NSkin:SkinDropdown(dropdown, { style = NSkin:GetAppearanceStyle(
-            "button", ids.Scope, ids.TypeDropdown) })
-        NSkin:RegisterSimpleMovableElement({
+        NSkin:RegisterDropdown({
             id = ids.TypeDropdown,
             module = "PVE",
             appearanceWindowID = ids.Scope,
             label = "PvP Quick Match type dropdown",
-            kind = "DROPDOWN",
             window = frame,
             target = dropdown,
             priority = 80,
@@ -844,14 +802,11 @@ function PVESkin:ApplyPVPControls()
 
     local queueButton = honorFrame.QueueButton or _G.HonorFrameQueueButton
     if queueButton then
-        NSkin:SkinActionButton(queueButton, { style = NSkin:GetAppearanceStyle(
-            "button", ids.Scope, ids.QueueButton) })
-        NSkin:RegisterSimpleMovableElement({
+        NSkin:RegisterActionButton({
             id = ids.QueueButton,
             module = "PVE",
             appearanceWindowID = ids.Scope,
             label = "PvP Quick Match join battle button",
-            kind = "ACTION_BUTTON",
             window = frame,
             target = queueButton,
             priority = 80,

@@ -129,45 +129,17 @@ function FriendsListSkin:ApplyStatusDropdown()
             and friendsFrame.FriendsTabHeader.StatusDropdown)
     if not friendsFrame or not dropdown then return false end
 
-    NSkin:SkinDropdown(dropdown, { style = NSkin:GetAppearanceStyle(
-        "button", IDs.Scope, IDs.StatusDropdown) })
-    NSkin:RegisterSimpleMovableElement({
+    NSkin:RegisterDropdown({
         id = IDs.StatusDropdown,
         module = "FriendsList",
         appearanceWindowID = IDs.Scope,
         label = "Friends status dropdown",
-        kind = "DROPDOWN",
         window = friendsFrame,
         target = dropdown,
         priority = 80,
         highlightRegions = { dropdown },
         isEditable = function()
             return friendsFrame:IsVisible() and dropdown:IsVisible()
-        end,
-    })
-    return true
-end
-
-local function ApplyActionButton(id, label, button, scopeID, visibilityOwner)
-    local friendsFrame = _G.FriendsFrame
-    if not friendsFrame or not button then return false end
-    scopeID = scopeID or IDs.Scope
-    NSkin:SkinActionButton(button, { style = NSkin:GetAppearanceStyle(
-        "button", scopeID, id) })
-    NSkin:RegisterSimpleMovableElement({
-        id = id,
-        module = "FriendsList",
-        appearanceWindowID = scopeID,
-        label = label,
-        kind = "ACTION_BUTTON",
-        window = friendsFrame,
-        target = button,
-        priority = 70,
-        highlightRegions = { button },
-        isEditable = function()
-            return friendsFrame:IsVisible()
-                and (not visibilityOwner or visibilityOwner:IsVisible())
-                and button:IsVisible()
         end,
     })
     return true
@@ -180,17 +152,11 @@ function FriendsListSkin:ApplyWhoControls()
 
     local searchBox = _G.WhoFrameEditBox or whoFrame.EditBox
     if searchBox then
-        local style = NSkin:GetAppearanceStyle(
-            "searchBox", IDs.Who.Scope, IDs.Who.SearchBox)
-        NSkin:SkinSearchBox(searchBox, style,
-            NSkin:GetAppearanceBorderColor(
-                "searchBox", style, IDs.Who.Scope, IDs.Who.SearchBox))
-        NSkin:RegisterSimpleMovableElement({
+        NSkin:RegisterSearchBox({
             id = IDs.Who.SearchBox,
             module = "FriendsList",
             appearanceWindowID = IDs.Who.Scope,
             label = "Who List search bar",
-            kind = "SEARCH_GROUP",
             window = friendsFrame,
             target = searchBox,
             priority = 82,
@@ -203,14 +169,11 @@ function FriendsListSkin:ApplyWhoControls()
 
     local dropdown = _G.WhoFrameDropdown
     if dropdown then
-        NSkin:SkinDropdown(dropdown, { style = NSkin:GetAppearanceStyle(
-            "button", IDs.Who.Scope, IDs.Who.ZoneDropdown) })
-        NSkin:RegisterSimpleMovableElement({
+        NSkin:RegisterDropdown({
             id = IDs.Who.ZoneDropdown,
             module = "FriendsList",
             appearanceWindowID = IDs.Who.Scope,
             label = "Who List zone dropdown",
-            kind = "DROPDOWN",
             window = friendsFrame,
             target = dropdown,
             priority = 81,
@@ -223,14 +186,11 @@ function FriendsListSkin:ApplyWhoControls()
 
     local scrollBar = whoFrame.ScrollBar
     if scrollBar then
-        NSkin:SkinScrollBar(scrollBar, NSkin:GetAppearanceStyle(
-            "scrollBar", IDs.Who.Scope, IDs.Who.ScrollBar))
-        NSkin:RegisterSimpleMovableElement({
+        NSkin:RegisterScrollBar({
             id = IDs.Who.ScrollBar,
             module = "FriendsList",
             appearanceWindowID = IDs.Who.Scope,
             label = "Who List scroll bar",
-            kind = "SCROLLBAR",
             window = friendsFrame,
             target = scrollBar,
             priority = 80,
@@ -241,15 +201,27 @@ function FriendsListSkin:ApplyWhoControls()
         })
     end
 
-    ApplyActionButton(IDs.Who.RefreshButton,
-        "Who List refresh button", _G.WhoFrameWhoButton,
-        IDs.Who.Scope, whoFrame)
-    ApplyActionButton(IDs.Who.AddFriendButton,
-        "Who List add friend button", _G.WhoFrameAddFriendButton,
-        IDs.Who.Scope, whoFrame)
-    ApplyActionButton(IDs.Who.GroupInviteButton,
-        "Who List group invite button", _G.WhoFrameGroupInviteButton,
-        IDs.Who.Scope, whoFrame)
+    for _, definition in ipairs({
+        { IDs.Who.RefreshButton, "Who List refresh button", _G.WhoFrameWhoButton },
+        { IDs.Who.AddFriendButton, "Who List add friend button",
+            _G.WhoFrameAddFriendButton },
+        { IDs.Who.GroupInviteButton, "Who List group invite button",
+            _G.WhoFrameGroupInviteButton },
+    }) do
+        local id, label, button = unpack(definition)
+        if button then
+            NSkin:RegisterActionButton({
+                id = id, module = "FriendsList",
+                appearanceWindowID = IDs.Who.Scope, label = label,
+                window = friendsFrame, target = button, priority = 70,
+                highlightRegions = { button },
+                isEditable = function()
+                    return friendsFrame:IsVisible() and whoFrame:IsVisible()
+                        and button:IsVisible()
+                end,
+            })
+        end
+    end
 
     if hookedWhoFrame ~= whoFrame and whoFrame.HookScript then
         whoFrame:HookScript("OnShow", function()
@@ -268,35 +240,24 @@ function FriendsListSkin:ApplyRaidControls()
     local allAssist = _G.RaidFrameAllAssistCheckButton
     local allAssistText = _G.RaidFrameAllAssistCheckButtonText
     if allAssist then
-        NSkin:SkinCheckButton(allAssist, {
-            style = NSkin:GetAppearanceStyle(
-                "button", IDs.Raid.Scope, IDs.Raid.AllAssist),
-            text = allAssistText,
-        })
-        NSkin:RegisterSimpleMovableElement({
-            id = IDs.Raid.AllAssist,
-            module = "FriendsList",
+        NSkin:RegisterCheckbox({
+            id = IDs.Raid.AllAssist, module = "FriendsList",
             appearanceWindowID = IDs.Raid.Scope,
-            label = "Raid all-assist checkbox",
-            kind = "CHECKBOX",
-            window = friendsFrame,
-            target = allAssist,
-            priority = 82,
+            label = "Raid all-assist checkbox", window = friendsFrame,
+            target = allAssist, priority = 82,
             highlightRegions = { allAssist },
+            text = allAssistText,
             isEditable = function()
                 return raidFrame:IsVisible() and allAssist:IsVisible()
             end,
         })
     end
     if allAssistText then
-        NSkin:SkinText(allAssistText, NSkin:GetAppearanceStyle(
-            "text", IDs.Raid.Scope, IDs.Raid.AllAssistText))
-        NSkin:RegisterSimpleMovableElement({
+        NSkin:RegisterTextElement({
             id = IDs.Raid.AllAssistText,
             module = "FriendsList",
             appearanceWindowID = IDs.Raid.Scope,
             label = "Raid all-assist text",
-            kind = "TEXT",
             window = friendsFrame,
             target = allAssistText,
             priority = 83,
@@ -307,12 +268,26 @@ function FriendsListSkin:ApplyRaidControls()
         })
     end
 
-    ApplyActionButton(IDs.Raid.RaidInfoButton,
-        "Raid info button", _G.RaidFrameRaidInfoButton,
-        IDs.Raid.Scope, raidFrame)
-    ApplyActionButton(IDs.Raid.ConvertToRaidButton,
-        "Convert to raid button", _G.RaidFrameConvertToRaidButton,
-        IDs.Raid.Scope, raidFrame)
+    for _, definition in ipairs({
+        { IDs.Raid.RaidInfoButton, "Raid info button",
+            _G.RaidFrameRaidInfoButton },
+        { IDs.Raid.ConvertToRaidButton, "Convert to raid button",
+            _G.RaidFrameConvertToRaidButton },
+    }) do
+        local id, label, button = unpack(definition)
+        if button then
+            NSkin:RegisterActionButton({
+                id = id, module = "FriendsList",
+                appearanceWindowID = IDs.Raid.Scope, label = label,
+                window = friendsFrame, target = button, priority = 70,
+                highlightRegions = { button },
+                isEditable = function()
+                    return friendsFrame:IsVisible() and raidFrame:IsVisible()
+                        and button:IsVisible()
+                end,
+            })
+        end
+    end
 
     if hookedRaidFrame ~= raidFrame and raidFrame.HookScript then
         raidFrame:HookScript("OnShow", function()
@@ -328,20 +303,28 @@ function FriendsListSkin:ApplyQuickJoinControls()
     local quickJoinFrame = _G.QuickJoinFrame
     if not friendsFrame or not quickJoinFrame then return false end
 
-    ApplyActionButton(IDs.QuickJoin.RequestToJoinButton,
-        "Quick Join request button", quickJoinFrame.JoinQueueButton,
-        IDs.QuickJoin.Scope, quickJoinFrame)
+    local joinButton = quickJoinFrame.JoinQueueButton
+    if joinButton then
+        NSkin:RegisterActionButton({
+            id = IDs.QuickJoin.RequestToJoinButton, module = "FriendsList",
+            appearanceWindowID = IDs.QuickJoin.Scope,
+            label = "Quick Join request button", window = friendsFrame,
+            target = joinButton, priority = 70,
+            highlightRegions = { joinButton },
+            isEditable = function()
+                return friendsFrame:IsVisible() and quickJoinFrame:IsVisible()
+                    and joinButton:IsVisible()
+            end,
+        })
+    end
 
     local scrollBar = quickJoinFrame.ScrollBar
     if scrollBar then
-        NSkin:SkinScrollBar(scrollBar, NSkin:GetAppearanceStyle(
-            "scrollBar", IDs.QuickJoin.Scope, IDs.QuickJoin.ScrollBar))
-        NSkin:RegisterSimpleMovableElement({
+        NSkin:RegisterScrollBar({
             id = IDs.QuickJoin.ScrollBar,
             module = "FriendsList",
             appearanceWindowID = IDs.QuickJoin.Scope,
             label = "Quick Join scroll bar",
-            kind = "SCROLLBAR",
             window = friendsFrame,
             target = scrollBar,
             priority = 80,
@@ -362,12 +345,28 @@ function FriendsListSkin:ApplyQuickJoinControls()
 end
 
 function FriendsListSkin:ApplyActionButtons()
+    local friendsFrame = _G.FriendsFrame
+    if not friendsFrame then return false end
     local addFriend = _G.FriendsFrameAddFriendButton
     local sendMessage = _G.FriendsFrameSendMessageButton
-    local addApplied = ApplyActionButton(
-        IDs.AddFriendButton, "Add friend button", addFriend)
-    local sendApplied = ApplyActionButton(
-        IDs.SendMessageButton, "Send message button", sendMessage)
+    local addApplied = addFriend and NSkin:RegisterActionButton({
+        id = IDs.AddFriendButton, module = "FriendsList",
+        appearanceWindowID = IDs.Scope, label = "Add friend button",
+        window = friendsFrame, target = addFriend, priority = 70,
+        highlightRegions = { addFriend },
+        isEditable = function()
+            return friendsFrame:IsVisible() and addFriend:IsVisible()
+        end,
+    }) ~= nil
+    local sendApplied = sendMessage and NSkin:RegisterActionButton({
+        id = IDs.SendMessageButton, module = "FriendsList",
+        appearanceWindowID = IDs.Scope, label = "Send message button",
+        window = friendsFrame, target = sendMessage, priority = 70,
+        highlightRegions = { sendMessage },
+        isEditable = function()
+            return friendsFrame:IsVisible() and sendMessage:IsVisible()
+        end,
+    }) ~= nil
     return addApplied or sendApplied
 end
 
@@ -448,15 +447,11 @@ function FriendsListSkin:ApplyScrollBar()
     local scrollBar = GetFriendsListScrollBar()
     if not friendsFrame or not scrollBar then return false end
 
-    NSkin:SkinScrollBar(scrollBar, NSkin:GetAppearanceStyle(
-        "scrollBar", IDs.Scope, IDs.ScrollBar))
-
-    NSkin:RegisterSimpleMovableElement({
+    NSkin:RegisterScrollBar({
         id = IDs.ScrollBar,
         module = "FriendsList",
         appearanceWindowID = IDs.Scope,
         label = "Friends list scroll bar",
-        kind = "SCROLLBAR",
         window = friendsFrame,
         target = scrollBar,
         priority = 80,

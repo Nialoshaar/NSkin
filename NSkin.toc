@@ -20,6 +20,7 @@ Skins\NSkin_PVE.lua
 Skins\NSkin_GreatVault.lua
 Skins\NSkin_Merchant.lua
 Skins\NSkin_Transmogrification.lua
+Skins\NSkin_Character.lua
 Options\NSkin_WindowsOptions.lua
 Options\NSkin_Options.lua
 NSkin_SkinningMode.lua

@@ -1575,10 +1575,17 @@ function NSkin:SkinDropdown(dropdown, options)
     if dropdown.NineSlice then dropdown.NineSlice:Hide() end
     if dropdown.Text then
         dropdown.Text:SetTextColor(unpack(style.text))
-        dropdown.Text:SetAlpha(1)
+        dropdown.Text:SetAlpha(options.preserveText == false and 0 or 1)
         self:ApplyResolvedTypography(dropdown.Text, self:GetStyle("text"))
     end
     local data = self:GetSkinData(dropdown, COMPONENT_STATE)
+    if options.preserveText == false then
+        local label = self:SetFlatButtonLabel(
+            dropdown, options.label or "", options.textSize)
+        if label then label:SetTextColor(unpack(style.text)) end
+    elseif data.label then
+        data.label:Hide()
+    end
     local arrow = data.dropdownArrow
     if not arrow then
         arrow = dropdown:CreateTexture(nil, "OVERLAY")
@@ -1592,9 +1599,10 @@ function NSkin:SkinDropdown(dropdown, options)
     arrow:Show()
 
     data.dropdownMenuStyle = {
-        background = style.menuBackground or style.background,
+        background = style.menuBackground or self:GetStyle("window").background,
         border = options.border
             or self:GetComponentBorderColor("button", style),
+        textColor = style.menuText or style.text,
         textStyle = self:GetStyle("text"),
     }
     self:HookDropdownMenuSkin(dropdown, function()
@@ -1603,7 +1611,51 @@ function NSkin:SkinDropdown(dropdown, options)
     end)
 end
 
-local SHARED_DROPDOWN_MENU_BOTTOM_INSET = 8
+local SHARED_DROPDOWN_MENU_BOTTOM_INSET = 0
+local sharedDropdownMenu = {
+    owners = setmetatable({}, { __mode = "k" }),
+    managerHooked = false,
+    generateHooked = false,
+    activeOwner = nil,
+    activeMenu = nil,
+}
+
+local function HideSharedDropdownMenuBorder(menu)
+    local data = menu and NSkin:GetSkinData(menu, COMPONENT_STATE, false)
+    if data and data.sharedMenuBorderFrame then
+        data.sharedMenuBorderFrame:Hide()
+    end
+end
+
+local function TintSharedDropdownMenuTexture(texture, color)
+    if not texture then return end
+    if texture.SetDesaturated then texture:SetDesaturated(true) end
+    if texture.SetVertexColor then texture:SetVertexColor(unpack(color)) end
+end
+
+local function SkinSharedDropdownMenuEntry(frame, style)
+    if not frame then return end
+    local borderColor = style.border or NSkin:GetSharedBorderColor()
+    local textStyle = style.textStyle or NSkin:GetStyle("text")
+    local textColor = style.textColor or textStyle.color or textStyle.text
+        or NSkin:GetStyle("button").text
+    if frame.fontString and frame.fontString.SetTextColor then
+        frame.fontString:SetTextColor(unpack(textColor))
+        if frame.fontString.SetFontObject and textStyle.fontObject then
+            frame.fontString:SetFontObject(textStyle.fontObject)
+        end
+    end
+    if frame.highlight then
+        if frame.highlight.SetBlendMode then frame.highlight:SetBlendMode("BLEND") end
+        if frame.highlight.SetColorTexture then
+            frame.highlight:SetColorTexture(
+                borderColor[1], borderColor[2], borderColor[3], 0.14)
+        end
+    end
+    TintSharedDropdownMenuTexture(frame.leftTexture1, borderColor)
+    TintSharedDropdownMenuTexture(frame.leftTexture2, borderColor)
+    TintSharedDropdownMenuTexture(frame.arrow, borderColor)
+end
 
 function NSkin:SkinDropdownMenu(menu, style)
     if not menu or not menu.IsShown or not menu:IsShown() then return false end
@@ -1611,6 +1663,16 @@ function NSkin:SkinDropdownMenu(menu, style)
     local backgroundColor = style.background or self:GetStyle("window").background
     local borderColor = style.border or self:GetSharedBorderColor()
     local data = self:GetSkinData(menu, COMPONENT_STATE)
+
+    if menu == sharedDropdownMenu.activeMenu
+        and sharedDropdownMenu.activeOwner
+        and not (menu.IsProtected and menu:IsProtected())
+        and not (_G.InCombatLockdown and _G.InCombatLockdown())
+    then
+        menu:ClearAllPoints()
+        menu:SetPoint("TOPLEFT", sharedDropdownMenu.activeOwner,
+            "BOTTOMLEFT", 0, 0)
+    end
 
     for _, region in ipairs({ menu:GetRegions() }) do
         if region.IsObjectType and region:IsObjectType("Texture") then
@@ -1643,6 +1705,15 @@ function NSkin:SkinDropdownMenu(menu, style)
     self:SetPixelBorderSize(border, 1)
     self:SetPixelBorderShown(border, true)
     borderFrame:Show()
+    if not data.sharedMenuHideHooked and menu.HookScript then
+        menu:HookScript("OnHide", HideSharedDropdownMenuBorder)
+        data.sharedMenuHideHooked = true
+    end
+    if menu.GetChildren then
+        for _, child in ipairs({ menu:GetChildren() }) do
+            SkinSharedDropdownMenuEntry(child, style)
+        end
+    end
     return true
 end
 
@@ -1667,28 +1738,88 @@ function NSkin:SkinDropdownArrowButton(button, color)
     return true
 end
 
+local function GetRegisteredDropdownMenuStyle(dropdown)
+    local provider = dropdown and sharedDropdownMenu.owners[dropdown]
+    return type(provider) == "function" and provider() or provider
+end
+
+local function SkinRegisteredDropdownMenu(dropdown, menu)
+    if not dropdown or not sharedDropdownMenu.owners[dropdown]
+        or not menu or not menu.IsShown or not menu:IsShown()
+    then return false end
+    sharedDropdownMenu.activeOwner = dropdown
+    sharedDropdownMenu.activeMenu = menu
+    return NSkin:SkinDropdownMenu(
+        menu, GetRegisteredDropdownMenuStyle(dropdown))
+end
+
+local function HookSharedDropdownMenuManager()
+    if not _G.hooksecurefunc then return false end
+    if not sharedDropdownMenu.managerHooked and _G.Menu
+        and type(_G.Menu.GetManager) == "function"
+    then
+        local manager = _G.Menu.GetManager()
+        if manager and type(manager.OpenMenu) == "function" then
+            _G.hooksecurefunc(manager, "OpenMenu", function(self, ownerRegion)
+                if not sharedDropdownMenu.owners[ownerRegion] then return end
+                local menu = self:GetOpenMenu()
+                if not menu then return end
+                sharedDropdownMenu.activeOwner = ownerRegion
+                sharedDropdownMenu.activeMenu = menu
+                C_Timer.After(0, function()
+                    SkinRegisteredDropdownMenu(ownerRegion, menu)
+                end)
+            end)
+            sharedDropdownMenu.managerHooked = true
+        end
+    end
+    if not sharedDropdownMenu.generateHooked and _G.MenuStyle1Mixin
+        and type(_G.MenuStyle1Mixin.Generate) == "function"
+    then
+        _G.hooksecurefunc(_G.MenuStyle1Mixin, "Generate", function(menu)
+            local owner = sharedDropdownMenu.activeOwner
+            local root = sharedDropdownMenu.activeMenu
+            if not owner or not root or menu == root or not root:IsShown() then
+                return
+            end
+            C_Timer.After(0, function()
+                if root:IsShown() and menu:IsShown() then
+                    NSkin:SkinDropdownMenu(
+                        menu, GetRegisteredDropdownMenuStyle(owner))
+                end
+            end)
+        end)
+        sharedDropdownMenu.generateHooked = true
+    end
+    return sharedDropdownMenu.managerHooked
+end
+
 function NSkin:HookDropdownMenuSkin(dropdown, styleProvider)
-    if not dropdown or not _G.hooksecurefunc then return false end
+    if not dropdown then return false end
     local data = self:GetSkinData(dropdown, COMPONENT_STATE)
     data.sharedMenuStyleProvider = styleProvider
+    sharedDropdownMenu.owners[dropdown] = styleProvider
+    HookSharedDropdownMenuManager()
+    if not _G.hooksecurefunc then return false end
     if data.sharedMenuSkinHooked then return true end
-    _G.hooksecurefunc(dropdown, "OnMenuOpened", function(_, menu)
-        menu = menu or dropdown.menu
-        C_Timer.After(0, function()
-            if not menu or not menu:IsShown() then return end
-            local state = NSkin:GetSkinData(dropdown, COMPONENT_STATE, false)
-            local provider = state and state.sharedMenuStyleProvider
-            NSkin:SkinDropdownMenu(menu,
-                type(provider) == "function" and provider() or provider)
+    if type(dropdown.OnMenuOpened) == "function" then
+        _G.hooksecurefunc(dropdown, "OnMenuOpened", function(_, menu)
+            menu = menu or dropdown.menu
+            C_Timer.After(0, function()
+                SkinRegisteredDropdownMenu(dropdown, menu)
+            end)
         end)
-    end)
-    _G.hooksecurefunc(dropdown, "OnMenuClosed", function(_, menu)
-        menu = menu or dropdown.menu
-        local menuData = menu and NSkin:GetSkinData(menu, COMPONENT_STATE, false)
-        if menuData and menuData.sharedMenuBorderFrame then
-            menuData.sharedMenuBorderFrame:Hide()
-        end
-    end)
+    end
+    if type(dropdown.OnMenuClosed) == "function" then
+        _G.hooksecurefunc(dropdown, "OnMenuClosed", function(_, menu)
+            menu = menu or dropdown.menu
+            HideSharedDropdownMenuBorder(menu)
+            if sharedDropdownMenu.activeOwner == dropdown then
+                sharedDropdownMenu.activeOwner = nil
+                sharedDropdownMenu.activeMenu = nil
+            end
+        end)
+    end
     data.sharedMenuSkinHooked = true
     return true
 end
@@ -3761,6 +3892,126 @@ function NSkin:RegisterSimpleMovableElement(definition)
     return self:GetSkinningElement(definition.id)
 end
 
+local SHARED_SKIN_ADAPTERS = {
+    ACTION_BUTTON = function(self, skinMethod, target, style, borderColor,
+        definition)
+        local options = {}
+        for key, value in pairs(definition.skinOptions or {}) do
+            options[key] = value
+        end
+        options.style = style
+        if options.border == nil then options.border = borderColor end
+        skinMethod(self, target, options)
+    end,
+    CHECKBOX = function(self, skinMethod, target, style, borderColor, definition)
+        local options = {}
+        for key, value in pairs(definition.skinOptions or {}) do
+            options[key] = value
+        end
+        options.style = style
+        if options.border == nil then options.border = borderColor end
+        if options.text == nil then options.text = definition.text end
+        skinMethod(self, target, options)
+    end,
+    DROPDOWN = function(self, skinMethod, target, style, borderColor, definition)
+        local options = {}
+        for key, value in pairs(definition.skinOptions or {}) do
+            options[key] = value
+        end
+        options.style = style
+        if options.border == nil then options.border = borderColor end
+        skinMethod(self, target, options)
+    end,
+    SEARCH_ACCESSORY = function(self, skinMethod, target, style, borderColor,
+        definition)
+        local options = {}
+        for key, value in pairs(definition.skinOptions or {}) do
+            options[key] = value
+        end
+        options.style = style
+        if options.border == nil then options.border = borderColor end
+        skinMethod(self, target, options)
+    end,
+    SCROLLBAR = function(self, skinMethod, target, style)
+        skinMethod(self, target, style)
+    end,
+    SEARCH_GROUP = function(self, skinMethod, target, style, borderColor)
+        skinMethod(self, target, style, borderColor)
+    end,
+    TEXT = function(self, skinMethod, target, style)
+        skinMethod(self, target, style)
+    end,
+}
+
+function NSkin:SkinTypedElement(typeID, definition)
+    if type(definition) ~= "table" or not definition.target then return false end
+    local typeDefinition = self:GetSharedElementType(typeID)
+    local adapter = SHARED_SKIN_ADAPTERS[typeID]
+    local skinMethod = typeDefinition and self[typeDefinition.skin]
+    if not typeDefinition or not adapter or type(skinMethod) ~= "function" then
+        return false
+    end
+    local style = self:GetAppearanceStyle(typeDefinition.style,
+        definition.appearanceWindowID, definition.id)
+    local borderColor = self:GetAppearanceBorderColor(
+        typeDefinition.style, style, definition.appearanceWindowID, definition.id)
+    if type(definition.skinAdapter) == "function" then
+        definition.skinAdapter(self, definition.target, style, borderColor,
+            definition)
+    else
+        adapter(self, skinMethod, definition.target, style, borderColor,
+            definition)
+    end
+    return true
+end
+
+function NSkin:RegisterTypedElement(typeID, definition)
+    if type(definition) ~= "table" or type(definition.id) ~= "string"
+        or not definition.target
+    then return nil end
+    local typeDefinition = self:GetSharedElementType(typeID)
+    if not typeDefinition or not self:SkinTypedElement(typeID, definition) then
+        return nil
+    end
+
+    local element = {}
+    for key, value in pairs(definition) do element[key] = value end
+    element.kind = typeID
+    if not element.editorOptions then
+        element.editorOptions = self:CreateEditorOptionsPreset(
+            typeDefinition.editorPreset or typeID,
+            element.extraEditorOptions)
+    end
+    if element.preserveAnchorSpan == nil then
+        element.preserveAnchorSpan = typeDefinition.preserveAnchorSpan
+    end
+    return self:RegisterSimpleMovableElement(element)
+end
+
+function NSkin:RegisterActionButton(definition)
+    return self:RegisterTypedElement("ACTION_BUTTON", definition)
+end
+
+function NSkin:RegisterCheckbox(definition)
+    return self:RegisterTypedElement("CHECKBOX", definition)
+end
+
+function NSkin:RegisterDropdown(definition)
+    return self:RegisterTypedElement("DROPDOWN", definition)
+end
+
+function NSkin:RegisterScrollBar(definition)
+    return self:RegisterTypedElement("SCROLLBAR", definition)
+end
+
+function NSkin:RegisterSearchBox(definition)
+    return self:RegisterTypedElement("SEARCH_GROUP", definition)
+end
+
+function NSkin:RegisterTextElement(definition)
+    return self:RegisterTypedElement("TEXT", definition)
+end
+
 function NSkin:RegisterSideTab(definition)
     if type(definition) ~= "table" or type(definition.id) ~= "string"
         or not definition.target
@@ -3975,7 +4226,7 @@ end
 local function RegisterControllerElement(controller, id, label, target, options)
     if not id or not target then return end
     options = options or {}
-    NSkin:RegisterMovableElement({
+    local elementDefinition = {
         id = id,
         module = controller.module,
         appearanceWindowID = controller.appearanceWindowID,
@@ -3994,7 +4245,13 @@ local function RegisterControllerElement(controller, id, label, target, options)
         snapTarget = options.snapTarget,
         livePreview = options.livePreview,
         draggable = options.draggable,
-    })
+        skinOptions = options.skinOptions,
+    }
+    if SHARED_SKIN_ADAPTERS[options.kind] then
+        NSkin:RegisterTypedElement(options.kind, elementDefinition)
+    else
+        NSkin:RegisterMovableElement(elementDefinition)
+    end
     return skinningElements[id]
 end
 
@@ -4257,6 +4514,18 @@ function NSkin:RegisterAccessoryGroup(definition)
         NSkin:NotifySkinningElementBoundsChanged(self.ids.accessory)
     end
     function controller:Refresh()
+        NSkin:SkinTypedElement("SEARCH_GROUP", {
+            id = self.ids.primary,
+            target = self.primary,
+            appearanceWindowID = self.appearanceWindowID,
+            skinOptions = self.primarySkinOptions,
+        })
+        NSkin:SkinTypedElement("SEARCH_ACCESSORY", {
+            id = self.ids.accessory,
+            target = self.accessory,
+            appearanceWindowID = self.appearanceWindowID,
+            skinOptions = self.accessorySkinOptions,
+        })
         local mode = self:GetMode()
         self.accessory:SetShown(mode ~= "HIDDEN")
         if mode == "GROUPED" then
@@ -4303,6 +4572,10 @@ function NSkin:RegisterAccessoryGroup(definition)
     local elementDefinitions = definition.elements or {}
     local primaryDefinition = elementDefinitions.primary or {}
     local accessoryDefinition = elementDefinitions.accessory or {}
+    controller.primarySkinOptions = primaryDefinition.skinOptions
+        or definition.primarySkinOptions
+    controller.accessorySkinOptions = accessoryDefinition.skinOptions
+        or definition.accessorySkinOptions
     controller.groupedHighlightRegions = { controller.primary, controller.accessory }
     controller.primaryHighlightRegion = { controller.primary }
     local primaryEditorOptions = NSkin:CreateEditorOptionsPreset(
@@ -4322,6 +4595,7 @@ function NSkin:RegisterAccessoryGroup(definition)
             applyPlacement = accessoryDefinition.applyPlacement,
             livePreview = accessoryDefinition.livePreview,
             draggable = accessoryDefinition.draggable,
+            skinOptions = controller.accessorySkinOptions,
         })
     local primary = RegisterControllerElement(controller, definition.ids.primary,
         definition.primaryLabel or "Search", definition.primary, {
@@ -4346,6 +4620,7 @@ function NSkin:RegisterAccessoryGroup(definition)
             end,
             livePreview = primaryDefinition.livePreview,
             draggable = primaryDefinition.draggable,
+            skinOptions = controller.primarySkinOptions,
             highlightRegions = function()
                 return controller:GetMode() == "GROUPED"
                     and controller.groupedHighlightRegions
