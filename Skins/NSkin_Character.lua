@@ -15,6 +15,30 @@ local IDs = {
     },
     ReputationDropdown = "Character.Reputation.FilterDropdown",
     CurrencyDropdown = "Character.Currency.FilterDropdown",
+    CurrencyOptions = {
+        Scope = "Character.CurrencyOptions",
+        Window = "Character.CurrencyOptions.Window",
+        HeaderControls = "Character.CurrencyOptions.HeaderControls",
+        UnusedCheckbox = "Character.CurrencyOptions.UnusedCheckbox",
+        BackpackCheckbox = "Character.CurrencyOptions.BackpackCheckbox",
+        TransferButton = "Character.CurrencyOptions.TransferButton",
+    },
+    CurrencyTransfer = {
+        Scope = "Character.CurrencyTransfer",
+        Window = "Character.CurrencyTransfer.Window",
+        HeaderControls = "Character.CurrencyTransfer.HeaderControls",
+        SourceDropdown = "Character.CurrencyTransfer.SourceDropdown",
+        AmountInput = "Character.CurrencyTransfer.AmountInput",
+        MaxButton = "Character.CurrencyTransfer.MaxButton",
+        ConfirmButton = "Character.CurrencyTransfer.ConfirmButton",
+        CancelButton = "Character.CurrencyTransfer.CancelButton",
+    },
+    CurrencyTransferLog = {
+        Scope = "Character.CurrencyTransferLog",
+        Window = "Character.CurrencyTransferLog.Window",
+        HeaderControls = "Character.CurrencyTransferLog.HeaderControls",
+        ScrollBar = "Character.CurrencyTransferLog.ScrollBar",
+    },
 }
 
 local initialized = false
@@ -27,6 +51,18 @@ local hookedShowOwners = setmetatable({}, { __mode = "k" })
 
 NSkin:RegisterAppearanceScope(IDs.Scope, {
     label = "Character",
+})
+NSkin:RegisterAppearanceScope(IDs.CurrencyOptions.Scope, {
+    label = "Currency Options",
+    parent = IDs.Scope,
+})
+NSkin:RegisterAppearanceScope(IDs.CurrencyTransfer.Scope, {
+    label = "Currency Transfer",
+    parent = IDs.Scope,
+})
+NSkin:RegisterAppearanceScope(IDs.CurrencyTransferLog.Scope, {
+    label = "Currency Transfer Log",
+    parent = IDs.Scope,
 })
 
 local function GetTabs()
@@ -58,6 +94,43 @@ local function HookOwnerRefresh(owner)
     end
     owner:HookScript("OnShow", QueueApply)
     hookedShowOwners[owner] = true
+end
+
+local function GetCheckboxText(checkBox)
+    if not checkBox then return nil end
+    return checkBox.Text or checkBox.text
+        or (checkBox.GetName and _G[checkBox:GetName() .. "Text"])
+end
+
+local function ConcealTexture(texture)
+    if not texture then return end
+    texture:SetAlpha(0)
+    texture:Hide()
+end
+
+local function ApplyAuxiliaryWindowChrome(frame, scopeID, windowID,
+    headerControlsID, label, title)
+    if not frame then return false end
+
+    NSkin:SkinStandardWindowChrome({
+        frame = frame,
+        appearanceWindowID = scopeID,
+        elementID = windowID,
+        headerControlsID = headerControlsID,
+        title = title,
+    })
+    NSkin:RegisterSkinningElement(windowID, {
+        label = label,
+        kind = "WINDOW",
+        module = "Character",
+        appearanceWindowID = scopeID,
+        window = frame,
+        target = frame,
+        priority = 0,
+        draggable = false,
+    })
+    HookOwnerRefresh(frame)
+    return true
 end
 
 function CharacterSkin:ApplyWindowChrome(frame)
@@ -184,7 +257,8 @@ function CharacterSkin:ApplyReputationDropdown(frame)
         id = IDs.ReputationDropdown, module = "Character",
         appearanceWindowID = IDs.Scope,
         label = "Reputation filter dropdown", window = frame,
-        target = dropdown, priority = 84,
+        target = dropdown, menus = { "MENU_REPUTATION_FRAME_FILTER" },
+        priority = 84,
         highlightRegions = { dropdown },
         isEditable = function()
             return frame:IsVisible() and reputation:IsVisible()
@@ -202,7 +276,8 @@ function CharacterSkin:ApplyCurrencyDropdown(frame)
         id = IDs.CurrencyDropdown, module = "Character",
         appearanceWindowID = IDs.Scope,
         label = "Currency filter dropdown", window = frame,
-        target = dropdown, priority = 85,
+        target = dropdown, menus = { "MENU_CURRENCY_FRAME_FILTER" },
+        priority = 85,
         highlightRegions = { dropdown },
         isEditable = function()
             return frame:IsVisible() and currency:IsVisible()
@@ -213,6 +288,155 @@ function CharacterSkin:ApplyCurrencyDropdown(frame)
     return result ~= nil
 end
 
+function CharacterSkin:ApplyCurrencyOptions()
+    local popup = _G.TokenFramePopup
+    if not popup then return false end
+
+    -- SecureDialogBorderTemplate is not part of the standard window chrome,
+    -- but its artwork is. Preserve the frame while suppressing that artwork.
+    NSkin:ConcealWindowArtwork(popup.Border)
+    local applied = ApplyAuxiliaryWindowChrome(
+        popup, IDs.CurrencyOptions.Scope, IDs.CurrencyOptions.Window,
+        IDs.CurrencyOptions.HeaderControls, "Currency Options window",
+        popup.Title)
+
+    local unused = popup.InactiveCheckbox
+    local backpack = popup.BackpackCheckbox
+    local transfer = popup.CurrencyTransferToggleButton
+    applied = NSkin:RegisterCheckbox({
+        id = IDs.CurrencyOptions.UnusedCheckbox, module = "Character",
+        appearanceWindowID = IDs.CurrencyOptions.Scope,
+        label = "Show unused currencies", window = popup,
+        target = unused, text = GetCheckboxText(unused), priority = 70,
+        highlightRegions = { unused },
+        isEditable = function()
+            return popup:IsVisible() and unused:IsVisible()
+        end,
+    }) ~= nil or applied
+    applied = NSkin:RegisterCheckbox({
+        id = IDs.CurrencyOptions.BackpackCheckbox, module = "Character",
+        appearanceWindowID = IDs.CurrencyOptions.Scope,
+        label = "Show currency on backpack", window = popup,
+        target = backpack, text = GetCheckboxText(backpack), priority = 71,
+        highlightRegions = { backpack },
+        isEditable = function()
+            return popup:IsVisible() and backpack:IsVisible()
+        end,
+    }) ~= nil or applied
+    applied = NSkin:RegisterActionButton({
+        id = IDs.CurrencyOptions.TransferButton, module = "Character",
+        appearanceWindowID = IDs.CurrencyOptions.Scope,
+        label = "Transfer currency button", window = popup,
+        target = transfer, priority = 72,
+        highlightRegions = { transfer },
+        isEditable = function()
+            return popup:IsVisible() and transfer:IsVisible()
+        end,
+    }) ~= nil or applied
+    return applied
+end
+
+function CharacterSkin:ApplyCurrencyTransfer()
+    local transfer = _G.CurrencyTransferMenu
+    local content = transfer and transfer.Content
+    if not transfer or not content then return false end
+
+    ConcealTexture(transfer.Background)
+    NSkin:ConcealWindowArtwork(transfer.Inset)
+    local applied = ApplyAuxiliaryWindowChrome(
+        transfer, IDs.CurrencyTransfer.Scope, IDs.CurrencyTransfer.Window,
+        IDs.CurrencyTransfer.HeaderControls, "Currency Transfer window")
+
+    local sourceSelector = content.SourceSelector
+    local sourceDropdown = sourceSelector and sourceSelector.Dropdown
+    local amountSelector = content.AmountSelector
+    local amountInput = amountSelector and amountSelector.InputBox
+    local maxButton = amountSelector and amountSelector.MaxQuantityButton
+    local confirmButton = content.ConfirmButton
+    local cancelButton = content.CancelButton
+    applied = NSkin:RegisterDropdown({
+        id = IDs.CurrencyTransfer.SourceDropdown, module = "Character",
+        appearanceWindowID = IDs.CurrencyTransfer.Scope,
+        label = "Currency source dropdown", window = transfer,
+        target = sourceDropdown, menus = { "MENU_CURRENCY_TRANSFER" },
+        priority = 70, highlightRegions = { sourceDropdown },
+        isEditable = function()
+            return transfer:IsVisible() and sourceDropdown:IsVisible()
+        end,
+    }) ~= nil or applied
+    applied = NSkin:RegisterSearchBox({
+        id = IDs.CurrencyTransfer.AmountInput, module = "Character",
+        appearanceWindowID = IDs.CurrencyTransfer.Scope,
+        label = "Currency transfer amount", window = transfer,
+        target = amountInput, priority = 71,
+        highlightRegions = { amountInput },
+        isEditable = function()
+            return transfer:IsVisible() and amountInput:IsVisible()
+        end,
+    }) ~= nil or applied
+    applied = NSkin:RegisterActionButton({
+        id = IDs.CurrencyTransfer.MaxButton, module = "Character",
+        appearanceWindowID = IDs.CurrencyTransfer.Scope,
+        label = "Maximum currency button", window = transfer,
+        target = maxButton, priority = 72,
+        highlightRegions = { maxButton },
+        isEditable = function()
+            return transfer:IsVisible() and maxButton:IsVisible()
+        end,
+    }) ~= nil or applied
+    applied = NSkin:RegisterActionButton({
+        id = IDs.CurrencyTransfer.ConfirmButton, module = "Character",
+        appearanceWindowID = IDs.CurrencyTransfer.Scope,
+        label = "Confirm currency transfer", window = transfer,
+        target = confirmButton, priority = 73,
+        highlightRegions = { confirmButton },
+        isEditable = function()
+            return transfer:IsVisible() and confirmButton:IsVisible()
+        end,
+    }) ~= nil or applied
+    applied = NSkin:RegisterActionButton({
+        id = IDs.CurrencyTransfer.CancelButton, module = "Character",
+        appearanceWindowID = IDs.CurrencyTransfer.Scope,
+        label = "Cancel currency transfer", window = transfer,
+        target = cancelButton, priority = 74,
+        highlightRegions = { cancelButton },
+        isEditable = function()
+            return transfer:IsVisible() and cancelButton:IsVisible()
+        end,
+    }) ~= nil or applied
+    return applied
+end
+
+function CharacterSkin:ApplyCurrencyTransferLog()
+    local log = _G.CurrencyTransferLog
+    if not log then return false end
+
+    ConcealTexture(log.Background)
+    NSkin:ConcealWindowArtwork(log.Inset)
+    local applied = ApplyAuxiliaryWindowChrome(
+        log, IDs.CurrencyTransferLog.Scope, IDs.CurrencyTransferLog.Window,
+        IDs.CurrencyTransferLog.HeaderControls, "Currency Transfer Log window")
+    local scrollBar = log.ScrollBar
+    applied = NSkin:RegisterScrollBar({
+        id = IDs.CurrencyTransferLog.ScrollBar, module = "Character",
+        appearanceWindowID = IDs.CurrencyTransferLog.Scope,
+        label = "Currency transfer log scroll bar", window = log,
+        target = scrollBar, priority = 70,
+        highlightRegions = { scrollBar },
+        isEditable = function()
+            return log:IsVisible() and scrollBar:IsVisible()
+        end,
+    }) ~= nil or applied
+    return applied
+end
+
+function CharacterSkin:ApplyCurrencyWindows()
+    local applied = self:ApplyCurrencyOptions()
+    applied = self:ApplyCurrencyTransfer() or applied
+    applied = self:ApplyCurrencyTransferLog() or applied
+    return applied
+end
+
 function CharacterSkin:Apply()
     local frame = _G.CharacterFrame
     if not frame then return false end
@@ -221,6 +445,7 @@ function CharacterSkin:Apply()
     self:ApplyPaperDollControls(frame)
     self:ApplyReputationDropdown(frame)
     self:ApplyCurrencyDropdown(frame)
+    self:ApplyCurrencyWindows()
     return true
 end
 
@@ -249,7 +474,7 @@ function CharacterSkin:InitializeCurrency()
     local frame = _G.CharacterFrame
     if not frame or not _G.TokenFrame then return false end
     HookOwnerRefresh(_G.TokenFrame)
-    return self:ApplyCurrencyDropdown(frame)
+    return self:Apply()
 end
 
 NSkin:RegisterWindowSkin({

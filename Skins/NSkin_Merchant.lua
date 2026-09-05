@@ -51,6 +51,7 @@ function MerchantSkin:ApplyFilterDropdown()
         label = "Merchant filter dropdown",
         window = frame,
         target = dropdown,
+        menus = { "MENU_MERCHANT_FRAME" },
         priority = 80,
         highlightRegions = { dropdown },
         isEditable = function()

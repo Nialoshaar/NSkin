@@ -1599,12 +1599,15 @@ function NSkin:SkinDropdown(dropdown, options)
     arrow:Show()
 
     data.dropdownMenuStyle = {
-        background = style.menuBackground or self:GetStyle("window").background,
-        border = options.border
-            or self:GetComponentBorderColor("button", style),
-        textColor = style.menuText or style.text,
+        -- Popup menus deliberately use one canonical palette instead of
+        -- inheriting per-owner button overrides. This is the established
+        -- Adventure Guide expansion-menu treatment shared by every dropdown.
+        background = self:GetStyle("window").background,
+        border = self:GetSharedBorderColor(),
+        textColor = self:GetStyle("button").text,
         textStyle = self:GetStyle("text"),
     }
+    self:RegisterDropdownMenuSkin(options.menus)
     self:HookDropdownMenuSkin(dropdown, function()
         local state = NSkin:GetSkinData(dropdown, COMPONENT_STATE, false)
         return state and state.dropdownMenuStyle
@@ -1618,7 +1621,130 @@ local sharedDropdownMenu = {
     generateHooked = false,
     activeOwner = nil,
     activeMenu = nil,
+    registeredTags = {},
+    pendingTags = {},
 }
+local sharedDropdownMenuFontObjects = {}
+local sharedDropdownMenuFontObjectCount = 0
+
+local function GetDropdownMenuFontObject(fontString, textStyle)
+    if not fontString or not fontString.GetFont or not _G.CreateFont then
+        return nil
+    end
+    local sourceFont, sourceSize, sourceOutline = fontString:GetFont()
+    local globalFont, resolvedSize, globalOutline = NSkin:GetResolvedTypography(
+        textStyle or NSkin:GetStyle("text"))
+    local font = globalFont or sourceFont
+    local size = tonumber(resolvedSize) or tonumber(sourceSize)
+    local outline = globalOutline ~= nil and globalOutline or sourceOutline
+    if not font or not size then return nil end
+
+    local key = table.concat({ font, tostring(size), tostring(outline or "") },
+        "\031")
+    local fontObject = sharedDropdownMenuFontObjects[key]
+    if not fontObject then
+        sharedDropdownMenuFontObjectCount = sharedDropdownMenuFontObjectCount + 1
+        fontObject = _G.CreateFont(
+            "NSkinSharedDropdownMenuFont" .. sharedDropdownMenuFontObjectCount)
+        sharedDropdownMenuFontObjects[key] = fontObject
+    end
+    fontObject:SetFont(font, size, outline)
+    return fontObject
+end
+
+local function SkinDropdownMenuDescription(frame, description)
+    if not frame then return end
+    local style = NSkin:GetStyle("text")
+    local fontString = frame.fontString
+    local fontObject = GetDropdownMenuFontObject(fontString, style)
+    if fontObject and fontString and fontString.SetFontObject then
+        fontString:SetFontObject(fontObject)
+    end
+    if fontString and fontString.SetTextColor then
+        fontString:SetTextColor(unpack(NSkin:GetStyle("button").text))
+    end
+
+    local borderColor = NSkin:GetSharedBorderColor()
+    if frame.highlight and frame.highlight.SetColorTexture then
+        if frame.highlight.SetBlendMode then
+            frame.highlight:SetBlendMode("BLEND")
+        end
+        frame.highlight:SetColorTexture(
+            borderColor[1], borderColor[2], borderColor[3], 0.14)
+    end
+
+    -- Blizzard also builds selection rows with CreateButton + SetIsSelected,
+    -- so the generated selector region is the reliable common signal here.
+    local selector = description and description.IsSelected
+        and frame.leftTexture1
+    if selector then
+        local selected = description.IsSelected and description:IsSelected()
+        selector:SetTexture(NSkin.mediaPath
+            .. (selected and "checkbox-checked.png"
+                or "checkbox-unchecked.png"))
+        selector:SetTexCoord(0, 1, 0, 1)
+        selector:ClearAllPoints()
+        selector:SetPoint("LEFT")
+        selector:SetSize(16, 16)
+        NSkin:ConfigureOwnedPixelTexture(selector)
+        selector:SetVertexColor(unpack(selected
+            and NSkin:GetAccentColor() or borderColor))
+        if fontString then
+            fontString:ClearAllPoints()
+            fontString:SetPoint("LEFT", selector, "RIGHT", 7, 0)
+        end
+    end
+    if frame.leftTexture2 then frame.leftTexture2:Hide() end
+end
+
+local function AddDropdownMenuInitializers(_, rootDescription)
+    local function Visit(description)
+        if not description or not description.EnumerateElementDescriptions then
+            return
+        end
+        for _, child in description:EnumerateElementDescriptions() do
+            if child.AddInitializer then
+                local elementDescription = child
+                child:AddInitializer(function(frame)
+                    SkinDropdownMenuDescription(frame, elementDescription)
+                end)
+            end
+            Visit(child)
+        end
+    end
+    Visit(rootDescription)
+end
+
+local function FlushPendingDropdownMenuTags()
+    if not _G.Menu or type(_G.Menu.ModifyMenu) ~= "function" then
+        return false
+    end
+    for tag in pairs(sharedDropdownMenu.pendingTags) do
+        if not sharedDropdownMenu.registeredTags[tag] then
+            _G.Menu.ModifyMenu(tag, AddDropdownMenuInitializers)
+            sharedDropdownMenu.registeredTags[tag] = true
+        end
+        sharedDropdownMenu.pendingTags[tag] = nil
+    end
+    return true
+end
+
+function NSkin:RegisterDropdownMenuSkin(menus)
+    if type(menus) == "string" then menus = { menus } end
+    if type(menus) ~= "table" then
+        FlushPendingDropdownMenuTags()
+        return false
+    end
+    for _, tag in ipairs(menus) do
+        if type(tag) == "string" and tag ~= ""
+            and not sharedDropdownMenu.registeredTags[tag]
+        then
+            sharedDropdownMenu.pendingTags[tag] = true
+        end
+    end
+    FlushPendingDropdownMenuTags()
+    return true
+end
 
 local function HideSharedDropdownMenuBorder(menu)
     local data = menu and NSkin:GetSkinData(menu, COMPONENT_STATE, false)
@@ -1641,9 +1767,6 @@ local function SkinSharedDropdownMenuEntry(frame, style)
         or NSkin:GetStyle("button").text
     if frame.fontString and frame.fontString.SetTextColor then
         frame.fontString:SetTextColor(unpack(textColor))
-        if frame.fontString.SetFontObject and textStyle.fontObject then
-            frame.fontString:SetFontObject(textStyle.fontObject)
-        end
     end
     if frame.highlight then
         if frame.highlight.SetBlendMode then frame.highlight:SetBlendMode("BLEND") end
@@ -1652,8 +1775,6 @@ local function SkinSharedDropdownMenuEntry(frame, style)
                 borderColor[1], borderColor[2], borderColor[3], 0.14)
         end
     end
-    TintSharedDropdownMenuTexture(frame.leftTexture1, borderColor)
-    TintSharedDropdownMenuTexture(frame.leftTexture2, borderColor)
     TintSharedDropdownMenuTexture(frame.arrow, borderColor)
 end
 
@@ -3920,6 +4041,7 @@ local SHARED_SKIN_ADAPTERS = {
         end
         options.style = style
         if options.border == nil then options.border = borderColor end
+        options.menus = definition.menus
         skinMethod(self, target, options)
     end,
     SEARCH_ACCESSORY = function(self, skinMethod, target, style, borderColor,
@@ -3930,6 +4052,7 @@ local SHARED_SKIN_ADAPTERS = {
         end
         options.style = style
         if options.border == nil then options.border = borderColor end
+        options.menus = definition.menus
         skinMethod(self, target, options)
     end,
     SCROLLBAR = function(self, skinMethod, target, style)
@@ -4246,6 +4369,7 @@ local function RegisterControllerElement(controller, id, label, target, options)
         livePreview = options.livePreview,
         draggable = options.draggable,
         skinOptions = options.skinOptions,
+        menus = options.menus,
     }
     if SHARED_SKIN_ADAPTERS[options.kind] then
         NSkin:RegisterTypedElement(options.kind, elementDefinition)
@@ -4525,6 +4649,7 @@ function NSkin:RegisterAccessoryGroup(definition)
             target = self.accessory,
             appearanceWindowID = self.appearanceWindowID,
             skinOptions = self.accessorySkinOptions,
+            menus = self.accessoryMenus,
         })
         local mode = self:GetMode()
         self.accessory:SetShown(mode ~= "HIDDEN")
@@ -4576,6 +4701,8 @@ function NSkin:RegisterAccessoryGroup(definition)
         or definition.primarySkinOptions
     controller.accessorySkinOptions = accessoryDefinition.skinOptions
         or definition.accessorySkinOptions
+    controller.accessoryMenus = accessoryDefinition.menus
+        or definition.accessoryMenus
     controller.groupedHighlightRegions = { controller.primary, controller.accessory }
     controller.primaryHighlightRegion = { controller.primary }
     local primaryEditorOptions = NSkin:CreateEditorOptionsPreset(
@@ -4596,6 +4723,7 @@ function NSkin:RegisterAccessoryGroup(definition)
             livePreview = accessoryDefinition.livePreview,
             draggable = accessoryDefinition.draggable,
             skinOptions = controller.accessorySkinOptions,
+            menus = controller.accessoryMenus,
         })
     local primary = RegisterControllerElement(controller, definition.ids.primary,
         definition.primaryLabel or "Search", definition.primary, {

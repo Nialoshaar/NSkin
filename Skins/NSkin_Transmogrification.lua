@@ -1,6 +1,7 @@
 local _, NSkin = ...
 
 local TransmogrificationSkin = NSkin:NewModule("Transmogrification")
+local SITUATION_DROPDOWN_MENUS = { "MENU_TRANSMOG_SITUATION" }
 
 local IDs = {
     Scope = "Transmogrification",
@@ -259,6 +260,7 @@ function TransmogrificationSkin:ApplySearch(itemsFrame, frame)
             accessoryLabel = "Transmogrification filter",
             primaryPriority = 80,
             accessoryPriority = 90,
+            accessoryMenus = { "MENU_TRANSMOG_ITEMS_FILTER" },
             visibilityFrame = itemsFrame,
             anchorGrouped = function(primary, accessory)
                 local anchor = State.groupedAnchor
@@ -305,6 +307,7 @@ function TransmogrificationSkin:ApplySetsSearch(setsFrame, frame)
             accessoryLabel = "Transmogrification Sets filter",
             primaryPriority = 85,
             accessoryPriority = 95,
+            accessoryMenus = { "MENU_TRANSMOG_SETS_FILTER" },
             visibilityFrame = setsFrame,
             anchorGrouped = function(primary, accessory)
                 local anchor = State.Sets.groupedAnchor
@@ -503,7 +506,10 @@ function TransmogrificationSkin:ApplySituations(situationsFrame, frame)
             if dropdown then
                 CaptureSituationDropdownBaseline(dropdown)
                 State.Situations.dropdowns[dropdown] = true
-                NSkin:SkinDropdown(dropdown, { style = style })
+                NSkin:SkinDropdown(dropdown, {
+                    style = style,
+                    menus = SITUATION_DROPDOWN_MENUS,
+                })
             end
         end
     end

@@ -136,6 +136,7 @@ function FriendsListSkin:ApplyStatusDropdown()
         label = "Friends status dropdown",
         window = friendsFrame,
         target = dropdown,
+        menus = { "MENU_FRIENDS_STATUS" },
         priority = 80,
         highlightRegions = { dropdown },
         isEditable = function()
@@ -176,6 +177,7 @@ function FriendsListSkin:ApplyWhoControls()
             label = "Who List zone dropdown",
             window = friendsFrame,
             target = dropdown,
+            menus = { "MENU_FRIENDS_WHO" },
             priority = 81,
             highlightRegions = { dropdown },
             isEditable = function()

@@ -174,6 +174,7 @@ function PVESkin:ApplyTypeDropdown()
         label = "Dungeon Finder type dropdown",
         window = frame,
         target = dropdown,
+        menus = { "MENU_LFD_FRAME" },
         priority = 80,
         highlightRegions = { dropdown },
         isEditable = function()

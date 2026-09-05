@@ -2,6 +2,12 @@ local _, NSkin = ...
 
 local EncounterJournalSkin = NSkin:NewModule("EncounterJournal")
 local ENCOUNTER_JOURNAL_STATE = "encounterJournal"
+local DROPDOWN_MENUS = {
+    "MENU_EJ_EXPANSION",
+    "MENU_EJ_DIFFICULTY",
+    "MENU_CLASS_FILTER",
+    "MENU_EJ_LOOT_SLOT_FILTER",
+}
 local IDs = {
     AppearanceWindow = "EncounterJournal",
     Window = "EncounterJournal.Window",
@@ -117,91 +123,6 @@ local journeysScrollBarRegistered = false
 local travelersScrollBarRegistered = false
 local travelersFilterScrollBarRegistered = false
 local journeysListHooked = false
-local expansionMenuTypographyRegistered = false
-local expansionMenuFontObjects = {}
-local expansionMenuFontObjectCount = 0
-
-local function GetExpansionMenuFontObject(fontString)
-    if not fontString or not fontString.GetFont then return nil end
-    local sourceFont, sourceSize, sourceOutline = fontString:GetFont()
-    local globalFont, _, globalOutline = NSkin:GetResolvedTypography(
-        NSkin:GetStyle("text"))
-    local font = globalFont or sourceFont
-    local size = tonumber(sourceSize)
-    local outline = globalOutline ~= nil and globalOutline or sourceOutline
-    if not font or not size then return nil end
-
-    local key = table.concat({ font, tostring(size), tostring(outline or "") }, "\031")
-    local fontObject = expansionMenuFontObjects[key]
-    if not fontObject then
-        expansionMenuFontObjectCount = expansionMenuFontObjectCount + 1
-        fontObject = CreateFont(
-            "NSkinEncounterJournalDropdownFont"
-                .. expansionMenuFontObjectCount)
-        expansionMenuFontObjects[key] = fontObject
-    end
-    fontObject:SetFont(font, size, outline)
-    return fontObject
-end
-
-local function RegisterExpansionMenuTypography()
-    if expansionMenuTypographyRegistered
-        or not _G.Menu
-        or not _G.Menu.ModifyMenu
-    then
-        return
-    end
-
-    local function StyleMenuDescriptions(_, rootDescription)
-        for _, description in
-            rootDescription:EnumerateElementDescriptions()
-        do
-            description:AddInitializer(function(frame)
-                    local fontString = frame and frame.fontString
-                    local fontObject = GetExpansionMenuFontObject(fontString)
-                    if fontObject then
-                        fontString:SetFontObject(fontObject)
-                    end
-
-                    local radioBase = frame and frame.leftTexture1
-                    if radioBase then
-                        local selected = description:IsSelected()
-                        radioBase:SetTexture(NSkin.mediaPath
-                            .. (selected and "checkbox-checked.png"
-                                or "checkbox-unchecked.png"))
-                        radioBase:SetTexCoord(0, 1, 0, 1)
-                        radioBase:ClearAllPoints()
-                        radioBase:SetPoint("LEFT")
-                        radioBase:SetSize(16, 16)
-                        NSkin:ConfigureOwnedPixelTexture(radioBase)
-                        radioBase:SetVertexColor(unpack(selected
-                            and NSkin:GetAccentColor()
-                            or NSkin:GetSharedBorderColor()))
-                        if fontString then
-                            fontString:ClearAllPoints()
-                            fontString:SetPoint(
-                                "LEFT", radioBase, "RIGHT", 7, 0)
-                        end
-                    end
-
-                    local radioCheck = frame and frame.leftTexture2
-                    if radioCheck then
-                        radioCheck:Hide()
-                    end
-            end)
-        end
-    end
-
-    -- Both selectors are Blizzard_Menu dropdowns. Decorating their
-    -- descriptions keeps all popup-row work inside the supported compositor
-    -- initializer path.
-    _G.Menu.ModifyMenu("MENU_EJ_EXPANSION", StyleMenuDescriptions)
-    _G.Menu.ModifyMenu("MENU_EJ_DIFFICULTY", StyleMenuDescriptions)
-    _G.Menu.ModifyMenu("MENU_CLASS_FILTER", StyleMenuDescriptions)
-    _G.Menu.ModifyMenu("MENU_EJ_LOOT_SLOT_FILTER", StyleMenuDescriptions)
-    expansionMenuTypographyRegistered = true
-end
-
 local function GetAdventureGuideTabs(journal)
     local tabs = {}
     for _, key in ipairs({ "JourneysTab", "MonthlyActivitiesTab",
@@ -1416,6 +1337,7 @@ function EncounterJournalSkin:StyleJourneys(forceShown)
             window = journal,
             target = dropdown,
             priority = 80,
+            menus = DROPDOWN_MENUS,
             highlightRegions = { dropdown },
             isEditable = function()
                 return journeys:IsVisible() and dropdown:IsVisible()
@@ -1516,7 +1438,7 @@ function EncounterJournalSkin:Initialize()
     end
 
     hookedScrollBox = scrollBox
-    RegisterExpansionMenuTypography()
+    NSkin:RegisterDropdownMenuSkin(DROPDOWN_MENUS)
     self:RegisterSharedNavigationBar()
     if not windowRegistered then
         NSkin:RegisterSkinningElement(IDs.Window, {
