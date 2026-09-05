@@ -1665,19 +1665,17 @@ local function RefreshSectionCardGlyph(target)
     local state = NSkin:GetSkinData(target, SECTION_CARD_STATE, false)
     if not state or not state.glyph then return end
     if not state.collapsible then
-        state.glyph.horizontal:Hide()
-        state.glyph.vertical:Hide()
+        state.glyph:Hide()
         return
     end
 
     local expanded = ResolveSectionCardExpanded(target, state.options or {})
     if type(expanded) ~= "boolean" then
-        state.glyph.horizontal:Hide()
-        state.glyph.vertical:Hide()
+        state.glyph:Hide()
         return
     end
-    state.glyph.horizontal:Show()
     state.glyph.vertical:SetShown(not expanded)
+    state.glyph:Show()
 end
 
 local function EnforceSectionCardTextAppearance(textRegion)
@@ -1784,10 +1782,9 @@ function NSkin:SkinSectionCard(target, options)
 
     if state.collapsible then
         if not state.glyph then
-            local glyph = {
-                horizontal = target:CreateTexture(nil, "OVERLAY", nil, 7),
-                vertical = target:CreateTexture(nil, "OVERLAY", nil, 7),
-            }
+            local glyph = CreateFrame("Frame", nil, target)
+            glyph.horizontal = glyph:CreateTexture(nil, "OVERLAY", nil, 7)
+            glyph.vertical = glyph:CreateTexture(nil, "OVERLAY", nil, 7)
             self:ConfigureOwnedPixelTexture(glyph.horizontal)
             self:ConfigureOwnedPixelTexture(glyph.vertical)
             state.glyph = glyph
@@ -1795,22 +1792,31 @@ function NSkin:SkinSectionCard(target, options)
         local glyph = state.glyph
         local glyphSize = math.max(1, tonumber(style.glyphSize) or 14)
         local strokeSize = math.max(1, math.floor(glyphSize / 7 + 0.5))
-        local offsetX = tonumber(style.glyphOffsetX) or 0
-        local offsetY = tonumber(style.glyphOffsetY) or 0
+        glyph:SetSize(glyphSize, glyphSize)
+        if glyph.SetFrameLevel and target.GetFrameLevel then
+            glyph:SetFrameLevel(target:GetFrameLevel() + 10)
+        end
+        glyph:ClearAllPoints()
+        glyph:SetPoint(
+            "RIGHT",
+            target,
+            "RIGHT",
+            tonumber(style.glyphOffsetX) or 0,
+            tonumber(style.glyphOffsetY) or 0
+        )
         local glyphColor = self:GetResolvedAppearanceColor(style, "glyph")
         glyph.horizontal:ClearAllPoints()
-        glyph.horizontal:SetPoint(
-            "CENTER", target, "RIGHT", offsetX, offsetY)
-        glyph.horizontal:SetSize(glyphSize, strokeSize)
+        glyph.horizontal:SetPoint("LEFT", glyph, "LEFT", 0, 0)
+        glyph.horizontal:SetPoint("RIGHT", glyph, "RIGHT", 0, 0)
+        glyph.horizontal:SetHeight(strokeSize)
         glyph.horizontal:SetColorTexture(unpack(glyphColor))
         glyph.vertical:ClearAllPoints()
-        glyph.vertical:SetPoint(
-            "CENTER", target, "RIGHT", offsetX, offsetY)
-        glyph.vertical:SetSize(strokeSize, glyphSize)
+        glyph.vertical:SetPoint("TOP", glyph, "TOP", 0, 0)
+        glyph.vertical:SetPoint("BOTTOM", glyph, "BOTTOM", 0, 0)
+        glyph.vertical:SetWidth(strokeSize)
         glyph.vertical:SetColorTexture(unpack(glyphColor))
     elseif state.glyph then
-        state.glyph.horizontal:Hide()
-        state.glyph.vertical:Hide()
+        state.glyph:Hide()
     end
 
     if not state.presentationHooksInstalled and target.HookScript then
