@@ -10,13 +10,15 @@ local IDs = {
     NavigationBar = "Map.NavigationBar",
     QuestLogSearchBox = "Map.QuestLog.SearchBox",
     QuestLogScrollBar = "Map.QuestLog.ScrollBar",
+    EventsScrollBar = "Map.Events.ScrollBar",
+    MapLegendScrollBar = "Map.Legend.ScrollBar",
     SideTabs = "Map.SideTabs",
 }
 
 local initialized = false
 local showHooked = false
 local applyPending = false
-local hookedScrollBar
+local hookedScrollBars = setmetatable({}, { __mode = "k" })
 
 NSkin:RegisterAppearanceScope(IDs.Scope, {
     label = "Map & Quest Log",
@@ -30,6 +32,17 @@ end
 local function GetMapSearchBox()
     local questScrollFrame = _G.QuestScrollFrame
     return questScrollFrame and questScrollFrame.SearchBox
+end
+
+local function GetEventsScrollBar()
+    local questMapFrame = _G.QuestMapFrame
+    local eventsFrame = questMapFrame and questMapFrame.EventsFrame
+    return eventsFrame and eventsFrame.ScrollBar, eventsFrame
+end
+
+local function GetMapLegendScrollBar()
+    local legend = _G.MapLegendScrollFrame
+    return legend and legend.ScrollBar, legend
 end
 
 local function HideDecorativeTexture(texture)
@@ -138,31 +151,46 @@ function MapSkin:ApplyWindowChrome()
     return true
 end
 
-function MapSkin:ApplyScrollBar()
+local function RegisterMapScrollBar(id, label, scrollBar, owner, priority)
     local map = _G.WorldMapFrame
-    local scrollBar = GetMapScrollBar()
-    if not map or not scrollBar then return false end
+    if not map or not owner or not scrollBar then return false end
 
     NSkin:RegisterScrollBar({
-        id = IDs.QuestLogScrollBar,
+        id = id,
         module = "Map",
         appearanceWindowID = IDs.Scope,
-        label = "Map quest log scroll bar",
+        label = label,
         window = map,
         target = scrollBar,
-        priority = 80,
+        priority = priority,
         highlightRegions = { scrollBar },
         isEditable = function()
-            return map:IsVisible() and scrollBar:IsVisible()
+            return map:IsVisible() and owner:IsVisible()
+                and scrollBar:IsVisible()
         end,
     })
-    if hookedScrollBar ~= scrollBar and scrollBar.HookScript then
+    if not hookedScrollBars[scrollBar] and scrollBar.HookScript then
         scrollBar:HookScript("OnShow", function()
             MapSkin:QueueScrollBarApply()
         end)
-        hookedScrollBar = scrollBar
+        hookedScrollBars[scrollBar] = true
     end
     return true
+end
+
+function MapSkin:ApplyScrollBar()
+    local scrollBar = GetMapScrollBar()
+    return RegisterMapScrollBar(IDs.QuestLogScrollBar,
+        "Map quest log scroll bar", scrollBar, _G.QuestScrollFrame, 80)
+end
+
+function MapSkin:ApplyPanelScrollBars()
+    local eventsScrollBar, eventsFrame = GetEventsScrollBar()
+    local legendScrollBar, legendFrame = GetMapLegendScrollBar()
+    local applied = RegisterMapScrollBar(IDs.EventsScrollBar,
+        "Map events scroll bar", eventsScrollBar, eventsFrame, 81)
+    return RegisterMapScrollBar(IDs.MapLegendScrollBar,
+        "Map legend scroll bar", legendScrollBar, legendFrame, 82) or applied
 end
 
 function MapSkin:ApplySearchBox()
@@ -268,6 +296,7 @@ function MapSkin:QueueScrollBarApply()
         MapSkin:ApplySearchBox()
         MapSkin:ApplyQuestListSurface()
         MapSkin:ApplyScrollBar()
+        MapSkin:ApplyPanelScrollBars()
     end)
 end
 
@@ -300,6 +329,7 @@ function MapSkin:Initialize()
     self:ApplySearchBox()
     self:ApplyQuestListSurface()
     self:ApplyScrollBar()
+    self:ApplyPanelScrollBars()
     if map:IsShown() then self:QueueScrollBarApply() end
     return true
 end
@@ -312,6 +342,7 @@ function MapSkin:RefreshAppearance()
         self:ApplySearchBox()
         self:ApplyQuestListSurface()
         self:ApplyScrollBar()
+        self:ApplyPanelScrollBars()
     end
 end
 

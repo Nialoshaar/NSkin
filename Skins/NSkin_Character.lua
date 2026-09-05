@@ -14,6 +14,7 @@ local IDs = {
         SaveButton = "Character.EquipmentManager.SaveButton",
     },
     ReputationDropdown = "Character.Reputation.FilterDropdown",
+    ReputationScrollBar = "Character.Reputation.ScrollBar",
     ReputationDetails = {
         Scope = "Character.ReputationDetails",
         Window = "Character.ReputationDetails.Window",
@@ -26,6 +27,7 @@ local IDs = {
         ViewRenownButton = "Character.ReputationDetails.ViewRenownButton",
     },
     CurrencyDropdown = "Character.Currency.FilterDropdown",
+    CurrencyScrollBar = "Character.Currency.ScrollBar",
     CurrencyOptions = {
         Scope = "Character.CurrencyOptions",
         Window = "Character.CurrencyOptions.Window",
@@ -269,7 +271,7 @@ end
 function CharacterSkin:ApplyReputationDropdown(frame)
     local reputation = _G.ReputationFrame
     local dropdown = reputation and reputation.filterDropdown
-    local result = NSkin:RegisterDropdown({
+    local applied = NSkin:RegisterDropdown({
         id = IDs.ReputationDropdown, module = "Character",
         appearanceWindowID = IDs.Scope,
         label = "Reputation filter dropdown", window = frame,
@@ -281,8 +283,19 @@ function CharacterSkin:ApplyReputationDropdown(frame)
                 and dropdown:IsVisible()
         end,
     })
-    if result then HookOwnerRefresh(reputation) end
-    return result ~= nil
+    applied = NSkin:RegisterScrollBar({
+        id = IDs.ReputationScrollBar, module = "Character",
+        appearanceWindowID = IDs.Scope,
+        label = "Reputation scroll bar", window = frame,
+        target = reputation and reputation.ScrollBar, priority = 85,
+        highlightRegions = { reputation and reputation.ScrollBar },
+        isEditable = function()
+            return frame:IsVisible() and reputation:IsVisible()
+                and reputation.ScrollBar:IsVisible()
+        end,
+    }) or applied
+    if applied then HookOwnerRefresh(reputation) end
+    return applied ~= nil
 end
 
 function CharacterSkin:ApplyReputationDetails()
@@ -364,7 +377,7 @@ end
 function CharacterSkin:ApplyCurrencyDropdown(frame)
     local currency = _G.TokenFrame
     local dropdown = currency and currency.filterDropdown
-    local result = NSkin:RegisterDropdown({
+    local applied = NSkin:RegisterDropdown({
         id = IDs.CurrencyDropdown, module = "Character",
         appearanceWindowID = IDs.Scope,
         label = "Currency filter dropdown", window = frame,
@@ -376,8 +389,19 @@ function CharacterSkin:ApplyCurrencyDropdown(frame)
                 and dropdown:IsVisible()
         end,
     })
-    if result then HookOwnerRefresh(currency) end
-    return result ~= nil
+    applied = NSkin:RegisterScrollBar({
+        id = IDs.CurrencyScrollBar, module = "Character",
+        appearanceWindowID = IDs.Scope,
+        label = "Currency scroll bar", window = frame,
+        target = currency and currency.ScrollBar, priority = 86,
+        highlightRegions = { currency and currency.ScrollBar },
+        isEditable = function()
+            return frame:IsVisible() and currency:IsVisible()
+                and currency.ScrollBar:IsVisible()
+        end,
+    }) or applied
+    if applied then HookOwnerRefresh(currency) end
+    return applied ~= nil
 end
 
 function CharacterSkin:ApplyCurrencyOptions()

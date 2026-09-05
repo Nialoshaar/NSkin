@@ -2580,7 +2580,8 @@ function NSkin:ConcealWindowArtwork(frame)
     ConcealWindowRegion(frame.TopRightCorner)
 end
 
-function NSkin:SkinWindow(frame, backgroundAnchor, style, borderColor)
+function NSkin:SkinWindow(frame, backgroundAnchor, style, borderColor,
+    backgroundOwner)
     if not frame then return nil end
 
     local data = self:GetSkinData(frame, COMPONENT_STATE)
@@ -2593,11 +2594,18 @@ function NSkin:SkinWindow(frame, backgroundAnchor, style, borderColor)
     self:ConcealWindowArtwork(frame)
     style = style or self:GetStyle("window")
     local anchor = backgroundAnchor or frame
+    backgroundOwner = backgroundOwner or frame
     local background = data.windowBackground
+    if background and data.windowBackgroundOwner ~= backgroundOwner then
+        background:Hide()
+        background = nil
+    end
     if not background then
-        background = frame:CreateTexture(nil, "BACKGROUND", nil, 0)
+        background = backgroundOwner:CreateTexture(
+            nil, "BACKGROUND", nil, 0)
         data.windowBackground = background
     end
+    data.windowBackgroundOwner = backgroundOwner
     data.windowBackgroundAnchor = anchor
     LayoutWindowBackground(frame, data, anchor)
     local backgroundColor = self:GetResolvedAppearanceColor(style, "background")
@@ -2923,7 +2931,8 @@ function NSkin:SkinStandardWindowChrome(definition)
         self:ConcealWindowArtwork(definition.artworkFrame)
     end
     local background, border = self:SkinWindow(
-        frame, definition.backgroundAnchor, style, borderColor)
+        frame, definition.backgroundAnchor, style, borderColor,
+        definition.backgroundOwner)
     local header = self:SkinWindowHeader(frame, style.header)
 
     local title = definition.title

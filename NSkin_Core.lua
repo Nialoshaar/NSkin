@@ -47,6 +47,14 @@ NSkin.moduleDefinitions = {
         key = "Character", label = "Character",
         defaultEnabled = true, optionsGroup = "windows", optionsOrder = 100,
     },
+    {
+        key = "HousingDashboard", label = "Housing Dashboard",
+        defaultEnabled = true, optionsGroup = "windows", optionsOrder = 110,
+    },
+    {
+        key = "Communities", label = "Guild & Communities",
+        defaultEnabled = true, optionsGroup = "windows", optionsOrder = 120,
+    },
 }
 
 NSkin.moduleDefinitionByKey = {}
