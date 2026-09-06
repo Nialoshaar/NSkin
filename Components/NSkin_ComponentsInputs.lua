@@ -200,10 +200,6 @@ function NSkin:SkinActionButton(button, options)
     RefreshActionButton(button)
 end
 
-local SECTION_CARD_STATE = "sectionCardComponent"
-local SECTION_CARD_BACKGROUND = "NSkinSectionCardBackground"
-local SECTION_CARD_TEXT_STATE = "sectionCardTextAppearance"
-
 function NSkin:SkinCheckButton(checkButton, options)
     if not checkButton or not checkButton.CreateTexture then return false end
     options = options or {}
@@ -672,4 +668,3 @@ function NSkin:RegisterAccessoryGroup(definition)
     controller:Refresh()
     return controller
 end
-
