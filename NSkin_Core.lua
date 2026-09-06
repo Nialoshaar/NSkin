@@ -75,6 +75,10 @@ NSkin.moduleDefinitions = {
         key = "MidnightFeatures", label = "Midnight Features",
         defaultEnabled = true, optionsGroup = "windows", optionsOrder = 170,
     },
+    {
+        key = "TradingPost", label = "Trading Post",
+        defaultEnabled = true, optionsGroup = "windows", optionsOrder = 180,
+    },
 }
 
 NSkin.moduleDefinitionByKey = {}
