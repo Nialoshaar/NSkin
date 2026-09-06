@@ -28,7 +28,7 @@ NSkin.moduleDefinitions = {
         optionsGroup = "windows", optionsOrder = 50,
     },
     {
-        key = "PVE", label = "Dungeons & Raids", defaultEnabled = true,
+        key = "GroupFinder", label = "Dungeons & Raids", defaultEnabled = true,
         optionsGroup = "windows", optionsOrder = 60,
     },
     {
@@ -62,6 +62,10 @@ NSkin.moduleDefinitions = {
     {
         key = "CooldownManager", label = "Cooldown Manager",
         defaultEnabled = true, optionsGroup = "windows", optionsOrder = 140,
+    },
+    {
+        key = "ItemUpgrade", label = "Item Upgrade",
+        defaultEnabled = true, optionsGroup = "windows", optionsOrder = 150,
     },
 }
 

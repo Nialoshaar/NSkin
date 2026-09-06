@@ -19,9 +19,10 @@ Skins\NSkin_Communities.lua
 Skins\NSkin_GameMenu.lua
 Skins\NSkin_CooldownManager.lua
 Skins\NSkin_FriendsList.lua
-Skins\NSkin_PVE.lua
+Skins\NSkin_GroupFinder.lua
 Skins\NSkin_GreatVault.lua
 Skins\NSkin_Merchant.lua
+Skins\NSkin_ItemUpgrade.lua
 Skins\NSkin_Transmogrification.lua
 Skins\NSkin_Character.lua
 Skins\NSkin_HousingDashboard.lua

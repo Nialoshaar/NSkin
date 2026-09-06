@@ -1,53 +1,53 @@
 local _, NSkin = ...
 
-local PVESkin = NSkin:NewModule("PVE")
+local PVESkin = NSkin:NewModule("GroupFinder")
 
 local IDs = {
-    Scope = "PVE",
-    Window = "PVE.Window",
-    HeaderControls = "PVE.HeaderControls",
-    TypeDropdown = "PVE.DungeonFinder.TypeDropdown",
-    FindGroupButton = "PVE.DungeonFinder.FindGroupButton",
-    SpecificScrollBar = "PVE.DungeonFinder.SpecificScrollBar",
-    BottomTabs = "PVE.BottomTabs",
-    DungeonSections = "PVE.DungeonFinder.DungeonSectionCheckboxes",
-    SpecificDungeons = "PVE.DungeonFinder.SpecificDungeonCheckboxes",
+    Scope = "GroupFinder",
+    Window = "GroupFinder.Window",
+    HeaderControls = "GroupFinder.HeaderControls",
+    TypeDropdown = "GroupFinder.DungeonFinder.TypeDropdown",
+    FindGroupButton = "GroupFinder.DungeonFinder.FindGroupButton",
+    SpecificScrollBar = "GroupFinder.DungeonFinder.SpecificScrollBar",
+    BottomTabs = "GroupFinder.BottomTabs",
+    DungeonSections = "GroupFinder.DungeonFinder.DungeonSectionCheckboxes",
+    SpecificDungeons = "GroupFinder.DungeonFinder.SpecificDungeonCheckboxes",
     RaidFinder = {
-        Scope = "PVE.RaidFinder",
-        SelectionDropdown = "PVE.RaidFinder.SelectionDropdown",
-        FindGroupButton = "PVE.RaidFinder.FindGroupButton",
+        Scope = "GroupFinder.RaidFinder",
+        SelectionDropdown = "GroupFinder.RaidFinder.SelectionDropdown",
+        FindGroupButton = "GroupFinder.RaidFinder.FindGroupButton",
         Roles = {
-            Tank = "PVE.RaidFinder.Role.Tank",
-            Healer = "PVE.RaidFinder.Role.Healer",
-            Damage = "PVE.RaidFinder.Role.Damage",
-            Leader = "PVE.RaidFinder.Role.Leader",
+            Tank = "GroupFinder.RaidFinder.Role.Tank",
+            Healer = "GroupFinder.RaidFinder.Role.Healer",
+            Damage = "GroupFinder.RaidFinder.Role.Damage",
+            Leader = "GroupFinder.RaidFinder.Role.Leader",
         },
     },
     PremadeGroups = {
-        Scope = "PVE.PremadeGroups",
+        Scope = "GroupFinder.PremadeGroups",
         CategoryStartGroupButton =
-            "PVE.PremadeGroups.Category.StartGroupButton",
+            "GroupFinder.PremadeGroups.Category.StartGroupButton",
         CategoryFindGroupButton =
-            "PVE.PremadeGroups.Category.FindGroupButton",
-        BackButton = "PVE.PremadeGroups.Search.BackButton",
-        SignUpButton = "PVE.PremadeGroups.Search.SignUpButton",
+            "GroupFinder.PremadeGroups.Category.FindGroupButton",
+        BackButton = "GroupFinder.PremadeGroups.Search.BackButton",
+        SignUpButton = "GroupFinder.PremadeGroups.Search.SignUpButton",
         EmptyStartGroupButton =
-            "PVE.PremadeGroups.Search.EmptyStartGroupButton",
-        SearchBox = "PVE.PremadeGroups.Search.SearchBox",
-        FilterButton = "PVE.PremadeGroups.Search.FilterButton",
-        ScrollBar = "PVE.PremadeGroups.Search.ScrollBar",
+            "GroupFinder.PremadeGroups.Search.EmptyStartGroupButton",
+        SearchBox = "GroupFinder.PremadeGroups.Search.SearchBox",
+        FilterButton = "GroupFinder.PremadeGroups.Search.FilterButton",
+        ScrollBar = "GroupFinder.PremadeGroups.Search.ScrollBar",
     },
     PVP = {
-        Scope = "PVE.PVP",
-        RoleCheckboxes = "PVE.PVP.QuickMatch.RoleCheckboxes",
-        TypeDropdown = "PVE.PVP.QuickMatch.TypeDropdown",
-        QueueButton = "PVE.PVP.QuickMatch.QueueButton",
+        Scope = "GroupFinder.PVP",
+        RoleCheckboxes = "GroupFinder.PVP.QuickMatch.RoleCheckboxes",
+        TypeDropdown = "GroupFinder.PVP.QuickMatch.TypeDropdown",
+        QueueButton = "GroupFinder.PVP.QuickMatch.QueueButton",
     },
     Roles = {
-        Tank = "PVE.DungeonFinder.Role.Tank",
-        Healer = "PVE.DungeonFinder.Role.Healer",
-        Damage = "PVE.DungeonFinder.Role.Damage",
-        Leader = "PVE.DungeonFinder.Role.Leader",
+        Tank = "GroupFinder.DungeonFinder.Role.Tank",
+        Healer = "GroupFinder.DungeonFinder.Role.Healer",
+        Damage = "GroupFinder.DungeonFinder.Role.Damage",
+        Leader = "GroupFinder.DungeonFinder.Role.Leader",
     },
 }
 
@@ -148,7 +148,7 @@ function PVESkin:ApplyRoleCheckboxes()
         if checkButton then
             local id, label = definition[1], definition[2]
             applied = NSkin:RegisterCheckbox({
-                id = id, module = "PVE", appearanceWindowID = IDs.Scope,
+                id = id, module = "GroupFinder", appearanceWindowID = IDs.Scope,
                 label = label, window = frame, target = checkButton,
                 priority = 82, highlightRegions = { checkButton },
                 isEditable = function()
@@ -169,7 +169,7 @@ function PVESkin:ApplyTypeDropdown()
 
     NSkin:RegisterDropdown({
         id = IDs.TypeDropdown,
-        module = "PVE",
+        module = "GroupFinder",
         appearanceWindowID = IDs.Scope,
         label = "Dungeon Finder type dropdown",
         window = frame,
@@ -195,7 +195,7 @@ function PVESkin:ApplyFindGroupButton()
 
     NSkin:RegisterActionButton({
         id = IDs.FindGroupButton,
-        module = "PVE",
+        module = "GroupFinder",
         appearanceWindowID = IDs.Scope,
         label = "Dungeon Finder find group button",
         window = frame,
@@ -220,7 +220,7 @@ function PVESkin:ApplySpecificScrollBar()
 
     NSkin:RegisterScrollBar({
         id = IDs.SpecificScrollBar,
-        module = "PVE",
+        module = "GroupFinder",
         appearanceWindowID = IDs.Scope,
         label = "Specific dungeon scroll bar",
         window = frame,
@@ -268,7 +268,7 @@ function PVESkin:ApplyRaidFinderControls()
         if checkButton then
             local id, label = definition[1], definition[2]
             NSkin:RegisterCheckbox({
-                id = id, module = "PVE", appearanceWindowID = scopeID,
+                id = id, module = "GroupFinder", appearanceWindowID = scopeID,
                 label = label, window = frame, target = checkButton,
                 priority = 82, highlightRegions = { checkButton },
                 isEditable = function()
@@ -284,7 +284,7 @@ function PVESkin:ApplyRaidFinderControls()
     if dropdown then
         NSkin:RegisterDropdown({
             id = IDs.RaidFinder.SelectionDropdown,
-            module = "PVE",
+            module = "GroupFinder",
             appearanceWindowID = scopeID,
             label = "Raid Finder selection dropdown",
             window = frame,
@@ -304,7 +304,7 @@ function PVESkin:ApplyRaidFinderControls()
     if button then
         NSkin:RegisterActionButton({
             id = IDs.RaidFinder.FindGroupButton,
-            module = "PVE",
+            module = "GroupFinder",
             appearanceWindowID = scopeID,
             label = "Raid Finder find group button",
             window = frame,
@@ -336,7 +336,7 @@ local function ApplyPremadeActionButton(id, label, button, visibilityOwner)
     local scopeID = IDs.PremadeGroups.Scope
     NSkin:RegisterActionButton({
         id = id,
-        module = "PVE",
+        module = "GroupFinder",
         appearanceWindowID = scopeID,
         label = label,
         window = frame,
@@ -389,7 +389,7 @@ function PVESkin:ApplyPremadeGroupControls()
         if searchBox then
             NSkin:RegisterSearchBox({
                 id = ids.SearchBox,
-                module = "PVE",
+                module = "GroupFinder",
                 appearanceWindowID = scopeID,
                 label = "Premade Groups search bar",
                 window = frame,
@@ -408,7 +408,7 @@ function PVESkin:ApplyPremadeGroupControls()
         if filterButton then
             NSkin:RegisterDropdown({
                 id = ids.FilterButton,
-                module = "PVE",
+                module = "GroupFinder",
                 appearanceWindowID = scopeID,
                 label = "Premade Groups filter",
                 window = frame,
@@ -429,7 +429,7 @@ function PVESkin:ApplyPremadeGroupControls()
         if scrollBar then
             NSkin:RegisterScrollBar({
                 id = ids.ScrollBar,
-                module = "PVE",
+                module = "GroupFinder",
                 appearanceWindowID = scopeID,
                 label = "Premade Groups results scroll bar",
                 window = frame,
@@ -469,7 +469,7 @@ local function GetDungeonGroupID(groupName)
 end
 
 local function GetDungeonGroupPlacement(groupName)
-    local options = NSkin:GetModuleOptions("PVE", false)
+    local options = NSkin:GetModuleOptions("GroupFinder", false)
     local placements = options and options.checkboxGroupPlacements
     local saved = placements and placements[GetDungeonGroupID(groupName)]
     return saved and CopyPlacement(saved) or {
@@ -508,7 +508,7 @@ end
 
 local function SetDungeonGroupPlacement(groupName, placement)
     if not ApplyDungeonGroupPlacement(groupName, placement) then return false end
-    local options = NSkin:GetModuleOptions("PVE", true)
+    local options = NSkin:GetModuleOptions("GroupFinder", true)
     options.checkboxGroupPlacements = options.checkboxGroupPlacements or {}
     options.checkboxGroupPlacements[GetDungeonGroupID(groupName)] =
         CopyPlacement(placement)
@@ -519,7 +519,7 @@ local function ResetDungeonGroupPlacement(groupName)
     ApplyDungeonGroupPlacement(groupName, {
         alongOffset = 0, edgeOffset = 0,
     })
-    local options = NSkin:GetModuleOptions("PVE", false)
+    local options = NSkin:GetModuleOptions("GroupFinder", false)
     local placements = options and options.checkboxGroupPlacements
     if placements then
         placements[GetDungeonGroupID(groupName)] = nil
@@ -559,7 +559,7 @@ local function RegisterDungeonCheckboxGroup(
     return NSkin:RegisterSkinningElement(id, {
         label = label,
         kind = "CHECKBOX",
-        module = "PVE",
+        module = "GroupFinder",
         appearanceWindowID = IDs.Scope,
         window = frame,
         target = anchor,
@@ -646,7 +646,7 @@ function PVESkin:ApplyDungeonSelectionCheckboxes()
 end
 
 local function GetPVPRoleGroupPlacement()
-    local options = NSkin:GetModuleOptions("PVE", false)
+    local options = NSkin:GetModuleOptions("GroupFinder", false)
     local placements = options and options.checkboxGroupPlacements
     local saved = placements and placements[IDs.PVP.RoleCheckboxes]
     return saved and CopyPlacement(saved) or {
@@ -685,7 +685,7 @@ end
 
 local function SetPVPRoleGroupPlacement(placement)
     ApplyPVPRoleGroupPlacement(placement)
-    local options = NSkin:GetModuleOptions("PVE", true)
+    local options = NSkin:GetModuleOptions("GroupFinder", true)
     options.checkboxGroupPlacements = options.checkboxGroupPlacements or {}
     options.checkboxGroupPlacements[IDs.PVP.RoleCheckboxes] =
         CopyPlacement(placement)
@@ -694,7 +694,7 @@ end
 
 local function ResetPVPRoleGroupPlacement()
     ApplyPVPRoleGroupPlacement({ alongOffset = 0, edgeOffset = 0 })
-    local options = NSkin:GetModuleOptions("PVE", false)
+    local options = NSkin:GetModuleOptions("GroupFinder", false)
     local placements = options and options.checkboxGroupPlacements
     if placements then
         placements[IDs.PVP.RoleCheckboxes] = nil
@@ -724,7 +724,7 @@ local function RegisterPVPRoleGroup(frame, honorFrame)
         IDs.PVP.RoleCheckboxes, {
             label = "PvP Quick Match role checkboxes",
             kind = "CHECKBOX",
-            module = "PVE",
+            module = "GroupFinder",
             appearanceWindowID = IDs.PVP.Scope,
             window = frame,
             target = pvpRoleGroupAnchor,
@@ -785,7 +785,7 @@ function PVESkin:ApplyPVPControls()
     if dropdown then
         NSkin:RegisterDropdown({
             id = ids.TypeDropdown,
-            module = "PVE",
+            module = "GroupFinder",
             appearanceWindowID = ids.Scope,
             label = "PvP Quick Match type dropdown",
             window = frame,
@@ -805,7 +805,7 @@ function PVESkin:ApplyPVPControls()
     if queueButton then
         NSkin:RegisterActionButton({
             id = ids.QueueButton,
-            module = "PVE",
+            module = "GroupFinder",
             appearanceWindowID = ids.Scope,
             label = "PvP Quick Match join battle button",
             window = frame,
@@ -855,7 +855,7 @@ function PVESkin:ApplyBottomTabs()
         NSkin:RegisterTabGroup(IDs.BottomTabs, {
             label = "Dungeons & Raids bottom tabs",
             kind = "TAB_GROUP",
-            module = "PVE",
+            module = "GroupFinder",
             appearanceWindowID = IDs.Scope,
             window = frame,
             tabs = tabs,
@@ -913,7 +913,7 @@ function PVESkin:ApplyWindowChrome()
     NSkin:RegisterSkinningElement(IDs.Window, {
         label = "Dungeons & Raids window",
         kind = "WINDOW",
-        module = "PVE",
+        module = "GroupFinder",
         appearanceWindowID = IDs.Scope,
         window = frame,
         target = frame,
@@ -984,14 +984,14 @@ function PVESkin:RefreshAppearance()
 end
 
 NSkin:RegisterWindowSkin({
-    module = "PVE",
+    module = "GroupFinder",
     addon = "Blizzard_GroupFinder",
     apply = function() return PVESkin:Initialize() end,
 })
 
 NSkin:RegisterWindowSkin({
-    key = "PVE.PVP",
-    module = "PVE",
+    key = "GroupFinder.PVP",
+    module = "GroupFinder",
     addon = "Blizzard_PVPUI",
     apply = function() return PVESkin:ApplyPVPControls() end,
 })
