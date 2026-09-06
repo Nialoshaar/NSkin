@@ -59,6 +59,10 @@ NSkin.moduleDefinitions = {
         key = "GameMenu", label = "Game Menu",
         defaultEnabled = true, optionsGroup = "windows", optionsOrder = 130,
     },
+    {
+        key = "CooldownManager", label = "Cooldown Manager",
+        defaultEnabled = true, optionsGroup = "windows", optionsOrder = 140,
+    },
 }
 
 NSkin.moduleDefinitionByKey = {}
