@@ -1661,6 +1661,16 @@ local function LayoutSectionCardText(target, textRegion, icon, style,
     textRegion:SetPoint("RIGHT", target, "RIGHT", -rightInset, offsetY)
 end
 
+local function AnchorSectionCardSurface(region, visualRegion, inset)
+    if not region or not visualRegion or not region.ClearAllPoints
+        or not region.SetPoint
+    then return end
+    inset = tonumber(inset) or 0
+    region:ClearAllPoints()
+    region:SetPoint("TOPLEFT", visualRegion, "TOPLEFT", inset, -inset)
+    region:SetPoint("BOTTOMRIGHT", visualRegion, "BOTTOMRIGHT", -inset, inset)
+end
+
 local function RefreshSectionCardGlyph(target)
     local state = NSkin:GetSkinData(target, SECTION_CARD_STATE, false)
     if not state or not state.glyph then return end
@@ -1738,6 +1748,11 @@ function NSkin:SkinSectionCard(target, options)
     local state = self:GetSkinData(target, SECTION_CARD_STATE)
     state.options = options
     state.collapsible = options.collapsible == true
+    local visualRegion = ResolveSectionCardValue(options.visualRegion, target)
+    if not (visualRegion and visualRegion.GetObjectType) then
+        visualRegion = target
+    end
+    state.visualRegion = visualRegion
 
     if not state.originalHeight and target.GetHeight then
         local originalHeight = target:GetHeight()
@@ -1760,12 +1775,15 @@ function NSkin:SkinSectionCard(target, options)
         or self:GetComponentBorderColor("sectionCard", style)
     local background = self:CreateFlatBackground(
         target, SECTION_CARD_BACKGROUND, backgroundColor, borderColor)
+    AnchorSectionCardSurface(background, visualRegion, 1)
     local border = self:GetPixelBorder(
         target, SECTION_CARD_BACKGROUND .. "Border")
+    if border then border.anchor = visualRegion end
     self:SetPixelBorderColor(border, unpack(borderColor))
     self:SetPixelBorderSize(border, style.borderSize or 1)
     self:SetPixelBorderPadding(border, style.borderPadding or 0)
     local glow = self:CreateFlatButtonGlow(target, style.hoverAlpha)
+    AnchorSectionCardSurface(glow, visualRegion, 1)
 
     local icon = ResolveSectionCardValue(options.icon, target)
     SuppressSectionCardArtwork(
@@ -1776,8 +1794,10 @@ function NSkin:SkinSectionCard(target, options)
     if textRegion and textRegion.GetFont then
         ConfigureSectionCardTextAppearance(textRegion, style,
             self:GetResolvedAppearanceColor(style, "text"))
-        LayoutSectionCardText(
-            target, textRegion, icon, style, state.collapsible)
+        if options.preserveTextLayout ~= true then
+            LayoutSectionCardText(
+                visualRegion, textRegion, icon, style, state.collapsible)
+        end
     end
 
     if state.collapsible then
@@ -1799,7 +1819,7 @@ function NSkin:SkinSectionCard(target, options)
         glyph:ClearAllPoints()
         glyph:SetPoint(
             "RIGHT",
-            target,
+            visualRegion,
             "RIGHT",
             tonumber(style.glyphOffsetX) or 0,
             tonumber(style.glyphOffsetY) or 0
@@ -1862,6 +1882,11 @@ function NSkin:SkinCheckButton(checkButton, options)
         or (options.background and options.text and options)
         or self:GetStyle("button")
     local data = self:GetSkinData(checkButton, COMPONENT_STATE)
+    local checkedState
+    if type(options.getChecked) == "function" then
+        local ok, value = pcall(options.getChecked, checkButton)
+        if ok and type(value) == "boolean" then checkedState = value end
+    end
 
     if not data.checkButtonArtworkSuppressed then
         self:HideTextureRegions(checkButton)
@@ -1882,7 +1907,13 @@ function NSkin:SkinCheckButton(checkButton, options)
     end
     checked:SetColorTexture(unpack(
         options.checked or self:GetSharedBorderColor()))
-    if checkButton.SetCheckedTexture then checkButton:SetCheckedTexture(checked) end
+    if checkButton.SetCheckedTexture then
+        checkButton:SetCheckedTexture(checked)
+    elseif checkedState ~= nil then
+        checked:SetShown(checkedState)
+    else
+        checked:Hide()
+    end
 
     local label = options.text or checkButton.Text
     if label then
@@ -4403,6 +4434,7 @@ local SHARED_SKIN_ADAPTERS = {
             "collapsible", "expanded", "text", "textRegion", "icon",
             "getExpanded", "isExpanded", "height", "stripArtwork",
             "artworkRegions", "preserveTextures", "background",
+            "visualRegion", "preserveTextLayout",
         }) do
             if options[key] == nil then options[key] = definition[key] end
         end
@@ -4426,6 +4458,9 @@ local SHARED_SKIN_ADAPTERS = {
         options.style = style
         if options.border == nil then options.border = borderColor end
         if options.text == nil then options.text = definition.text end
+        if options.getChecked == nil then
+            options.getChecked = definition.getChecked
+        end
         skinMethod(self, target, options)
     end,
     DROPDOWN = function(self, skinMethod, target, style, borderColor, definition)
