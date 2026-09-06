@@ -9,8 +9,18 @@
 
 NSkin_Core.lua
 NSkin_Database.lua
-NSkin_Components.lua
-Options\NSkin_ComponentsOptions.lua
+Components\NSkin_ComponentsCore.lua
+Components\NSkin_ComponentsWindows.lua
+Components\NSkin_ComponentsInputs.lua
+Components\NSkin_ComponentsNavigation.lua
+Components\NSkin_ComponentsContent.lua
+Components\NSkin_ComponentsMenus.lua
+Options\Components\NSkin_ComponentOptionsCore.lua
+Options\Components\NSkin_ComponentOptionsWindows.lua
+Options\Components\NSkin_ComponentOptionsInputs.lua
+Options\Components\NSkin_ComponentOptionsNavigation.lua
+Options\Components\NSkin_ComponentOptionsContent.lua
+Options\Components\NSkin_ComponentOptionsMenus.lua
 Skins\NSkin_SpellBook.lua
 Skins\NSkin_Collections.lua
 Skins\NSkin_EncounterJournal.lua

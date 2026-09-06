@@ -27,4 +27,4 @@ retries, then stops without leaving an event or update loop active.
 
 Per-frame state belongs in a named `NSkin:GetSkinData` scope such as
 `"spellBook"`. Shared textures and borders should use the canonical primitive
-lookups in `NSkin_Components.lua` instead of storing a second reference.
+lookups in `Components/NSkin_ComponentsCore.lua` instead of storing a second reference.
