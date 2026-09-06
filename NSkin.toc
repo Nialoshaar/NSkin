@@ -26,6 +26,7 @@ Skins\NSkin_ItemUpgrade.lua
 Skins\NSkin_Achievements.lua
 Skins\NSkin_MidnightFeatures.lua
 Skins\NSkin_TradingPost.lua
+Skins\NSkin_AuctionHouse.lua
 Skins\NSkin_Transmogrification.lua
 Skins\NSkin_Character.lua
 Skins\NSkin_HousingDashboard.lua
