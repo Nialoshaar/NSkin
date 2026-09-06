@@ -23,6 +23,8 @@ Skins\NSkin_GroupFinder.lua
 Skins\NSkin_GreatVault.lua
 Skins\NSkin_Merchant.lua
 Skins\NSkin_ItemUpgrade.lua
+Skins\NSkin_Achievements.lua
+Skins\NSkin_MidnightFeatures.lua
 Skins\NSkin_Transmogrification.lua
 Skins\NSkin_Character.lua
 Skins\NSkin_HousingDashboard.lua

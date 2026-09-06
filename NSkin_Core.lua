@@ -67,6 +67,14 @@ NSkin.moduleDefinitions = {
         key = "ItemUpgrade", label = "Item Upgrade",
         defaultEnabled = true, optionsGroup = "windows", optionsOrder = 150,
     },
+    {
+        key = "Achievements", label = "Achievements",
+        defaultEnabled = true, optionsGroup = "windows", optionsOrder = 160,
+    },
+    {
+        key = "MidnightFeatures", label = "Midnight Features",
+        defaultEnabled = true, optionsGroup = "windows", optionsOrder = 170,
+    },
 }
 
 NSkin.moduleDefinitionByKey = {}
