@@ -2623,29 +2623,52 @@ NSkin:RegisterOptionGroup("appearance.progress", {
     end,
 })
 
+local iconAppearanceControls = {
+    { type = "COLOR", key = "border", label = "Icon border", order = 1 },
+    { type = "DROPDOWN", key = "borderMode", label = "Border mode",
+        order = 2, values = {
+            { value = "custom", label = "Custom" },
+            { value = "quality", label = "Item quality" },
+        } },
+    { type = "SLIDER", key = "borderSize", label = "Border thickness",
+        min = 0, max = 8, step = 1, decimals = 0, suffix = " px", order = 3 },
+    { type = "SLIDER_PAIR", order = 4, centerReset = true,
+        resetTooltip = "Reset icon width and height",
+        left = { key = "width", label = "Width", min = 0,
+            max = 256, step = 1, decimals = 0, suffix = " px" },
+        right = { key = "height", label = "Height", min = 0,
+            max = 256, step = 1, decimals = 0, suffix = " px" } },
+    { type = "SLIDER", key = "zoom", label = "Edge zoom",
+        min = 0, max = 0.45, step = 0.01, decimals = 2, order = 5 },
+    { type = "SLIDER", key = "crop", label = "Centered crop",
+        min = 0.1, max = 1, step = 0.01, decimals = 2, order = 6 },
+    { type = "DROPDOWN", key = "shape", label = "Shape", order = 7,
+        values = { { value = "square", label = "Square" } } },
+    { type = "RESET", label = "Reset Icons" },
+}
+
 NSkin:RegisterOptionGroup("appearance.icon", {
-    controls = {
-        { type = "COLOR", key = "border", label = "Icon border" },
-        { type = "SLIDER", key = "crop", label = "Icon crop",
-            min = 0, max = 0.2, step = 0.01, decimals = 2 },
-        { type = "CHECKBOX", key = "qualityColor", label = "Use item-quality colors" },
-        { type = "RESET", label = "Reset Icons" },
-    },
+    controls = iconAppearanceControls,
     get = function()
         local style = NSkin:GetStyle("icon")
-        return { border = CopyColor(style.border), crop = style.crop,
-            qualityColor = style.qualityColor }
+        return { border = CopyColor(style.border),
+            borderMode = style.borderMode, borderSize = style.borderSize,
+            width = tonumber(style.width) or 0,
+            height = tonumber(style.height) or 0,
+            zoom = style.zoom, crop = style.crop, shape = style.shape }
     end,
     set = function(_, values)
         local style = NSkin:GetStyle("icon")
         local changed = SetColor("icon.border", style.border, values.border, values.border[4])
-        changed = SetScalar("icon.crop", style.crop, values.crop) or changed
-        changed = SetScalar("icon.qualityColor", style.qualityColor,
-            values.qualityColor) or changed
+        for _, key in ipairs({ "borderMode", "borderSize", "width", "height",
+            "zoom", "crop", "shape" }) do
+            changed = SetScalar("icon." .. key, style[key], values[key]) or changed
+        end
         return changed == true
     end,
     reset = function()
-        return ResetPaths({ "icon.border", "icon.crop", "icon.qualityColor" })
+        return ResetPaths({ "icon.border", "icon.borderMode", "icon.borderSize",
+            "icon.width", "icon.height", "icon.zoom", "icon.crop", "icon.shape" })
     end,
 })
 
@@ -3682,6 +3705,150 @@ NSkin:RegisterOptionGroup("shared.searchAppearance", {
             changed = context.setSearchAccessoryMode(context, "GROUPED") or changed
         end
         return changed == true
+    end,
+})
+
+local function CopyOptionControl(value)
+    if type(value) ~= "table" then return value end
+    local copy = {}
+    for key, child in pairs(value) do copy[key] = CopyOptionControl(child) end
+    return copy
+end
+
+local editBoxAppearanceControls = {}
+for i = 1, #searchAppearanceControls do
+    local control = searchAppearanceControls[i]
+    if control ~= searchAccessoryControls then
+        local copy = CopyOptionControl(control)
+        if copy.type == "SECTION" and copy.label == "Search Box" then
+            copy.label = "Edit Box"
+        elseif copy.type == "TYPOGRAPHY" and copy.label == "Search Text" then
+            copy.label = "Text"
+        elseif copy.resetTooltip == "Reset search box width and height" then
+            copy.resetTooltip = "Reset edit box width and height"
+        elseif copy.resetTooltip == "Reset search text offsets" then
+            copy.resetTooltip = "Reset text offsets"
+        end
+        editBoxAppearanceControls[#editBoxAppearanceControls + 1] = copy
+    end
+end
+editBoxAppearanceControls[#editBoxAppearanceControls + 1] = {
+    type = "COLOR_PAIR", order = 23,
+    left = { type = "COLOR", key = "disabledText",
+        modeKey = "disabledTextMode", label = "Disabled text" },
+    right = { type = "COLOR", key = "focusBorder",
+        modeKey = "focusBorderMode", label = "Focus border" },
+}
+
+NSkin:RegisterOptionGroup("shared.editBoxAppearance", {
+    controls = editBoxAppearanceControls,
+    get = function(context)
+        local style = NSkin:GetAppearanceStyle(
+            "editBox", GetAppearanceWindowID(context), context.id)
+        local values = {
+            background = CopyColor(style.background),
+            backgroundMode = style.backgroundMode,
+            border = CopyColor(style.border), borderMode = style.borderMode,
+            disabledText = CopyColor(style.disabledText),
+            disabledTextMode = style.disabledTextMode,
+            focusBorder = CopyColor(style.focusBorder),
+            focusBorderMode = style.focusBorderMode,
+            text = CopyColor(style.text), textMode = style.textMode,
+            placeholderText = CopyColor(style.placeholderText),
+            placeholderTextMode = style.placeholderTextMode,
+            borderSize = style.borderSize, borderPadding = style.borderPadding,
+            width = tonumber(style.width) and style.width > 0 and style.width
+                or (context.target and context.target.GetWidth
+                    and context.target:GetWidth()),
+            height = tonumber(style.height) and style.height > 0 and style.height
+                or (context.target and context.target.GetHeight
+                    and context.target:GetHeight()),
+            textOffsetX = style.textOffsetX, textOffsetY = style.textOffsetY,
+            placeholderOffsetX = style.placeholderOffsetX,
+            placeholderOffsetY = style.placeholderOffsetY,
+        }
+        GetTypographyValues(values, style,
+            { useGlobal = "useGlobal", font = "font", size = "textSize",
+                outline = "outline" })
+        GetTypographyValues(values, style,
+            { useGlobal = "placeholderUseGlobal", font = "placeholderFont",
+                size = "placeholderSize", outline = "placeholderOutline" },
+            "placeholder")
+        return values
+    end,
+    set = function(context, values)
+        local changed = SetElementTypography(context, "editBox", values,
+            { font = "font", size = "textSize", outline = "outline" })
+        changed = SetElementTypography(context, "editBox", values,
+            { font = "placeholderFont", size = "placeholderSize",
+                outline = "placeholderOutline" }, "placeholder") or changed
+        for _, key in ipairs({
+            "background", "backgroundMode", "border", "borderMode",
+            "disabledText", "disabledTextMode", "focusBorder",
+            "focusBorderMode", "borderSize", "borderPadding", "width",
+            "height", "text", "textMode", "textOffsetX", "textOffsetY",
+            "placeholderText", "placeholderTextMode", "placeholderOffsetX",
+            "placeholderOffsetY",
+        }) do
+            if values[key] ~= nil then
+                changed = SetElementValue(
+                    context, "editBox." .. key, values[key]) or changed
+            end
+        end
+        return changed == true
+    end,
+    reset = function(context)
+        local paths = {}
+        for _, key in ipairs({
+            "fontMode", "sizeMode", "outlineMode", "font", "textSize",
+            "outline", "text", "textMode", "textOffsetX", "textOffsetY",
+            "disabledText", "disabledTextMode", "focusBorder",
+            "focusBorderMode", "placeholderFontMode", "placeholderSizeMode",
+            "placeholderOutlineMode", "placeholderFont", "placeholderSize",
+            "placeholderOutline", "placeholderText", "placeholderTextMode",
+            "placeholderOffsetX", "placeholderOffsetY", "background",
+            "backgroundMode", "border", "borderMode", "borderSize",
+            "borderPadding", "width", "height",
+        }) do
+            paths[#paths + 1] = "editBox." .. key
+        end
+        return ResetElementPaths(context, paths)
+    end,
+})
+
+NSkin:RegisterOptionGroup("shared.iconAppearance", {
+    controls = iconAppearanceControls,
+    get = function(context)
+        local style = NSkin:GetAppearanceStyle(
+            "icon", GetAppearanceWindowID(context), context.id)
+        return {
+            border = CopyColor(style.border),
+            borderMode = style.borderMode,
+            borderSize = style.borderSize,
+            width = tonumber(style.width) or 0,
+            height = tonumber(style.height) or 0,
+            zoom = style.zoom,
+            crop = style.crop,
+            shape = style.shape,
+        }
+    end,
+    set = function(context, values)
+        local changed = false
+        for _, key in ipairs({ "border", "borderMode", "borderSize", "width",
+            "height", "zoom", "crop", "shape" }) do
+            if values[key] ~= nil then
+                changed = SetElementValue(
+                    context, "icon." .. key, values[key]) or changed
+            end
+        end
+        return changed == true
+    end,
+    reset = function(context)
+        return ResetElementPaths(context, {
+            "icon.border", "icon.borderMode", "icon.borderSize",
+            "icon.width", "icon.height", "icon.zoom", "icon.crop",
+            "icon.shape",
+        })
     end,
 })
 

@@ -984,17 +984,24 @@ function NSkin:SetQualityBorder(border, quality)
     local item = _G.C_Item
     if not border then return false end
     local style = self:GetStyle("icon")
-    if style and style.qualityColor == false then
-        self:SetPixelBorderColor(border, unpack(style.border))
+    local borderColor = style and style.border
+        or self:GetComponentBorderColor("icon", style)
+    local borderMode = string.lower(tostring(
+        style and style.borderMode or "quality"))
+    if borderMode ~= "quality" or quality == nil
+        or not item or not item.GetItemQualityColor
+    then
+        self:SetPixelBorderColor(border, unpack(borderColor))
         self:SetPixelBorderShown(border, true)
         return true
     end
-    if quality == nil or not item or not item.GetItemQualityColor then
-        self:SetPixelBorderShown(border, false)
-        return false
-    end
 
     local red, green, blue = item.GetItemQualityColor(quality)
+    if not red then
+        self:SetPixelBorderColor(border, unpack(borderColor))
+        self:SetPixelBorderShown(border, true)
+        return true
+    end
     self:SetPixelBorderColor(border, red, green, blue)
     self:SetPixelBorderShown(border, true)
     return true
@@ -1123,6 +1130,11 @@ function NSkin:CaptureComponentBaseline(id, target, options)
         baseline.textInsetsTarget = editBox
         baseline.textInsets = { editBox:GetTextInsets() }
     end
+    local texture = options.texCoords == true and target or options.texCoords
+    if texture and texture.GetTexCoord then
+        baseline.texCoordTarget = texture
+        baseline.texCoords = { texture:GetTexCoord() }
+    end
     local spacingTarget = options.spacing == true and target or options.spacing
     if spacingTarget then
         baseline.spacingTarget = spacingTarget
@@ -1181,6 +1193,9 @@ function NSkin:RestoreComponentBaseline(idOrTarget, properties)
     if ShouldRestore("textInsets") and baseline.textInsetsTarget
         and baseline.textInsets
     then baseline.textInsetsTarget:SetTextInsets(unpack(baseline.textInsets)) end
+    if ShouldRestore("texCoords") and baseline.texCoordTarget
+        and baseline.texCoords and baseline.texCoordTarget.SetTexCoord
+    then baseline.texCoordTarget:SetTexCoord(unpack(baseline.texCoords)) end
     if ShouldRestore("spacing") and baseline.spacingTarget then
         baseline.spacingTarget.spacing = baseline.spacing
         if baseline.spacingTarget.MarkDirty then baseline.spacingTarget:MarkDirty() end
@@ -2569,83 +2584,107 @@ function NSkin:SkinScrollBar(scrollBar, style)
     end
 end
 
-function NSkin:SkinSearchBox(searchBox, style, borderColor)
-    if not searchBox then return end
+local function RefreshEditBoxState(editBox)
+    local data = NSkin:GetSkinData(editBox, COMPONENT_STATE, false)
+    if not data or not data.editBoxStyle then return end
+    local style = data.editBoxStyle
+    local enabled = not editBox.IsEnabled or editBox:IsEnabled()
+    local focused = enabled and editBox.HasFocus and editBox:HasFocus()
+    local backgroundKey = enabled and (focused and "focusBackground" or "background")
+        or "disabledBackground"
+    local borderKey = enabled and (focused and "focusBorder" or "border")
+        or "disabledBorder"
+    local textKey = enabled and "text" or "disabledText"
+    local background = NSkin:GetResolvedAppearanceColor(style, backgroundKey)
+        or NSkin:GetResolvedAppearanceColor(style, "background")
+    local border = borderKey == "border" and data.editBoxBorder
+        or NSkin:GetResolvedAppearanceColor(style, borderKey)
+        or data.editBoxBorder or NSkin:GetResolvedAppearanceColor(style, "border")
+    NSkin:CreateFlatBackground(editBox, nil, background, border)
+    if editBox.SetTextColor then
+        local textColor = NSkin:GetResolvedAppearanceColor(style, textKey)
+            or NSkin:GetResolvedAppearanceColor(style, "text")
+        if textColor then editBox:SetTextColor(unpack(textColor)) end
+    end
+end
 
-    local searchData = self:GetSkinData(searchBox, COMPONENT_STATE)
-    if not searchData.baselineID then
-        searchData.baselineID = "SearchBox:" .. tostring(searchBox)
-        self:CaptureComponentBaseline(searchData.baselineID, searchBox, {
+function NSkin:SkinEditBox(editBox, options)
+    if not editBox then return end
+    options = options or {}
+
+    local editData = self:GetSkinData(editBox, COMPONENT_STATE)
+    if not editData.editBoxBaselineID then
+        editData.editBoxBaselineID = options.baselineID
+            or "EditBox:" .. tostring(editBox)
+        self:CaptureComponentBaseline(editData.editBoxBaselineID, editBox, {
             size = true, textInsets = true,
         })
     end
-    local searchIcon = searchBox.SearchIcon or searchBox.searchIcon
-    if not self:GetFlatBackground(searchBox) then
-        self:HideTextureRegions(searchBox, searchIcon)
+    if not self:GetFlatBackground(editBox) then
+        self:HideTextureRegions(editBox, options.preserveTexture)
     end
-    style = style or self:GetStyle("searchBox")
+    local style = options.style or self:GetStyle("editBox")
+    if not style then return end
+    editData.editBoxStyle = style
+    editData.editBoxBorder = options.border
     local configuredWidth, configuredHeight = tonumber(style.width), tonumber(style.height)
     configuredWidth = configuredWidth and configuredWidth > 0 and configuredWidth or nil
     configuredHeight = configuredHeight and configuredHeight > 0 and configuredHeight or nil
     if configuredWidth or configuredHeight then
-        self:MarkComponentGeometryModified(searchData.baselineID, "size", true)
-        if not searchData.searchOriginalSize then
-            searchData.searchOriginalSize = { searchBox:GetWidth(), searchBox:GetHeight() }
+        self:MarkComponentGeometryModified(editData.editBoxBaselineID, "size", true)
+        if not editData.editBoxOriginalSize then
+            editData.editBoxOriginalSize = { editBox:GetWidth(), editBox:GetHeight() }
         end
-        local originalSize = searchData.searchOriginalSize
-        searchBox:SetSize(configuredWidth or originalSize[1],
+        local originalSize = editData.editBoxOriginalSize
+        editBox:SetSize(configuredWidth or originalSize[1],
             configuredHeight or originalSize[2])
-    elseif searchData.searchOriginalSize then
-        self:RestoreComponentBaseline(searchData.baselineID, { size = true })
-        searchData.searchOriginalSize = nil
+    elseif editData.editBoxOriginalSize then
+        self:RestoreComponentBaseline(editData.editBoxBaselineID, { size = true })
+        editData.editBoxOriginalSize = nil
     end
-    self:CreateFlatBackground(
-        searchBox, nil, self:GetResolvedAppearanceColor(style, "background"),
-        borderColor or self:GetResolvedAppearanceColor(style, "border")
-            or self:GetComponentBorderColor("searchBox", style)
-    )
-    local searchBorder = self:GetPixelBorder(searchBox, "NSkinFlatBackgroundBorder")
-    self:SetPixelBorderSize(searchBorder, style.borderSize or 1)
-    self:SetPixelBorderPadding(searchBorder, style.borderPadding or 0)
-    if searchBox.SetTextColor then
-        searchBox:SetTextColor(unpack(self:GetResolvedAppearanceColor(style, "text")))
-    end
-    self:ApplyResolvedTypography(searchBox, style)
-    if searchBox.GetTextInsets and searchBox.SetTextInsets then
+    RefreshEditBoxState(editBox)
+    local editBorder = self:GetPixelBorder(editBox, "NSkinFlatBackgroundBorder")
+    self:SetPixelBorderSize(editBorder, style.borderSize or 1)
+    self:SetPixelBorderPadding(editBorder, style.borderPadding or 0)
+    self:ApplyResolvedTypography(editBox, style)
+    if editBox.GetTextInsets and editBox.SetTextInsets then
         local hasInsetOverride = style.textOffsetX ~= nil
             or style.textOffsetY ~= nil
         if hasInsetOverride then
-            local baseline = self:GetComponentBaseline(searchData.baselineID)
+            local baseline = self:GetComponentBaseline(editData.editBoxBaselineID)
             local insets = baseline and baseline.textInsets
             if insets then
                 local offsetX = style.textOffsetX or 0
                 local offsetY = style.textOffsetY or 0
                 self:MarkComponentGeometryModified(
-                    searchData.baselineID, "textInsets", true)
-                searchBox:SetTextInsets((insets[1] or 0) + offsetX,
+                    editData.editBoxBaselineID, "textInsets", true)
+                editBox:SetTextInsets((insets[1] or 0) + offsetX,
                     (insets[2] or 0) - offsetX,
                     (insets[3] or 0) - offsetY,
                     (insets[4] or 0) + offsetY)
             end
         else
             self:RestoreComponentBaseline(
-                searchData.baselineID, { textInsets = true })
+                editData.editBoxBaselineID, { textInsets = true })
         end
     end
-    local instructions = searchBox.Instructions or searchBox.instructions
+    local instructions = editBox.Instructions or editBox.instructions
     if instructions then
-        instructions:SetTextColor(unpack(
-            self:GetResolvedAppearanceColor(style, "placeholderText")))
-        self:ApplyResolvedTypography(instructions, style, "placeholder")
         local data = self:GetSkinData(instructions, COMPONENT_STATE)
         if not data.placeholderBaselineID then
             data.placeholderBaselineID =
-                "SearchPlaceholder:" .. tostring(instructions)
+                "EditBoxPlaceholder:" .. tostring(instructions)
             self:CaptureComponentBaseline(
                 data.placeholderBaselineID, instructions, {
                 points = true,
             })
         end
+        local placeholderColor = self:GetResolvedAppearanceColor(
+            style, "placeholderText")
+        if placeholderColor and instructions.SetTextColor then
+            instructions:SetTextColor(unpack(placeholderColor))
+        end
+        self:ApplyResolvedTypography(instructions, style, "placeholder")
         local hasPlaceholderOverride = style.placeholderOffsetX ~= nil
             or style.placeholderOffsetY ~= nil
         if hasPlaceholderOverride then
@@ -2668,6 +2707,215 @@ function NSkin:SkinSearchBox(searchBox, style, borderColor)
                 data.placeholderBaselineID, { points = true })
         end
     end
+    if not editData.editBoxStateHooked and editBox.HookScript then
+        editBox:HookScript("OnEditFocusGained", RefreshEditBoxState)
+        editBox:HookScript("OnEditFocusLost", RefreshEditBoxState)
+        if _G.hooksecurefunc then
+            if type(editBox.Enable) == "function" then
+                pcall(_G.hooksecurefunc,
+                    editBox, "Enable", RefreshEditBoxState)
+            end
+            if type(editBox.Disable) == "function" then
+                pcall(_G.hooksecurefunc,
+                    editBox, "Disable", RefreshEditBoxState)
+            end
+            if type(editBox.SetEnabled) == "function" then
+                pcall(_G.hooksecurefunc,
+                    editBox, "SetEnabled", RefreshEditBoxState)
+            end
+        end
+        editData.editBoxStateHooked = true
+    end
+end
+
+local ICON_COMPONENT_STATE = "iconComponent"
+local ICON_BORDER_KEY = "NSkinIconBorder"
+
+function NSkin:GetIconTexCoords(width, height, zoom, crop)
+    width = math.max(tonumber(width) or 1, 0.001)
+    height = math.max(tonumber(height) or 1, 0.001)
+    zoom = math.max(0, math.min(0.49, tonumber(zoom) or 0))
+    crop = math.max(0.01, math.min(1, tonumber(crop) or 1))
+
+    local cropInset = (1 - crop) / 2
+    local cropSpan = 1 - (cropInset * 2)
+    local visibleSpan = (1 - (zoom * 2)) * cropSpan
+    local horizontalSpan, verticalSpan = visibleSpan, visibleSpan
+    local aspect = width / height
+    if aspect > 1 then
+        verticalSpan = visibleSpan / aspect
+    elseif aspect < 1 then
+        horizontalSpan = visibleSpan * aspect
+    end
+
+    local left = (1 - horizontalSpan) / 2
+    local top = (1 - verticalSpan) / 2
+    return left, 1 - left, top, 1 - top
+end
+
+local function ResolveIconTexture(target, options)
+    if options.texture then return options.texture end
+    if target and target.GetObjectType and target:GetObjectType() == "Texture" then
+        return target
+    end
+    return target and (target.Icon or target.icon or target.iconTexture)
+end
+
+local ICON_SHAPES = {
+    square = {
+        applyTexCoords = function(texture, width, height, zoom, crop)
+            texture:SetTexCoord(NSkin:GetIconTexCoords(
+                width, height, zoom, crop))
+        end,
+    },
+}
+
+local function ApplyIconTexCoords(target)
+    local data = NSkin:GetSkinData(target, ICON_COMPONENT_STATE, false)
+    local texture = data and data.texture
+    if not texture or not texture.SetTexCoord then return end
+    local width = texture.GetWidth and texture:GetWidth() or data.width
+    local height = texture.GetHeight and texture:GetHeight() or data.height
+    local shape = ICON_SHAPES[data.shape] or ICON_SHAPES.square
+    shape.applyTexCoords(texture, width, height, data.zoom, data.crop)
+end
+
+function NSkin:SkinIcon(target, options)
+    if not target then return false end
+    options = options or {}
+    local texture = ResolveIconTexture(target, options)
+    if not texture or not texture.SetTexCoord then return false end
+
+    local owner = options.borderOwner
+        or (target.GetObjectType and target:GetObjectType() ~= "Texture"
+            and target)
+        or (texture.GetParent and texture:GetParent())
+    if not owner or not owner.CreateTexture then return false end
+
+    local data = self:GetSkinData(target, ICON_COMPONENT_STATE)
+    local textureData = self:GetSkinData(texture, ICON_COMPONENT_STATE)
+    local borderKey = options.borderKey or (owner == target
+        and ICON_BORDER_KEY
+        or (ICON_BORDER_KEY .. ":" .. tostring(texture)))
+    if not textureData.baselineID then
+        textureData.baselineID = "IconTexture:" .. tostring(texture)
+        self:CaptureComponentBaseline(textureData.baselineID, texture, {
+            size = true,
+            texCoords = true,
+        })
+    end
+    if options.reset == true then
+        self:RestoreComponentBaseline(textureData.baselineID, {
+            size = true,
+            texCoords = true,
+        })
+        local oldBorder = self:GetPixelBorder(owner, borderKey)
+        self:SetPixelBorderShown(oldBorder, false)
+        return true
+    end
+
+    local style = options.style or self:GetStyle("icon")
+    if not style then return false end
+    local shape = string.lower(tostring(
+        options.shape or style.shape or "square"))
+    if not ICON_SHAPES[shape] then shape = "square" end
+
+    data.texture = texture
+    data.shape = shape
+    data.zoom = tonumber(options.zoom)
+        or tonumber(style.zoom) or 0
+    data.crop = tonumber(options.crop)
+        or tonumber(style.crop) or 1
+
+    local width = tonumber(options.width) or tonumber(style.width)
+    local height = tonumber(options.height) or tonumber(style.height)
+    width = width and width > 0 and width or nil
+    height = height and height > 0 and height or nil
+    local baseline = self:GetComponentBaseline(textureData.baselineID)
+    if width or height then
+        self:MarkComponentGeometryModified(
+            textureData.baselineID, "size", true)
+        if width and texture.SetWidth then texture:SetWidth(width) end
+        if height and texture.SetHeight then texture:SetHeight(height) end
+    elseif baseline and baseline.modified.size then
+        self:RestoreComponentBaseline(textureData.baselineID, { size = true })
+    end
+
+    self:MarkComponentGeometryModified(
+        textureData.baselineID, "texCoords", true)
+    ApplyIconTexCoords(target)
+
+    local border = self:GetPixelBorder(owner, borderKey)
+        or self:CreatePixelBorder(owner, borderKey,
+            tonumber(options.borderSize) or tonumber(style.borderSize) or 1,
+            nil, options.outside == true, texture)
+    if not border then return false end
+    border.anchor = texture
+    local borderSize = tonumber(options.borderSize)
+        or tonumber(style.borderSize) or 1
+    self:SetPixelBorderSize(border, math.max(1, borderSize))
+    self:SetPixelBorderPadding(border,
+        tonumber(options.borderPadding) or tonumber(style.borderPadding) or 0)
+
+    local borderColor = options.borderColor
+        or self:GetResolvedAppearanceColor(style, "border")
+        or self:GetComponentBorderColor("icon", style)
+        or { 1, 1, 1, 1 }
+    local borderMode = string.lower(tostring(
+        options.borderMode or style.borderMode or "custom"))
+    local quality
+    if borderMode == "quality" then
+        if type(options.qualityProvider) == "function" then
+            local ok, provided = pcall(options.qualityProvider, target)
+            if ok then quality = provided end
+        else
+            quality = options.quality
+        end
+        local item = _G.C_Item
+        if quality ~= nil and item and item.GetItemQualityColor then
+            local red, green, blue = item.GetItemQualityColor(quality)
+            if red then borderColor = { red, green, blue, 1 } end
+        end
+    end
+    self:SetPixelBorderColor(border, unpack(borderColor))
+    self:SetPixelBorderShown(border,
+        options.showBorder ~= false and borderSize > 0)
+
+    local sizeWatchTarget = target.HookScript and target or owner
+    if not data.sizeHooked and sizeWatchTarget and sizeWatchTarget.HookScript then
+        sizeWatchTarget:HookScript("OnSizeChanged", function()
+            ApplyIconTexCoords(target)
+        end)
+        data.sizeHooked = true
+    end
+    if not textureData.sizeHooked and _G.hooksecurefunc then
+        local function RefreshTextureCrop()
+            ApplyIconTexCoords(target)
+        end
+        for _, method in ipairs({ "SetSize", "SetWidth", "SetHeight" }) do
+            if type(texture[method]) == "function" then
+                pcall(_G.hooksecurefunc, texture, method, RefreshTextureCrop)
+            end
+        end
+        textureData.sizeHooked = true
+    end
+    return true
+end
+
+function NSkin:SkinSearchBox(searchBox, style, borderColor)
+    if not searchBox then return end
+    local searchIcon = searchBox.SearchIcon or searchBox.searchIcon
+    local searchData = self:GetSkinData(searchBox, COMPONENT_STATE)
+    searchData.baselineID = searchData.baselineID
+        or "SearchBox:" .. tostring(searchBox)
+    style = style or self:GetStyle("searchBox")
+    self:SkinEditBox(searchBox, {
+        style = style,
+        border = borderColor or self:GetResolvedAppearanceColor(style, "border")
+            or self:GetComponentBorderColor("searchBox", style),
+        baselineID = searchData.baselineID,
+        preserveTexture = searchIcon,
+    })
     if searchIcon then searchIcon:Show() end
 end
 
@@ -2764,6 +3012,12 @@ local EDITOR_PRESETS = {
         { id = "shared.sideTabAppearance", label = "Side Tab",
             presentation = "INLINE", category = "CUSTOMIZE" },
     },
+    EDIT_BOX = {
+        { id = "shared.movable", label = "Position",
+            presentation = "INLINE", category = "POSITION" },
+        { id = "shared.editBoxAppearance", label = "Edit Box",
+            presentation = "INLINE", category = "CUSTOMIZE" },
+    },
     SEARCH_GROUP = {
         { id = "shared.searchPosition", label = "Position",
             presentation = "INLINE", category = "POSITION" },
@@ -2813,6 +3067,12 @@ local EDITOR_PRESETS = {
             presentation = "INLINE", category = "POSITION" },
         { id = "shared.scrollBarAppearance", label = "Scrollbar",
             category = "CUSTOMIZE" },
+    },
+    ICON = {
+        { id = "shared.movable", label = "Position",
+            presentation = "INLINE", category = "POSITION" },
+        { id = "shared.iconAppearance", label = "Icon",
+            presentation = "INLINE", category = "CUSTOMIZE" },
     },
     TEXT = {
         { id = "shared.textAppearance", label = "Text",
@@ -2890,13 +3150,14 @@ local SHARED_TYPE_DEFINITIONS = {
     DROPDOWN = { style = "button", skin = "SkinDropdown", editorPreset = "MOVABLE" },
     NAVIGATION_BAR = { style = "navigationBar", skin = "SkinNavigationBar",
         editorPreset = "MOVABLE" },
+    EDIT_BOX = { style = "editBox", skin = "SkinEditBox" },
     SEARCH_GROUP = { style = "searchBox", skin = "SkinSearchBox" },
     SEARCH_ACCESSORY = { style = "button", skin = "SkinDropdown" },
     PAGINATION_GROUP = { style = "button", skin = "SkinPagingControls" },
     PAGINATION_CHILD = { style = "button", skin = "SkinFlatButton" },
     PROGRESS_BAR = { style = "progressBar", skin = "SkinProgressBar",
         editorPreset = "MOVABLE" },
-    ICON = { style = "icon", skin = "CreateQualityBorder", editorPreset = "MOVABLE" },
+    ICON = { style = "icon", skin = "SkinIcon", editorPreset = "ICON" },
     SCROLLBAR = { style = "scrollBar", skin = "SkinScrollBar",
         editorPreset = "SCROLLBAR", preserveAnchorSpan = true },
     SECTION_HEADER = { style = "sectionHeader", editorPreset = "SECTION_HEADERS" },
@@ -4490,6 +4751,32 @@ local SHARED_SKIN_ADAPTERS = {
     SEARCH_GROUP = function(self, skinMethod, target, style, borderColor)
         skinMethod(self, target, style, borderColor)
     end,
+    EDIT_BOX = function(self, skinMethod, target, style, borderColor, definition)
+        local options = {}
+        for key, value in pairs(definition.skinOptions or {}) do
+            options[key] = value
+        end
+        options.style = style
+        if options.border == nil then options.border = borderColor end
+        skinMethod(self, target, options)
+    end,
+    ICON = function(self, skinMethod, target, style, borderColor, definition)
+        local options = {}
+        for key, value in pairs(definition.skinOptions or {}) do
+            options[key] = value
+        end
+        options.style = style
+        for _, key in ipairs({
+            "texture", "quality", "qualityProvider", "borderColor", "borderMode",
+            "borderSize", "borderPadding", "borderKey", "borderOwner",
+            "outside", "showBorder", "width", "height", "zoom", "crop",
+            "shape",
+        }) do
+            if options[key] == nil then options[key] = definition[key] end
+        end
+        options.borderColor = options.borderColor or borderColor
+        skinMethod(self, target, options)
+    end,
     TEXT = function(self, skinMethod, target, style)
         skinMethod(self, target, style)
     end,
@@ -4562,6 +4849,14 @@ end
 
 function NSkin:RegisterSearchBox(definition)
     return self:RegisterTypedElement("SEARCH_GROUP", definition)
+end
+
+function NSkin:RegisterEditBox(definition)
+    return self:RegisterTypedElement("EDIT_BOX", definition)
+end
+
+function NSkin:RegisterIcon(definition)
+    return self:RegisterTypedElement("ICON", definition)
 end
 
 function NSkin:RegisterTextElement(definition)

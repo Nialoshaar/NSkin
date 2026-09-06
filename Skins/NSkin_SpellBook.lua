@@ -4,7 +4,6 @@ local SpellBookSkin = NSkin:NewModule("SpellBook")
 
 local BORDER_SIZE = 1
 local CIRCLE_MASK_ATLAS = "talents-node-circle-mask"
-local SPELL_BOOK_BORDER_KEY = "NSkinSpellBookItemBorder"
 local SPELL_BOOK_STATE = "spellBook"
 local IDs = {
     AppearanceWindow = "PlayerSpells.SpellBook",
@@ -398,9 +397,15 @@ local function SkinAssistedCombat(frame)
             button.Border:SetTexture(nil)
             button.Border:Hide()
         end
-        local border = NSkin:CreatePixelBorder(button, "NSkinSpellBookBorder", BORDER_SIZE,
-            NSkin:GetStyle("icon").border, false, icon)
-        NSkin:SetPixelBorderColor(border, unpack(NSkin:GetStyle("icon").border))
+        local iconStyle = NSkin:GetAppearanceStyle(
+            "icon", IDs.AppearanceWindow)
+        NSkin:SkinIcon(button, {
+            texture = icon,
+            style = iconStyle,
+            borderKey = "NSkinSpellBookBorder",
+            borderColor = NSkin:GetAppearanceBorderColor(
+                "icon", iconStyle, IDs.AppearanceWindow),
+        })
     end
 
     if not State.assistedCombatDivider then
@@ -486,11 +491,12 @@ local function SkinSpellBookControls()
     SkinAssistedCombat(spellBook.AssistedCombatRotationSpellFrame)
 end
 
-local function CreateCircularBorder(button, icon)
+local function CreateCircularBorder(button, icon, style, borderColor)
+    local borderSize = tonumber(style and style.borderSize) or BORDER_SIZE
     local border = button:CreateTexture(nil, "ARTWORK", nil, -2)
-    border:SetColorTexture(unpack(NSkin:GetStyle("icon").border))
-    border:SetPoint("TOPLEFT", icon, "TOPLEFT", -BORDER_SIZE, BORDER_SIZE)
-    border:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", BORDER_SIZE, -BORDER_SIZE)
+    border:SetColorTexture(unpack(borderColor))
+    border:SetPoint("TOPLEFT", icon, "TOPLEFT", -borderSize, borderSize)
+    border:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", borderSize, -borderSize)
 
     local mask = button:CreateMaskTexture(nil, "ARTWORK")
     mask:SetAtlas(CIRCLE_MASK_ATLAS, false)
@@ -509,15 +515,21 @@ local function SkinSpellBookItem(item)
     local icon = button.Icon
     if not icon then return end
 
-    local iconCrop = NSkin:GetStyle("icon").crop
-    icon:SetTexCoord(iconCrop, 1 - iconCrop, iconCrop, 1 - iconCrop)
+    local spellInfo = item.spellBookItemInfo
+    local isPassive = spellInfo and spellInfo.isPassive
+    local iconStyle = NSkin:GetAppearanceStyle("icon", IDs.AppearanceWindow)
+    local iconBorderColor = NSkin:GetAppearanceBorderColor(
+        "icon", iconStyle, IDs.AppearanceWindow)
+    NSkin:SkinIcon(button, {
+        texture = icon,
+        style = iconStyle,
+        borderColor = iconBorderColor,
+        showBorder = not isPassive,
+    })
     if button.Cooldown then
         button.Cooldown:ClearAllPoints()
         button.Cooldown:SetAllPoints(icon)
     end
-
-    local spellInfo = item.spellBookItemInfo
-    local isPassive = spellInfo and spellInfo.isPassive
 
     -- Keep functional overlays while removing Blizzard's ornamental artwork.
     if item.Backplate then item.Backplate:SetAlpha(0) end
@@ -545,31 +557,24 @@ local function SkinSpellBookItem(item)
         button.Border:Hide()
     end
 
-    local border = NSkin:GetPixelBorder(button, SPELL_BOOK_BORDER_KEY)
-    if not border then
-        border = NSkin:CreatePixelBorder(
-            button,
-            SPELL_BOOK_BORDER_KEY,
-            BORDER_SIZE,
-            NSkin:GetStyle("icon").border,
-            false,
-            icon
-        )
-    end
-    NSkin:SetPixelBorderColor(border, unpack(NSkin:GetStyle("icon").border))
-
     local data = NSkin:GetSkinData(button, SPELL_BOOK_STATE)
     local circularBorder = data.circularBorder
 
     if isPassive then
-        NSkin:SetPixelBorderShown(border, false)
         if button.IconMask then button.IconMask:Show() end
 
-        circularBorder = circularBorder or CreateCircularBorder(button, icon)
-        circularBorder:SetColorTexture(unpack(NSkin:GetStyle("icon").border))
+        circularBorder = circularBorder
+            or CreateCircularBorder(
+                button, icon, iconStyle, iconBorderColor)
+        local borderSize = tonumber(iconStyle.borderSize) or BORDER_SIZE
+        circularBorder:ClearAllPoints()
+        circularBorder:SetPoint(
+            "TOPLEFT", icon, "TOPLEFT", -borderSize, borderSize)
+        circularBorder:SetPoint(
+            "BOTTOMRIGHT", icon, "BOTTOMRIGHT", borderSize, -borderSize)
+        circularBorder:SetColorTexture(unpack(iconBorderColor))
         circularBorder:Show()
     else
-        NSkin:SetPixelBorderShown(border, true)
         if button.IconMask then button.IconMask:Hide() end
         if circularBorder then circularBorder:Hide() end
     end

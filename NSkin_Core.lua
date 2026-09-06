@@ -83,6 +83,10 @@ NSkin.moduleDefinitions = {
         key = "AuctionHouse", label = "Auction House",
         defaultEnabled = true, optionsGroup = "windows", optionsOrder = 190,
     },
+    {
+        key = "Professions", label = "Professions",
+        defaultEnabled = true, optionsGroup = "windows", optionsOrder = 200,
+    },
 }
 
 NSkin.moduleDefinitionByKey = {}

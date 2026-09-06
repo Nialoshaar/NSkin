@@ -119,8 +119,43 @@ NSkin.baseAppearance = {
 
     icon = {
         border = { 0, 0, 0, 1 },
-        crop = 0.06,
-        qualityColor = true,
+        borderMode = "quality",
+        borderSize = 1,
+        borderPadding = 0,
+        width = 0,
+        height = 0,
+        zoom = 0.06,
+        crop = 1,
+        shape = "square",
+    },
+
+    editBox = {
+        background = { 0, 0, 0, 0.75 },
+        backgroundMode = "CUSTOM",
+        border = { 0.45, 0.45, 0.45, 1 },
+        borderMode = "CUSTOM",
+        text = { 1, 1, 1, 1 },
+        textMode = "CUSTOM",
+        disabledText = { 0.55, 0.55, 0.55, 1 },
+        disabledTextMode = "CUSTOM",
+        focusBorder = { 0, 0.55, 0.82, 1 },
+        focusBorderMode = "ACCENT",
+        placeholderText = { 0.55, 0.55, 0.55, 1 },
+        placeholderTextMode = "CUSTOM",
+        borderSize = 1,
+        borderPadding = 0,
+        font = "Fonts\\FRIZQT__.TTF",
+        outline = "",
+        useGlobalTypography = true,
+        fontMode = "GLOBAL",
+        sizeMode = "GLOBAL",
+        outlineMode = "GLOBAL",
+        placeholderFont = "Fonts\\FRIZQT__.TTF",
+        placeholderOutline = "",
+        placeholderUseGlobalTypography = true,
+        placeholderFontMode = "GLOBAL",
+        placeholderSizeMode = "GLOBAL",
+        placeholderOutlineMode = "GLOBAL",
     },
 
     searchBox = {
@@ -231,7 +266,7 @@ end
 local _, NSkin = ...
 
 local DEFAULT_PROFILE = "Default"
-local CURRENT_DATABASE_VERSION = 7
+local CURRENT_DATABASE_VERSION = 8
 local activeProfile
 
 local function CopyTable(source)
@@ -418,6 +453,31 @@ local function RunMigrations(database, activeProfileTable)
                 profile.appearance = profile.appearance or {}
                 MergeSparse(profile.appearance, profile.theme)
                 profile.theme = nil
+            end
+        end
+    end
+    if version < 8 then
+        local function MigrateIconStyle(style)
+            if type(style) ~= "table" then return end
+            if style.zoom == nil and style.crop ~= nil then
+                style.zoom = style.crop
+            end
+            style.crop = nil
+            if style.qualityColor == false then
+                style.borderMode = "custom"
+            end
+            style.qualityColor = nil
+        end
+        for _, profile in pairs(database.profiles) do
+            MigrateIconStyle(profile.appearance and profile.appearance.icon)
+            local overrides = profile.appearanceOverrides
+            for _, scope in pairs({
+                overrides and overrides.windows,
+                overrides and overrides.elements,
+            }) do
+                for _, styles in pairs(scope or {}) do
+                    MigrateIconStyle(styles.icon)
+                end
             end
         end
     end

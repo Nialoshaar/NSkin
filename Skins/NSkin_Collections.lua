@@ -3,9 +3,7 @@ local _, NSkin = ...
 local CollectionSkin = NSkin:NewModule("Collections")
 
 local TOYS_PER_PAGE = 18
-local BORDER_SIZE = 1
 local UNCOLLECTED_ICON_ALPHA = 0.5
-local QUALITY_BORDER_KEY = "__NSkinCollectionQualityBorder"
 local COLLECTION_ITEM_STATE = "collectionItems"
 local IDs = {
     AppearanceWindow = "Collections",
@@ -796,38 +794,7 @@ ApplyCollectionsSkin = function()
     RemoveCollectionPageBackgrounds()
 end
 
-local function UpdateIconBorder(button, knownQuality)
-    if not button or not button.iconTexture then return end
-
-    local data = NSkin:GetSkinData(button, COLLECTION_ITEM_STATE)
-    local itemID = button.itemID
-    local border = NSkin:GetPixelBorder(button, QUALITY_BORDER_KEY)
-
-    if not itemID or itemID < 0 then
-        NSkin:SetPixelBorderShown(border, false)
-        return
-    end
-
-    if not border then
-        border = NSkin:CreateQualityBorder(button, button.iconTexture, QUALITY_BORDER_KEY, BORDER_SIZE)
-        if not border then return end
-    end
-
-    local qualityColorEnabled = NSkin:GetStyle("icon").qualityColor ~= false
-    if data.qualityItemID ~= itemID
-        or data.qualityColorEnabled ~= qualityColorEnabled
-    then
-        local quality = knownQuality or Item.GetItemQualityByID(itemID)
-        if not NSkin:SetQualityBorder(border, quality) then return end
-
-        data.qualityItemID = itemID
-        data.qualityColorEnabled = qualityColorEnabled
-    else
-        NSkin:SetPixelBorderShown(border, true)
-    end
-end
-
-local function SkinCollectionButton(button, knownQuality)
+local function SkinCollectionButton(button, knownQuality, appearanceWindowID)
     if not button then return end
 
     local data = NSkin:GetSkinData(button, COLLECTION_ITEM_STATE)
@@ -846,7 +813,23 @@ local function SkinCollectionButton(button, knownQuality)
         data.collectionDecorationRemoved = true
     end
 
-    UpdateIconBorder(button, knownQuality)
+    local style = NSkin:GetAppearanceStyle("icon", appearanceWindowID)
+    NSkin:SkinIcon(button, {
+        texture = button.iconTexture,
+        style = style,
+        borderColor = NSkin:GetAppearanceBorderColor(
+            "icon", style, appearanceWindowID),
+        qualityProvider = function(target)
+            if knownQuality ~= nil then return knownQuality end
+            local itemID = target and target.itemID
+            if not itemID or itemID < 0 or not Item
+                or not Item.GetItemQualityByID
+            then return nil end
+            return Item.GetItemQualityByID(itemID)
+        end,
+        showBorder = knownQuality ~= nil
+            or (button.itemID ~= nil and button.itemID >= 0),
+    })
 end
 
 function CollectionSkin:InitializeOptionalAdapters()
@@ -856,10 +839,13 @@ function CollectionSkin:InitializeOptionalAdapters()
     if not State.initialized.ToyBox and iconsFrame
         and type(_G.ToySpellButton_UpdateButton) == "function"
     then
-        _G.hooksecurefunc("ToySpellButton_UpdateButton", SkinCollectionButton)
+        _G.hooksecurefunc("ToySpellButton_UpdateButton", function(button)
+            SkinCollectionButton(button, nil, IDs.ToyBox.Scope)
+        end)
         State.initialized.ToyBox = true
         for i = 1, TOYS_PER_PAGE do
-            SkinCollectionButton(iconsFrame["spellButton" .. i])
+            SkinCollectionButton(
+                iconsFrame["spellButton" .. i], nil, IDs.ToyBox.Scope)
         end
     end
     if iconsFrame and not State.ToyBox.backgroundHooked
@@ -875,12 +861,14 @@ function CollectionSkin:InitializeOptionalAdapters()
         and type(heirloomsJournal.UpdateButton) == "function"
     then
         _G.hooksecurefunc(heirloomsJournal, "UpdateButton", function(_, button)
-            SkinCollectionButton(button, HEIRLOOM_QUALITY)
+            SkinCollectionButton(
+                button, HEIRLOOM_QUALITY, IDs.Heirlooms.Scope)
         end)
         State.initialized.Heirlooms = true
         for i = 1, #(heirloomsJournal.heirloomEntryFrames or {}) do
             SkinCollectionButton(
-                heirloomsJournal.heirloomEntryFrames[i], HEIRLOOM_QUALITY)
+                heirloomsJournal.heirloomEntryFrames[i], HEIRLOOM_QUALITY,
+                IDs.Heirlooms.Scope)
         end
     end
 end
@@ -956,14 +944,16 @@ function CollectionSkin:RefreshAppearance()
     local iconsFrame = _G.ToyBox and _G.ToyBox.iconsFrame
     if State.initialized.ToyBox and iconsFrame then
         for i = 1, TOYS_PER_PAGE do
-            SkinCollectionButton(iconsFrame["spellButton" .. i])
+            SkinCollectionButton(
+                iconsFrame["spellButton" .. i], nil, IDs.ToyBox.Scope)
         end
     end
     local heirloomsJournal = _G.HeirloomsJournal
     if State.initialized.Heirlooms and heirloomsJournal then
         for i = 1, #(heirloomsJournal.heirloomEntryFrames or {}) do
             SkinCollectionButton(
-                heirloomsJournal.heirloomEntryFrames[i], HEIRLOOM_QUALITY)
+                heirloomsJournal.heirloomEntryFrames[i], HEIRLOOM_QUALITY,
+                IDs.Heirlooms.Scope)
         end
     end
 end

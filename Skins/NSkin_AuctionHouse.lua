@@ -13,6 +13,10 @@ local IDs = {
     ItemBuyBidButton = "AuctionHouse.ItemBuyBidButton",
     ItemBuyBuyoutButton = "AuctionHouse.ItemBuyBuyoutButton",
     SellMaxButton = "AuctionHouse.SellMaxButton",
+    SellQuantityInput = "AuctionHouse.SellQuantityInput",
+    SellBuyoutGoldInput = "AuctionHouse.SellBuyoutGoldInput",
+    SellBuyoutSilverInput = "AuctionHouse.SellBuyoutSilverInput",
+    SellBuyoutCopperInput = "AuctionHouse.SellBuyoutCopperInput",
     SellPostButton = "AuctionHouse.SellPostButton",
     SellDurationDropdown = "AuctionHouse.SellDurationDropdown",
     SellBuyoutModeCheckbox = "AuctionHouse.SellBuyoutModeCheckbox",
@@ -216,6 +220,24 @@ local function RegisterSellButton(frame, sellFrame, id, button, label,
     }) ~= nil
 end
 
+local function RegisterSellEditBox(frame, sellFrame, id, editBox, label,
+    priority)
+    return NSkin:RegisterEditBox({
+        id = id,
+        module = "AuctionHouse",
+        appearanceWindowID = IDs.Scope,
+        label = label,
+        window = frame,
+        target = editBox,
+        priority = priority,
+        highlightRegions = { editBox },
+        isEditable = function()
+            return IsVisible(frame) and IsVisible(sellFrame)
+                and IsVisible(editBox)
+        end,
+    }) ~= nil
+end
+
 function AuctionHouseSkin:ApplySellControls(frame)
     local sellFrame = frame and frame.ItemSellFrame
     if not sellFrame then return false end
@@ -225,8 +247,24 @@ function AuctionHouseSkin:ApplySellControls(frame)
     local durationDropdown = sellFrame.Duration
         and sellFrame.Duration.Dropdown
     local buyoutMode = sellFrame.BuyoutModeCheckButton
+    local quantityInput = sellFrame.QuantityInput
+        and sellFrame.QuantityInput.InputBox
+    local moneyInput = sellFrame.PriceInput
+        and sellFrame.PriceInput.MoneyInputFrame
     local applied = RegisterSellButton(frame, sellFrame,
         IDs.SellMaxButton, maxButton, "Maximum quantity button", 56)
+    applied = RegisterSellEditBox(frame, sellFrame,
+        IDs.SellQuantityInput, quantityInput,
+        "Auction quantity input", 56.1) or applied
+    applied = RegisterSellEditBox(frame, sellFrame,
+        IDs.SellBuyoutGoldInput, moneyInput and moneyInput.GoldBox,
+        "Buyout price gold input", 56.2) or applied
+    applied = RegisterSellEditBox(frame, sellFrame,
+        IDs.SellBuyoutSilverInput, moneyInput and moneyInput.SilverBox,
+        "Buyout price silver input", 56.3) or applied
+    applied = RegisterSellEditBox(frame, sellFrame,
+        IDs.SellBuyoutCopperInput, moneyInput and moneyInput.CopperBox,
+        "Buyout price copper input", 56.4) or applied
     applied = RegisterSellButton(frame, sellFrame,
         IDs.SellPostButton, sellFrame.PostButton,
         "Create Auction button", 57) or applied
