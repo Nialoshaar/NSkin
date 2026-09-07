@@ -868,6 +868,14 @@ function SpellBookSkin:Initialize()
         target = pagedSpells,
         priority = 70,
         draggable = false,
+        refreshAppearance = function()
+            SpellBookSkin:RefreshHeaders()
+            return true
+        end,
+        refreshLayout = function()
+            SpellBookSkin:RefreshHeaders()
+            return true
+        end,
         highlightRegions = function()
             local regions = {}
             if pagedSpells and pagedSpells.EnumerateFrames then

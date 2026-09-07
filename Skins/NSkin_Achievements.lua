@@ -378,6 +378,7 @@ function AchievementsSkin:ApplyProgressBars(frame)
             target = categories,
             priority = 80,
             draggable = false,
+            skinOptions = PROGRESS_BAR_STYLE,
             highlightRegions = GetVisibleSummaryProgressBars,
             isEditable = function()
                 return IsVisible(frame) and IsVisible(summary)

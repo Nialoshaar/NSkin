@@ -10,6 +10,7 @@
 NSkin_Core.lua
 NSkin_Database.lua
 Components\NSkin_ComponentsCore.lua
+Debug\NSkin_AppearanceDebug.lua
 Components\NSkin_ComponentsInputs.lua
 Components\NSkin_ComponentsWindows.lua
 Components\NSkin_ComponentsNavigation.lua

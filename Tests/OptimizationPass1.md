@@ -8,8 +8,8 @@ The test is not loaded by the addon TOC.
 
 The harness loads the real component core and Collections module with mocked WoW
 surfaces. It verifies canonical registration identity, preset/setup reuse,
-updated/removed skin options, targeted element edits and resets, saved placement
-reapplication, broad fallback routing, current-page lifecycle work, and late
+updated/removed skin options, targeted element edits and resets, appearance-only
+placement avoidance, broad fallback routing, current-page lifecycle work, and late
 adapter initialization. It does not prove client rendering or taint behavior.
 
 Lua Language Server error diagnostics and `git diff --check` also pass.
@@ -51,11 +51,11 @@ these comparable captures are available.
 Element/window setters carry scope, ID, style/path information where available;
 global setters carry global scope and style/path. Cache invalidation remains broad.
 
-Only canonical typed registrations use the targeted path. Unresolved elements,
+Canonical typed registrations and controller refresh contracts use the targeted path. Unresolved elements,
 custom skin adapters, mismatched styles/targets, window/global changes, and
 elements or modules with `requiresStructuralRefresh = true` use the full path.
-Controller-owned search/pagination elements request structural refresh because
-their layout can affect siblings. Targeted refresh does not rebuild Options
+Controller-owned search/pagination elements use their scoped appearance/layout
+contracts. Targeted refresh does not rebuild Options
 chrome; Skinning Mode updates the affected overlay and selected inspector.
 
 Persistent Collections controls register during adapter initialization. Controls

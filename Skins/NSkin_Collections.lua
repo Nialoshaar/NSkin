@@ -181,10 +181,7 @@ local function RegisterCollectionMovableElement(id, appearanceWindowID, label,
     journal, target, priority, anchorHighlight, editorOptions, isEditable, kind)
     if not journal or not target then return end
     local existing = NSkin:GetSkinningElement(id)
-    if existing then
-        if existing.typedRegistration then NSkin:RefreshTypedElement(existing) end
-        return existing
-    end
+    if existing then return existing end
     local definition = {
         id = id,
         module = "Collections",

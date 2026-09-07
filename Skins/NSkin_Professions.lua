@@ -105,6 +105,7 @@ function ProfessionsSkin:ApplyProgressBars(frame)
             target = _G.ProfessionsContentFrame or frame,
             priority = 80,
             draggable = false,
+            skinOptions = PROGRESS_BAR_STYLE,
             highlightRegions = function()
                 return GetProfessionBars(true)
             end,

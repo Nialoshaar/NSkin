@@ -531,7 +531,8 @@ function NSkin:RegisterAccessoryGroup(definition)
         NSkin:NotifySkinningElementBoundsChanged(self.ids.primary)
         NSkin:NotifySkinningElementBoundsChanged(self.ids.accessory)
     end
-    function controller:Refresh()
+    function controller:RefreshAppearance(element)
+        if element then return NSkin:RefreshTypedElementAppearance(element) end
         NSkin:SkinTypedElement("SEARCH_GROUP", {
             id = self.ids.primary,
             target = self.primary,
@@ -545,6 +546,9 @@ function NSkin:RegisterAccessoryGroup(definition)
             skinOptions = self.accessorySkinOptions,
             menus = self.accessoryMenus,
         })
+        return true
+    end
+    function controller:RefreshLayout()
         local mode = self:GetMode()
         self.accessory:SetShown(mode ~= "HIDDEN")
         if mode == "GROUPED" then
@@ -562,6 +566,11 @@ function NSkin:RegisterAccessoryGroup(definition)
             if saved then element.applyPlacement(element, saved, SUPPRESS_NOTIFICATION) end
         end
         self:NotifyBounds()
+        return true
+    end
+    function controller:Refresh()
+        self:RefreshAppearance()
+        return self:RefreshLayout()
     end
     function controller:UpdateWatcher()
         local state, options = GetControllerState(self.module, self.id, false)
@@ -651,6 +660,13 @@ function NSkin:RegisterAccessoryGroup(definition)
         })
     for _, element in ipairs({ primary, accessory }) do
         if element then
+            element.refreshAppearance = function(_, current)
+                return controller:RefreshAppearance(current)
+            end
+            element.refreshLayout = function(_, current)
+                if not controller:RefreshAppearance(current) then return false end
+                return controller:RefreshLayout()
+            end
             element.getSearchAccessoryMode = function() return controller:GetMode() end
             element.setSearchAccessoryMode = function(_, mode) return controller:SetMode(mode) end
         end

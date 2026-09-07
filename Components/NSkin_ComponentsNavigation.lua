@@ -634,6 +634,23 @@ function NSkin:SkinTabSystem(tabSystem, style, borderColor)
     end
 end
 
+local function RefreshTabGroupAppearance(group)
+    local tabs = group.container and group.container.tabs or group.tabs
+    local style = NSkin:GetAppearanceStyle(
+        "tab", group.appearanceWindowID, group.id)
+    local borderColor = NSkin:GetAppearanceBorderColor(
+        "tab", style, group.appearanceWindowID, group.id)
+    for i = 1, #(tabs or {}) do
+        local tab = tabs[i]
+        if tab then
+            local selected = tab.IsSelected and tab:IsSelected()
+            NSkin:SkinTab(tab, selected, style, borderColor)
+        end
+    end
+    NSkin:ResnapPixelBordersForElement(group)
+    return true
+end
+
 function NSkin:RegisterTabGroup(groupID, definition)
     if type(groupID) ~= "string" or groupID == ""
         or type(definition) ~= "table"
@@ -688,6 +705,18 @@ function NSkin:RegisterTabGroup(groupID, definition)
         group = definition
         group.id = groupID
         tabGroups[groupID] = group
+    end
+    group.pixelBorderTargets = function()
+        return group.container and group.container.tabs or group.tabs
+    end
+    group.refreshAppearance = function()
+        return RefreshTabGroupAppearance(group)
+    end
+    group.refreshLayout = function()
+        RefreshTabGroupAppearance(group)
+        local applied = NSkin:ApplyTabGroupLayout(group.id)
+        NSkin:NotifySkinningElementBoundsChanged(group.id)
+        return applied
     end
     self:RefreshTabGroupBaseline(groupID, true)
     if type(group.applyPlacement) ~= "function" then
@@ -810,6 +839,24 @@ function NSkin:RegisterSideTab(definition)
     self:SkinSideTab(definition.target, style, borderColor)
 
     definition.kind = "SIDE_TAB"
+    definition.refreshAppearance = function(_, element)
+        local appearance = NSkin:GetAppearanceStyle(
+            "sideTab", element.appearanceWindowID, element.id)
+        local color = NSkin:GetAppearanceBorderColor(
+            "sideTab", appearance, element.appearanceWindowID, element.id)
+        NSkin:SkinSideTab(element.target, appearance, color)
+        NSkin:ResnapPixelBordersForElement(element)
+        return true
+    end
+    definition.refreshLayout = function(owner, element)
+        if not definition.refreshAppearance(owner, element) then return false end
+        local saved = GetSavedMovablePlacement(element)
+        if saved and element.applyPlacement then
+            element.applyPlacement(element, saved, SUPPRESS_NOTIFICATION)
+        end
+        NSkin:NotifySkinningElementBoundsChanged(element.id)
+        return true
+    end
     definition.supportsResize = true
     definition.restoreGeometry = definition.restoreGeometry or function(element)
         return NSkin:RestoreSideTabOriginalState(element.target, element.id)
@@ -878,6 +925,25 @@ function NSkin:RegisterSideTabGroup(groupID, definition)
     definition.id = groupID
     definition.target = primary
     definition.kind = "SIDE_TAB"
+    definition.pixelBorderTargets = targets
+    definition.refreshAppearance = function()
+        local appearance = self:GetAppearanceStyle(
+            "sideTab", definition.appearanceWindowID, groupID)
+        local color = self:GetAppearanceBorderColor(
+            "sideTab", appearance, definition.appearanceWindowID, groupID)
+        for i = 1, #targets do self:SkinSideTab(targets[i], appearance, color) end
+        self:ResnapPixelBordersForElement(definition)
+        return true
+    end
+    definition.refreshLayout = function(owner, element)
+        if not definition.refreshAppearance(owner, element) then return false end
+        local saved = GetSavedMovablePlacement(element)
+        if saved and element.applyPlacement then
+            element.applyPlacement(element, saved, SUPPRESS_NOTIFICATION)
+        end
+        self:NotifySkinningElementBoundsChanged(element.id)
+        return true
+    end
     definition.highlightRegions = definition.highlightRegions or targets
     definition.defaultPlacement = definition.defaultPlacement
         or GetCurrentWindowPlacement(definition.window, primary)
@@ -958,6 +1024,21 @@ function NSkin:RegisterNavigationBar(elementID, definition)
     then return nil end
     definition.id = elementID
     definition.kind = "NAVIGATION_BAR"
+    definition.refreshAppearance = function(_, element)
+        NSkin:SkinNavigationBar(element.target, NSkin:GetAppearanceStyle(
+            "navigationBar", element.appearanceWindowID, element.id))
+        NSkin:ResnapPixelBordersForElement(element)
+        return true
+    end
+    definition.refreshLayout = function(owner, element)
+        if not definition.refreshAppearance(owner, element) then return false end
+        local saved = GetSavedMovablePlacement(element)
+        if saved and element.applyPlacement then
+            element.applyPlacement(element, saved, SUPPRESS_NOTIFICATION)
+        end
+        NSkin:NotifySkinningElementBoundsChanged(element.id)
+        return true
+    end
     local style = self:GetAppearanceStyle("navigationBar",
         definition.appearanceWindowID, elementID)
     self:SkinNavigationBar(definition.target, style)
@@ -1150,6 +1231,14 @@ function NSkin:RegisterPaginationGroup(definition)
         })
     for _, element in ipairs({ group, previous, nextPage, text }) do
         if element then
+            element.refreshAppearance = function(_, current)
+                return NSkin:RefreshTypedElementAppearance(current)
+            end
+            element.refreshLayout = function(_, current)
+                if not NSkin:RefreshTypedElementLayout(current) then return false end
+                controller:Refresh()
+                return true
+            end
             element.getPaginationSeparateButtons = function() return controller:GetSeparateButtons() end
             element.setPaginationSeparateButtons = function(_, value)
                 return controller:SetSeparateButtons(value)

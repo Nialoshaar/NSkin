@@ -395,6 +395,8 @@ function NSkin:SkinStandardWindowChrome(definition)
     local frame = definition.frame
     local appearanceWindowID = definition.appearanceWindowID
     local elementID = definition.elementID
+    local chromeData = self:GetSkinData(frame, COMPONENT_STATE)
+    chromeData.standardWindowChromeDefinition = definition
     local style = definition.style or self:GetAppearanceStyle(
         "window", appearanceWindowID, elementID)
     if not style then return nil end
@@ -480,6 +482,14 @@ function NSkin:SkinStandardWindowChrome(definition)
                 isEditable = function()
                     return frame:IsVisible() and closeButton:IsVisible()
                 end,
+                refreshAppearance = function()
+                    return NSkin:RefreshStandardWindowChromeElement({ target = frame })
+                end,
+                refreshLayout = function()
+                    local applied = NSkin:RefreshStandardWindowChromeElement({ target = frame })
+                    NSkin:NotifySkinningElementBoundsChanged(headerControlsID)
+                    return applied
+                end,
             })
         else
             self:NotifySkinningElementBoundsChanged(headerControlsID)
@@ -494,4 +504,13 @@ function NSkin:SkinStandardWindowChrome(definition)
         title = title,
         closeButton = closeButton,
     }
+end
+
+function NSkin:RefreshStandardWindowChromeElement(element)
+    local frame = element and element.target
+    local data = frame and self:GetSkinData(frame, COMPONENT_STATE, false)
+    local definition = data and data.standardWindowChromeDefinition
+    if not definition or not self:SkinStandardWindowChrome(definition) then return false end
+    self:ResnapPixelBordersForElement(element)
+    return true
 end

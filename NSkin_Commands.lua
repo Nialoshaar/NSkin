@@ -44,6 +44,23 @@ end
 
 commands.edit = commands.skinning
 
+commands["debug refresh"] = function()
+    if NSkin.DumpAppearanceRefreshDebugCounters then
+        NSkin:DumpAppearanceRefreshDebugCounters()
+    else
+        NSkin:Print("Appearance refresh diagnostics are unavailable.")
+    end
+end
+
+commands["debug refresh reset"] = function()
+    if NSkin.ResetAppearanceRefreshDebugCounters then
+        NSkin:ResetAppearanceRefreshDebugCounters()
+        NSkin:Print("Appearance refresh fallback counters reset.")
+    else
+        NSkin:Print("Appearance refresh diagnostics are unavailable.")
+    end
+end
+
 commands.resettabs = function()
     if _G.InCombatLockdown and _G.InCombatLockdown() then
         NSkin:Print("Spellbook tabs cannot be reset during combat.")
@@ -76,7 +93,8 @@ local function HandleSlashCommand(message)
     end
 
     NSkin:Print("commands: /nskin, /nskin edit, /nskin skinning, "
-        .. "/nskin resettabs, /nskin journaldebug, /nskin mapdebug")
+        .. "/nskin resettabs, /nskin debug refresh, /nskin journaldebug, "
+        .. "/nskin mapdebug")
 end
 
 SLASH_NSKIN1 = "/nskin"

@@ -308,6 +308,17 @@ local function SetAppearanceOverride(scope, id, windowID, path, value)
     return true
 end
 
+local function CollectResetChanges(changes, styleName, value, prefix)
+    if type(value) ~= "table" then
+        changes[#changes + 1] = { style = styleName, path = prefix }
+        return
+    end
+    for key, child in pairs(value) do
+        local childPath = prefix and (prefix .. "." .. tostring(key)) or tostring(key)
+        CollectResetChanges(changes, styleName, child, childPath)
+    end
+end
+
 local function ResetAppearanceOverride(scope, id, path)
     if type(id) ~= "string" or id == "" then return false end
     local profile = NSkin:GetProfile()
@@ -315,7 +326,11 @@ local function ResetAppearanceOverride(scope, id, path)
     local overrides = scopes and scopes[scope] and scopes[scope][id]
     if not overrides then return false end
     local changed
+    local changes = {}
     if path == nil then
+        for styleName, styleOverrides in pairs(overrides) do
+            CollectResetChanges(changes, styleName, styleOverrides)
+        end
         scopes[scope][id] = nil
         changed = true
     else
@@ -329,6 +344,10 @@ local function ResetAppearanceOverride(scope, id, path)
                 if parent and current ~= nil then
                     parent[key] = nil
                     changed = true
+                    changes[#changes + 1] = {
+                        style = styleName,
+                        path = relativePath,
+                    }
                 end
             end
         end
@@ -337,13 +356,18 @@ local function ResetAppearanceOverride(scope, id, path)
     PruneEmptyTables(profile.appearanceOverrides)
     if not next(profile.appearanceOverrides) then profile.appearanceOverrides = nil end
     local element = scope == "elements" and NSkin:GetSkinningElement(id)
-    NSkin:RefreshAppearance({
+    local change = {
         scope = scope == "elements" and "element" or "window",
         elementID = scope == "elements" and id or nil,
         windowID = element and element.appearanceWindowID
             or (scope == "windows" and id or nil),
-        path = path,
-    })
+        changes = changes,
+    }
+    if #changes == 1 then
+        change.style = changes[1].style
+        change.path = changes[1].path
+    end
+    NSkin:RefreshAppearance(change)
     return true
 end
 
@@ -633,6 +657,51 @@ function NSkin:InvalidateAppearance()
     wipe(resolvedStyles)
 end
 
+local LAYOUT_APPEARANCE_KEYS = {
+    width = true,
+    height = true,
+    size = true,
+    textSize = true,
+    iconSize = true,
+    spacing = true,
+}
+
+local function ClassifyAppearanceRequirement(change)
+    if not change then return "structural" end
+    if change.requirement == "appearance" or change.requirement == "layout"
+        or change.requirement == "structural"
+    then
+        return change.requirement
+    end
+    local entries = change.changes or { change }
+    for i = 1, #entries do
+        local path = entries[i].path
+        local key = type(path) == "string" and path:match("([^.]+)$")
+        if key and LAYOUT_APPEARANCE_KEYS[key] then return "layout" end
+    end
+    return "appearance"
+end
+
+local function ChangeMatchesStyle(change, styleName)
+    if not change or not styleName then return false end
+    if change.style and change.style ~= styleName then return false end
+    local entries = change.changes
+    if entries then
+        for i = 1, #entries do
+            if entries[i].style and entries[i].style ~= styleName then
+                return false
+            end
+        end
+    end
+    return true
+end
+
+local function RecordAppearanceFallback(change, reason)
+    if NSkin.DebugAppearanceRefresh then
+        NSkin:DebugAppearanceRefresh(change, reason)
+    end
+end
+
 function NSkin:RefreshAppearance(change)
     self:InvalidateAppearance()
 
@@ -640,18 +709,40 @@ function NSkin:RefreshAppearance(change)
         local element = self:GetSkinningElement(change.elementID)
         local module = element and self.modules[element.module]
         local sharedType = element and self:GetSharedElementType(element.kind)
-        if element and element.typedRegistration and not element.skinAdapter
-            and sharedType and (not change.style or change.style == sharedType.style)
-            and not element.requiresStructuralRefresh
-            and not (module and module.requiresStructuralRefresh)
-            and self:IsModuleEnabled(element.module)
-            and self:RefreshTypedElement(element)
-        then
+        local requirement = ClassifyAppearanceRequirement(change)
+        local refresh
+        if element then
+            refresh = requirement == "layout" and element.refreshLayout
+                or requirement == "appearance" and element.refreshAppearance
+        end
+        if not refresh and element and element.typedRegistration and not element.skinAdapter then
+            refresh = requirement == "layout" and self.RefreshTypedElementLayout
+                or self.RefreshTypedElementAppearance
+        end
+        local fallbackReason
+        if not element then fallbackReason = "unresolved_element"
+        elseif requirement == "structural" then fallbackReason = "structural_change"
+        elseif element.requiresStructuralRefresh then fallbackReason = "structural_element"
+        elseif module and module.requiresStructuralRefresh then fallbackReason = "structural_module"
+        elseif not self:IsModuleEnabled(element.module) then fallbackReason = "module_disabled"
+        elseif not sharedType then fallbackReason = "unknown_component_type"
+        elseif not ChangeMatchesStyle(change, sharedType.style) then fallbackReason = "style_mismatch"
+        elseif element.skinAdapter and not element.refreshAppearance then fallbackReason = "custom_adapter"
+        elseif type(refresh) ~= "function" then fallbackReason = "missing_refresh_contract"
+        elseif refresh(self, element, change) then
             if self.RefreshSkinningModeAppearance then
                 self:RefreshSkinningModeAppearance(change)
             end
             return
+        else
+            fallbackReason = "targeted_refresh_failed"
         end
+        RecordAppearanceFallback(change, fallbackReason)
+    elseif change then
+        RecordAppearanceFallback(change,
+            change.scope == "global" and "global_change" or "broad_scope")
+    else
+        RecordAppearanceFallback(change, "compatibility_refresh")
     end
 
     if self.RefreshOptionsAppearance then self:RefreshOptionsAppearance() end
@@ -662,6 +753,7 @@ function NSkin:RefreshAppearance(change)
         end
     end
     if self.RefreshRegisteredTabGroups then self:RefreshRegisteredTabGroups() end
+    if self.ResnapAllPixelBorders then self:ResnapAllPixelBorders() end
 end
 
 function NSkin:SetAppearanceOverride(path, value)
@@ -833,6 +925,41 @@ function NSkin:GetSkinData(object, namespace, create)
     return scoped
 end
 
+local function TrackPixelBorderOwner(border, frame, anchor)
+    local owner = anchor
+    if not (owner and owner.IsObjectType and owner:IsObjectType("Frame")) then
+        owner = frame
+    end
+    if not owner then return end
+    border.pixelOwner = owner
+    local ownerData = NSkin:GetSkinData(owner, "physicalPixels")
+    ownerData.borders = ownerData.borders
+        or setmetatable({}, { __mode = "k" })
+    ownerData.borders[border] = true
+    if ownerData.resnapHooked then return end
+    ownerData.resnapHooked = true
+    if owner.HookScript then
+        owner:HookScript("OnSizeChanged", function()
+            QueueBorderSetResnap(ownerData)
+        end)
+        owner:HookScript("OnShow", function()
+            QueueBorderSetResnap(ownerData)
+        end)
+    end
+    if _G.hooksecurefunc and owner.SetScale then
+        pcall(_G.hooksecurefunc, owner, "SetScale", function()
+            QueueBorderSetResnap(ownerData)
+        end)
+    end
+end
+
+function NSkin:ResnapPixelBordersForTarget(target)
+    local data = self:GetSkinData(target, "physicalPixels", false)
+    if not data or not data.borders or not next(data.borders) then return false end
+    QueueBorderSetResnap(data)
+    return true
+end
+
 function NSkin:GetPixelBorder(frame, key)
     local data = self:GetSkinData(frame, "primitives", false)
     return data and data.borders and data.borders[key]
@@ -876,33 +1003,7 @@ function NSkin:CreatePixelBorder(frame, key, size, color, outside, anchor)
         requestedSize = tonumber(size) or 1 }
     pixelBorders[border] = true
     ApplyPixelBorderGeometry(border)
-    -- Only frames support OnSizeChanged/OnShow scripts. Borders may be
-    -- anchored to a Texture (for example collection icons), so watch their
-    -- owning frame instead of attempting to attach scripts to the region.
-    local watchTarget = anchor
-    if not (anchor.IsObjectType and anchor:IsObjectType("Frame")) then
-        watchTarget = frame
-    end
-    local watchData = self:GetSkinData(watchTarget, "physicalPixels")
-    watchData.borders = watchData.borders
-        or setmetatable({}, { __mode = "k" })
-    watchData.borders[border] = true
-    if not watchData.resnapHooked then
-        watchData.resnapHooked = true
-        if watchTarget.HookScript then
-            watchTarget:HookScript("OnSizeChanged", function()
-                QueueBorderSetResnap(watchData)
-            end)
-            watchTarget:HookScript("OnShow", function()
-                QueueBorderSetResnap(watchData)
-            end)
-        end
-        if _G.hooksecurefunc and watchTarget.SetScale then
-            pcall(_G.hooksecurefunc, watchTarget, "SetScale", function()
-                QueueBorderSetResnap(watchData)
-            end)
-        end
-    end
+    TrackPixelBorderOwner(border, frame, anchor)
     if key then data.borders[key] = border end
     return border
 end
@@ -942,30 +1043,7 @@ function NSkin:CreatePixelEdgeBorder(frame, key, edges, size, color, anchor)
 
     pixelBorders[border] = true
     ApplyPixelBorderGeometry(border)
-    local watchTarget = border.anchor
-    if not (watchTarget.IsObjectType and watchTarget:IsObjectType("Frame")) then
-        watchTarget = frame
-    end
-    local watchData = self:GetSkinData(watchTarget, "physicalPixels")
-    watchData.borders = watchData.borders
-        or setmetatable({}, { __mode = "k" })
-    watchData.borders[border] = true
-    if not watchData.resnapHooked then
-        watchData.resnapHooked = true
-        if watchTarget.HookScript then
-            watchTarget:HookScript("OnSizeChanged", function()
-                QueueBorderSetResnap(watchData)
-            end)
-            watchTarget:HookScript("OnShow", function()
-                QueueBorderSetResnap(watchData)
-            end)
-        end
-        if _G.hooksecurefunc and watchTarget.SetScale then
-            pcall(_G.hooksecurefunc, watchTarget, "SetScale", function()
-                QueueBorderSetResnap(watchData)
-            end)
-        end
-    end
+    TrackPixelBorderOwner(border, frame, border.anchor)
     if key then data.borders[key] = border end
     return border
 end
@@ -1559,6 +1637,7 @@ local SHARED_TYPE_DEFINITIONS = {
     SCROLLBAR = { style = "scrollBar", skin = "SkinScrollBar",
         editorPreset = "SCROLLBAR", preserveAnchorSpan = true },
     SECTION_HEADER = { style = "sectionHeader", editorPreset = "SECTION_HEADERS" },
+    SECTION_HEADERS = { style = "sectionHeader", editorPreset = "SECTION_HEADERS" },
     SECTION_CARD = { style = "sectionCard", skin = "SkinSectionCard",
         appearanceControls = "shared.sectionCardAppearance",
         editorPreset = "SECTION_CARD" },
@@ -1579,6 +1658,44 @@ function NSkin:RegisterSkinningElement(elementID, definition)
 
     definition.window = definition.window or definition.owner
     definition.target = definition.target or definition.container or definition.owner
+    if definition.kind == "WINDOW" and not definition.refreshAppearance
+        and type(self.RefreshStandardWindowChromeElement) == "function"
+    then
+        definition.refreshAppearance = function(_, element)
+            return NSkin:RefreshStandardWindowChromeElement(element)
+        end
+        definition.refreshLayout = function(_, element)
+            if not NSkin:RefreshStandardWindowChromeElement(element) then return false end
+            local saved = NSkin:GetSavedMovableElementPlacement(element.id)
+            if saved and element.applyPlacement then
+                element.applyPlacement(element, saved, { suppressNotify = true })
+            end
+            NSkin:NotifySkinningElementBoundsChanged(element.id)
+            return true
+        end
+    end
+    if not definition.typedRegistration and not definition.skinAdapter
+        and not definition.refreshAppearance
+        and self:GetSharedElementType(definition.kind)
+    then
+        definition.refreshAppearance = function(_, element)
+            if not NSkin:SkinTypedElement(element.kind, element) then return false end
+            NSkin:ResnapPixelBordersForElement(element)
+            return true
+        end
+        definition.refreshLayout = function(owner, element)
+            if not element.refreshAppearance(owner, element) then return false end
+            local saved = NSkin:GetSavedMovableElementPlacement(element.id)
+            if saved and element.applyPlacement
+                and NSkin:IsSkinningElementEditable(element)
+            then
+                element.applyPlacement(element, saved, { suppressNotify = true })
+            end
+            NSkin:NotifySkinningElementBoundsChanged(element.id)
+            NSkin:ResnapPixelBordersForElement(element)
+            return true
+        end
+    end
     if type(definition.appearanceWindowID) ~= "string"
         or definition.appearanceWindowID == ""
         or not self:GetAppearanceScope(definition.appearanceWindowID)
@@ -2095,15 +2212,75 @@ function NSkin:SkinTypedElement(typeID, definition)
     return true
 end
 
-function NSkin:RefreshTypedElement(element)
+function NSkin:ResnapPixelBordersForElement(elementOrID)
+    local element = type(elementOrID) == "table" and elementOrID
+        or skinningElements[elementOrID]
+    if not element then return false end
+    local requested = self:ResnapPixelBordersForTarget(element.target)
+    local targets = element.pixelBorderTargets
+    if type(targets) == "function" then targets = targets(element) end
+    for i = 1, #(targets or {}) do
+        requested = self:ResnapPixelBordersForTarget(targets[i]) or requested
+    end
+    return requested
+end
+
+function NSkin:RefreshTypedElementAppearance(element)
     if not element or not element.typedRegistration then return false end
     if not self:SkinTypedElement(element.kind, element) then return false end
+    self:ResnapPixelBordersForElement(element)
+    return true
+end
+
+function NSkin:RefreshTypedElementLayout(element)
+    if not self:RefreshTypedElementAppearance(element) then return false end
     local saved = self:GetSavedMovableElementPlacement(element.id)
     if saved and element.applyPlacement and self:IsSkinningElementEditable(element) then
         element.applyPlacement(element, saved, SUPPRESS_NOTIFICATION)
     end
     self:NotifySkinningElementBoundsChanged(element.id)
+    self:ResnapPixelBordersForElement(element)
     return true
+end
+
+function NSkin:RefreshTypedElement(element, requirement)
+    if requirement == "layout" then
+        return self:RefreshTypedElementLayout(element)
+    end
+    return self:RefreshTypedElementAppearance(element)
+end
+
+local TYPED_SKIN_FIELDS = {
+    "skinAdapter", "skinOptions", "menus", "text", "getChecked",
+    "collapsible", "expanded", "textRegion", "icon", "getExpanded",
+    "isExpanded", "stripArtwork", "artworkRegions", "preserveTextures",
+    "background", "visualRegion", "preserveTextLayout", "texture",
+    "quality", "qualityProvider", "borderColor", "borderMode", "borderSize",
+    "borderPadding", "borderKey", "borderOwner", "outside", "showBorder",
+    "width", "height", "zoom", "crop", "shape",
+}
+
+local function TypedSkinValuesEqual(left, right, visited)
+    if left == right then return true end
+    if type(left) ~= "table" or type(right) ~= "table" then return false end
+    visited = visited or {}
+    if visited[left] == right then return true end
+    visited[left] = right
+    for key, value in pairs(left) do
+        if not TypedSkinValuesEqual(value, right[key], visited) then return false end
+    end
+    for key in pairs(right) do
+        if left[key] == nil then return false end
+    end
+    return true
+end
+
+local function TypedSkinDefinitionChanged(existing, definition)
+    for i = 1, #TYPED_SKIN_FIELDS do
+        local key = TYPED_SKIN_FIELDS[i]
+        if not TypedSkinValuesEqual(existing[key], definition[key]) then return true end
+    end
+    return false
 end
 
 function NSkin:RegisterTypedElement(typeID, definition)
@@ -2116,9 +2293,9 @@ function NSkin:RegisterTypedElement(typeID, definition)
         and existing.window == definition.window
     then
         if definition == existing then
-            self:RefreshTypedElement(existing)
             return existing
         end
+        local skinChanged = TypedSkinDefinitionChanged(existing, definition)
         if definition.applyPlacement then existing.applyPlacement = definition.applyPlacement end
         if definition.editorOptions then existing.editorOptions = definition.editorOptions end
         -- Keep the canonical object and its generated placement/reset callbacks.
@@ -2135,7 +2312,7 @@ function NSkin:RegisterTypedElement(typeID, definition)
                 existing.typedDefinitionKeys[key] = true
             end
         end
-        self:RefreshTypedElement(existing)
+        if skinChanged then self:RefreshTypedElementAppearance(existing) end
         return existing
     end
     local typeDefinition = self:GetSharedElementType(typeID)
@@ -2255,7 +2432,10 @@ local function RegisterControllerElement(controller, id, label, target, options)
         draggable = options.draggable,
         skinOptions = options.skinOptions,
         menus = options.menus,
-        requiresStructuralRefresh = true,
+        refreshAppearance = options.refreshAppearance,
+        refreshLayout = options.refreshLayout,
+        pixelBorderTargets = options.pixelBorderTargets,
+        requiresStructuralRefresh = options.requiresStructuralRefresh == true,
     }
     if SHARED_SKIN_ADAPTERS[options.kind] then
         NSkin:RegisterTypedElement(options.kind, elementDefinition)

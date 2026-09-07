@@ -73,8 +73,8 @@ local function ResetElementCustomizations(element)
     if element.kind == "TAB_GROUP" then
         NSkin:RestoreTabGroupOriginalPlacement(element.id)
     end
-    NSkin:RefreshAppearance()
     NSkin:NotifySkinningElementBoundsChanged(element.id)
+    NSkin:ResnapPixelBordersForElement(element)
     return true
 end
 
@@ -271,13 +271,19 @@ RefreshInspector = function()
     LoadEditorOptions(element)
     NSkin:ApplyGlobalTypography(state.inspector)
     SetInspectorTextWhite(state.inspector)
-    NSkin:ResnapAllPixelBorders()
+    NSkin:ResnapPixelBordersForTarget(state.inspector)
+    NSkin:ResnapPixelBordersForTarget(state.scrollChild)
+    if element then NSkin:ResnapPixelBordersForElement(element) end
     if C_Timer and C_Timer.After then
         C_Timer.After(0, function()
             if state then
                 ResizeInspector(nil,
                     math.max(0, (state.scrollChild:GetHeight() or 1) - 1))
-                NSkin:ResnapAllPixelBorders()
+                NSkin:ResnapPixelBordersForTarget(state.inspector)
+                NSkin:ResnapPixelBordersForTarget(state.scrollChild)
+                if state.selectedElement then
+                    NSkin:ResnapPixelBordersForElement(state.selectedElement)
+                end
             end
         end)
     end

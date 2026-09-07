@@ -589,7 +589,7 @@ function NSkin:SkinProgressBar(bar, options)
         or not bar.SetStatusBarTexture or (bar.IsForbidden and bar:IsForbidden())
     then return false end
     options = options or {}
-    local style = self:GetStyle("progressBar")
+    local style = options.style or self:GetStyle("progressBar")
     local data = self:GetSkinData(bar, PROGRESS_COMPONENT_STATE)
     if not data.baselineID then
         data.baselineID = "ProgressBar:" .. tostring(bar)
@@ -679,5 +679,30 @@ end
 function NSkin:RegisterProgressBarElement(definition)
     if type(definition) ~= "table" then return nil end
     definition.kind = definition.kind or "PROGRESS_BAR"
+    definition.refreshAppearance = definition.refreshAppearance or function(_, element)
+        local targets = element.highlightRegions
+        if type(targets) == "function" then targets = targets(element) end
+        targets = type(targets) == "table" and targets or { element.target }
+        local options = {}
+        for key, value in pairs(element.skinOptions or {}) do options[key] = value end
+        options.style = NSkin:GetAppearanceStyle(
+            "progressBar", element.appearanceWindowID, element.id)
+        options.backgroundColor = options.style.background
+        options.borderColor = NSkin:GetAppearanceBorderColor(
+            "progressBar", options.style, element.appearanceWindowID, element.id)
+        local applied
+        for i = 1, #targets do
+            applied = NSkin:SkinProgressBar(targets[i], options) or applied
+            NSkin:ResnapPixelBordersForTarget(targets[i])
+        end
+        return applied == true
+    end
+    definition.refreshLayout = definition.refreshLayout or function(owner, element)
+        if not element.refreshAppearance(owner, element) then return false end
+        NSkin:NotifySkinningElementBoundsChanged(element.id)
+        return true
+    end
+    definition.pixelBorderTargets = definition.pixelBorderTargets
+        or definition.highlightRegions
     return self:RegisterSimpleMovableElement(definition)
 end
