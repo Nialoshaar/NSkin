@@ -299,7 +299,12 @@ local function SetAppearanceOverride(scope, id, windowID, path, value)
     parent[key] = newValue
     PruneEmptyTables(profile.appearanceOverrides)
     if not next(profile.appearanceOverrides) then profile.appearanceOverrides = nil end
-    NSkin:RefreshAppearance()
+    NSkin:RefreshAppearance({
+        scope = scope == "elements" and "element" or "window",
+        elementID = scope == "elements" and id or nil,
+        windowID = windowID or (scope == "windows" and id or nil),
+        style = styleName, path = relativePath,
+    })
     return true
 end
 
@@ -331,7 +336,14 @@ local function ResetAppearanceOverride(scope, id, path)
     if not changed then return false end
     PruneEmptyTables(profile.appearanceOverrides)
     if not next(profile.appearanceOverrides) then profile.appearanceOverrides = nil end
-    NSkin:RefreshAppearance()
+    local element = scope == "elements" and NSkin:GetSkinningElement(id)
+    NSkin:RefreshAppearance({
+        scope = scope == "elements" and "element" or "window",
+        elementID = scope == "elements" and id or nil,
+        windowID = element and element.appearanceWindowID
+            or (scope == "windows" and id or nil),
+        path = path,
+    })
     return true
 end
 
@@ -621,8 +633,26 @@ function NSkin:InvalidateAppearance()
     wipe(resolvedStyles)
 end
 
-function NSkin:RefreshAppearance()
+function NSkin:RefreshAppearance(change)
     self:InvalidateAppearance()
+
+    if change and change.scope == "element" then
+        local element = self:GetSkinningElement(change.elementID)
+        local module = element and self.modules[element.module]
+        local sharedType = element and self:GetSharedElementType(element.kind)
+        if element and element.typedRegistration and not element.skinAdapter
+            and sharedType and (not change.style or change.style == sharedType.style)
+            and not element.requiresStructuralRefresh
+            and not (module and module.requiresStructuralRefresh)
+            and self:IsModuleEnabled(element.module)
+            and self:RefreshTypedElement(element)
+        then
+            if self.RefreshSkinningModeAppearance then
+                self:RefreshSkinningModeAppearance(change)
+            end
+            return
+        end
+    end
 
     if self.RefreshOptionsAppearance then self:RefreshOptionsAppearance() end
     if self.RefreshSkinningModeAppearance then self:RefreshSkinningModeAppearance() end
@@ -646,7 +676,8 @@ function NSkin:SetAppearanceOverride(path, value)
         and nil or value
     PruneEmptyTables(profile.appearance)
     if not next(profile.appearance) then profile.appearance = nil end
-    self:RefreshAppearance()
+    self:RefreshAppearance({ scope = "global",
+        style = path:match("^([^.]+)"), path = path })
     return true
 end
 
@@ -659,7 +690,8 @@ function NSkin:ResetAppearanceOverride(path)
     if parent then parent[key] = nil end
     PruneEmptyTables(profile.appearance)
     if not next(profile.appearance) then profile.appearance = nil end
-    self:RefreshAppearance()
+    self:RefreshAppearance({ scope = "global",
+        style = path:match("^([^.]+)"), path = path })
     return true
 end
 
@@ -2063,17 +2095,70 @@ function NSkin:SkinTypedElement(typeID, definition)
     return true
 end
 
+function NSkin:RefreshTypedElement(element)
+    if not element or not element.typedRegistration then return false end
+    if not self:SkinTypedElement(element.kind, element) then return false end
+    local saved = self:GetSavedMovableElementPlacement(element.id)
+    if saved and element.applyPlacement and self:IsSkinningElementEditable(element) then
+        element.applyPlacement(element, saved, SUPPRESS_NOTIFICATION)
+    end
+    self:NotifySkinningElementBoundsChanged(element.id)
+    return true
+end
+
 function NSkin:RegisterTypedElement(typeID, definition)
     if type(definition) ~= "table" or type(definition.id) ~= "string"
         or not definition.target
     then return nil end
+    local existing = self:GetSkinningElement(definition.id)
+    if existing and existing.typedRegistration and existing.kind == typeID
+        and existing.target == definition.target
+        and existing.window == definition.window
+    then
+        if definition == existing then
+            self:RefreshTypedElement(existing)
+            return existing
+        end
+        if definition.applyPlacement then existing.applyPlacement = definition.applyPlacement end
+        if definition.editorOptions then existing.editorOptions = definition.editorOptions end
+        -- Keep the canonical object and its generated placement/reset callbacks.
+        -- Remember supplied fields so removed optional skin settings do not linger.
+        for key in pairs(existing.typedDefinitionKeys) do
+            if definition[key] == nil then existing[key] = nil end
+            existing.typedDefinitionKeys[key] = nil
+        end
+        for key, value in pairs(definition) do
+            if key ~= "editorOptions" and key ~= "extraEditorOptions"
+                and key ~= "kind" and key ~= "applyPlacement"
+            then
+                existing[key] = value
+                existing.typedDefinitionKeys[key] = true
+            end
+        end
+        self:RefreshTypedElement(existing)
+        return existing
+    end
     local typeDefinition = self:GetSharedElementType(typeID)
     if not typeDefinition or not self:SkinTypedElement(typeID, definition) then
         return nil
     end
 
+    if existing then
+        -- A different target/type cannot reuse the original geometry ownership.
+        -- Retain the legacy registration path and broad appearance fallback.
+        existing.requiresStructuralRefresh = true
+        return self:RegisterSimpleMovableElement(definition)
+    end
+
     local element = {}
     for key, value in pairs(definition) do element[key] = value end
+    element.typedRegistration = true
+    element.typedDefinitionKeys = {}
+    for key in pairs(definition) do
+        if key ~= "editorOptions" and key ~= "extraEditorOptions"
+            and key ~= "kind" and key ~= "applyPlacement"
+        then element.typedDefinitionKeys[key] = true end
+    end
     element.kind = typeID
     if not element.editorOptions then
         element.editorOptions = self:CreateEditorOptionsPreset(
@@ -2170,6 +2255,7 @@ local function RegisterControllerElement(controller, id, label, target, options)
         draggable = options.draggable,
         skinOptions = options.skinOptions,
         menus = options.menus,
+        requiresStructuralRefresh = true,
     }
     if SHARED_SKIN_ADAPTERS[options.kind] then
         NSkin:RegisterTypedElement(options.kind, elementDefinition)

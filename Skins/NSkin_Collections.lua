@@ -102,6 +102,7 @@ local COLLECTION_PROGRESS_BAR_STYLE = {
 
 local SkinCollectionsWindow
 local ApplyCollectionsSkin
+local SkinAppearanceTabs
 local State = {
     initialized = { Collections = false, ToyBox = false,
         Heirlooms = false, AppearanceTabs = false },
@@ -150,8 +151,25 @@ end
 for name, adapter in pairs(Adapters) do
     adapter.name = name
     function adapter:InitializeOnce()
-        if self.state.initialized then return end
-        self.state.initialized = true
+        if self.state.initialized or not self:IsAvailable() then return end
+        SkinCollectionsWindow(self.name)
+        -- Hidden pages may not yet expose anchors or lazy paging controls.
+        -- Retry only that page when it becomes active.
+        self.state.initialized = self.name == "Campsites"
+            and self.state.paginationController ~= nil
+            or (self.name ~= "Campsites" and self.state.searchController ~= nil
+                and self.state.groupedAnchor ~= nil
+                and ((self.name == "MountJournal" or self.name == "PetJournal")
+                    or self.state.paginationController ~= nil))
+    end
+    function adapter:Refresh()
+        self:InitializeOnce()
+        if self.state.searchController then self.state.searchController:Refresh() end
+        if self.state.paginationController then self.state.paginationController:Refresh() end
+        if self.state.progressBar then
+            NSkin:SkinProgressBar(self.state.progressBar, COLLECTION_PROGRESS_BAR_STYLE)
+        end
+        if self.name == "AppearanceItems" then SkinAppearanceTabs() end
     end
     function adapter:ApplySkin()
         SkinCollectionsWindow(self.name)
@@ -162,6 +180,11 @@ end
 local function RegisterCollectionMovableElement(id, appearanceWindowID, label,
     journal, target, priority, anchorHighlight, editorOptions, isEditable, kind)
     if not journal or not target then return end
+    local existing = NSkin:GetSkinningElement(id)
+    if existing then
+        if existing.typedRegistration then NSkin:RefreshTypedElement(existing) end
+        return existing
+    end
     local definition = {
         id = id,
         module = "Collections",
@@ -248,8 +271,8 @@ local function RemoveBackgroundFrame(frame)
     HideBackgroundTexture(frame.Background)
 end
 
-local function RemoveCollectionPageBackgrounds()
-    local mountJournal = _G.MountJournal
+local function RemoveCollectionPageBackgrounds(adapterName)
+    local mountJournal = (not adapterName or adapterName == "MountJournal") and _G.MountJournal
     if mountJournal then
         RemoveBackgroundFrame(mountJournal.LeftInset)
         RemoveBackgroundFrame(mountJournal.BottomLeftInset)
@@ -262,27 +285,27 @@ local function RemoveCollectionPageBackgrounds()
         end
     end
 
-    local petJournal = _G.PetJournal
+    local petJournal = (not adapterName or adapterName == "PetJournal") and _G.PetJournal
     if petJournal then
         RemoveBackgroundFrame(petJournal.LeftInset)
         RemoveBackgroundFrame(petJournal.RightInset)
         RemoveBackgroundFrame(petJournal.PetCardInset)
     end
 
-    local toyBox = _G.ToyBox
+    local toyBox = (not adapterName or adapterName == "ToyBox") and _G.ToyBox
     RemoveBackgroundFrame(toyBox and toyBox.iconsFrame)
 
-    local heirloomsJournal = _G.HeirloomsJournal
+    local heirloomsJournal = (not adapterName or adapterName == "Heirlooms") and _G.HeirloomsJournal
     RemoveBackgroundFrame(heirloomsJournal and heirloomsJournal.iconsFrame)
 
-    local wardrobe = _G.WardrobeCollectionFrame
+    local wardrobe = (not adapterName or adapterName == "AppearanceItems") and _G.WardrobeCollectionFrame
     if wardrobe then
         RemoveBackgroundFrame(wardrobe.ItemsCollectionFrame)
         local setsFrame = wardrobe.SetsCollectionFrame
         RemoveBackgroundFrame(setsFrame and setsFrame.RightInset)
     end
 
-    local scenes = _G.WarbandSceneJournal
+    local scenes = (not adapterName or adapterName == "Campsites") and _G.WarbandSceneJournal
     if scenes then
         RemoveBackgroundFrame(scenes.IconsFrame)
         RemoveBackgroundFrame(scenes.iconsFrame)
@@ -324,9 +347,35 @@ local function SkinCollectionTabs(selectedTab)
     end
 end
 
+local function RefreshCurrentAdapter(selectedTab)
+    local journal = _G.CollectionsJournal
+    selectedTab = selectedTab or (journal and _G.PanelTemplates_GetSelectedTab(journal))
+    local adapter = ACTIVE_ADAPTERS[selectedTab]
+    if adapter and adapter:IsAvailable() then
+        adapter:Refresh()
+        RemoveCollectionPageBackgrounds(adapter.name)
+    end
+end
+
+SkinAppearanceTabs = function()
+    local wardrobe = _G.WardrobeCollectionFrame
+    if not wardrobe then return end
+    local selected = _G.PanelTemplates_GetSelectedTab(wardrobe) or 1
+    local style = NSkin:GetAppearanceStyle(
+        "tab", IDs.Appearances.Items.Scope, IDs.Appearances.TopTabs)
+    local border = NSkin:GetAppearanceBorderColor(
+        "tab", style, IDs.Appearances.Items.Scope, IDs.Appearances.TopTabs)
+    NSkin:SkinTab(wardrobe.ItemsTab, selected == 1, style, border)
+    NSkin:SkinTab(wardrobe.SetsTab, selected == 2, style, border)
+    if NSkin:GetTabGroup(IDs.Appearances.TopTabs) then
+        NSkin:ApplyTabGroupLayout(IDs.Appearances.TopTabs)
+    end
+end
+
 function CollectionSkin:OnTabSet(_, selectedTab)
-    ApplyCollectionsSkin()
-    RemoveCollectionPageBackgrounds()
+    self:InitializeOptionalAdapters()
+    SkinCollectionTabs(selectedTab)
+    RefreshCurrentAdapter(selectedTab)
     if C_Timer and C_Timer.After then
         C_Timer.After(0, function()
             NSkin:RefreshTabGroupBaseline(IDs.MainTabs, true)
@@ -334,10 +383,11 @@ function CollectionSkin:OnTabSet(_, selectedTab)
     end
 end
 
-function CollectionSkin:OnShow(selectedTab)
+function CollectionSkin:OnShow()
     self:InitializeOptionalAdapters()
     NSkin:RefreshTabGroupBaseline(IDs.MainTabs, true)
-    ApplyCollectionsSkin()
+    SkinCollectionsWindow("Main")
+    RefreshCurrentAdapter()
     if C_Timer and C_Timer.After then
         C_Timer.After(0, function()
             NSkin:RefreshTabGroupBaseline(IDs.MainTabs, true)
@@ -522,6 +572,7 @@ SkinCollectionsWindow = function(adapterName)
         NSkin:SkinPagingControls(pagingGroup or toyBox)
         local progressBar = ResolveProgressBar(
             toyBox, toyBox.ProgressBar or toyBox.progressBar)
+        State.ToyBox.progressBar = progressBar
         NSkin:SkinProgressBar(progressBar, COLLECTION_PROGRESS_BAR_STYLE)
         RegisterCollectionMovableElement(
             IDs.ToyBox.ProgressBar, IDs.ToyBox.Scope,
@@ -578,6 +629,7 @@ SkinCollectionsWindow = function(adapterName)
             ResolvePagingControls(heirlooms, pagingControls)
         local progressBar = ResolveProgressBar(
             heirlooms, heirlooms.progressBar or heirlooms.ProgressBar)
+        State.Heirlooms.progressBar = progressBar
         if searchBox and filterDropdown then
             if not State.Heirlooms.groupedAnchor then
                 State.Heirlooms.groupedAnchor = CaptureSearchAccessoryAnchor(
@@ -641,16 +693,7 @@ SkinCollectionsWindow = function(adapterName)
         and (not adapterName or adapterName == "AppearanceItems")
     then
         local topTabs = { wardrobe.ItemsTab, wardrobe.SetsTab }
-        local selectedTab = _G.PanelTemplates_GetSelectedTab
-            and _G.PanelTemplates_GetSelectedTab(wardrobe) or 1
-        local tabStyle = NSkin:GetAppearanceStyle(
-            "tab", IDs.Appearances.Items.Scope, IDs.Appearances.TopTabs)
-        local tabBorder = NSkin:GetAppearanceBorderColor(
-            "tab", tabStyle, IDs.Appearances.Items.Scope,
-            IDs.Appearances.TopTabs)
-        for i = 1, #topTabs do
-            NSkin:SkinTab(topTabs[i], i == selectedTab, tabStyle, tabBorder)
-        end
+        SkinAppearanceTabs()
         if not State.initialized.AppearanceTabs then
             State.initialized.AppearanceTabs = NSkin:RegisterTabGroup(
                 IDs.Appearances.TopTabs, {
@@ -675,6 +718,7 @@ SkinCollectionsWindow = function(adapterName)
         local weaponDropdown = itemsFrame.WeaponDropdown
         local progressBar = ResolveProgressBar(
             wardrobe, wardrobe.progressBar or wardrobe.ProgressBar)
+        State.Appearances.Items.progressBar = progressBar
         local pagingControls = itemsFrame.PagingFrame or itemsFrame.PagingControls
         local pagingGroup, previousPage, nextPage, pageText =
             ResolvePagingControls(itemsFrame, pagingControls)
@@ -788,7 +832,6 @@ ApplyCollectionsSkin = function()
         local adapter = ACTIVE_ADAPTERS[i]
         if adapter:IsAvailable() then
             adapter:InitializeOnce()
-            adapter:ApplySkin()
         end
     end
     RemoveCollectionPageBackgrounds()
