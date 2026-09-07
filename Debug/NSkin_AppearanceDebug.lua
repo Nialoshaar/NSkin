@@ -19,7 +19,8 @@ local function ClassifyFallback(change, reason)
     if reason == "structural_change" or reason == "structural_element"
         or reason == "structural_module"
     then return "structural" end
-    if reason == "unresolved_element" or reason == "unknown_component_type"
+    if reason == "unresolved_element" or reason == "unresolved_window"
+        or reason == "unresolved_type_style" or reason == "unknown_component_type"
         or reason == "style_mismatch"
     then return "resolution" end
     if reason == "custom_adapter" or reason == "module_disabled" then

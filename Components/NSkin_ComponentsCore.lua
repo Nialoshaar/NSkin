@@ -696,10 +696,140 @@ local function ChangeMatchesStyle(change, styleName)
     return true
 end
 
+local function StyleMatchesFamily(changeStyle, elementStyle)
+    if type(changeStyle) ~= "string" or type(elementStyle) ~= "string" then
+        return false
+    end
+    return elementStyle == changeStyle
+        or elementStyle:sub(1, #changeStyle + 1) == changeStyle .. "."
+end
+
+local function ChangeAffectsStyleFamily(change, elementStyle)
+    if change.style then return StyleMatchesFamily(change.style, elementStyle) end
+    for i = 1, #(change.changes or {}) do
+        if StyleMatchesFamily(change.changes[i].style, elementStyle) then return true end
+    end
+    return false
+end
+
+local function ChangeMatchesSharedType(change, element, sharedType, allowStyleFamily)
+    if change.typeID and element.kind ~= change.typeID then return false end
+    if allowStyleFamily and (change.style or change.changes) then
+        return ChangeAffectsStyleFamily(change, sharedType.style)
+    end
+    return ChangeMatchesStyle(change, sharedType.style)
+end
+
 local function RecordAppearanceFallback(change, reason)
     if NSkin.DebugAppearanceRefresh then
         NSkin:DebugAppearanceRefresh(change, reason)
     end
+end
+
+local function RefreshElementForChange(self, element, change, allowStyleFamily)
+    local module = element and self.modules[element.module]
+    local sharedType = element and self:GetSharedElementType(element.kind)
+    local requirement = ClassifyAppearanceRequirement(change)
+    local refresh
+    if element then
+        refresh = requirement == "layout" and element.refreshLayout
+            or requirement == "appearance" and element.refreshAppearance
+    end
+    if not refresh and element and element.typedRegistration and not element.skinAdapter then
+        refresh = requirement == "layout" and self.RefreshTypedElementLayout
+            or self.RefreshTypedElementAppearance
+    end
+    if not element then return false, "unresolved_element" end
+    if requirement == "structural" then return false, "structural_change" end
+    if element.requiresStructuralRefresh then return false, "structural_element" end
+    if module and module.requiresStructuralRefresh then return false, "structural_module" end
+    if not self:IsModuleEnabled(element.module) then return false, "module_disabled" end
+    if not sharedType then return false, "unknown_component_type" end
+    if not ChangeMatchesSharedType(change, element, sharedType, allowStyleFamily) then
+        return false, "style_mismatch"
+    end
+    if element.skinAdapter and not element.refreshAppearance then
+        return false, "custom_adapter"
+    end
+    if type(refresh) ~= "function" then return false, "missing_refresh_contract" end
+    if not refresh(self, element, change) then
+        return false, "targeted_refresh_failed"
+    end
+    return true
+end
+
+local function AppearanceScopeIncludes(self, scopeID, ancestorID)
+    local chain = self:GetAppearanceScopeChain(scopeID)
+    for i = 1, #(chain or {}) do
+        if chain[i] == ancestorID then return true end
+    end
+    return false
+end
+
+local function RefreshWindowAppearance(self, change)
+    if type(change.windowID) ~= "string" or change.windowID == "" then
+        return false, "unresolved_window"
+    end
+    local elements, modules, windows = {}, {}, {}
+    self:ForEachRegisteredSkinningElement(function(element)
+        if AppearanceScopeIncludes(self, element.appearanceWindowID, change.windowID) then
+            elements[#elements + 1] = element
+            if element.window then windows[element.window] = true end
+            local module = self.modules[element.module]
+            if module and self:IsModuleEnabled(element.module)
+                and type(module.RefreshAppearance) == "function"
+            then
+                modules[module] = true
+            end
+        end
+    end)
+
+    for module in pairs(modules) do module:RefreshAppearance(change) end
+    for i = 1, #elements do
+        local element = elements[i]
+        local module = self.modules[element.module]
+        local sharedType = self:GetSharedElementType(element.kind)
+        if not modules[module] and self:IsModuleEnabled(element.module)
+            and sharedType
+            and ChangeMatchesSharedType(change, element, sharedType, true)
+        then
+            local refreshed, reason = RefreshElementForChange(
+                self, element, change, true)
+            if not refreshed and reason ~= "module_disabled" then return false, reason end
+        end
+    end
+    for i = 1, #elements do self:ResnapPixelBordersForElement(elements[i]) end
+    for window in pairs(windows) do self:ResnapPixelBordersForTarget(window) end
+    return true
+end
+
+local function RefreshSharedTypeAppearance(self, change)
+    local hasStyle = type(change.style) == "string" and change.style ~= ""
+    local hasType = type(change.typeID) == "string" and change.typeID ~= ""
+    if not hasStyle and not hasType then
+        return false, "unresolved_type_style"
+    end
+    if hasType and not self:GetSharedElementType(change.typeID) then
+        return false, "unknown_component_type"
+    end
+    local matched = false
+    local failureReason
+    self:ForEachRegisteredSkinningElement(function(element)
+        if failureReason then return end
+        local sharedType = self:GetSharedElementType(element.kind)
+        if sharedType
+            and ChangeMatchesSharedType(change, element, sharedType, true)
+        then
+            matched = true
+            local refreshed, reason = RefreshElementForChange(
+                self, element, change, true)
+            if not refreshed and reason ~= "module_disabled" then failureReason = reason end
+        end
+    end)
+    if failureReason then return false, failureReason end
+    -- No registered instance is still a successful scoped update: future
+    -- registrations resolve the new shared style when they are created.
+    return true, matched
 end
 
 function NSkin:RefreshAppearance(change)
@@ -707,35 +837,32 @@ function NSkin:RefreshAppearance(change)
 
     if change and change.scope == "element" then
         local element = self:GetSkinningElement(change.elementID)
-        local module = element and self.modules[element.module]
-        local sharedType = element and self:GetSharedElementType(element.kind)
-        local requirement = ClassifyAppearanceRequirement(change)
-        local refresh
-        if element then
-            refresh = requirement == "layout" and element.refreshLayout
-                or requirement == "appearance" and element.refreshAppearance
-        end
-        if not refresh and element and element.typedRegistration and not element.skinAdapter then
-            refresh = requirement == "layout" and self.RefreshTypedElementLayout
-                or self.RefreshTypedElementAppearance
-        end
-        local fallbackReason
-        if not element then fallbackReason = "unresolved_element"
-        elseif requirement == "structural" then fallbackReason = "structural_change"
-        elseif element.requiresStructuralRefresh then fallbackReason = "structural_element"
-        elseif module and module.requiresStructuralRefresh then fallbackReason = "structural_module"
-        elseif not self:IsModuleEnabled(element.module) then fallbackReason = "module_disabled"
-        elseif not sharedType then fallbackReason = "unknown_component_type"
-        elseif not ChangeMatchesStyle(change, sharedType.style) then fallbackReason = "style_mismatch"
-        elseif element.skinAdapter and not element.refreshAppearance then fallbackReason = "custom_adapter"
-        elseif type(refresh) ~= "function" then fallbackReason = "missing_refresh_contract"
-        elseif refresh(self, element, change) then
+        local refreshed, fallbackReason = RefreshElementForChange(
+            self, element, change, false)
+        if refreshed then
             if self.RefreshSkinningModeAppearance then
                 self:RefreshSkinningModeAppearance(change)
             end
             return
-        else
-            fallbackReason = "targeted_refresh_failed"
+        end
+        RecordAppearanceFallback(change, fallbackReason)
+    elseif change and change.scope == "window" then
+        local refreshed, fallbackReason = RefreshWindowAppearance(self, change)
+        if refreshed then
+            if self.RefreshSkinningModeAppearance then
+                self:RefreshSkinningModeAppearance(change)
+            end
+            return
+        end
+        RecordAppearanceFallback(change, fallbackReason)
+    elseif change and change.scope == "type" then
+        local refreshed, fallbackReason = RefreshSharedTypeAppearance(self, change)
+        if refreshed then
+            if self.RefreshOptionsAppearance then self:RefreshOptionsAppearance(change) end
+            if self.RefreshSkinningModeAppearance then
+                self:RefreshSkinningModeAppearance(change)
+            end
+            return
         end
         RecordAppearanceFallback(change, fallbackReason)
     elseif change then
@@ -756,6 +883,18 @@ function NSkin:RefreshAppearance(change)
     if self.ResnapAllPixelBorders then self:ResnapAllPixelBorders() end
 end
 
+local GLOBAL_APPEARANCE_DEPENDENCIES = {
+    typography = true,
+    accent = true,
+    skinningMode = true,
+    options = true,
+}
+
+local function GetGlobalAppearanceChangeScope(self, styleName)
+    if GLOBAL_APPEARANCE_DEPENDENCIES[styleName] then return "global" end
+    return self:HasSharedElementStyle(styleName) and "type" or "global"
+end
+
 function NSkin:SetAppearanceOverride(path, value)
     if type(path) ~= "string" or path == "" then return false end
     local defaultValue = GetPath(self.baseAppearance, path, false)
@@ -768,8 +907,12 @@ function NSkin:SetAppearanceOverride(path, value)
         and nil or value
     PruneEmptyTables(profile.appearance)
     if not next(profile.appearance) then profile.appearance = nil end
-    self:RefreshAppearance({ scope = "global",
-        style = path:match("^([^.]+)"), path = path })
+    local styleName = path:match("^([^.]+)")
+    self:RefreshAppearance({
+        scope = GetGlobalAppearanceChangeScope(self, styleName),
+        style = styleName,
+        path = path,
+    })
     return true
 end
 
@@ -782,8 +925,12 @@ function NSkin:ResetAppearanceOverride(path)
     if parent then parent[key] = nil end
     PruneEmptyTables(profile.appearance)
     if not next(profile.appearance) then profile.appearance = nil end
-    self:RefreshAppearance({ scope = "global",
-        style = path:match("^([^.]+)"), path = path })
+    local styleName = path:match("^([^.]+)")
+    self:RefreshAppearance({
+        scope = GetGlobalAppearanceChangeScope(self, styleName),
+        style = styleName,
+        path = path,
+    })
     return true
 end
 
@@ -1574,6 +1721,19 @@ function NSkin:GetSharedElementType(typeID)
     return SHARED_ELEMENT_TYPES[typeID]
 end
 
+function NSkin:HasSharedElementStyle(styleName)
+    if type(styleName) ~= "string" or styleName == "" then return false end
+    for _, definition in pairs(SHARED_ELEMENT_TYPES) do
+        local elementStyle = definition.style
+        if type(elementStyle) == "string" and (elementStyle == styleName
+            or elementStyle:sub(1, #styleName + 1) == styleName .. ".")
+        then
+            return true
+        end
+    end
+    return false
+end
+
 function NSkin:CreateSharedElementEditorOptions(typeID, extras)
     local definition = SHARED_ELEMENT_TYPES[typeID]
     return definition and self:CreateEditorOptionsPreset(
@@ -2250,14 +2410,22 @@ function NSkin:RefreshTypedElement(element, requirement)
     return self:RefreshTypedElementAppearance(element)
 end
 
-local TYPED_SKIN_FIELDS = {
-    "skinAdapter", "skinOptions", "menus", "text", "getChecked",
-    "collapsible", "expanded", "textRegion", "icon", "getExpanded",
-    "isExpanded", "stripArtwork", "artworkRegions", "preserveTextures",
-    "background", "visualRegion", "preserveTextLayout", "texture",
-    "quality", "qualityProvider", "borderColor", "borderMode", "borderSize",
-    "borderPadding", "borderKey", "borderOwner", "outside", "showBorder",
-    "width", "height", "zoom", "crop", "shape",
+local COMMON_TYPED_SKIN_FIELDS = { "skinAdapter", "skinOptions" }
+local TYPED_SKIN_FIELDS_BY_TYPE = {
+    CHECKBOX = { "text", "getChecked" },
+    DROPDOWN = { "menus" },
+    SEARCH_ACCESSORY = { "menus" },
+    SECTION_CARD = {
+        "collapsible", "expanded", "text", "textRegion", "icon",
+        "getExpanded", "isExpanded", "height", "stripArtwork",
+        "artworkRegions", "preserveTextures", "background", "visualRegion",
+        "preserveTextLayout",
+    },
+    ICON = {
+        "texture", "quality", "qualityProvider", "borderColor", "borderMode",
+        "borderSize", "borderPadding", "borderKey", "borderOwner", "outside",
+        "showBorder", "width", "height", "zoom", "crop", "shape",
+    },
 }
 
 local function TypedSkinValuesEqual(left, right, visited)
@@ -2267,7 +2435,14 @@ local function TypedSkinValuesEqual(left, right, visited)
     if visited[left] == right then return true end
     visited[left] = right
     for key, value in pairs(left) do
-        if not TypedSkinValuesEqual(value, right[key], visited) then return false end
+        local other = right[key]
+        if value ~= other then
+            if type(value) ~= "table" or type(other) ~= "table"
+                or not TypedSkinValuesEqual(value, other, visited)
+            then
+                return false
+            end
+        end
     end
     for key in pairs(right) do
         if left[key] == nil then return false end
@@ -2275,9 +2450,14 @@ local function TypedSkinValuesEqual(left, right, visited)
     return true
 end
 
-local function TypedSkinDefinitionChanged(existing, definition)
-    for i = 1, #TYPED_SKIN_FIELDS do
-        local key = TYPED_SKIN_FIELDS[i]
+local function TypedSkinDefinitionChanged(typeID, existing, definition)
+    for i = 1, #COMMON_TYPED_SKIN_FIELDS do
+        local key = COMMON_TYPED_SKIN_FIELDS[i]
+        if not TypedSkinValuesEqual(existing[key], definition[key]) then return true end
+    end
+    local fields = TYPED_SKIN_FIELDS_BY_TYPE[typeID]
+    for i = 1, #(fields or {}) do
+        local key = fields[i]
         if not TypedSkinValuesEqual(existing[key], definition[key]) then return true end
     end
     return false
@@ -2295,7 +2475,7 @@ function NSkin:RegisterTypedElement(typeID, definition)
         if definition == existing then
             return existing
         end
-        local skinChanged = TypedSkinDefinitionChanged(existing, definition)
+        local skinChanged = TypedSkinDefinitionChanged(typeID, existing, definition)
         if definition.applyPlacement then existing.applyPlacement = definition.applyPlacement end
         if definition.editorOptions then existing.editorOptions = definition.editorOptions end
         -- Keep the canonical object and its generated placement/reset callbacks.
