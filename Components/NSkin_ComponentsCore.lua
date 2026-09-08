@@ -1963,7 +1963,8 @@ local SHARED_TYPE_DEFINITIONS = {
     PAGINATION_CHILD = { style = "button", skin = "SkinFlatButton" },
     PROGRESS_BAR = { style = "progressBar", skin = "SkinProgressBar",
         editorPreset = "MOVABLE" },
-    ICON = { style = "icon", skin = "SkinIcon", editorPreset = "ICON" },
+    ICON = { style = "icon", skin = "SkinIcon", editorPreset = "ICON",
+        preserveAnchorSpan = true },
     SCROLLBAR = { style = "scrollBar", skin = "SkinScrollBar",
         editorPreset = "SCROLLBAR", preserveAnchorSpan = true },
     SECTION_HEADER = { style = "sectionHeader", editorPreset = "SECTION_HEADERS" },
@@ -2511,8 +2512,9 @@ local SHARED_SKIN_ADAPTERS = {
         }) do
             if options[key] == nil then options[key] = definition[key] end
         end
+        options.baselineID = definition.iconTextureBaselineID
         options.borderColor = options.borderColor or borderColor
-        skinMethod(self, target, options)
+        skinMethod(self, definition.iconTarget or target, options)
     end,
     TEXT = function(self, skinMethod, target, style)
         skinMethod(self, target, style)
@@ -2590,6 +2592,7 @@ local TYPED_SKIN_FIELDS_BY_TYPE = {
         "preserveTextLayout",
     },
     ICON = {
+        "iconTarget", "iconTextureBaselineID",
         "texture", "quality", "qualityProvider", "borderColor", "borderMode",
         "borderSize", "borderPadding", "borderKey", "borderOwner", "outside",
         "showBorder", "width", "height", "zoom", "crop", "shape",
@@ -2725,7 +2728,64 @@ function NSkin:RegisterEditBox(definition)
 end
 
 function NSkin:RegisterIcon(definition)
-    return self:RegisterTypedElement("ICON", definition)
+    if type(definition) ~= "table" or type(definition.id) ~= "string"
+        or definition.id == "" or not definition.target
+    then return nil end
+
+    -- The caller's target is the logical control that supplies icon state and
+    -- quality. The texture is the presentation geometry Skinning Mode edits.
+    -- Keeping those roles separate prevents an icon size/position override
+    -- from resizing or moving its containing Button/Frame.
+    local iconTarget = definition.iconTarget or definition.target
+    local skinOptions = definition.skinOptions
+    local texture = definition.texture
+        or (skinOptions and skinOptions.texture)
+    if not texture then
+        if iconTarget.GetObjectType
+            and iconTarget:GetObjectType() == "Texture"
+        then
+            texture = iconTarget
+        else
+            texture = iconTarget.Icon or iconTarget.icon
+                or iconTarget.iconTexture
+        end
+    end
+    if not texture then return nil end
+
+    local normalized = {}
+    for key, value in pairs(definition) do normalized[key] = value end
+    normalized.iconTarget = iconTarget
+    normalized.target = texture
+    normalized.texture = texture
+    normalized.iconTextureBaselineID = definition.iconTextureBaselineID
+        or (definition.id .. ":texture")
+
+    local borderOwner = definition.borderOwner
+        or (skinOptions and skinOptions.borderOwner)
+    if not borderOwner then
+        if iconTarget.GetObjectType
+            and iconTarget:GetObjectType() ~= "Texture"
+        then
+            borderOwner = iconTarget
+        elseif texture.GetParent then
+            borderOwner = texture:GetParent()
+        end
+    end
+    normalized.borderOwner = borderOwner
+    if definition.highlightRegions == nil then
+        normalized.highlightRegions = { texture }
+    end
+    if definition.pixelBorderTargets == nil and borderOwner then
+        normalized.pixelBorderTargets = { borderOwner }
+    end
+    local element = self:RegisterTypedElement("ICON", normalized)
+    if element then
+        local state = self:GetSkinData(iconTarget, "iconComponent", false)
+        if state and state.active ~= true then
+            self:RefreshTypedElementAppearance(element)
+        end
+    end
+    return element
 end
 
 function NSkin:RegisterTextElement(definition)

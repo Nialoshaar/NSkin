@@ -50,15 +50,21 @@ assert(N:RegisterAppearanceScope("Alpha.Child", { parent = "Alpha" }))
 assert(N:RegisterAppearanceScope("Beta", {}))
 
 local windowAlpha, windowBeta = {}, {}
-local alphaTarget, betaTarget, checkboxTarget, iconTarget = {}, {}, {}, {}
+local alphaTarget, betaTarget, checkboxTarget = {}, {}, {}
+local iconTexture = {}
+local iconTarget = { Icon = iconTexture }
+function iconTarget:GetObjectType() return "Button" end
 local alpha = N:RegisterActionButton({ id = "Alpha.Button", module = "Alpha",
     appearanceWindowID = "Alpha.Child", window = windowAlpha, target = alphaTarget })
 local beta = N:RegisterActionButton({ id = "Beta.Button", module = "Beta",
     appearanceWindowID = "Beta", window = windowBeta, target = betaTarget })
 N:RegisterCheckbox({ id = "Beta.Checkbox", module = "Beta",
     appearanceWindowID = "Beta", window = windowBeta, target = checkboxTarget })
-N:RegisterIcon({ id = "Beta.Icon", module = "Beta", appearanceWindowID = "Beta",
+local icon = N:RegisterIcon({ id = "Beta.Icon", module = "Beta", appearanceWindowID = "Beta",
     window = windowBeta, target = iconTarget })
+eq(icon.target, iconTexture, "icon registration moves presentation texture")
+eq(icon.iconTarget, iconTarget, "icon registration preserves logical target")
+eq(icon.highlightRegions[1], iconTexture, "icon highlights presentation texture")
 
 clear()
 assert(N:SetWindowAppearanceOverride("Alpha", "button.border", { 0.2, 0.3, 0.4, 1 }))

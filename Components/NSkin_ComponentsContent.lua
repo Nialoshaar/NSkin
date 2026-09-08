@@ -404,11 +404,15 @@ local ICON_SHAPES = {
 local function ApplyIconTexCoords(target)
     local data = NSkin:GetSkinData(target, ICON_COMPONENT_STATE, false)
     local texture = data and data.texture
-    if not texture or not texture.SetTexCoord then return end
+    if not data or not data.active or data.applyingTexCoords
+        or not texture or not texture.SetTexCoord
+    then return end
     local width = texture.GetWidth and texture:GetWidth() or data.width
     local height = texture.GetHeight and texture:GetHeight() or data.height
     local shape = ICON_SHAPES[data.shape] or ICON_SHAPES.square
+    data.applyingTexCoords = true
     shape.applyTexCoords(texture, width, height, data.zoom, data.crop)
+    data.applyingTexCoords = nil
 end
 
 function NSkin:SkinIcon(target, options)
@@ -429,18 +433,21 @@ function NSkin:SkinIcon(target, options)
         and ICON_BORDER_KEY
         or (ICON_BORDER_KEY .. ":" .. tostring(texture)))
     if not textureData.baselineID then
-        textureData.baselineID = "IconTexture:" .. tostring(texture)
+        textureData.baselineID = options.baselineID
+            or ("IconTexture:" .. tostring(texture))
         self:CaptureComponentBaseline(textureData.baselineID, texture, {
             size = true,
             texCoords = true,
         })
     end
     if options.reset == true then
+        data.active = nil
         self:RestoreComponentBaseline(textureData.baselineID, {
             size = true,
             texCoords = true,
         })
-        local oldBorder = self:GetPixelBorder(owner, borderKey)
+        local oldBorder = data.border
+            or self:GetPixelBorder(owner, borderKey)
         self:SetPixelBorderShown(oldBorder, false)
         return true
     end
@@ -451,6 +458,12 @@ function NSkin:SkinIcon(target, options)
         options.shape or style.shape or "square"))
     if not ICON_SHAPES[shape] then shape = "square" end
 
+    if data.border and (data.borderOwner ~= owner
+        or data.borderKey ~= borderKey or data.texture ~= texture)
+    then
+        self:SetPixelBorderShown(data.border, false)
+    end
+    data.active = true
     data.texture = texture
     data.shape = shape
     data.zoom = tonumber(options.zoom)
@@ -482,6 +495,9 @@ function NSkin:SkinIcon(target, options)
             nil, options.outside == true, texture)
     if not border then return false end
     border.anchor = texture
+    data.border = border
+    data.borderOwner = owner
+    data.borderKey = borderKey
     local borderSize = tonumber(options.borderSize)
         or tonumber(style.borderSize) or 1
     self:SetPixelBorderSize(border, math.max(1, borderSize))
@@ -519,16 +535,28 @@ function NSkin:SkinIcon(target, options)
         end)
         data.sizeHooked = true
     end
-    if not textureData.sizeHooked and _G.hooksecurefunc then
+    textureData.appearanceTargets = textureData.appearanceTargets
+        or setmetatable({}, { __mode = "k" })
+    textureData.appearanceTargets[target] = true
+    if not textureData.appearanceHooked and _G.hooksecurefunc then
         local function RefreshTextureCrop()
-            ApplyIconTexCoords(target)
+            for appearanceTarget in pairs(textureData.appearanceTargets) do
+                local state = NSkin:GetSkinData(
+                    appearanceTarget, ICON_COMPONENT_STATE, false)
+                if state and state.texture == texture then
+                    ApplyIconTexCoords(appearanceTarget)
+                end
+            end
         end
-        for _, method in ipairs({ "SetSize", "SetWidth", "SetHeight" }) do
+        for _, method in ipairs({
+            "SetSize", "SetWidth", "SetHeight", "SetTexture", "SetAtlas",
+            "SetTexCoord",
+        }) do
             if type(texture[method]) == "function" then
                 pcall(_G.hooksecurefunc, texture, method, RefreshTextureCrop)
             end
         end
-        textureData.sizeHooked = true
+        textureData.appearanceHooked = true
     end
     return true
 end

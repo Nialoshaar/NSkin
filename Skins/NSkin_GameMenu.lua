@@ -336,7 +336,6 @@ function GameMenuSkin:ApplyMacroIcon(frame)
         target = button,
         texture = button.Icon,
         priority = 60,
-        highlightRegions = { button },
         isEditable = function()
             return IsVisible(frame) and IsVisible(button)
         end,
