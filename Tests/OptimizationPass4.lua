@@ -157,6 +157,38 @@ sliderScripts.OnValueChanged(slider, 25)
 sliderScripts.OnValueChanged(slider, 25)
 eq(liveSamples, 2, "OnValueChanged remains fully live without throttling")
 
+local liveChange
+N.RefreshAppearance = function(_, change) liveChange = change end
+assert(N:RunWithLiveInspectorAppearanceChange("Alpha.Button", function()
+    return N:SetElementAppearanceOverride(
+        "Alpha.Button", "Alpha", "button.hoverAlpha", 0.55)
+end))
+eq(liveChange.origin, "activeInspectorLive",
+    "live inspector writes carry a precise origin")
+eq(N:ShouldRefreshSkinningModeInspector(liveChange, "Alpha.Button"), false,
+    "selected live appearance change preserves active inspector")
+liveChange.requirement = "layout"
+eq(N:ShouldRefreshSkinningModeInspector(liveChange, "Alpha.Button"), false,
+    "selected live layout change preserves active inspector")
+liveChange.requirement = "structural"
+eq(N:ShouldRefreshSkinningModeInspector(liveChange, "Alpha.Button"), true,
+    "structural changes still rebuild active inspector")
+liveChange.requirement = "appearance"
+eq(N:ShouldRefreshSkinningModeInspector(liveChange, "Alpha.Other"), true,
+    "selection mismatch still permits inspector refresh")
+liveChange.origin = nil
+eq(N:ShouldRefreshSkinningModeInspector(liveChange, "Alpha.Button"), true,
+    "external element changes still refresh active inspector")
+
+local failed = pcall(function()
+    N:RunWithLiveInspectorAppearanceChange("Alpha.Button", function()
+        error("expected")
+    end)
+end)
+eq(failed, false, "live inspector guard propagates setter errors")
+eq(N._liveInspectorAppearanceElementID, nil,
+    "live inspector guard restores origin after errors")
+
 if io and io.open then
     local optionsFile = assert(io.open(
         "Options/Components/NSkin_ComponentOptionsCore.lua", "r"))
@@ -166,6 +198,12 @@ if io and io.open then
         "Options sliders must not wait for commit or mouse release")
     local _, handlerCount = optionsSource:gsub("onValueChanged%s*=", "")
     assert(handlerCount >= 3, "Options controls retain live slider handlers")
+    local _, liveCommitCount = optionsSource:gsub(
+        "CommitValues%(view, current, values, true%)", "")
+    assert(liveCommitCount >= 3,
+        "all slider families preserve the active inspector during live writes")
+    assert(optionsSource:find("view ~= excludedView", 1, true),
+        "live inspector view retains its local slider and value-label state")
 end
 
 print("Optimization Pass 4 regression tests passed")

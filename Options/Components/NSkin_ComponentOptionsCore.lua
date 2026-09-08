@@ -238,15 +238,32 @@ local function OptionValuesEqual(left, right)
     return true
 end
 
-local function CommitValues(view, values, knownCurrent)
+local function CommitValues(view, values, knownCurrent, liveInspectorChange)
     if not view.context or type(values) ~= "table" then return false end
     local current = knownCurrent or view.definition.get(view.context)
     if OptionValuesEqual(current, values) then return false end
-    if view.definition.set(view.context, CopyTable(values)) == true then
+    local context = view.context
+    local copiedValues = CopyTable(values)
+    local preserveLocalState = liveInspectorChange
+        and view.isSkinningModeInspector == true and context.id ~= nil
+    local function ApplyValues()
+        return view.definition.set(context, copiedValues)
+    end
+    local applied
+    if preserveLocalState
+        and NSkin.RunWithLiveInspectorAppearanceChange
+    then
+        applied = NSkin:RunWithLiveInspectorAppearanceChange(
+            context.id, ApplyValues)
+    else
+        applied = ApplyValues()
+    end
+    if applied == true then
         if view.context.id and NSkin.NotifySkinningElementBoundsChanged then
             NSkin:NotifySkinningElementBoundsChanged(view.context.id)
         end
-        NSkin:NotifyOptionGroupChanged(view.id)
+        NSkin:NotifyOptionGroupChanged(view.id,
+            preserveLocalState and view or nil)
         return true
     end
     view:Refresh()
@@ -344,7 +361,7 @@ local function CreateSlider(view, control, y)
             if not values or values[control.key] == value then return end
             local current = CopyTable(values)
             current[control.key] = value
-            CommitValues(view, current, values)
+            CommitValues(view, current, values, true)
         end,
     })
     slider:SetPoint("TOPLEFT", label, "BOTTOMLEFT", 8, -18)
@@ -692,7 +709,7 @@ local function CreateTypographySizeSlider(view, control, parent)
             if not values or values[definition.key] == value then return end
             local current = CopyTable(values)
             current[definition.key] = value
-            CommitValues(view, current, values)
+            CommitValues(view, current, values, true)
         end,
     })
     slider:SetPoint("LEFT", parent, "LEFT", 116 + labelDelta, 0)
@@ -1019,7 +1036,7 @@ local function CreateSliderPairItem(view, definition, x, width, y, mirroredSide,
             if not values or values[definition.key] == value then return end
             local current = CopyTable(values)
             current[definition.key] = value
-            CommitValues(view, current, values)
+            CommitValues(view, current, values, true)
         end,
     })
     if mirroredSide == "LEFT" then
@@ -1528,11 +1545,11 @@ function NSkin:CreateOptionGroupView(parent, id, layout, context)
     return view
 end
 
-function NSkin:NotifyOptionGroupChanged(id)
+function NSkin:NotifyOptionGroupChanged(id, excludedView)
     local views = viewsByGroup[id]
     if not views then return false end
     for view in pairs(views) do
-        if view.Refresh then view:Refresh() end
+        if view ~= excludedView and view.Refresh then view:Refresh() end
     end
     return true
 end

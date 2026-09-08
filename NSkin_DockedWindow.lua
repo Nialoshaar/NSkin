@@ -146,6 +146,7 @@ local function LoadEditorOptions(element)
                 view:SetContext(element)
             end
             if view then
+                view.isSkinningModeInspector = true
                 view:ClearAllPoints()
                 view:SetPoint("TOPLEFT", state.scrollChild, "TOPLEFT",
                     SnapInspectorOffset(8), -SnapInspectorOffset(y))
@@ -249,6 +250,7 @@ local function LoadEditorOptions(element)
                     view:SetContext(element)
                 end
                 if view then
+                    view.isSkinningModeInspector = true
                     view:ClearAllPoints()
                     view:SetPoint("TOPLEFT", state.scrollChild, "TOPLEFT",
                         SnapInspectorOffset(8), -SnapInspectorOffset(y))

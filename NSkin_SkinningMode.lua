@@ -763,7 +763,9 @@ function NSkin:RefreshSkinningModeAppearance(change)
     if not controller or not controller.enabled then return end
     if change and change.scope == "element" then
         local selected = controller.selectedElement
-        if selected and selected.id == change.elementID then
+        if selected and selected.id == change.elementID
+            and self:ShouldRefreshSkinningModeInspector(change, selected.id)
+        then
             controller.dockedWindow:Refresh(selected)
         end
         return

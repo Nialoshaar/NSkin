@@ -356,11 +356,14 @@ local function SetAppearanceOverride(scope, id, windowID, path, value)
     parent[key] = newValue
     PruneEmptyTables(profile.appearanceOverrides)
     if not next(profile.appearanceOverrides) then profile.appearanceOverrides = nil end
+    local liveInspectorElementID = NSkin._liveInspectorAppearanceElementID
     NSkin:RefreshAppearance({
         scope = scope == "elements" and "element" or "window",
         elementID = scope == "elements" and id or nil,
         windowID = windowID or (scope == "windows" and id or nil),
         style = styleName, path = relativePath,
+        origin = scope == "elements" and liveInspectorElementID == id
+            and "activeInspectorLive" or nil,
     })
     return true
 end
@@ -988,6 +991,30 @@ local GLOBAL_APPEARANCE_DEPENDENCIES = {
 GetGlobalAppearanceChangeScope = function(self, styleName)
     if GLOBAL_APPEARANCE_DEPENDENCIES[styleName] then return "global" end
     return self:HasSharedElementStyle(styleName) and "type" or "global"
+end
+
+function NSkin:RunWithLiveInspectorAppearanceChange(elementID, callback)
+    if type(elementID) ~= "string" or elementID == ""
+        or type(callback) ~= "function"
+    then
+        return false
+    end
+    local previous = self._liveInspectorAppearanceElementID
+    self._liveInspectorAppearanceElementID = elementID
+    local ok, result = pcall(callback)
+    self._liveInspectorAppearanceElementID = previous
+    if not ok then error(result, 0) end
+    return result
+end
+
+function NSkin:ShouldRefreshSkinningModeInspector(change, selectedElementID)
+    if not change or change.scope ~= "element"
+        or change.origin ~= "activeInspectorLive"
+        or change.elementID ~= selectedElementID
+    then
+        return true
+    end
+    return ClassifyAppearanceRequirement(change) == "structural"
 end
 
 function NSkin:SetAppearanceOverride(path, value)
