@@ -16,6 +16,7 @@ Components\NSkin_ComponentsWindows.lua
 Components\NSkin_ComponentsNavigation.lua
 Components\NSkin_ComponentsContent.lua
 Components\NSkin_ComponentsMenus.lua
+Components\NSkin_ComponentsPopup.lua
 Options\Components\NSkin_ComponentOptionsCore.lua
 Options\Components\NSkin_ComponentOptionsWindows.lua
 Options\Components\NSkin_ComponentOptionsInputs.lua

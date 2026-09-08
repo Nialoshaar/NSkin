@@ -12,6 +12,31 @@ local IDs = {
         ScrollBar = "Character.EquipmentManager.ScrollBar",
         EquipButton = "Character.EquipmentManager.EquipButton",
         SaveButton = "Character.EquipmentManager.SaveButton",
+        Popup = {
+            Scope = "Character.EquipmentManager.IconSelectPopup",
+            Window = "Character.EquipmentManager.IconSelectPopup.Window",
+            HeaderControls =
+                "Character.EquipmentManager.IconSelectPopup.HeaderControls",
+            TextBox = "Character.EquipmentManager.IconSelectPopup.TextBox",
+            Dropdown = "Character.EquipmentManager.IconSelectPopup.Dropdown",
+            OkayButton =
+                "Character.EquipmentManager.IconSelectPopup.OkayButton",
+            CancelButton =
+                "Character.EquipmentManager.IconSelectPopup.CancelButton",
+            IconSelectionText =
+                "Character.EquipmentManager.IconSelectPopup.IconSelectionText",
+            SelectedIconHeader =
+                "Character.EquipmentManager.IconSelectPopup.SelectedIconHeader",
+            SelectedIconDescription =
+                "Character.EquipmentManager.IconSelectPopup.SelectedIconDescription",
+            EditBoxHeaderText =
+                "Character.EquipmentManager.IconSelectPopup.EditBoxHeaderText",
+            SelectedIcon =
+                "Character.EquipmentManager.IconSelectPopup.SelectedIcon",
+            IconPrefix = "Character.EquipmentManager.IconSelectPopup.Icon.",
+            ScrollBar =
+                "Character.EquipmentManager.IconSelectPopup.ScrollBar",
+        },
     },
     ReputationDropdown = "Character.Reputation.FilterDropdown",
     ReputationScrollBar = "Character.Reputation.ScrollBar",
@@ -65,6 +90,7 @@ local IDs = {
 local initialized = false
 local showHooked = false
 local toggleHooked = false
+local equipmentPopupLifecycleHooked = false
 local tabsRegistered = false
 local applyPending = false
 local reputationSectionCardsHooked = false
@@ -78,6 +104,10 @@ local concealedSocketingArtwork = setmetatable({}, { __mode = "k" })
 
 NSkin:RegisterAppearanceScope(IDs.Scope, {
     label = "Character",
+})
+NSkin:RegisterAppearanceScope(IDs.Equipment.Popup.Scope, {
+    label = "Equipment Manager Icon Select",
+    parent = IDs.Scope,
 })
 NSkin:RegisterAppearanceScope(IDs.ReputationDetails.Scope, {
     label = "Reputation Details",
@@ -358,6 +388,33 @@ function CharacterSkin:ApplyPaperDollControls(frame)
     HookOwnerRefresh(titles)
     HookOwnerRefresh(equipment)
     return applied
+end
+
+function CharacterSkin:ApplyEquipmentManagerPopup()
+    local popup = _G.GearManagerPopupFrame
+    if not popup then return false end
+    local popupIDs = IDs.Equipment.Popup
+    return NSkin:RegisterIconSelectPopup({
+        root = popup,
+        module = "Character",
+        appearanceWindowID = popupIDs.Scope,
+        windowLabel = "Equipment manager icon select popup",
+        ids = {
+            window = popupIDs.Window,
+            headerControls = popupIDs.HeaderControls,
+            textBox = popupIDs.TextBox,
+            dropdown = popupIDs.Dropdown,
+            okayButton = popupIDs.OkayButton,
+            cancelButton = popupIDs.CancelButton,
+            iconSelectionText = popupIDs.IconSelectionText,
+            selectedIconHeader = popupIDs.SelectedIconHeader,
+            selectedIconDescription = popupIDs.SelectedIconDescription,
+            editBoxHeaderText = popupIDs.EditBoxHeaderText,
+            selectedIcon = popupIDs.SelectedIcon,
+            iconPrefix = popupIDs.IconPrefix,
+            scrollBar = popupIDs.ScrollBar,
+        },
+    })
 end
 
 function CharacterSkin:ApplyReputationDropdown(frame)
@@ -756,6 +813,7 @@ function CharacterSkin:Apply()
     self:ApplyWindowChrome(frame)
     self:ApplyTabs(frame)
     self:ApplyPaperDollControls(frame)
+    self:ApplyEquipmentManagerPopup()
     self:ApplyReputationDropdown(frame)
     self:ApplyReputationDetails()
     self:ApplyCurrencyDropdown(frame)
@@ -775,6 +833,13 @@ function CharacterSkin:Initialize()
     if not toggleHooked and _G.hooksecurefunc and _G.ToggleCharacter then
         _G.hooksecurefunc("ToggleCharacter", QueueApply)
         toggleHooked = true
+    end
+    local popup = _G.GearManagerPopupFrame
+    if popup and not equipmentPopupLifecycleHooked and popup.HookScript then
+        popup:HookScript("OnShow", function()
+            CharacterSkin:ApplyEquipmentManagerPopup()
+        end)
+        equipmentPopupLifecycleHooked = true
     end
 
     initialized = true

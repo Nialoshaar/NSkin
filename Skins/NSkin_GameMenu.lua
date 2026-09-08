@@ -29,6 +29,26 @@ local IDs = {
         CharLimitText = "MacroFrame.CharLimitText",
         TextScrollBar = "MacroFrame.ScrollFrame.ScrollBar",
         SelectorScrollBar = "MacroFrame.MacroSelector.ScrollBar",
+        Popup = {
+            Scope = "MacroFrame.IconSelectPopup",
+            Window = "MacroFrame.IconSelectPopup.Window",
+            HeaderControls = "MacroFrame.IconSelectPopup.HeaderControls",
+            TextBox = "MacroFrame.IconSelectPopup.TextBox",
+            Dropdown = "MacroFrame.IconSelectPopup.Dropdown",
+            OkayButton = "MacroFrame.IconSelectPopup.OkayButton",
+            CancelButton = "MacroFrame.IconSelectPopup.CancelButton",
+            IconSelectionText =
+                "MacroFrame.IconSelectPopup.IconSelectionText",
+            SelectedIconHeader =
+                "MacroFrame.IconSelectPopup.SelectedIconHeader",
+            SelectedIconDescription =
+                "MacroFrame.IconSelectPopup.SelectedIconDescription",
+            EditBoxHeaderText =
+                "MacroFrame.IconSelectPopup.EditBoxHeaderText",
+            SelectedIcon = "MacroFrame.IconSelectPopup.SelectedIcon",
+            IconPrefix = "MacroFrame.IconSelectPopup.Icon.",
+            ScrollBar = "MacroFrame.IconSelectPopup.ScrollBar",
+        },
     },
 }
 
@@ -40,6 +60,7 @@ local settingsApplyPending = false
 local lifecycleHooked = false
 local settingsLifecycleHooked = false
 local macroLifecycleHooked = false
+local macroPopupLifecycleHooked = false
 local settingsRootTexturesConcealed = false
 local macroRootTexturesConcealed = false
 local nextAnonymousButtonID = 0
@@ -56,6 +77,10 @@ NSkin:RegisterAppearanceScope(IDs.Settings.Scope, {
 })
 NSkin:RegisterAppearanceScope(IDs.Macro.Scope, {
     label = "Macros",
+})
+NSkin:RegisterAppearanceScope(IDs.Macro.Popup.Scope, {
+    label = "Macro Icon Select",
+    parent = IDs.Macro.Scope,
 })
 
 local function IsVisible(frame)
@@ -474,11 +499,21 @@ function GameMenuSkin:ApplyMacroSelectorIcons(frame)
             getHovered = IsMacroSelectorIconHovered,
             getSelected = IsMacroSelectorIconSelected,
             priority = 61,
+            draggable = false,
+            editorOptions = {
+                { id = "shared.iconAppearance", label = "Icon",
+                    presentation = "INLINE", category = "CUSTOMIZE" },
+            },
             isEditable = function()
                 return IsVisible(frame) and IsVisible(button)
             end,
         })
         if element then
+            if NSkin:GetSavedMovableElementPlacement(id)
+                and element.resetPlacement
+            then
+                element.resetPlacement(element)
+            end
             if existing then NSkin:RefreshTypedElementLayout(element) end
             applied = true
         end
@@ -531,8 +566,35 @@ function GameMenuSkin:ApplyMacroText(frame)
     if not frame then return false end
 
     local applied = false
+    local macroText = _G.MacroFrameText
+    local macroTextSurface = _G.MacroFrameTextBackground
+    if macroTextSurface then
+        NSkin:ConcealWindowArtwork(macroTextSurface)
+    end
+    if macroText then
+        applied = NSkin:RegisterEditBox({
+            id = IDs.Macro.Text,
+            module = "GameMenu",
+            appearanceWindowID = IDs.Macro.Scope,
+            label = "Macro text area",
+            window = frame,
+            target = macroText,
+            skinOptions = { surface = macroTextSurface or macroText },
+            pixelBorderTargets = macroTextSurface
+                and { macroTextSurface } or nil,
+            priority = 80,
+            draggable = false,
+            editorOptions = {
+                { id = "shared.editBoxAppearance", label = "Edit Box",
+                    category = "CUSTOMIZE" },
+            },
+            highlightRegions = { macroTextSurface or macroText },
+            isEditable = function()
+                return IsVisible(frame) and IsVisible(macroText)
+            end,
+        }) ~= nil or applied
+    end
     for _, definition in ipairs({
-        { IDs.Macro.Text, "Macro text", _G.MacroFrameText },
         { IDs.Macro.SelectedMacroName, "Selected macro name",
             _G.MacroFrameSelectedMacroName },
         { IDs.Macro.CharLimitText, "Macro character limit",
@@ -556,6 +618,33 @@ function GameMenuSkin:ApplyMacroText(frame)
         end
     end
     return applied
+end
+
+function GameMenuSkin:ApplyMacroPopup()
+    local popup = _G.MacroPopupFrame
+    if not popup then return false end
+    local popupIDs = IDs.Macro.Popup
+    return NSkin:RegisterIconSelectPopup({
+        root = popup,
+        module = "GameMenu",
+        appearanceWindowID = popupIDs.Scope,
+        windowLabel = "Macro icon select popup",
+        ids = {
+            window = popupIDs.Window,
+            headerControls = popupIDs.HeaderControls,
+            textBox = popupIDs.TextBox,
+            dropdown = popupIDs.Dropdown,
+            okayButton = popupIDs.OkayButton,
+            cancelButton = popupIDs.CancelButton,
+            iconSelectionText = popupIDs.IconSelectionText,
+            selectedIconHeader = popupIDs.SelectedIconHeader,
+            selectedIconDescription = popupIDs.SelectedIconDescription,
+            editBoxHeaderText = popupIDs.EditBoxHeaderText,
+            selectedIcon = popupIDs.SelectedIcon,
+            iconPrefix = popupIDs.IconPrefix,
+            scrollBar = popupIDs.ScrollBar,
+        },
+    })
 end
 
 function GameMenuSkin:ApplyMacroScrollBars(frame)
@@ -601,6 +690,7 @@ function GameMenuSkin:ApplyMacroFrame()
     self:ApplyMacroButtons(frame)
     self:ApplyMacroText(frame)
     self:ApplyMacroScrollBars(frame)
+    self:ApplyMacroPopup()
     return true
 end
 
@@ -649,6 +739,13 @@ function GameMenuSkin:InitializeMacroFrame()
             GameMenuSkin:ApplyMacroFrame()
         end)
         macroLifecycleHooked = true
+    end
+    local popup = _G.MacroPopupFrame
+    if popup and not macroPopupLifecycleHooked and popup.HookScript then
+        popup:HookScript("OnShow", function()
+            GameMenuSkin:ApplyMacroPopup()
+        end)
+        macroPopupLifecycleHooked = true
     end
     macroInitialized = true
     return self:ApplyMacroFrame()

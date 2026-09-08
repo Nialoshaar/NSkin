@@ -322,6 +322,7 @@ local function RefreshEditBoxState(editBox)
     local data = NSkin:GetSkinData(editBox, COMPONENT_STATE, false)
     if not data or not data.editBoxStyle then return end
     local style = data.editBoxStyle
+    local surface = data.editBoxSurface or editBox
     local enabled = not editBox.IsEnabled or editBox:IsEnabled()
     local focused = enabled and editBox.HasFocus and editBox:HasFocus()
     local backgroundKey = enabled and (focused and "focusBackground" or "background")
@@ -334,7 +335,7 @@ local function RefreshEditBoxState(editBox)
     local border = borderKey == "border" and data.editBoxBorder
         or NSkin:GetResolvedAppearanceColor(style, borderKey)
         or data.editBoxBorder or NSkin:GetResolvedAppearanceColor(style, "border")
-    NSkin:CreateFlatBackground(editBox, nil, background, border)
+    NSkin:CreateFlatBackground(surface, nil, background, border)
     if editBox.SetTextColor then
         local textColor = NSkin:GetResolvedAppearanceColor(style, textKey)
             or NSkin:GetResolvedAppearanceColor(style, "text")
@@ -347,6 +348,8 @@ function NSkin:SkinEditBox(editBox, options)
     options = options or {}
 
     local editData = self:GetSkinData(editBox, COMPONENT_STATE)
+    local surface = options.surface
+    if not surface or not surface.CreateTexture then surface = editBox end
     if not editData.editBoxBaselineID then
         editData.editBoxBaselineID = options.baselineID
             or "EditBox:" .. tostring(editBox)
@@ -354,13 +357,14 @@ function NSkin:SkinEditBox(editBox, options)
             size = true, textInsets = true,
         })
     end
-    if not self:GetFlatBackground(editBox) then
+    if not self:GetFlatBackground(surface) then
         self:HideTextureRegions(editBox, options.preserveTexture)
     end
     local style = options.style or self:GetStyle("editBox")
     if not style then return end
     editData.editBoxStyle = style
     editData.editBoxBorder = options.border
+    editData.editBoxSurface = surface
     local configuredWidth, configuredHeight = tonumber(style.width), tonumber(style.height)
     configuredWidth = configuredWidth and configuredWidth > 0 and configuredWidth or nil
     configuredHeight = configuredHeight and configuredHeight > 0 and configuredHeight or nil
@@ -380,7 +384,8 @@ function NSkin:SkinEditBox(editBox, options)
         editData.editBoxOriginalSize = nil
     end
     RefreshEditBoxState(editBox)
-    local editBorder = self:GetPixelBorder(editBox, "NSkinFlatBackgroundBorder")
+    local editBorder = self:GetPixelBorder(
+        surface, "NSkinFlatBackgroundBorder")
     self:SetPixelBorderSize(editBorder, style.borderSize or 1)
     self:SetPixelBorderPadding(editBorder, style.borderPadding or 0)
     self:ApplyResolvedTypography(editBox, style)
