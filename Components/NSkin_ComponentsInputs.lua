@@ -315,7 +315,7 @@ function NSkin:SkinDropdown(dropdown, options)
     self:HookDropdownMenuSkin(dropdown, function()
         local state = NSkin:GetSkinData(dropdown, COMPONENT_STATE, false)
         return state and state.dropdownMenuStyle
-    end)
+    end, options.preserveMenuAnchor)
 end
 
 local function RefreshEditBoxState(editBox)

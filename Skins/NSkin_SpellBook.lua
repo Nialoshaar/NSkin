@@ -13,6 +13,11 @@ local IDs = {
     MainTabs = "SpellBook.MainTabs",
     CategoryTabs = "SpellBook.CategoryTabs",
     Headers = "SpellBook.Headers",
+    Talents = {
+        ApplyButton = "SpellBook.Talents.ApplyButton",
+        SearchBox = "SpellBook.Talents.SearchBox",
+        LoadoutDropdown = "SpellBook.Talents.LoadoutDropdown",
+    },
     Search = { Group = "SpellBook.Search", Accessory = "SpellBook.Search.Cog" },
     Pagination = {
         Group = "SpellBook.Pagination",
@@ -491,6 +496,81 @@ local function SkinSpellBookControls()
     SkinAssistedCombat(spellBook.AssistedCombatRotationSpellFrame)
 end
 
+local function IsTalentControlVisible(talents, control)
+    return talents and control and talents:IsVisible() and control:IsVisible()
+end
+
+local function RegisterTalentControls(playerSpells)
+    local talents = playerSpells and playerSpells.TalentsFrame
+    local loadSystem = talents and talents.LoadSystem
+    local loadoutDropdown = loadSystem and loadSystem.GetDropdown
+        and loadSystem:GetDropdown() or (loadSystem and loadSystem.Dropdown)
+    if not talents then return false end
+
+    -- The PlayerSpellsFrame is shared by Spellbook and Talents. Reapply the
+    -- same registered window chrome here so opening either tab has identical
+    -- shared chrome without creating a second overlapping window element.
+    NSkin:SkinStandardWindowChrome({
+        frame = playerSpells,
+        appearanceWindowID = IDs.AppearanceWindow,
+        elementID = IDs.Window,
+        headerControlsID = IDs.HeaderControls,
+        headerControls = {
+            {
+                id = IDs.ExpandCollapse,
+                targets = GetSpellBookResizeButtons(
+                    playerSpells, playerSpells.SpellBookFrame),
+            },
+        },
+    })
+
+    local applied = NSkin:RegisterActionButton({
+        id = IDs.Talents.ApplyButton,
+        module = "SpellBook",
+        appearanceWindowID = IDs.AppearanceWindow,
+        label = "Talent apply changes button",
+        window = playerSpells,
+        target = talents.ApplyButton,
+        priority = 71,
+        highlightRegions = { talents.ApplyButton },
+        isEditable = function()
+            return IsTalentControlVisible(talents, talents.ApplyButton)
+        end,
+    }) ~= nil
+    applied = NSkin:RegisterSearchBox({
+        id = IDs.Talents.SearchBox,
+        module = "SpellBook",
+        appearanceWindowID = IDs.AppearanceWindow,
+        label = "Talent search",
+        window = playerSpells,
+        target = talents.SearchBox,
+        priority = 72,
+        highlightRegions = { talents.SearchBox },
+        isEditable = function()
+            return IsTalentControlVisible(talents, talents.SearchBox)
+        end,
+    }) ~= nil or applied
+    applied = NSkin:RegisterDropdown({
+        id = IDs.Talents.LoadoutDropdown,
+        module = "SpellBook",
+        appearanceWindowID = IDs.AppearanceWindow,
+        label = "Talent loadout dropdown",
+        window = playerSpells,
+        target = loadoutDropdown,
+        menus = { "MENU_CLASS_TALENT_PROFILE" },
+        skinOptions = {
+            preserveText = true,
+            preserveMenuAnchor = true,
+        },
+        priority = 73,
+        highlightRegions = { loadoutDropdown },
+        isEditable = function()
+            return IsTalentControlVisible(talents, loadoutDropdown)
+        end,
+    }) ~= nil or applied
+    return applied
+end
+
 local function CreateCircularBorder(button, icon, style, borderColor)
     local borderSize = tonumber(style and style.borderSize) or BORDER_SIZE
     local border = button:CreateTexture(nil, "ARTWORK", nil, -2)
@@ -857,6 +937,7 @@ function SpellBookSkin:Initialize()
                 presentation = "INLINE", category = "SPECIFIC" },
         },
     })
+    RegisterTalentControls(playerSpells)
 
     local pagedSpells = spellBook and spellBook.PagedSpellsFrame
     NSkin:RegisterSkinningElement(IDs.Headers, {
@@ -961,6 +1042,7 @@ end
 function SpellBookSkin:RefreshAppearance()
     if State.initialized then
         SkinSpellBookControls()
+        RegisterTalentControls(_G.PlayerSpellsFrame)
         SkinActiveSpellBookItems()
         NSkin:ApplyTabGroupLayout(IDs.MainTabs)
         NSkin:ApplyTabGroupLayout(IDs.CategoryTabs)

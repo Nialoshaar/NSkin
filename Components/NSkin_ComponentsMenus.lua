@@ -4,6 +4,7 @@ local COMPONENT_STATE = "components"
 local SHARED_DROPDOWN_MENU_BOTTOM_INSET = 0
 local sharedDropdownMenu = {
     owners = setmetatable({}, { __mode = "k" }),
+    preserveAnchors = setmetatable({}, { __mode = "k" }),
     managerHooked = false,
     generateHooked = false,
     activeOwner = nil,
@@ -188,6 +189,7 @@ function NSkin:SkinDropdownMenu(menu, style)
 
     if menu == sharedDropdownMenu.activeMenu
         and sharedDropdownMenu.activeOwner
+        and not sharedDropdownMenu.preserveAnchors[sharedDropdownMenu.activeOwner]
         and not (menu.IsProtected and menu:IsProtected())
         and not (_G.InCombatLockdown and _G.InCombatLockdown())
     then
@@ -316,11 +318,12 @@ local function HookSharedDropdownMenuManager()
     return sharedDropdownMenu.managerHooked
 end
 
-function NSkin:HookDropdownMenuSkin(dropdown, styleProvider)
+function NSkin:HookDropdownMenuSkin(dropdown, styleProvider, preserveMenuAnchor)
     if not dropdown then return false end
     local data = self:GetSkinData(dropdown, COMPONENT_STATE)
     data.sharedMenuStyleProvider = styleProvider
     sharedDropdownMenu.owners[dropdown] = styleProvider
+    sharedDropdownMenu.preserveAnchors[dropdown] = preserveMenuAnchor == true
     HookSharedDropdownMenuManager()
     if not _G.hooksecurefunc then return false end
     if data.sharedMenuSkinHooked then return true end
