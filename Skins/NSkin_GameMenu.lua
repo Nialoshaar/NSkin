@@ -11,15 +11,36 @@ local IDs = {
         Window = "SettingsPanel.Window",
         HeaderControls = "SettingsPanel.HeaderControls",
     },
+    Macro = {
+        Scope = "MacroFrame",
+        Window = "MacroFrame.Window",
+        HeaderControls = "MacroFrame.HeaderControls",
+        TopTabs = "MacroFrame.TopTabs",
+        Icon = "MacroFrame.SelectedMacroIcon",
+        EditButton = "MacroFrame.EditButton",
+        SaveButton = "MacroFrame.SaveButton",
+        CancelButton = "MacroFrame.CancelButton",
+        DeleteButton = "MacroFrame.DeleteButton",
+        NewButton = "MacroFrame.NewButton",
+        ExitButton = "MacroFrame.ExitButton",
+        Text = "MacroFrame.Text",
+        SelectedMacroName = "MacroFrame.SelectedMacroName",
+        CharLimitText = "MacroFrame.CharLimitText",
+        TextScrollBar = "MacroFrame.ScrollFrame.ScrollBar",
+        SelectorScrollBar = "MacroFrame.MacroSelector.ScrollBar",
+    },
 }
 
 local initialized = false
 local settingsInitialized = false
+local macroInitialized = false
 local applyPending = false
 local settingsApplyPending = false
 local lifecycleHooked = false
 local settingsLifecycleHooked = false
+local macroLifecycleHooked = false
 local settingsRootTexturesConcealed = false
+local macroRootTexturesConcealed = false
 local nextAnonymousButtonID = 0
 local buttonIDs = setmetatable({}, { __mode = "k" })
 
@@ -28,6 +49,9 @@ NSkin:RegisterAppearanceScope(IDs.Scope, {
 })
 NSkin:RegisterAppearanceScope(IDs.Settings.Scope, {
     label = "Settings Panel",
+})
+NSkin:RegisterAppearanceScope(IDs.Macro.Scope, {
+    label = "Macros",
 })
 
 local function IsVisible(frame)
@@ -238,6 +262,195 @@ function GameMenuSkin:ApplySettingsPanel()
     return true
 end
 
+function GameMenuSkin:ApplyMacroWindowChrome(frame)
+    if not frame then return false end
+
+    -- MacroFrame adds legacy portrait, divider, and selected-slot textures
+    -- directly to its ButtonFrameTemplate root. Suppress them before NSkin
+    -- creates its own root chrome so refreshes cannot conceal owned textures.
+    if not macroRootTexturesConcealed then
+        HideDecorativeTextures(frame)
+        macroRootTexturesConcealed = true
+    end
+
+    NSkin:SkinStandardWindowChrome({
+        frame = frame,
+        appearanceWindowID = IDs.Macro.Scope,
+        elementID = IDs.Macro.Window,
+        headerControlsID = IDs.Macro.HeaderControls,
+        title = frame.TitleContainer and frame.TitleContainer.TitleText,
+    })
+    NSkin:RegisterSkinningElement(IDs.Macro.Window, {
+        label = "Macro window",
+        kind = "WINDOW",
+        module = "GameMenu",
+        appearanceWindowID = IDs.Macro.Scope,
+        window = frame,
+        target = frame,
+        priority = 0,
+        draggable = false,
+    })
+    return true
+end
+
+function GameMenuSkin:ApplyMacroTabs(frame)
+    local tabs = { _G.MacroFrameTab1, _G.MacroFrameTab2 }
+    if not frame or not tabs[1] or not tabs[2] then return false end
+
+    local style = NSkin:GetAppearanceStyle(
+        "tab", IDs.Macro.Scope, IDs.Macro.TopTabs)
+    local border = NSkin:GetAppearanceBorderColor(
+        "tab", style, IDs.Macro.Scope, IDs.Macro.TopTabs)
+    local selected = _G.PanelTemplates_GetSelectedTab
+        and _G.PanelTemplates_GetSelectedTab(frame)
+    for index = 1, #tabs do
+        NSkin:SkinTab(tabs[index], index == selected, style, border)
+    end
+
+    NSkin:RegisterTabGroup(IDs.Macro.TopTabs, {
+        label = "Macro top tabs",
+        kind = "TAB_GROUP",
+        module = "GameMenu",
+        appearanceWindowID = IDs.Macro.Scope,
+        window = frame,
+        tabs = tabs,
+        priority = 50,
+        orientation = "HORIZONTAL",
+        edge = "TOP",
+    })
+    NSkin:ApplyTabGroupLayout(IDs.Macro.TopTabs)
+    return true
+end
+
+function GameMenuSkin:ApplyMacroIcon(frame)
+    local button = frame and (frame.SelectedMacroButton
+        or _G.MacroFrameSelectedMacroButton)
+    if not button or not button.Icon then return false end
+
+    return NSkin:RegisterIcon({
+        id = IDs.Macro.Icon,
+        module = "GameMenu",
+        appearanceWindowID = IDs.Macro.Scope,
+        label = "Selected macro icon",
+        window = frame,
+        target = button,
+        texture = button.Icon,
+        priority = 60,
+        highlightRegions = { button },
+        isEditable = function()
+            return IsVisible(frame) and IsVisible(button)
+        end,
+    }) ~= nil
+end
+
+function GameMenuSkin:ApplyMacroButtons(frame)
+    if not frame then return false end
+
+    local applied = false
+    for _, definition in ipairs({
+        { IDs.Macro.EditButton, "Macro edit button", _G.MacroEditButton },
+        { IDs.Macro.SaveButton, "Macro save button", _G.MacroSaveButton },
+        { IDs.Macro.CancelButton, "Macro cancel button", _G.MacroCancelButton },
+        { IDs.Macro.DeleteButton, "Macro delete button", _G.MacroDeleteButton },
+        { IDs.Macro.NewButton, "Macro new button", _G.MacroNewButton },
+        { IDs.Macro.ExitButton, "Macro exit button", _G.MacroExitButton },
+    }) do
+        local id, label, button = unpack(definition)
+        if button then
+            applied = NSkin:RegisterActionButton({
+                id = id,
+                module = "GameMenu",
+                appearanceWindowID = IDs.Macro.Scope,
+                label = label,
+                window = frame,
+                target = button,
+                priority = 70,
+                highlightRegions = { button },
+                isEditable = function()
+                    return IsVisible(frame) and IsVisible(button)
+                end,
+            }) ~= nil or applied
+        end
+    end
+    return applied
+end
+
+function GameMenuSkin:ApplyMacroText(frame)
+    if not frame then return false end
+
+    local applied = false
+    for _, definition in ipairs({
+        { IDs.Macro.Text, "Macro text", _G.MacroFrameText },
+        { IDs.Macro.SelectedMacroName, "Selected macro name",
+            _G.MacroFrameSelectedMacroName },
+        { IDs.Macro.CharLimitText, "Macro character limit",
+            _G.MacroFrameCharLimitText or _G.macroFrameCharLimitText },
+    }) do
+        local id, label, target = unpack(definition)
+        if target then
+            applied = NSkin:RegisterTextElement({
+                id = id,
+                module = "GameMenu",
+                appearanceWindowID = IDs.Macro.Scope,
+                label = label,
+                window = frame,
+                target = target,
+                priority = 80,
+                highlightRegions = { target },
+                isEditable = function()
+                    return IsVisible(frame) and IsVisible(target)
+                end,
+            }) ~= nil or applied
+        end
+    end
+    return applied
+end
+
+function GameMenuSkin:ApplyMacroScrollBars(frame)
+    if not frame then return false end
+
+    local textScrollFrame = _G.MacroFrameScrollFrame
+    local selector = frame.MacroSelector
+    local applied = false
+    for _, definition in ipairs({
+        { IDs.Macro.TextScrollBar, "Macro text scroll bar",
+            textScrollFrame and textScrollFrame.ScrollBar },
+        { IDs.Macro.SelectorScrollBar, "Macro selector scroll bar",
+            selector and selector.ScrollBar },
+    }) do
+        local id, label, scrollBar = unpack(definition)
+        if scrollBar then
+            applied = NSkin:RegisterScrollBar({
+                id = id,
+                module = "GameMenu",
+                appearanceWindowID = IDs.Macro.Scope,
+                label = label,
+                window = frame,
+                target = scrollBar,
+                priority = 90,
+                highlightRegions = { scrollBar },
+                isEditable = function()
+                    return IsVisible(frame) and IsVisible(scrollBar)
+                end,
+            }) ~= nil or applied
+        end
+    end
+    return applied
+end
+
+function GameMenuSkin:ApplyMacroFrame()
+    local frame = _G.MacroFrame
+    if not frame then return false end
+
+    self:ApplyMacroWindowChrome(frame)
+    self:ApplyMacroTabs(frame)
+    self:ApplyMacroIcon(frame)
+    self:ApplyMacroButtons(frame)
+    self:ApplyMacroText(frame)
+    self:ApplyMacroScrollBars(frame)
+    return true
+end
+
 function GameMenuSkin:HookLifecycle(frame)
     if lifecycleHooked then return end
 
@@ -274,9 +487,24 @@ function GameMenuSkin:InitializeSettingsPanel()
     return true
 end
 
+function GameMenuSkin:InitializeMacroFrame()
+    local frame = _G.MacroFrame
+    if not frame then return false end
+
+    if not macroLifecycleHooked and frame.HookScript then
+        frame:HookScript("OnShow", function()
+            GameMenuSkin:ApplyMacroFrame()
+        end)
+        macroLifecycleHooked = true
+    end
+    macroInitialized = true
+    return self:ApplyMacroFrame()
+end
+
 function GameMenuSkin:RefreshAppearance()
     if initialized then self:Apply() end
     if settingsInitialized then self:ApplySettingsPanel() end
+    if macroInitialized then self:ApplyMacroFrame() end
 end
 
 NSkin:RegisterWindowSkin({
@@ -290,4 +518,11 @@ NSkin:RegisterWindowSkin({
     module = "GameMenu",
     addon = "Blizzard_Settings_Shared",
     apply = function() return GameMenuSkin:InitializeSettingsPanel() end,
+})
+
+NSkin:RegisterWindowSkin({
+    key = "GameMenu.MacroFrame",
+    module = "GameMenu",
+    addon = "Blizzard_MacroUI",
+    apply = function() return GameMenuSkin:InitializeMacroFrame() end,
 })
