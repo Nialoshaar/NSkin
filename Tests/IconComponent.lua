@@ -74,6 +74,8 @@ local function NewRegion(objectType, parent)
     function region:Hide() self.shown = false end
     function region:IsShown() return self.shown end
     function region:IsVisible() return self.shown end
+    function region:IsMouseOver() return self.mouseOver == true end
+    function region:IsEnabled() return self.enabled ~= false end
     function region:GetAlpha() return self.alpha end
     function region:SetAlpha(alpha) self.alpha = alpha end
     function region:GetEffectiveScale() return 1 end
@@ -88,7 +90,18 @@ local function NewFrame(parent)
         self.createdTextures[#self.createdTextures + 1] = texture
         return texture
     end
-    function frame:HookScript() end
+    function frame:HookScript(script, callback)
+        self.scriptHooks = self.scriptHooks or {}
+        self.scriptHooks[script] = self.scriptHooks[script] or {}
+        self.scriptHooks[script][#self.scriptHooks[script] + 1] = callback
+    end
+    function frame:RunScript(script)
+        for _, callback in ipairs(
+            self.scriptHooks and self.scriptHooks[script] or {})
+        do
+            callback(self)
+        end
+    end
     function frame:SetScript(script, callback)
         self.scripts = self.scripts or {}
         self.scripts[script] = callback
@@ -125,6 +138,7 @@ function N:GetModuleOptions(module, create)
 end
 
 assert(loadfile("Components/NSkin_ComponentsCore.lua"))("NSkin", N)
+assert(loadfile("Components/NSkin_ComponentsInputs.lua"))("NSkin", N)
 assert(loadfile("Components/NSkin_ComponentsContent.lua"))("NSkin", N)
 assert(N:RegisterAppearanceScope("Test", {}))
 
@@ -140,6 +154,18 @@ nativeBorder.alpha = 0.75
 local hiddenNativeBorder = NewRegion("Texture", button)
 hiddenNativeBorder.alpha = 0.5
 hiddenNativeBorder.shown = false
+local hoverRegion = NewRegion("Texture", button)
+hoverRegion.alpha = 0.4
+local selectedRegion = NewRegion("Texture", button)
+selectedRegion.alpha = 0.6
+selectedRegion.shown = false
+function button:GetChecked() return self.selected == true end
+function button:SetChecked(checked)
+    self.selected = checked == true
+    selectedRegion.shown = self.selected
+end
+local function GetHovered(target) return target.mouseOver == true end
+local function GetSelected(target) return target.selected == true end
 
 local originalButtonPoint = { button:GetPoint(1) }
 local originalTexturePoint = { texture:GetPoint(1) }
@@ -150,6 +176,10 @@ local element = assert(N:RegisterIcon({
     window = window,
     target = button,
     nativeDecorationRegions = { nativeBorder, hiddenNativeBorder },
+    hoverRegion = hoverRegion,
+    selectedRegion = selectedRegion,
+    getHovered = GetHovered,
+    getSelected = GetSelected,
 }))
 
 eq(element.kind, "ICON", "icon uses shared typed component")
@@ -174,6 +204,40 @@ eq(nativeBorder.alpha, 0,
 hiddenNativeBorder:Show()
 eq(hiddenNativeBorder.alpha, 0,
     "shown native border remains visually concealed while active")
+eq(hoverRegion.alpha, 0, "native hover artwork is suppressed")
+eq(selectedRegion.alpha, 0, "native selected artwork is suppressed")
+local interactionGlow = assert(N:GetSkinData(
+    button, "iconComponent", false).interactionGlow)
+eq(interactionGlow.shown, false, "interaction glow starts hidden")
+eq(interactionGlow.color[1], 1, "interaction glow uses standard white")
+eq(interactionGlow.color[4], 0.1,
+    "interaction glow uses standard NSkin hover alpha")
+button.mouseOver = true
+button:RunScript("OnEnter")
+eq(interactionGlow.shown, true, "hover shows shared white glow")
+local interactionTextureCount = #button.createdTextures
+button.selected = true
+selectedRegion:SetShown(true)
+eq(interactionGlow.shown, true, "hover and selection share one glow")
+eq(#button.createdTextures, interactionTextureCount,
+    "hover and selection do not stack glow textures")
+button.mouseOver = false
+button:RunScript("OnLeave")
+eq(interactionGlow.shown, true, "selected glow survives mouse leave")
+button.selected = false
+selectedRegion:SetShown(false)
+eq(interactionGlow.shown, false, "selected state off hides glow")
+button:SetChecked(true)
+eq(interactionGlow.shown, true,
+    "check-button selected state updates without polling")
+button:SetChecked(false)
+eq(interactionGlow.shown, false,
+    "check-button deselection updates without polling")
+button.selected = true
+selectedRegion:SetShown(true)
+eq(interactionGlow.shown, true, "selected state on updates immediately")
+button.selected = false
+selectedRegion:SetShown(false)
 
 local textureBaseline = assert(N:GetComponentBaseline("Test.Icon:texture"))
 eq(textureBaseline.target, texture, "appearance baseline belongs to texture")
@@ -238,6 +302,10 @@ local repeated = assert(N:RegisterIcon({
     window = window,
     target = button,
     nativeDecorationRegions = { nativeBorder, hiddenNativeBorder },
+    hoverRegion = hoverRegion,
+    selectedRegion = selectedRegion,
+    getHovered = GetHovered,
+    getSelected = GetSelected,
 }))
 eq(repeated, element, "repeated registration preserves canonical element")
 eq(#button.createdTextures, borderCount,
@@ -246,6 +314,18 @@ eq(#hooks[texture].SetTexture, 1,
     "repeated registration does not duplicate texture hooks")
 eq(#hooks[nativeBorder].SetAlpha, 1,
     "repeated registration does not duplicate native border hooks")
+eq(#hooks[hoverRegion].SetAlpha, 1,
+    "repeated registration does not duplicate interaction hooks")
+eq(#hooks[button].SetChecked, 1,
+    "repeated registration does not duplicate selected-state hooks")
+button.selected = true
+selectedRegion:SetShown(true)
+eq(interactionGlow.shown, true,
+    "pooled button reuse refreshes selected glow")
+button.selected = false
+selectedRegion:SetShown(false)
+eq(interactionGlow.shown, false,
+    "pooled button reuse clears selected glow")
 
 assert(N:SkinIcon(button, { texture = texture, reset = true }))
 eq(texture.width, 32, "appearance reset restores Blizzard width")
@@ -258,6 +338,17 @@ eq(hiddenNativeBorder.alpha, 0.5,
     "reset restores initially hidden native border alpha")
 eq(hiddenNativeBorder.shown, false,
     "reset restores initially hidden native border visibility")
+eq(hoverRegion.alpha, 0.4, "reset restores hover artwork alpha")
+eq(hoverRegion.shown, true, "reset restores hover artwork visibility")
+eq(selectedRegion.alpha, 0.6, "reset restores selected artwork alpha")
+eq(selectedRegion.shown, false,
+    "reset restores selected artwork visibility")
+eq(interactionGlow.shown, false, "reset hides shared interaction glow")
+button.mouseOver = true
+button:RunScript("OnEnter")
+eq(interactionGlow.shown, false,
+    "inactive interaction hooks do not show glow after reset")
+button.mouseOver = false
 texture:SetTexCoord(0.05, 0.95, 0.05, 0.95)
 eq(texture.texCoords[1], 0.05,
     "inactive icon does not overwrite later Blizzard texcoords")
@@ -268,6 +359,10 @@ local reapplied = assert(N:RegisterIcon({
     window = window,
     target = button,
     nativeDecorationRegions = { nativeBorder, hiddenNativeBorder },
+    hoverRegion = hoverRegion,
+    selectedRegion = selectedRegion,
+    getHovered = GetHovered,
+    getSelected = GetSelected,
 }))
 eq(reapplied, element, "registration after reset preserves canonical element")
 eq(texture.width, 40, "registration after reset reapplies current appearance")
@@ -276,6 +371,10 @@ eq(texture.texCoords[1], styledLeft,
     "registration after reset reactivates texture maintenance")
 eq(nativeBorder.alpha, 0,
     "registration after reset conceals declared native border again")
+eq(hoverRegion.alpha, 0,
+    "registration after reset suppresses native hover artwork again")
+eq(selectedRegion.alpha, 0,
+    "registration after reset suppresses native selected artwork again")
 
 local directButton = NewFrame(window)
 directButton.objectType = "Button"

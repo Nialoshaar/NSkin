@@ -4,7 +4,6 @@ local CollectionSkin = NSkin:NewModule("Collections")
 
 local TOYS_PER_PAGE = 18
 local UNCOLLECTED_ICON_ALPHA = 0.5
-local COLLECTION_ITEM_STATE = "collectionItems"
 local IDs = {
     AppearanceWindow = "Collections",
     Window = "Collections.Journal.Window",
@@ -34,6 +33,7 @@ local IDs = {
             Next = "Collections.ToyBox.Pagination.Next",
             Text = "Collections.ToyBox.Pagination.Text" },
         ProgressBar = "Collections.ToyBox.ProgressBar",
+        IconPrefix = "Collections.ToyBox.Icons.",
     },
     Heirlooms = {
         Scope = "Collections.Heirlooms", Search = {
@@ -46,6 +46,7 @@ local IDs = {
             Next = "Collections.Heirlooms.Pagination.Next",
             Text = "Collections.Heirlooms.Pagination.Text" },
         ProgressBar = "Collections.Heirlooms.ProgressBar",
+        IconPrefix = "Collections.Heirlooms.Icons.",
     },
     Appearances = {
         Scope = "Collections.Appearances", TopTabs = "Collections.Appearances.TopTabs",
@@ -834,41 +835,80 @@ ApplyCollectionsSkin = function()
     RemoveCollectionPageBackgrounds()
 end
 
-local function SkinCollectionButton(button, knownQuality, appearanceWindowID)
+local function GetCollectionItemQuality(button)
+    local itemID = button and button.itemID
+    if not itemID or itemID < 0 or not Item
+        or not Item.GetItemQualityByID
+    then return nil end
+    return Item.GetItemQualityByID(itemID)
+end
+
+local function GetCollectionHighlight(button)
+    if not button then return nil end
+    if button.HighlightTexture then return button.HighlightTexture end
+    if button.GetHighlightTexture then return button:GetHighlightTexture() end
+end
+
+local function IsCollectionIconHovered(button)
+    if not button or not button.IsMouseOver or not button:IsMouseOver() then
+        return false
+    end
+    local highlight = GetCollectionHighlight(button)
+    return not highlight or not highlight.IsShown or highlight:IsShown()
+end
+
+local function GetCollectionNativeDecorations(button)
+    local regions = {}
+    if button and button.slotFrameCollected then
+        regions[1] = button.slotFrameCollected
+    end
+    return regions
+end
+
+local function IsCollectionIconEditable(window, button)
+    return window and window.IsVisible and window:IsVisible()
+        and button and button.IsVisible and button:IsVisible() or false
+end
+
+local function GetHeirloomIconID(button)
+    local frames = _G.HeirloomsJournal
+        and _G.HeirloomsJournal.heirloomEntryFrames or {}
+    for i = 1, #frames do
+        if frames[i] == button then
+            return IDs.Heirlooms.IconPrefix .. i
+        end
+    end
+end
+
+local function SkinCollectionButton(button, knownQuality, appearanceWindowID,
+    elementID, window)
     if not button then return end
 
-    local data = NSkin:GetSkinData(button, COLLECTION_ITEM_STATE)
     local uncollectedIcon = button.iconTextureUncollected
     if uncollectedIcon then
         uncollectedIcon:SetAlpha(UNCOLLECTED_ICON_ALPHA)
     end
 
-    if not data.collectionDecorationRemoved then
-        local slotFrame = button.slotFrameCollected
-        if slotFrame then
-            if slotFrame.SetAtlas then slotFrame:SetAtlas(nil) end
-            slotFrame:SetTexture(nil)
-            slotFrame:Hide()
-        end
-        data.collectionDecorationRemoved = true
-    end
-
-    local style = NSkin:GetAppearanceStyle("icon", appearanceWindowID)
-    NSkin:SkinIcon(button, {
+    if not elementID or not button.iconTexture then return end
+    NSkin:RegisterIcon({
+        id = elementID,
+        module = "Collections",
+        appearanceWindowID = appearanceWindowID,
+        label = knownQuality ~= nil and "Heirloom icon" or "Toy icon",
+        window = window,
+        target = button,
         texture = button.iconTexture,
-        style = style,
-        borderColor = NSkin:GetAppearanceBorderColor(
-            "icon", style, appearanceWindowID),
-        qualityProvider = function(target)
-            if knownQuality ~= nil then return knownQuality end
-            local itemID = target and target.itemID
-            if not itemID or itemID < 0 or not Item
-                or not Item.GetItemQualityByID
-            then return nil end
-            return Item.GetItemQualityByID(itemID)
-        end,
+        quality = knownQuality ~= nil and knownQuality
+            or GetCollectionItemQuality(button),
         showBorder = knownQuality ~= nil
             or (button.itemID ~= nil and button.itemID >= 0),
+        nativeDecorationRegions = GetCollectionNativeDecorations(button),
+        hoverRegion = GetCollectionHighlight(button),
+        getHovered = IsCollectionIconHovered,
+        priority = 90,
+        isEditable = function()
+            return IsCollectionIconEditable(window, button)
+        end,
     })
 end
 
@@ -880,12 +920,15 @@ function CollectionSkin:InitializeOptionalAdapters()
         and type(_G.ToySpellButton_UpdateButton) == "function"
     then
         _G.hooksecurefunc("ToySpellButton_UpdateButton", function(button)
-            SkinCollectionButton(button, nil, IDs.ToyBox.Scope)
+            local index = button and button.GetID and button:GetID()
+            SkinCollectionButton(button, nil, IDs.ToyBox.Scope,
+                index and (IDs.ToyBox.IconPrefix .. index), toyBox)
         end)
         State.initialized.ToyBox = true
         for i = 1, TOYS_PER_PAGE do
             SkinCollectionButton(
-                iconsFrame["spellButton" .. i], nil, IDs.ToyBox.Scope)
+                iconsFrame["spellButton" .. i], nil, IDs.ToyBox.Scope,
+                IDs.ToyBox.IconPrefix .. i, toyBox)
         end
     end
     if iconsFrame and not State.ToyBox.backgroundHooked
@@ -902,13 +945,15 @@ function CollectionSkin:InitializeOptionalAdapters()
     then
         _G.hooksecurefunc(heirloomsJournal, "UpdateButton", function(_, button)
             SkinCollectionButton(
-                button, HEIRLOOM_QUALITY, IDs.Heirlooms.Scope)
+                button, HEIRLOOM_QUALITY, IDs.Heirlooms.Scope,
+                GetHeirloomIconID(button), heirloomsJournal)
         end)
         State.initialized.Heirlooms = true
         for i = 1, #(heirloomsJournal.heirloomEntryFrames or {}) do
             SkinCollectionButton(
                 heirloomsJournal.heirloomEntryFrames[i], HEIRLOOM_QUALITY,
-                IDs.Heirlooms.Scope)
+                IDs.Heirlooms.Scope, IDs.Heirlooms.IconPrefix .. i,
+                heirloomsJournal)
         end
     end
 end
@@ -985,7 +1030,8 @@ function CollectionSkin:RefreshAppearance()
     if State.initialized.ToyBox and iconsFrame then
         for i = 1, TOYS_PER_PAGE do
             SkinCollectionButton(
-                iconsFrame["spellButton" .. i], nil, IDs.ToyBox.Scope)
+                iconsFrame["spellButton" .. i], nil, IDs.ToyBox.Scope,
+                IDs.ToyBox.IconPrefix .. i, _G.ToyBox)
         end
     end
     local heirloomsJournal = _G.HeirloomsJournal
@@ -993,7 +1039,8 @@ function CollectionSkin:RefreshAppearance()
         for i = 1, #(heirloomsJournal.heirloomEntryFrames or {}) do
             SkinCollectionButton(
                 heirloomsJournal.heirloomEntryFrames[i], HEIRLOOM_QUALITY,
-                IDs.Heirlooms.Scope)
+                IDs.Heirlooms.Scope, IDs.Heirlooms.IconPrefix .. i,
+                heirloomsJournal)
         end
     end
 end

@@ -112,6 +112,22 @@ local function IsMacroSelectorSlotDecoration(region)
         and top == 0.140625 and bottom == 0.84375
 end
 
+local function IsMacroSelectorIconHovered(button)
+    return button and button.IsMouseOver and button:IsMouseOver() or false
+end
+
+local function IsMacroSelectorIconSelected(button)
+    if not button then return false end
+    local selector = button.GetSelectorFrame and button:GetSelectorFrame()
+    local selectionIndex = button.GetSelectionIndex
+        and button:GetSelectionIndex()
+    if selector and selector.IsSelected and selectionIndex ~= nil then
+        return selector:IsSelected(selectionIndex) == true
+    end
+    return button.SelectedTexture and button.SelectedTexture.IsShown
+        and button.SelectedTexture:IsShown() or false
+end
+
 local function QueueApply()
     if applyPending then return end
     applyPending = true
@@ -391,6 +407,8 @@ function GameMenuSkin:ApplyMacroIcon(frame)
         texture = button.Icon,
         nativeDecorationRegions = self:GetMacroIconNativeDecorations(
             button, button.Icon, { _G.MacroFrameSelectedMacroBackground }),
+        hoverRegion = button.Highlight,
+        getHovered = IsMacroSelectorIconHovered,
         priority = 60,
         isEditable = function()
             return IsVisible(frame) and IsVisible(button)
@@ -451,6 +469,10 @@ function GameMenuSkin:ApplyMacroSelectorIcons(frame)
             texture = icon,
             nativeDecorationRegions = GameMenuSkin:GetMacroIconNativeDecorations(
                 button, icon),
+            hoverRegion = button.Highlight,
+            selectedRegion = button.SelectedTexture,
+            getHovered = IsMacroSelectorIconHovered,
+            getSelected = IsMacroSelectorIconSelected,
             priority = 61,
             isEditable = function()
                 return IsVisible(frame) and IsVisible(button)

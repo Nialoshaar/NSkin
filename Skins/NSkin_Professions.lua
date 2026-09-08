@@ -7,6 +7,7 @@ local IDs = {
     Window = "Professions.Window",
     HeaderControls = "Professions.HeaderControls",
     ProgressBars = "Professions.ProgressBars",
+    SpellIconPrefix = "Professions.SpellIcons.",
 }
 
 local PROFESSION_FRAME_NAMES = {
@@ -35,6 +36,27 @@ NSkin:RegisterAppearanceScope(IDs.Scope, {
 
 local function IsVisible(frame)
     return frame and frame.IsVisible and frame:IsVisible() or false
+end
+
+local function IsForbidden(region)
+    return region and region.IsForbidden and region:IsForbidden() or false
+end
+
+local function GetButtonTexture(button, getter, field)
+    local texture = button and button[field]
+    if texture then return texture end
+    if button and type(button[getter]) == "function" then
+        return button[getter](button)
+    end
+end
+
+local function IsProfessionIconHovered(button)
+    return button and button.IsMouseOver and button:IsMouseOver() or false
+end
+
+local function IsProfessionIconSelected(button)
+    return button and button.GetChecked and button:GetChecked() == true
+        or false
 end
 
 local function GetProfessionBars(visibleOnly)
@@ -120,12 +142,55 @@ function ProfessionsSkin:ApplyProgressBars(frame)
     return true
 end
 
+function ProfessionsSkin:ApplySpellIcons(frame)
+    if not frame or (_G.InCombatLockdown and _G.InCombatLockdown()) then
+        return false
+    end
+
+    local applied = false
+    for i = 1, #PROFESSION_FRAME_NAMES do
+        local frameName = PROFESSION_FRAME_NAMES[i]
+        local profession = _G[frameName]
+        for slot = 1, 2 do
+            local button = profession and profession["SpellButton" .. slot]
+            local texture = button and button.IconTexture
+            if texture and not IsForbidden(button) and not IsForbidden(texture) then
+                local element = NSkin:RegisterIcon({
+                    id = IDs.SpellIconPrefix .. frameName
+                        .. ".SpellButton" .. slot .. ".Icon",
+                    module = "Professions",
+                    appearanceWindowID = IDs.Scope,
+                    label = "Profession spell icon",
+                    window = frame,
+                    target = button,
+                    texture = texture,
+                    hoverRegion = GetButtonTexture(
+                        button, "GetHighlightTexture", "highlightTexture"),
+                    selectedRegion = GetButtonTexture(
+                        button, "GetCheckedTexture", "checkedTexture"),
+                    getHovered = IsProfessionIconHovered,
+                    getSelected = IsProfessionIconSelected,
+                    priority = 70 + ((i - 1) * 2) + slot,
+                    isEditable = function()
+                        return IsVisible(frame) and IsVisible(button)
+                            and not (_G.InCombatLockdown
+                                and _G.InCombatLockdown())
+                    end,
+                })
+                applied = element ~= nil or applied
+            end
+        end
+    end
+    return applied
+end
+
 function ProfessionsSkin:Apply()
     local frame = _G.ProfessionsBookFrame
     if not frame then return false end
 
     local applied = self:ApplyWindowChrome(frame)
     applied = self:ApplyProgressBars(frame) or applied
+    applied = self:ApplySpellIcons(frame) or applied
     return applied
 end
 

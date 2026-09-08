@@ -482,6 +482,152 @@ local function ApplyIconNativeDecorations(data, target, texture, declared)
     end
 end
 
+local function RestoreIconInteractionRegion(state)
+    local region = state and state.region
+    if not region then return end
+    state.active = nil
+    state.applying = true
+    if region.SetAlpha and state.alpha ~= nil then
+        region:SetAlpha(state.alpha)
+    end
+    if region.SetShown and state.shown ~= nil then
+        region:SetShown(state.shown)
+    elseif state.shown == true and region.Show then
+        region:Show()
+    elseif state.shown == false and region.Hide then
+        region:Hide()
+    end
+    state.applying = nil
+end
+
+local function ResolveIconInteractionState(provider, fallback, target)
+    if type(provider) == "function" then
+        local ok, value = pcall(provider, target)
+        if ok then return value == true end
+    end
+    return fallback and fallback.IsShown and fallback:IsShown() == true
+        or false
+end
+
+local function RefreshIconInteractionGlow(target)
+    local data = NSkin:GetSkinData(target, ICON_COMPONENT_STATE, false)
+    local glow = data and data.interactionGlow
+    if not glow then return end
+    if not data.active or not data.interactionActive
+        or (target.IsEnabled and not target:IsEnabled())
+    then
+        glow:Hide()
+        return
+    end
+    local hovered = ResolveIconInteractionState(
+        data.getHovered, data.hoverRegion, target)
+    local selected = ResolveIconInteractionState(
+        data.getSelected, data.selectedRegion, target)
+    glow:SetShown(hovered or selected)
+end
+
+local function ConcealIconInteractionRegion(data, state)
+    local region = state and state.region
+    if not data.active or not data.interactionActive or not state.active
+        or state.applying or not region
+    then return end
+    state.applying = true
+    if region.SetAlpha then region:SetAlpha(0)
+    elseif region.Hide then region:Hide() end
+    state.applying = nil
+end
+
+local function ApplyIconInteraction(self, data, target, texture, options)
+    local hoverRegion = options.hoverRegion
+    local selectedRegion = options.selectedRegion
+    local active = hoverRegion ~= nil or selectedRegion ~= nil
+        or type(options.getHovered) == "function"
+        or type(options.getSelected) == "function"
+    active = active and type(target.CreateTexture) == "function"
+        and type(self.CreateFlatButtonGlow) == "function"
+    data.interactionActive = active
+    data.hoverRegion = hoverRegion
+    data.selectedRegion = selectedRegion
+    data.getHovered = options.getHovered
+    data.getSelected = options.getSelected
+    data.interactionRegionStates = data.interactionRegionStates or {}
+
+    local declared = {}
+    if hoverRegion then declared[hoverRegion] = true end
+    if selectedRegion then declared[selectedRegion] = true end
+    for region, state in pairs(data.interactionRegionStates) do
+        if state.active and not declared[region] then
+            RestoreIconInteractionRegion(state)
+        end
+    end
+    for region in pairs(declared) do
+        local state = data.interactionRegionStates[region]
+        if not state then
+            local shown
+            if region.IsShown then shown = region:IsShown() end
+            state = {
+                region = region,
+                alpha = region.GetAlpha and region:GetAlpha() or 1,
+                shown = shown,
+            }
+            data.interactionRegionStates[region] = state
+        end
+        state.active = true
+        ConcealIconInteractionRegion(data, state)
+        if not state.hooked and _G.hooksecurefunc then
+            local function RefreshInteractionRegion()
+                ConcealIconInteractionRegion(data, state)
+                RefreshIconInteractionGlow(target)
+            end
+            for _, method in ipairs({
+                "SetAlpha", "SetShown", "Show", "Hide",
+            }) do
+                if type(region[method]) == "function" then
+                    pcall(_G.hooksecurefunc, region, method,
+                        RefreshInteractionRegion)
+                end
+            end
+            state.hooked = true
+        end
+    end
+
+    if not active then
+        if data.interactionGlow then data.interactionGlow:Hide() end
+        return
+    end
+    local buttonStyle = self:GetStyle("button") or {}
+    local alpha = tonumber(options.interactionAlpha)
+        or tonumber(buttonStyle.hoverAlpha) or 0.10
+    local glow = self:CreateFlatButtonGlow(target, alpha)
+    if not glow then return end
+    glow:ClearAllPoints()
+    glow:SetPoint("TOPLEFT", texture, "TOPLEFT", 1, -1)
+    glow:SetPoint("BOTTOMRIGHT", texture, "BOTTOMRIGHT", -1, 1)
+    data.interactionGlow = glow
+    if not data.interactionHooksInstalled and target.HookScript then
+        local function RefreshInteraction(shownTarget)
+            RefreshIconInteractionGlow(shownTarget)
+        end
+        target:HookScript("OnEnter", RefreshInteraction)
+        target:HookScript("OnLeave", RefreshInteraction)
+        target:HookScript("OnShow", RefreshInteraction)
+        data.interactionHooksInstalled = true
+    end
+    if not data.interactionMethodHooksInstalled and _G.hooksecurefunc then
+        local function RefreshInteractionMethod(changedTarget)
+            RefreshIconInteractionGlow(changedTarget)
+        end
+        for _, method in ipairs({ "SetChecked", "SetEnabled" }) do
+            if type(target[method]) == "function" then
+                pcall(_G.hooksecurefunc, target, method,
+                    RefreshInteractionMethod)
+            end
+        end
+        data.interactionMethodHooksInstalled = true
+    end
+    RefreshIconInteractionGlow(target)
+end
+
 local function ApplyIconTexCoords(target)
     local data = NSkin:GetSkinData(target, ICON_COMPONENT_STATE, false)
     local texture = data and data.texture
@@ -555,6 +701,11 @@ function NSkin:SkinIcon(target, options)
         do
             if state.active then RestoreIconNativeDecoration(state) end
         end
+        data.interactionActive = nil
+        for _, state in pairs(data.interactionRegionStates or {}) do
+            if state.active then RestoreIconInteractionRegion(state) end
+        end
+        if data.interactionGlow then data.interactionGlow:Hide() end
         return true
     end
 
@@ -608,6 +759,7 @@ function NSkin:SkinIcon(target, options)
     ApplyIconTexCoords(target)
     ApplyIconNativeDecorations(data, target, texture,
         options.nativeDecorationRegions or options.nativeBorderRegions)
+    ApplyIconInteraction(self, data, target, texture, options)
 
     local border = self:GetPixelBorder(owner, borderKey)
         or self:CreatePixelBorder(owner, borderKey,
