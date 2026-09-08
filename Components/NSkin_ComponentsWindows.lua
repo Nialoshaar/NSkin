@@ -4,13 +4,24 @@ local COMPONENT_STATE = "components"
 local function LayoutWindowBackground(frame, data, anchor)
     local background = data and data.windowBackground
     if not background or not anchor then return end
+    local headerHeight = tonumber(data.windowHeaderHeight) or 0
+    local insetHeader = anchor == frame and headerHeight > 0
+    if data.windowBackgroundLayoutAnchor == anchor
+        and data.windowBackgroundInsetHeader == insetHeader
+        and data.windowBackgroundLayoutHeight == headerHeight
+    then
+        return
+    end
     background:ClearAllPoints()
-    if anchor == frame and (tonumber(data.windowHeaderHeight) or 0) > 0 then
-        background:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -data.windowHeaderHeight)
+    if insetHeader then
+        background:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -headerHeight)
         background:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
     else
         background:SetAllPoints(anchor)
     end
+    data.windowBackgroundLayoutAnchor = anchor
+    data.windowBackgroundInsetHeader = insetHeader
+    data.windowBackgroundLayoutHeight = headerHeight
 end
 
 local function ConcealWindowRegion(region)
@@ -79,12 +90,13 @@ function NSkin:SkinWindow(frame, backgroundAnchor, style, borderColor,
         background = backgroundOwner:CreateTexture(
             nil, "BACKGROUND", nil, 0)
         data.windowBackground = background
+        data.windowBackgroundLayoutAnchor = nil
     end
     data.windowBackgroundOwner = backgroundOwner
     data.windowBackgroundAnchor = anchor
     LayoutWindowBackground(frame, data, anchor)
     local backgroundColor = self:GetResolvedAppearanceColor(style, "background")
-    background:SetColorTexture(unpack(backgroundColor))
+    self:SetOwnedTextureColor(background, unpack(backgroundColor))
     data.windowBackgroundColor = {
         backgroundColor[1], backgroundColor[2], backgroundColor[3], backgroundColor[4],
     }
@@ -115,12 +127,12 @@ function NSkin:SkinWindowHeader(frame, style)
         or (frame.nskinOwnedGeometry and 22 or nil)
     if height then
         height = self:SnapToPhysicalPixel(frame, math.max(0, height))
-        background:SetHeight(height)
+        if data.windowHeaderHeight ~= height then background:SetHeight(height) end
     end
     local color = style.matchBackground and data.windowBackgroundColor
         or self:GetResolvedAppearanceColor(style, "background")
     color = color or self:GetResolvedAppearanceColor(style, "background")
-    background:SetColorTexture(unpack(color))
+    self:SetOwnedTextureColor(background, unpack(color))
     data.windowHeaderHeight = height or 0
     LayoutWindowBackground(frame, data, data.windowBackgroundAnchor or frame)
     return background
@@ -142,7 +154,7 @@ local function RefreshWindowHeaderButtonAppearance(button)
     local alpha = enabled and 1 or state.disabledAlpha
     local color = state.contentColor
     if state.text then
-        state.text:SetTextColor(
+        NSkin:SetFontStringColor(state.text,
             color[1], color[2], color[3], (color[4] or 1) * alpha)
     end
     if state.icon then
@@ -418,7 +430,7 @@ function NSkin:SkinStandardWindowChrome(definition)
         title = frame.TitleContainer and frame.TitleContainer.TitleText
     end
     if title then
-        title:SetTextColor(unpack(
+        self:SetFontStringColor(title, unpack(
             self:GetResolvedAppearanceColor(style.header, "text")))
         self:ApplyResolvedTypography(title, style.header)
     end

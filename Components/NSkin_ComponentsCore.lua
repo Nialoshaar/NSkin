@@ -3,6 +3,13 @@ local _, NSkin = ...
 
 local resolvedStyles = {}
 local appearanceScopes = {}
+local appearanceScopeChains = {}
+local resolvedAppearanceStyles = {}
+local appearanceGeneration = 0
+local appearanceStyleRevisions = {}
+local appearanceWindowRevisions = {}
+local appearanceElementRevisions = {}
+local GetGlobalAppearanceChangeScope
 
 local function RoundOne(value)
     value = tonumber(value) or 0
@@ -11,6 +18,7 @@ local function RoundOne(value)
 end
 
 local function TablesEqual(left, right)
+    if left == right then return true end
     if type(left) ~= type(right) then return false end
     if type(left) ~= "table" then return left == right end
     for key, value in pairs(left) do
@@ -89,6 +97,8 @@ end
 
 local function GetAppearanceScopeChain(scopeID)
     if not scopeID then return nil end
+    local cached = appearanceScopeChains[scopeID]
+    if cached then return cached end
     local chain, seen = {}, {}
     local current = scopeID
     while current do
@@ -99,6 +109,7 @@ local function GetAppearanceScopeChain(scopeID)
         if not scope then return nil end
         current = scope.parent
     end
+    appearanceScopeChains[scopeID] = chain
     return chain
 end
 
@@ -121,6 +132,9 @@ function NSkin:RegisterAppearanceScope(scopeID, definition)
         appearanceScopes[scopeID] = nil
         return false
     end
+    -- Scope registration is the only hierarchy mutation currently supported.
+    -- Drop cached chains so future hierarchy operations remain safe as well.
+    appearanceScopeChains = {}
     return true
 end
 
@@ -139,6 +153,28 @@ end
 -- Appearance resolves from the base appearance through optional window
 -- and element layers. Each saved layer remains sparse, so reset means removal.
 function NSkin:GetAppearanceStyle(name, windowID, elementID)
+    local byWindow = resolvedAppearanceStyles[name]
+    local windowKey = windowID or false
+    local elementKey = elementID or false
+    local byElement = byWindow and byWindow[windowKey]
+    local cached = byElement and byElement[elementKey]
+    local chain = windowID and GetAppearanceScopeChain(windowID)
+    local valid = cached
+        and cached.generation == appearanceGeneration
+        and cached.styleRevision == (appearanceStyleRevisions[name] or 0)
+        and cached.elementRevision == (appearanceElementRevisions[elementID] or 0)
+    if valid then
+        for i = 1, #(chain or {}) do
+            if cached.windowRevisions[i]
+                ~= (appearanceWindowRevisions[chain[i]] or 0)
+            then
+                valid = false
+                break
+            end
+        end
+    end
+    if valid then return CopyWithOverrides({}, cached.style) end
+
     local style = self:GetStyle(name)
     if not style then return nil end
     -- baseAppearance contains styling only. GetStyle() adds the sparse global
@@ -147,7 +183,6 @@ function NSkin:GetAppearanceStyle(name, windowID, elementID)
     style = CopyWithOverrides({}, style)
     local profile = self:GetProfile()
     local overrides = profile.appearanceOverrides
-    local chain = windowID and GetAppearanceScopeChain(windowID)
     for i = 1, #(chain or {}) do
         local windowOverride = overrides and overrides.windows
             and overrides.windows[chain[i]]
@@ -160,7 +195,24 @@ function NSkin:GetAppearanceStyle(name, windowID, elementID)
     if elementOverride and elementOverride[name] then
         style = CopyWithOverrides(style, elementOverride[name])
     end
-    return style
+    byWindow = byWindow or {}
+    resolvedAppearanceStyles[name] = byWindow
+    byElement = byElement or {}
+    byWindow[windowKey] = byElement
+    local windowRevisions = {}
+    for i = 1, #(chain or {}) do
+        windowRevisions[i] = appearanceWindowRevisions[chain[i]] or 0
+    end
+    byElement[elementKey] = {
+        style = style,
+        generation = appearanceGeneration,
+        styleRevision = appearanceStyleRevisions[name] or 0,
+        elementRevision = appearanceElementRevisions[elementID] or 0,
+        windowRevisions = windowRevisions,
+    }
+    -- Resolved styles are cache templates. Callers receive an isolated copy so
+    -- a component cannot mutate the value observed by another element.
+    return CopyWithOverrides({}, style)
 end
 
 function NSkin:GetResolvedTypography(style, prefix)
@@ -197,7 +249,7 @@ function NSkin:SkinTextColor(fontString, style)
     if not fontString or not fontString.GetFont then return false end
     style = style or self:GetStyle("text")
     local color = self:GetResolvedAppearanceColor(style, "color")
-    if color then fontString:SetTextColor(unpack(color)) end
+    if color then self:SetFontStringColor(fontString, unpack(color)) end
     return true
 end
 
@@ -226,10 +278,15 @@ function NSkin:ApplyResolvedTypography(fontString, style, prefix)
     font = font or data.originalFont[1]
     size = tonumber(size) or data.originalFont[2]
     if not font or not size then return false end
+    local resolvedOutline = outline ~= nil and outline or data.originalFont[3]
     self:MarkComponentGeometryModified(data.baselineID, "font",
         hasSizeOverride)
-    fontString:SetFont(font, size,
-        outline ~= nil and outline or data.originalFont[3])
+    local currentFont, currentSize, currentOutline = fontString:GetFont()
+    if currentFont ~= font or currentSize ~= size
+        or currentOutline ~= resolvedOutline
+    then
+        fontString:SetFont(font, size, resolvedOutline)
+    end
     return true
 end
 
@@ -478,13 +535,20 @@ function NSkin:SetComponentBorderColor(styleName, color)
         return false
     end
     local profile = self:GetProfile()
+    local current = profile.appearance and profile.appearance[styleName]
+        and profile.appearance[styleName].border
+    local newValue = TablesEqual(color, self:GetBorderAccentColor()) and nil or color
+    if TablesEqual(current, newValue) then return false end
     profile.appearance = profile.appearance or {}
     profile.appearance[styleName] = profile.appearance[styleName] or {}
-    profile.appearance[styleName].border = TablesEqual(color, self:GetBorderAccentColor())
-        and nil or color
+    profile.appearance[styleName].border = newValue
     PruneEmptyTables(profile.appearance)
     if not next(profile.appearance) then profile.appearance = nil end
-    self:RefreshAppearance()
+    self:RefreshAppearance({
+        scope = GetGlobalAppearanceChangeScope(self, styleName),
+        style = styleName,
+        path = "border",
+    })
     return true
 end
 
@@ -501,16 +565,20 @@ function NSkin:GetTabSpacing()
 end
 
 local function RefreshTabLayouts()
-    NSkin:InvalidateAppearance()
+    NSkin:InvalidateAppearance({ scope = "type", style = "tab" })
     if NSkin.RefreshRegisteredTabGroups then NSkin:RefreshRegisteredTabGroups() end
 end
 
 local function SetTabLayoutOverride(path, value)
     local defaultValue = GetPath(NSkin.baseAppearance, path, false)
     local profile = NSkin:GetProfile()
+    local currentValue = profile.appearance
+        and GetPath(profile.appearance, path, false) or nil
+    local newValue = value == defaultValue and nil or value
+    if TablesEqual(currentValue, newValue) then return false end
     profile.appearance = profile.appearance or {}
     local _, parent, key = GetPath(profile.appearance, path, true)
-    parent[key] = value == defaultValue and nil or value
+    parent[key] = newValue
     PruneEmptyTables(profile.appearance)
     if not next(profile.appearance) then profile.appearance = nil end
     RefreshTabLayouts()
@@ -653,8 +721,33 @@ function NSkin:ResetBottomTabLayout()
     return self:ResetTabLayout()
 end
 
-function NSkin:InvalidateAppearance()
+function NSkin:InvalidateAppearance(change)
+    if change and change.scope == "element" and change.elementID then
+        appearanceElementRevisions[change.elementID] =
+            (appearanceElementRevisions[change.elementID] or 0) + 1
+        return
+    end
+    if change and change.scope == "window" and change.windowID then
+        appearanceWindowRevisions[change.windowID] =
+            (appearanceWindowRevisions[change.windowID] or 0) + 1
+        return
+    end
+    if change and change.scope == "type" then
+        local styleName = change.style
+        if not styleName and change.typeID and self.GetSharedElementType then
+            local definition = self:GetSharedElementType(change.typeID)
+            styleName = definition and definition.style
+        end
+        if styleName then
+            resolvedStyles[styleName] = nil
+            appearanceStyleRevisions[styleName] =
+                (appearanceStyleRevisions[styleName] or 0) + 1
+            return
+        end
+    end
+    appearanceGeneration = appearanceGeneration + 1
     wipe(resolvedStyles)
+    wipe(resolvedAppearanceStyles)
 end
 
 local LAYOUT_APPEARANCE_KEYS = {
@@ -759,7 +852,7 @@ local function RefreshElementForChange(self, element, change, allowStyleFamily)
 end
 
 local function AppearanceScopeIncludes(self, scopeID, ancestorID)
-    local chain = self:GetAppearanceScopeChain(scopeID)
+    local chain = GetAppearanceScopeChain(scopeID)
     for i = 1, #(chain or {}) do
         if chain[i] == ancestorID then return true end
     end
@@ -798,8 +891,10 @@ local function RefreshWindowAppearance(self, change)
             if not refreshed and reason ~= "module_disabled" then return false, reason end
         end
     end
-    for i = 1, #elements do self:ResnapPixelBordersForElement(elements[i]) end
-    for window in pairs(windows) do self:ResnapPixelBordersForTarget(window) end
+    if ClassifyAppearanceRequirement(change) == "layout" then
+        for i = 1, #elements do self:ResnapPixelBordersForElement(elements[i]) end
+        for window in pairs(windows) do self:ResnapPixelBordersForTarget(window) end
+    end
     return true
 end
 
@@ -833,7 +928,7 @@ local function RefreshSharedTypeAppearance(self, change)
 end
 
 function NSkin:RefreshAppearance(change)
-    self:InvalidateAppearance()
+    self:InvalidateAppearance(change)
 
     if change and change.scope == "element" then
         local element = self:GetSkinningElement(change.elementID)
@@ -890,7 +985,7 @@ local GLOBAL_APPEARANCE_DEPENDENCIES = {
     options = true,
 }
 
-local function GetGlobalAppearanceChangeScope(self, styleName)
+GetGlobalAppearanceChangeScope = function(self, styleName)
     if GLOBAL_APPEARANCE_DEPENDENCIES[styleName] then return "global" end
     return self:HasSharedElementStyle(styleName) and "type" or "global"
 end
@@ -901,10 +996,14 @@ function NSkin:SetAppearanceOverride(path, value)
     if defaultValue ~= nil and type(defaultValue) ~= type(value) then return false end
 
     local profile = self:GetProfile()
+    local currentValue = profile.appearance
+        and GetPath(profile.appearance, path, false) or nil
+    local newValue = defaultValue ~= nil and TablesEqual(value, defaultValue)
+        and nil or value
+    if TablesEqual(currentValue, newValue) then return false end
     profile.appearance = profile.appearance or {}
     local _, parent, key = GetPath(profile.appearance, path, true)
-    parent[key] = defaultValue ~= nil and TablesEqual(value, defaultValue)
-        and nil or value
+    parent[key] = newValue
     PruneEmptyTables(profile.appearance)
     if not next(profile.appearance) then profile.appearance = nil end
     local styleName = path:match("^([^.]+)")
@@ -919,10 +1018,11 @@ end
 function NSkin:ResetAppearanceOverride(path)
     if type(path) ~= "string" or path == "" then return false end
     local profile = self:GetProfile()
-    if not profile.appearance then return true end
+    if not profile.appearance then return false end
 
-    local _, parent, key = GetPath(profile.appearance, path, false)
-    if parent then parent[key] = nil end
+    local current, parent, key = GetPath(profile.appearance, path, false)
+    if not parent or current == nil then return false end
+    parent[key] = nil
     PruneEmptyTables(profile.appearance)
     if not next(profile.appearance) then profile.appearance = nil end
     local styleName = path:match("^([^.]+)")
@@ -965,8 +1065,47 @@ end
 
 function NSkin:ConfigureOwnedPixelTexture(texture)
     if not texture then return end
+    local data = self:GetSkinData(texture, "ownedPixelTexture")
+    if data.configured then return end
     if texture.SetSnapToPixelGrid then texture:SetSnapToPixelGrid(false) end
     if texture.SetTexelSnappingBias then texture:SetTexelSnappingBias(0) end
+    data.configured = true
+end
+
+local function ColorValuesEqual(color, red, green, blue, alpha)
+    return color and color[1] == red and color[2] == green
+        and color[3] == blue and color[4] == alpha
+end
+
+function NSkin:SetOwnedTextureColor(texture, red, green, blue, alpha)
+    if not texture or not texture.SetColorTexture then return false end
+    alpha = alpha == nil and 1 or alpha
+    local data = self:GetSkinData(texture, "ownedTextureColor")
+    if ColorValuesEqual(data.color, red, green, blue, alpha) then return false end
+    texture:SetColorTexture(red, green, blue, alpha)
+    data.color = { red, green, blue, alpha }
+    return true
+end
+
+function NSkin:SetFontStringColor(fontString, red, green, blue, alpha)
+    if not fontString or not fontString.SetTextColor then return false end
+    alpha = alpha == nil and 1 or alpha
+    local data = self:GetSkinData(fontString, "ownedFontColor")
+    local actualMatches
+    if fontString.GetTextColor then
+        local currentRed, currentGreen, currentBlue, currentAlpha =
+            fontString:GetTextColor()
+        actualMatches = currentRed == red and currentGreen == green
+            and currentBlue == blue and (currentAlpha or 1) == alpha
+    end
+    if ColorValuesEqual(data.color, red, green, blue, alpha)
+        and actualMatches ~= false
+    then
+        return false
+    end
+    fontString:SetTextColor(red, green, blue, alpha)
+    data.color = { red, green, blue, alpha }
+    return true
 end
 
 local function ApplyPixelBorderGeometry(border)
@@ -1135,7 +1274,7 @@ function NSkin:CreatePixelBorder(frame, key, size, color, outside, anchor)
 
     local function NewEdge()
         local edge = frame:CreateTexture(nil, "OVERLAY", nil, 7)
-        edge:SetColorTexture(unpack(color))
+        self:SetOwnedTextureColor(edge, unpack(color))
         self:ConfigureOwnedPixelTexture(edge)
         return edge
     end
@@ -1147,7 +1286,8 @@ function NSkin:CreatePixelBorder(frame, key, size, color, outside, anchor)
 
     local border = { top = top, bottom = bottom, left = left, right = right,
         frame = frame, anchor = anchor, outside = outside == true,
-        requestedSize = tonumber(size) or 1 }
+        requestedSize = tonumber(size) or 1,
+        color = { color[1], color[2], color[3], color[4] or 1 } }
     pixelBorders[border] = true
     ApplyPixelBorderGeometry(border)
     TrackPixelBorderOwner(border, frame, anchor)
@@ -1179,7 +1319,7 @@ function NSkin:CreatePixelEdgeBorder(frame, key, edges, size, color, anchor)
             and not border[edgeName]
         then
             local edge = frame:CreateTexture(nil, "OVERLAY", nil, 7)
-            edge:SetColorTexture(unpack(color))
+            self:SetOwnedTextureColor(edge, unpack(color))
             self:ConfigureOwnedPixelTexture(edge)
             border[edgeName] = edge
         end
@@ -1189,6 +1329,7 @@ function NSkin:CreatePixelEdgeBorder(frame, key, edges, size, color, anchor)
     then return nil end
 
     pixelBorders[border] = true
+    border.color = { color[1], color[2], color[3], color[4] or 1 }
     ApplyPixelBorderGeometry(border)
     TrackPixelBorderOwner(border, frame, border.anchor)
     if key then data.borders[key] = border end
@@ -1209,26 +1350,35 @@ function NSkin:SetPixelBorderColor(border, red, green, blue, alpha)
     if not border then return end
 
     alpha = alpha or 1
+    if ColorValuesEqual(border.color, red, green, blue, alpha) then return false end
     for _, key in ipairs({ "top", "bottom", "left", "right" }) do
         local edge = border[key]
         if edge then
-            edge:SetColorTexture(red, green, blue, alpha)
+            self:SetOwnedTextureColor(edge, red, green, blue, alpha)
             self:ConfigureOwnedPixelTexture(edge)
         end
     end
+    border.color = { red, green, blue, alpha }
+    return true
 end
 
 function NSkin:SetPixelBorderSize(border, size)
     if not border or not size then return end
-    border.requestedSize = tonumber(size) or border.requestedSize or 1
+    local requestedSize = tonumber(size) or border.requestedSize or 1
+    if border.requestedSize == requestedSize then return false end
+    border.requestedSize = requestedSize
     ApplyPixelBorderGeometry(border)
+    return true
 end
 
 function NSkin:SetPixelBorderPadding(border, padding)
     if not border or not border.anchor then return end
-    border.requestedPadding = tonumber(padding) or 0
+    local requestedPadding = tonumber(padding) or 0
+    if border.requestedPadding == requestedPadding then return false end
+    border.requestedPadding = requestedPadding
     border.padding = border.requestedPadding
     ApplyPixelBorderGeometry(border)
+    return true
 end
 
 function NSkin:CreateQualityBorder(frame, anchor, key, size, outside)
@@ -1295,9 +1445,15 @@ function NSkin:CreateFlatBackground(frame, key, color, borderColor)
         background:SetPoint("BOTTOMRIGHT", -1, 1)
         data.backgrounds[key] = background
     end
-    background:SetColorTexture(unpack(color))
+    self:SetOwnedTextureColor(background, unpack(color))
     self:ConfigureOwnedPixelTexture(background)
-    background:Show()
+    local backgroundState = self:GetSkinData(background, "flatBackground")
+    if not backgroundState.shown
+        or (background.IsShown and not background:IsShown())
+    then
+        background:Show()
+        backgroundState.shown = true
+    end
     local border = self:CreatePixelBorder(frame, key .. "Border", 1, borderColor)
     self:SetPixelBorderColor(border, unpack(borderColor))
     return background
@@ -1590,20 +1746,7 @@ function NSkin:CreateOptionsSlider(parent, options)
         if type(options.onValueChanged) == "function" then
             options.onValueChanged(slider, value)
         end
-        if not slider.nskinDragging
-            and type(options.onValueCommitted) == "function"
-        then
-            options.onValueCommitted(slider, value)
-        end
     end
-    slider:SetScript("OnMouseDown", function(self) self.nskinDragging = true end)
-    slider:SetScript("OnMouseUp", function(self)
-        if not self.nskinDragging then return end
-        self.nskinDragging = nil
-        if type(options.onValueCommitted) == "function" then
-            options.onValueCommitted(self, self:GetValue())
-        end
-    end)
     slider:SetScript("OnValueChanged", RefreshSlider)
     RefreshSliderVisual(slider:GetValue())
     return slider
@@ -1840,7 +1983,6 @@ function NSkin:RegisterSkinningElement(elementID, definition)
     then
         definition.refreshAppearance = function(_, element)
             if not NSkin:SkinTypedElement(element.kind, element) then return false end
-            NSkin:ResnapPixelBordersForElement(element)
             return true
         end
         definition.refreshLayout = function(owner, element)
@@ -2388,7 +2530,6 @@ end
 function NSkin:RefreshTypedElementAppearance(element)
     if not element or not element.typedRegistration then return false end
     if not self:SkinTypedElement(element.kind, element) then return false end
-    self:ResnapPixelBordersForElement(element)
     return true
 end
 

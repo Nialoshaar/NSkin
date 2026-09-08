@@ -178,7 +178,7 @@ local function EnforceSectionCardTextAppearance(textRegion)
     if not data or data.enforcing or not data.style then return end
     data.enforcing = true
     if data.color and textRegion.SetTextColor then
-        textRegion:SetTextColor(unpack(data.color))
+        NSkin:SetFontStringColor(textRegion, unpack(data.color))
     end
     NSkin:ApplyResolvedTypography(textRegion, data.style)
     data.enforcing = nil
@@ -313,12 +313,12 @@ function NSkin:SkinSectionCard(target, options)
         glyph.horizontal:SetPoint("LEFT", glyph, "LEFT", 0, 0)
         glyph.horizontal:SetPoint("RIGHT", glyph, "RIGHT", 0, 0)
         glyph.horizontal:SetHeight(strokeSize)
-        glyph.horizontal:SetColorTexture(unpack(glyphColor))
+        self:SetOwnedTextureColor(glyph.horizontal, unpack(glyphColor))
         glyph.vertical:ClearAllPoints()
         glyph.vertical:SetPoint("TOP", glyph, "TOP", 0, 0)
         glyph.vertical:SetPoint("BOTTOM", glyph, "BOTTOM", 0, 0)
         glyph.vertical:SetWidth(strokeSize)
-        glyph.vertical:SetColorTexture(unpack(glyphColor))
+        self:SetOwnedTextureColor(glyph.vertical, unpack(glyphColor))
     elseif state.glyph then
         state.glyph:Hide()
     end
@@ -644,7 +644,7 @@ function NSkin:SkinProgressBar(bar, options)
             background:SetPoint("TOPLEFT", bar, "TOPLEFT", pixel, -pixel)
             background:SetPoint(
                 "BOTTOMRIGHT", bar, "BOTTOMRIGHT", -pixel, pixel)
-            background:SetColorTexture(unpack(backgroundColor))
+            self:SetOwnedTextureColor(background, unpack(backgroundColor))
             background:SetAlpha(1)
             background:Show()
         end

@@ -225,8 +225,23 @@ local function SetViewEnabled(view, enabled)
     end
 end
 
-local function CommitValues(view, values)
+local function OptionValuesEqual(left, right)
+    if left == right then return true end
+    if type(left) ~= type(right) then return false end
+    if type(left) ~= "table" then return false end
+    for key, value in pairs(left) do
+        if not OptionValuesEqual(value, right[key]) then return false end
+    end
+    for key in pairs(right) do
+        if left[key] == nil then return false end
+    end
+    return true
+end
+
+local function CommitValues(view, values, knownCurrent)
     if not view.context or type(values) ~= "table" then return false end
+    local current = knownCurrent or view.definition.get(view.context)
+    if OptionValuesEqual(current, values) then return false end
     if view.definition.set(view.context, CopyTable(values)) == true then
         if view.context.id and NSkin.NotifySkinningElementBoundsChanged then
             NSkin:NotifySkinningElementBoundsChanged(view.context.id)
@@ -324,14 +339,12 @@ local function CreateSlider(view, control, y)
             local decimals = tonumber(control.decimals) or 0
             value = RoundValue(value, decimals)
             valueLabel:SetText(string.format("%." .. decimals .. "f", value))
-        end,
-        onValueCommitted = function(_, value)
-            local decimals = tonumber(control.decimals) or 0
-            value = RoundValue(value, decimals)
             if view.refreshing or not view.context then return end
-            local current = CopyTable(view.definition.get(view.context))
+            local values = view.definition.get(view.context)
+            if not values or values[control.key] == value then return end
+            local current = CopyTable(values)
             current[control.key] = value
-            CommitValues(view, current)
+            CommitValues(view, current, values)
         end,
     })
     slider:SetPoint("TOPLEFT", label, "BOTTOMLEFT", 8, -18)
@@ -674,13 +687,12 @@ local function CreateTypographySizeSlider(view, control, parent)
         onValueChanged = function(_, value)
             value = RoundValue(value, 0)
             valueLabel:SetText(string.format("%.0f", value))
-        end,
-        onValueCommitted = function(_, value)
-            value = RoundValue(value, 0)
             if view.refreshing or not view.context then return end
-            local current = CopyTable(view.definition.get(view.context))
+            local values = view.definition.get(view.context)
+            if not values or values[definition.key] == value then return end
+            local current = CopyTable(values)
             current[definition.key] = value
-            CommitValues(view, current)
+            CommitValues(view, current, values)
         end,
     })
     slider:SetPoint("LEFT", parent, "LEFT", 116 + labelDelta, 0)
@@ -1002,14 +1014,12 @@ local function CreateSliderPairItem(view, definition, x, width, y, mirroredSide,
             local decimals = tonumber(definition.decimals) or 0
             value = RoundValue(value, decimals)
             valueLabel:SetText(string.format("%." .. decimals .. "f", value))
-        end,
-        onValueCommitted = function(_, value)
-            local decimals = tonumber(definition.decimals) or 0
-            value = RoundValue(value, decimals)
             if view.refreshing or not view.context then return end
-            local current = CopyTable(view.definition.get(view.context))
+            local values = view.definition.get(view.context)
+            if not values or values[definition.key] == value then return end
+            local current = CopyTable(values)
             current[definition.key] = value
-            CommitValues(view, current)
+            CommitValues(view, current, values)
         end,
     })
     if mirroredSide == "LEFT" then
@@ -1501,10 +1511,11 @@ function NSkin:CreateOptionGroupView(parent, id, layout, context)
         local dividerColor = NSkin:GetStyle("window").header.divider
         for i = 1, #self.typographyRows do
             local divider = self.typographyRows[i].divider
-            if divider then divider:SetColorTexture(unpack(dividerColor)) end
+            if divider then NSkin:SetOwnedTextureColor(divider, unpack(dividerColor)) end
         end
         for i = 1, #self.sectionDividers do
-            self.sectionDividers[i]:SetColorTexture(unpack(dividerColor))
+            NSkin:SetOwnedTextureColor(
+                self.sectionDividers[i], unpack(dividerColor))
         end
         if self.resetButton and self.presentation ~= "COMPACT" then
             NSkin:SkinFlatButton(self.resetButton,

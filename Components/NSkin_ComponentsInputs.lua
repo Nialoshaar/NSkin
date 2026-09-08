@@ -17,14 +17,14 @@ function NSkin:CreateFlatButtonGlow(button, alpha)
     if not button or not button.CreateTexture then return nil end
     local data = self:GetSkinData(button, COMPONENT_STATE)
     if data.hoverGlow then
-        data.hoverGlow:SetColorTexture(1, 1, 1, alpha or 0.10)
+        self:SetOwnedTextureColor(data.hoverGlow, 1, 1, 1, alpha or 0.10)
         return data.hoverGlow
     end
 
     local glow = button:CreateTexture(nil, "OVERLAY", nil, -1)
     glow:SetPoint("TOPLEFT", 1, -1)
     glow:SetPoint("BOTTOMRIGHT", -1, 1)
-    glow:SetColorTexture(1, 1, 1, alpha or 0.10)
+    self:SetOwnedTextureColor(glow, 1, 1, 1, alpha or 0.10)
     glow:Hide()
     data.hoverGlow = glow
 
@@ -46,17 +46,28 @@ function NSkin:SetFlatButtonLabel(button, label, size, offsetX, offsetY)
         data.label = text
     end
 
-    text:ClearAllPoints()
-    text:SetPoint("CENTER", button, "CENTER", offsetX or 0, offsetY or 0)
-    text:SetText(label or "")
-
-    if size then
-        local font, _, flags = text:GetFont()
-        if font then text:SetFont(font, size, flags) end
+    local resolvedOffsetX, resolvedOffsetY = offsetX or 0, offsetY or 0
+    if data.labelOffsetX ~= resolvedOffsetX
+        or data.labelOffsetY ~= resolvedOffsetY
+    then
+        text:ClearAllPoints()
+        text:SetPoint("CENTER", button, "CENTER",
+            resolvedOffsetX, resolvedOffsetY)
+        data.labelOffsetX, data.labelOffsetY = resolvedOffsetX, resolvedOffsetY
+    end
+    local resolvedLabel = label or ""
+    if data.labelText ~= resolvedLabel then
+        text:SetText(resolvedLabel)
+        data.labelText = resolvedLabel
     end
 
-    text:SetAlpha(1)
-    text:Show()
+    if size then
+        local font, currentSize, flags = text:GetFont()
+        if font and currentSize ~= size then text:SetFont(font, size, flags) end
+    end
+
+    if not text.GetAlpha or text:GetAlpha() ~= 1 then text:SetAlpha(1) end
+    if not text.IsShown or not text:IsShown() then text:Show() end
     return text
 end
 
@@ -76,7 +87,7 @@ function NSkin:SkinFlatButton(button, label, backgroundColor, borderColor,
     self:CreateFlatBackground(button, nil, backgroundColor, borderColor)
     self:CreateFlatButtonGlow(button, style.hoverAlpha)
     local text = self:SetFlatButtonLabel(button, label, labelSize, labelOffsetX, labelOffsetY)
-    if text then text:SetTextColor(unpack(style.text)) end
+    if text then self:SetFontStringColor(text, unpack(style.text)) end
 end
 
 local function SuppressActionButtonNativeText(button)
@@ -137,7 +148,7 @@ local function RefreshActionButton(button)
     local color = data.actionTextColor
         or NSkin:GetStyle("text").color
     local disabledAlpha = data.actionDisabledTextAlpha or 0.45
-    data.label:SetTextColor(color[1], color[2], color[3],
+    NSkin:SetFontStringColor(data.label, color[1], color[2], color[3],
         (color[4] or 1) * (enabled and 1 or disabledAlpha))
 end
 
@@ -230,7 +241,7 @@ function NSkin:SkinCheckButton(checkButton, options)
         self:ConfigureOwnedPixelTexture(checked)
         data.checkButtonCheckedTexture = checked
     end
-    checked:SetColorTexture(unpack(
+    self:SetOwnedTextureColor(checked, unpack(
         options.checked or self:GetSharedBorderColor()))
     if checkButton.SetCheckedTexture then
         checkButton:SetCheckedTexture(checked)
@@ -242,7 +253,7 @@ function NSkin:SkinCheckButton(checkButton, options)
 
     local label = options.text or checkButton.Text
     if label then
-        label:SetTextColor(unpack(
+        self:SetFontStringColor(label, unpack(
             options.textColor or style.text or self:GetStyle("text").color))
         self:ApplyResolvedTypography(label, self:GetStyle("text"))
         label:SetAlpha(1)
@@ -267,7 +278,7 @@ function NSkin:SkinDropdown(dropdown, options)
     if dropdown.Arrow then dropdown.Arrow:SetAlpha(0) end
     if dropdown.NineSlice then dropdown.NineSlice:Hide() end
     if dropdown.Text then
-        dropdown.Text:SetTextColor(unpack(style.text))
+        self:SetFontStringColor(dropdown.Text, unpack(style.text))
         dropdown.Text:SetAlpha(options.preserveText == false and 0 or 1)
         self:ApplyResolvedTypography(dropdown.Text, self:GetStyle("text"))
     end
@@ -275,7 +286,7 @@ function NSkin:SkinDropdown(dropdown, options)
     if options.preserveText == false then
         local label = self:SetFlatButtonLabel(
             dropdown, options.label or "", options.textSize)
-        if label then label:SetTextColor(unpack(style.text)) end
+        if label then self:SetFontStringColor(label, unpack(style.text)) end
     elseif data.label then
         data.label:Hide()
     end
@@ -327,7 +338,7 @@ local function RefreshEditBoxState(editBox)
     if editBox.SetTextColor then
         local textColor = NSkin:GetResolvedAppearanceColor(style, textKey)
             or NSkin:GetResolvedAppearanceColor(style, "text")
-        if textColor then editBox:SetTextColor(unpack(textColor)) end
+        if textColor then NSkin:SetFontStringColor(editBox, unpack(textColor)) end
     end
 end
 
@@ -359,8 +370,11 @@ function NSkin:SkinEditBox(editBox, options)
             editData.editBoxOriginalSize = { editBox:GetWidth(), editBox:GetHeight() }
         end
         local originalSize = editData.editBoxOriginalSize
-        editBox:SetSize(configuredWidth or originalSize[1],
-            configuredHeight or originalSize[2])
+        local width = configuredWidth or originalSize[1]
+        local height = configuredHeight or originalSize[2]
+        if editBox:GetWidth() ~= width or editBox:GetHeight() ~= height then
+            editBox:SetSize(width, height)
+        end
     elseif editData.editBoxOriginalSize then
         self:RestoreComponentBaseline(editData.editBoxBaselineID, { size = true })
         editData.editBoxOriginalSize = nil
@@ -381,10 +395,17 @@ function NSkin:SkinEditBox(editBox, options)
                 local offsetY = style.textOffsetY or 0
                 self:MarkComponentGeometryModified(
                     editData.editBoxBaselineID, "textInsets", true)
-                editBox:SetTextInsets((insets[1] or 0) + offsetX,
-                    (insets[2] or 0) - offsetX,
-                    (insets[3] or 0) - offsetY,
-                    (insets[4] or 0) + offsetY)
+                local left = (insets[1] or 0) + offsetX
+                local right = (insets[2] or 0) - offsetX
+                local top = (insets[3] or 0) - offsetY
+                local bottom = (insets[4] or 0) + offsetY
+                local currentLeft, currentRight, currentTop, currentBottom =
+                    editBox:GetTextInsets()
+                if currentLeft ~= left or currentRight ~= right
+                    or currentTop ~= top or currentBottom ~= bottom
+                then
+                    editBox:SetTextInsets(left, right, top, bottom)
+                end
             end
         else
             self:RestoreComponentBaseline(
@@ -405,7 +426,7 @@ function NSkin:SkinEditBox(editBox, options)
         local placeholderColor = self:GetResolvedAppearanceColor(
             style, "placeholderText")
         if placeholderColor and instructions.SetTextColor then
-            instructions:SetTextColor(unpack(placeholderColor))
+            self:SetFontStringColor(instructions, unpack(placeholderColor))
         end
         self:ApplyResolvedTypography(instructions, style, "placeholder")
         local hasPlaceholderOverride = style.placeholderOffsetX ~= nil

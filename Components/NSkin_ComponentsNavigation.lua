@@ -117,7 +117,7 @@ function NSkin:SkinNavigationBar(navigationBar, style)
         self:ConfigureOwnedPixelTexture(background)
         data.navigationBarBackground = background
     end
-    data.navigationBarBackground:SetColorTexture(unpack(style.background))
+    self:SetOwnedTextureColor(data.navigationBarBackground, unpack(style.background))
 
     NormalizeNavigationButtonSpacing(navigationBar)
     self:SkinNavigationLeftButton(
@@ -202,7 +202,7 @@ function NSkin:SkinScrollBar(scrollBar, style)
             data.scrollTrack:SetWidth(2)
             self:ConfigureOwnedPixelTexture(data.scrollTrack)
         end
-        data.scrollTrack:SetColorTexture(unpack(trackColor))
+        self:SetOwnedTextureColor(data.scrollTrack, unpack(trackColor))
     end
     if thumb then
         for _, texture in ipairs({ thumb.Begin, thumb.Middle, thumb.End }) do
@@ -215,7 +215,7 @@ function NSkin:SkinScrollBar(scrollBar, style)
             data.scrollThumb:SetWidth(6)
             self:ConfigureOwnedPixelTexture(data.scrollThumb)
         end
-        data.scrollThumb:SetColorTexture(unpack(thumbColor))
+        self:SetOwnedTextureColor(data.scrollThumb, unpack(thumbColor))
     end
     for _, entry in ipairs({ { scrollBar.Back, math.pi },
         { scrollBar.Forward, 0 } })
@@ -271,7 +271,9 @@ function NSkin:SkinPagingControls(pagingControls, textSize)
     local pageText = pagingControls.PageText or pagingControls.pageText
     SkinPagingButton(previous, "<", textSize)
     SkinPagingButton(nextPage, ">", textSize)
-    if pageText then pageText:SetTextColor(unpack(self:GetStyle("button").text)) end
+    if pageText then
+        self:SetFontStringColor(pageText, unpack(self:GetStyle("button").text))
+    end
 end
 
 -- Windows Skinning
@@ -299,8 +301,11 @@ local function ApplyTabDimensions(tab, style, data)
         if not data.tabOriginalSize then
             data.tabOriginalSize = { tab:GetWidth(), tab:GetHeight() }
         end
-        tab:SetSize(configuredWidth or data.tabOriginalSize[1],
-            configuredHeight or data.tabOriginalSize[2])
+        local width = configuredWidth or data.tabOriginalSize[1]
+        local height = configuredHeight or data.tabOriginalSize[2]
+        if tab:GetWidth() ~= width or tab:GetHeight() ~= height then
+            tab:SetSize(width, height)
+        end
     elseif data.tabOriginalSize then
         tab:SetSize(data.tabOriginalSize[1], data.tabOriginalSize[2])
         data.tabOriginalSize = nil
@@ -337,12 +342,13 @@ function NSkin:SkinTab(tab, selected, style, borderColor)
     local tabBorder = self:GetPixelBorder(tab, "NSkinFlatBackgroundBorder")
     self:SetPixelBorderSize(tabBorder, style.borderSize or 1)
     self:SetPixelBorderPadding(tabBorder, style.borderPadding or 0)
-    background:SetColorTexture(unpack(
+    self:SetOwnedTextureColor(background, unpack(
         selected and self:GetResolvedAppearanceColor(style, "selectedBackground")
             or self:GetResolvedAppearanceColor(style, "background")
     ))
     if tab.Text then
-        tab.Text:SetTextColor(unpack(self:GetResolvedAppearanceColor(style, "text")))
+        self:SetFontStringColor(
+            tab.Text, unpack(self:GetResolvedAppearanceColor(style, "text")))
         self:ApplyResolvedTypography(tab.Text, style)
     end
 end
@@ -421,8 +427,11 @@ function NSkin:SkinSideTab(tab, style, borderColor)
     if width or height then
         self:MarkComponentGeometryModified(
             data.sideTabBaselineID, "size", true)
-        tab:SetSize(width or (baseline and baseline.width) or tab:GetWidth(),
-            height or (baseline and baseline.height) or tab:GetHeight())
+        local targetWidth = width or (baseline and baseline.width) or tab:GetWidth()
+        local targetHeight = height or (baseline and baseline.height) or tab:GetHeight()
+        if tab:GetWidth() ~= targetWidth or tab:GetHeight() ~= targetHeight then
+            tab:SetSize(targetWidth, targetHeight)
+        end
     elseif baseline and baseline.modified.size then
         self:RestoreComponentBaseline(data.sideTabBaselineID, { size = true })
     end
@@ -440,7 +449,7 @@ function NSkin:SkinSideTab(tab, style, borderColor)
         self:ConfigureOwnedPixelTexture(background)
         data.sideTabBackground = background
     end
-    data.sideTabBackground:SetColorTexture(unpack(
+    self:SetOwnedTextureColor(data.sideTabBackground, unpack(
         self:GetResolvedAppearanceColor(style, "background")))
     data.sideTabBackground:Show()
 
@@ -456,7 +465,9 @@ function NSkin:SkinSideTab(tab, style, borderColor)
     self:SetPixelBorderShown(border, true)
 
     local glow = self:CreateFlatButtonGlow(tab, style.hoverAlpha)
-    if glow then glow:SetColorTexture(1, 1, 1, style.hoverAlpha or 0.10) end
+    if glow then
+        self:SetOwnedTextureColor(glow, 1, 1, 1, style.hoverAlpha or 0.10)
+    end
     if not data.sideTabInteractionHooked and tab.HookScript then
         tab:HookScript("OnMouseDown", CenterSideTabIcon)
         tab:HookScript("OnMouseUp", CenterSideTabIcon)

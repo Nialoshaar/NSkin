@@ -34,8 +34,8 @@ local function GetDropdownMenuFontObject(fontString, textStyle)
         fontObject = _G.CreateFont(
             "NSkinSharedDropdownMenuFont" .. sharedDropdownMenuFontObjectCount)
         sharedDropdownMenuFontObjects[key] = fontObject
+        fontObject:SetFont(font, size, outline)
     end
-    fontObject:SetFont(font, size, outline)
     return fontObject
 end
 
@@ -51,7 +51,7 @@ local function SkinDropdownMenuDescription(frame, description)
             target:SetFontObject(fontObject)
         end
         if target.SetTextColor then
-            target:SetTextColor(unpack(textColor))
+            NSkin:SetFontStringColor(target, unpack(textColor))
         end
     end
     SkinFontString(fontString)
@@ -167,7 +167,7 @@ local function SkinSharedDropdownMenuEntry(frame, style)
     local textColor = style.textColor or textStyle.color or textStyle.text
         or NSkin:GetStyle("button").text
     if frame.fontString and frame.fontString.SetTextColor then
-        frame.fontString:SetTextColor(unpack(textColor))
+        NSkin:SetFontStringColor(frame.fontString, unpack(textColor))
     end
     if frame.highlight then
         if frame.highlight.SetBlendMode then frame.highlight:SetBlendMode("BLEND") end

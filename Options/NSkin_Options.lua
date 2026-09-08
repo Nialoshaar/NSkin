@@ -272,6 +272,7 @@ local function CreateOptionsWindow()
         info.page = page
         if page.ApplyAppearance then page:ApplyAppearance() end
         NSkin:ApplyGlobalTypography(page)
+        page.nskinAppearanceRevision = frame.appearanceRevision
         return page
     end
 
@@ -335,7 +336,7 @@ local function CreateOptionsWindow()
             local info = pages[i]
             if info.navigationButton then
                 local enabled = not info.module or NSkin:IsModuleEnabled(info.module)
-                info.navigationButton.label:SetTextColor(unpack(
+                NSkin:SetFontStringColor(info.navigationButton.label, unpack(
                     enabled and style.enabledNavigationText or style.disabledNavigationText
                 ))
                 if info.moduleToggle then info.moduleToggle.check:SetShown(enabled) end
@@ -343,32 +344,45 @@ local function CreateOptionsWindow()
         end
     end
 
-    function frame:ApplyAppearance()
-        SkinOptionsWindow(self)
-        self.navigationDivider:SetColorTexture(unpack(NSkin:GetStyle("window").header.divider))
-        local optionsStyle = NSkin:GetStyle("options")
-        local buttonStyle = NSkin:GetStyle("button")
-        NSkin:SkinFlatButton(reload, "Reload UI", nil, nil, 12)
-        for i = 1, #self.navigationButtons do
-            self.navigationButtons[i].selectedBackground:SetColorTexture(
-                unpack(optionsStyle.selectedNavigation)
-            )
-        end
-        for i = 1, #pages do
-            local toggle = pages[i].moduleToggle
-            if toggle then
-                NSkin:CreateFlatBackground(toggle, nil, buttonStyle.background,
-                    NSkin:GetSharedBorderColor())
-                toggle.check:SetColorTexture(unpack(optionsStyle.accent))
+    function frame:ApplyAppearance(change)
+        self.appearanceRevision = (self.appearanceRevision or 0) + 1
+        local revision = self.appearanceRevision
+        local targeted = change and change.scope == "type"
+        local styleName = targeted and change.style
+        local refreshChrome = not targeted or styleName == "window"
+            or styleName == "button" or styleName == "options"
+        if refreshChrome then
+            SkinOptionsWindow(self)
+            NSkin:SetOwnedTextureColor(self.navigationDivider,
+                unpack(NSkin:GetStyle("window").header.divider))
+            local optionsStyle = NSkin:GetStyle("options")
+            local buttonStyle = NSkin:GetStyle("button")
+            NSkin:SkinFlatButton(reload, "Reload UI", nil, nil, 12)
+            for i = 1, #self.navigationButtons do
+                NSkin:SetOwnedTextureColor(
+                    self.navigationButtons[i].selectedBackground,
+                    unpack(optionsStyle.selectedNavigation))
             end
+            for i = 1, #pages do
+                local toggle = pages[i].moduleToggle
+                if toggle then
+                    NSkin:CreateFlatBackground(toggle, nil, buttonStyle.background,
+                        NSkin:GetSharedBorderColor())
+                    NSkin:SetOwnedTextureColor(
+                        toggle.check, unpack(optionsStyle.accent))
+                end
+            end
+            self:RefreshModuleNavigation()
         end
-        self:RefreshModuleNavigation()
         for i = 1, #pages do
             local page = pages[i].page
-            if page and page.ApplyStructureAppearance then page:ApplyStructureAppearance() end
-            if page and page.ApplyAppearance then page:ApplyAppearance() end
+            if page and (not targeted or page == contentHost.activePage) then
+                if page.ApplyStructureAppearance then page:ApplyStructureAppearance() end
+                if page.ApplyAppearance then page:ApplyAppearance() end
+                page.nskinAppearanceRevision = revision
+            end
         end
-        NSkin:ApplyGlobalTypography(self)
+        if not targeted then NSkin:ApplyGlobalTypography(self) end
     end
     function frame:SelectOptionsPage(key)
         local selectedInfo = byKey[key] or byKey.general
@@ -388,6 +402,14 @@ local function CreateOptionsWindow()
             if info.navigationButton then info.navigationButton.selectedBackground:SetShown(selected) end
             if selected and selectedPage.Refresh then selectedPage:Refresh() end
         end
+        if selectedPage.nskinAppearanceRevision ~= self.appearanceRevision then
+            if selectedPage.ApplyStructureAppearance then
+                selectedPage:ApplyStructureAppearance()
+            end
+            if selectedPage.ApplyAppearance then selectedPage:ApplyAppearance() end
+            NSkin:ApplyGlobalTypography(selectedPage)
+            selectedPage.nskinAppearanceRevision = self.appearanceRevision
+        end
     end
     frame:SetScript("OnShow", function(self)
         self:ApplyAppearance()
@@ -401,8 +423,8 @@ local function CreateOptionsWindow()
     return frame
 end
 
-function NSkin:RefreshOptionsAppearance()
-    if options then options:ApplyAppearance() end
+function NSkin:RefreshOptionsAppearance(change)
+    if options then options:ApplyAppearance(change) end
 end
 
 function NSkin:ToggleOptions()
