@@ -18,6 +18,10 @@ local IDs = {
         SearchBox = "SpellBook.Talents.SearchBox",
         LoadoutDropdown = "SpellBook.Talents.LoadoutDropdown",
     },
+    Specializations = {
+        Window = "SpellBook.Specializations.Window",
+        ElementPrefix = "SpellBook.Specializations.Spec.",
+    },
     Search = { Group = "SpellBook.Search", Accessory = "SpellBook.Search.Cog" },
     Pagination = {
         Group = "SpellBook.Pagination",
@@ -32,6 +36,8 @@ local State = {
     assistedCombatDivider = nil,
     paginationController = nil,
     searchController = nil,
+    specializationContentsHooked = false,
+    specializationWindowRegistered = false,
 }
 local Adapters = {}
 
@@ -571,6 +577,118 @@ local function RegisterTalentControls(playerSpells)
     return applied
 end
 
+local function GetSpecializationElementID(specID, elementName)
+    return IDs.Specializations.ElementPrefix .. tostring(specID) .. "." .. elementName
+end
+
+local function IsSpecializationControlVisible(specFrame, control)
+    return specFrame and control and specFrame:IsVisible() and control:IsVisible()
+end
+
+local function RegisterSpecializationContent(specFrame, contentFrame)
+    local specializationInfo = _G.C_SpecializationInfo
+    local getSpecializationInfo = specializationInfo
+        and specializationInfo.GetSpecializationInfo
+    local specIndex = contentFrame and contentFrame.specIndex
+    local specID, specName
+    if type(getSpecializationInfo) == "function" and specIndex then
+        local sex = _G.UnitSex and _G.UnitSex("player")
+        specID, specName = getSpecializationInfo(
+            specIndex, false, false, nil, sex)
+    end
+    if not specID then return false end
+
+    local function RegisterText(elementName, label, target, priority)
+        if not target then return false end
+        return NSkin:RegisterTextElement({
+            id = GetSpecializationElementID(specID, elementName),
+            module = "SpellBook",
+            appearanceWindowID = IDs.AppearanceWindow,
+            label = (specName or "Specialization") .. " " .. label,
+            window = specFrame,
+            target = target,
+            priority = priority,
+            highlightRegions = { target },
+            isEditable = function()
+                return IsSpecializationControlVisible(specFrame, target)
+            end,
+        }) ~= nil
+    end
+
+    local activateButton = contentFrame.ActivateButton
+    local applied = false
+    if activateButton then
+        applied = NSkin:RegisterActionButton({
+            id = GetSpecializationElementID(specID, "ActivateButton"),
+            module = "SpellBook",
+            appearanceWindowID = IDs.AppearanceWindow,
+            label = (specName or "Specialization") .. " activate button",
+            window = specFrame,
+            target = activateButton,
+            priority = 75,
+            highlightRegions = { activateButton },
+            isEditable = function()
+                return IsSpecializationControlVisible(specFrame, activateButton)
+            end,
+        }) ~= nil
+    end
+
+    applied = RegisterText("SpecName", "name", contentFrame.SpecName, 76) or applied
+    applied = RegisterText("RoleName", "role name",
+        contentFrame.RoleName or contentFrame.roleName, 77) or applied
+    applied = RegisterText("Description", "description",
+        contentFrame.Description, 78) or applied
+    applied = RegisterText("SampleAbilityText", "sample ability text",
+        contentFrame.SampleAbilityText, 79) or applied
+    applied = RegisterText("ActivatedText", "active text",
+        contentFrame.ActivatedText or contentFrame.activatedText, 80) or applied
+    return applied
+end
+
+local function RegisterSpecializationControls(playerSpells)
+    local specFrame = playerSpells and playerSpells.SpecFrame
+    if not specFrame then return false end
+
+    NSkin:SkinStandardWindowChrome({
+        frame = specFrame,
+        appearanceWindowID = IDs.AppearanceWindow,
+        elementID = IDs.Specializations.Window,
+        skinCloseButton = false,
+    })
+    if not State.specializationWindowRegistered then
+        State.specializationWindowRegistered = NSkin:RegisterSkinningElement(
+            IDs.Specializations.Window, {
+                label = "Specializations window",
+                kind = "WINDOW",
+                module = "SpellBook",
+                appearanceWindowID = IDs.AppearanceWindow,
+                window = specFrame,
+                target = specFrame,
+                priority = 1,
+                draggable = false,
+                isEditable = function()
+                    return specFrame:IsVisible()
+                end,
+            }) == true
+    end
+
+    if not State.specializationContentsHooked and _G.hooksecurefunc
+        and type(specFrame.UpdateSpecContents) == "function"
+    then
+        _G.hooksecurefunc(specFrame, "UpdateSpecContents", function()
+            RegisterSpecializationControls(playerSpells)
+        end)
+        State.specializationContentsHooked = true
+    end
+
+    local pool = specFrame.SpecContentFramePool
+    if not pool or type(pool.EnumerateActive) ~= "function" then return true end
+    for contentFrame in pool:EnumerateActive() do
+        RegisterSpecializationContent(specFrame, contentFrame)
+    end
+    return true
+end
+
 local function CreateCircularBorder(button, icon, style, borderColor)
     local borderSize = tonumber(style and style.borderSize) or BORDER_SIZE
     local border = button:CreateTexture(nil, "ARTWORK", nil, -2)
@@ -938,6 +1056,7 @@ function SpellBookSkin:Initialize()
         },
     })
     RegisterTalentControls(playerSpells)
+    RegisterSpecializationControls(playerSpells)
 
     local pagedSpells = spellBook and spellBook.PagedSpellsFrame
     NSkin:RegisterSkinningElement(IDs.Headers, {
@@ -1043,6 +1162,7 @@ function SpellBookSkin:RefreshAppearance()
     if State.initialized then
         SkinSpellBookControls()
         RegisterTalentControls(_G.PlayerSpellsFrame)
+        RegisterSpecializationControls(_G.PlayerSpellsFrame)
         SkinActiveSpellBookItems()
         NSkin:ApplyTabGroupLayout(IDs.MainTabs)
         NSkin:ApplyTabGroupLayout(IDs.CategoryTabs)
