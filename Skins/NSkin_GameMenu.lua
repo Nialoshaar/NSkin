@@ -62,6 +62,56 @@ local function IsVisible(frame)
     return frame and frame.IsVisible and frame:IsVisible() or false
 end
 
+local MACRO_SELECTOR_SLOT_TEXTURE =
+    "interface/buttons/ui-emptyslot-disabled"
+local macroSelectorSlotFileID
+local macroSelectorSlotFileIDResolved = false
+
+local function NormalizeTexturePath(path)
+    if type(path) ~= "string" then return nil end
+    path = path:lower():gsub("\\", "/")
+    return path:gsub("%.blp$", ""):gsub("%.tga$", "")
+end
+
+local function GetMacroSelectorSlotFileID()
+    if macroSelectorSlotFileIDResolved then return macroSelectorSlotFileID end
+    macroSelectorSlotFileIDResolved = true
+    local getter = _G.GetFileIDFromPath
+        or (_G.C_Texture and _G.C_Texture.GetFileIDFromPath)
+    if type(getter) == "function" then
+        local ok, fileID = pcall(getter,
+            "Interface\\Buttons\\UI-EmptySlot-Disabled")
+        if ok then macroSelectorSlotFileID = fileID end
+    end
+    return macroSelectorSlotFileID
+end
+
+local function IsMacroSelectorSlotDecoration(region)
+    if not region or not region.IsObjectType
+        or not region:IsObjectType("Texture")
+        or not region.GetDrawLayer
+        or region:GetDrawLayer() ~= "BACKGROUND"
+    then return false end
+
+    local texturePath = region.GetTextureFilePath
+        and region:GetTextureFilePath()
+    local texture = region.GetTexture and region:GetTexture()
+    local normalized = NormalizeTexturePath(texturePath)
+        or NormalizeTexturePath(texture)
+    if normalized == MACRO_SELECTOR_SLOT_TEXTURE then return true end
+    if type(texture) == "number"
+        and texture == GetMacroSelectorSlotFileID()
+    then return true end
+
+    -- SelectorButtonTemplate's anonymous slot texture has no parentKey.
+    -- Retain an exact template fingerprint for clients that expose only a
+    -- numeric texture without GetFileIDFromPath.
+    if not region.GetTexCoord then return false end
+    local left, right, top, bottom = region:GetTexCoord()
+    return left == 0.140625 and right == 0.84375
+        and top == 0.140625 and bottom == 0.84375
+end
+
 local function QueueApply()
     if applyPending then return end
     applyPending = true
@@ -339,8 +389,8 @@ function GameMenuSkin:ApplyMacroIcon(frame)
         window = frame,
         target = button,
         texture = button.Icon,
-        nativeBorderRegions = self:GetMacroIconNativeBorders(
-            button, button.Icon),
+        nativeDecorationRegions = self:GetMacroIconNativeDecorations(
+            button, button.Icon, { _G.MacroFrameSelectedMacroBackground }),
         priority = 60,
         isEditable = function()
             return IsVisible(frame) and IsVisible(button)
@@ -348,19 +398,24 @@ function GameMenuSkin:ApplyMacroIcon(frame)
     }) ~= nil
 end
 
-function GameMenuSkin:GetMacroIconNativeBorders(button, icon)
+function GameMenuSkin:GetMacroIconNativeDecorations(button, icon,
+    additionalRegions)
     local regions = {}
+    local included = {}
+    for _, region in ipairs(additionalRegions or {}) do
+        if region and not included[region] then
+            regions[#regions + 1] = region
+            included[region] = true
+        end
+    end
     if not button or not button.GetRegions then return regions end
     for _, region in ipairs({ button:GetRegions() }) do
-        local layer = region.GetDrawLayer and region:GetDrawLayer()
-        local width, height
-        if region.GetSize then width, height = region:GetSize() end
         if region ~= icon and region ~= button.SelectedTexture
-            and region ~= button.Highlight and layer == "BACKGROUND"
-            and width == 45 and height == 45
-            and region.IsObjectType and region:IsObjectType("Texture")
+            and region ~= button.Highlight and not included[region]
+            and IsMacroSelectorSlotDecoration(region)
         then
             regions[#regions + 1] = region
+            included[region] = true
         end
     end
     return regions
@@ -394,7 +449,7 @@ function GameMenuSkin:ApplyMacroSelectorIcons(frame)
             window = frame,
             target = button,
             texture = icon,
-            nativeBorderRegions = GameMenuSkin:GetMacroIconNativeBorders(
+            nativeDecorationRegions = GameMenuSkin:GetMacroIconNativeDecorations(
                 button, icon),
             priority = 61,
             isEditable = function()

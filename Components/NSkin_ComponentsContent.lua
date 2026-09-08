@@ -398,7 +398,7 @@ local ICON_SHAPES = {
     },
 }
 
-local function ResolveIconNativeBorderRegions(value, target, texture)
+local function ResolveIconNativeDecorationRegions(value, target, texture)
     if type(value) == "function" then
         local ok, resolved = pcall(value, target, texture)
         value = ok and resolved or nil
@@ -408,7 +408,7 @@ local function ResolveIconNativeBorderRegions(value, target, texture)
     return type(value) == "table" and value or {}
 end
 
-local function RestoreIconNativeBorder(state)
+local function RestoreIconNativeDecoration(state)
     local region = state and state.region
     if not region then return end
     state.active = nil
@@ -426,7 +426,7 @@ local function RestoreIconNativeBorder(state)
     state.applying = nil
 end
 
-local function ConcealIconNativeBorder(data, state)
+local function ConcealIconNativeDecoration(data, state)
     local region = state and state.region
     if not data.active or not state.active or state.applying
         or not region
@@ -437,22 +437,24 @@ local function ConcealIconNativeBorder(data, state)
     state.applying = nil
 end
 
-local function ApplyIconNativeBorders(data, target, texture, declared)
+local function ApplyIconNativeDecorations(data, target, texture, declared)
     local activeRegions = {}
-    for _, region in ipairs(ResolveIconNativeBorderRegions(
+    for _, region in ipairs(ResolveIconNativeDecorationRegions(
         declared, target, texture))
     do
         if region then activeRegions[region] = true end
     end
 
-    data.nativeBorderStates = data.nativeBorderStates or {}
-    for region, state in pairs(data.nativeBorderStates) do
+    data.nativeDecorationStates = data.nativeDecorationStates
+        or data.nativeBorderStates or {}
+    data.nativeBorderStates = nil
+    for region, state in pairs(data.nativeDecorationStates) do
         if state.active and not activeRegions[region] then
-            RestoreIconNativeBorder(state)
+            RestoreIconNativeDecoration(state)
         end
     end
     for region in pairs(activeRegions) do
-        local state = data.nativeBorderStates[region]
+        local state = data.nativeDecorationStates[region]
         if not state then
             local shown
             if region.IsShown then shown = region:IsShown() end
@@ -461,18 +463,18 @@ local function ApplyIconNativeBorders(data, target, texture, declared)
                 alpha = region.GetAlpha and region:GetAlpha() or 1,
                 shown = shown,
             }
-            data.nativeBorderStates[region] = state
+            data.nativeDecorationStates[region] = state
         end
         state.active = true
-        ConcealIconNativeBorder(data, state)
+        ConcealIconNativeDecoration(data, state)
         if not state.hooked and _G.hooksecurefunc then
-            local function MaintainNativeBorder()
-                ConcealIconNativeBorder(data, state)
+            local function MaintainNativeDecoration()
+                ConcealIconNativeDecoration(data, state)
             end
             for _, method in ipairs({ "SetAlpha", "SetShown", "Show" }) do
                 if type(region[method]) == "function" then
                     pcall(_G.hooksecurefunc, region, method,
-                        MaintainNativeBorder)
+                        MaintainNativeDecoration)
                 end
             end
             state.hooked = true
@@ -548,8 +550,10 @@ function NSkin:SkinIcon(target, options)
         local oldBorder = data.border
             or self:GetPixelBorder(owner, borderKey)
         self:SetPixelBorderShown(oldBorder, false)
-        for _, state in pairs(data.nativeBorderStates or {}) do
-            if state.active then RestoreIconNativeBorder(state) end
+        for _, state in pairs(data.nativeDecorationStates
+            or data.nativeBorderStates or {})
+        do
+            if state.active then RestoreIconNativeDecoration(state) end
         end
         return true
     end
@@ -602,8 +606,8 @@ function NSkin:SkinIcon(target, options)
     self:MarkComponentGeometryModified(
         textureData.baselineID, "texCoords", true)
     ApplyIconTexCoords(target)
-    ApplyIconNativeBorders(
-        data, target, texture, options.nativeBorderRegions)
+    ApplyIconNativeDecorations(data, target, texture,
+        options.nativeDecorationRegions or options.nativeBorderRegions)
 
     local border = self:GetPixelBorder(owner, borderKey)
         or self:CreatePixelBorder(owner, borderKey,

@@ -149,7 +149,7 @@ local element = assert(N:RegisterIcon({
     appearanceWindowID = "Test",
     window = window,
     target = button,
-    nativeBorderRegions = { nativeBorder, hiddenNativeBorder },
+    nativeDecorationRegions = { nativeBorder, hiddenNativeBorder },
 }))
 
 eq(element.kind, "ICON", "icon uses shared typed component")
@@ -237,7 +237,7 @@ local repeated = assert(N:RegisterIcon({
     appearanceWindowID = "Test",
     window = window,
     target = button,
-    nativeBorderRegions = { nativeBorder, hiddenNativeBorder },
+    nativeDecorationRegions = { nativeBorder, hiddenNativeBorder },
 }))
 eq(repeated, element, "repeated registration preserves canonical element")
 eq(#button.createdTextures, borderCount,
@@ -267,7 +267,7 @@ local reapplied = assert(N:RegisterIcon({
     appearanceWindowID = "Test",
     window = window,
     target = button,
-    nativeBorderRegions = { nativeBorder, hiddenNativeBorder },
+    nativeDecorationRegions = { nativeBorder, hiddenNativeBorder },
 }))
 eq(reapplied, element, "registration after reset preserves canonical element")
 eq(texture.width, 40, "registration after reset reapplies current appearance")
@@ -281,8 +281,18 @@ local directButton = NewFrame(window)
 directButton.objectType = "Button"
 local directTexture = NewRegion("Texture", directButton)
 directButton.Icon = directTexture
-assert(N:SkinIcon(directButton, { texture = directTexture }))
+local legacyNativeBorder = NewRegion("Texture", directButton)
+legacyNativeBorder.alpha = 0.6
+assert(N:SkinIcon(directButton, {
+    texture = directTexture,
+    nativeBorderRegions = { legacyNativeBorder },
+}))
 eq(directTexture.width, 32, "direct SkinIcon caller remains supported")
 eq(directButton.width, 32, "direct SkinIcon does not resize its owner")
+eq(legacyNativeBorder.alpha, 0,
+    "legacy nativeBorderRegions remains compatible")
+assert(N:SkinIcon(directButton, { texture = directTexture, reset = true }))
+eq(legacyNativeBorder.alpha, 0.6,
+    "legacy nativeBorderRegions decoration resets")
 
 print("Shared ICON component regression tests passed")
