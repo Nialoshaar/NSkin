@@ -362,15 +362,12 @@ end
 local ICON_COMPONENT_STATE = "iconComponent"
 local ICON_BORDER_KEY = "NSkinIconBorder"
 
-function NSkin:GetIconTexCoords(width, height, zoom, crop)
+function NSkin:GetIconTexCoords(width, height, zoom)
     width = math.max(tonumber(width) or 1, 0.001)
     height = math.max(tonumber(height) or 1, 0.001)
     zoom = math.max(0, math.min(0.49, tonumber(zoom) or 0))
-    crop = math.max(0.01, math.min(1, tonumber(crop) or 1))
 
-    local cropInset = (1 - crop) / 2
-    local cropSpan = 1 - (cropInset * 2)
-    local visibleSpan = (1 - (zoom * 2)) * cropSpan
+    local visibleSpan = 1 - (zoom * 2)
     local horizontalSpan, verticalSpan = visibleSpan, visibleSpan
     local aspect = width / height
     if aspect > 1 then
@@ -394,12 +391,94 @@ end
 
 local ICON_SHAPES = {
     square = {
-        applyTexCoords = function(texture, width, height, zoom, crop)
+        applyTexCoords = function(texture, width, height, zoom)
             texture:SetTexCoord(NSkin:GetIconTexCoords(
-                width, height, zoom, crop))
+                width, height, zoom))
         end,
     },
 }
+
+local function ResolveIconNativeBorderRegions(value, target, texture)
+    if type(value) == "function" then
+        local ok, resolved = pcall(value, target, texture)
+        value = ok and resolved or nil
+    end
+    if not value then return {} end
+    if value.GetObjectType then return { value } end
+    return type(value) == "table" and value or {}
+end
+
+local function RestoreIconNativeBorder(state)
+    local region = state and state.region
+    if not region then return end
+    state.active = nil
+    state.applying = true
+    if region.SetAlpha and state.alpha ~= nil then
+        region:SetAlpha(state.alpha)
+    end
+    if region.SetShown and state.shown ~= nil then
+        region:SetShown(state.shown)
+    elseif state.shown == true and region.Show then
+        region:Show()
+    elseif state.shown == false and region.Hide then
+        region:Hide()
+    end
+    state.applying = nil
+end
+
+local function ConcealIconNativeBorder(data, state)
+    local region = state and state.region
+    if not data.active or not state.active or state.applying
+        or not region
+    then return end
+    state.applying = true
+    if region.SetAlpha then region:SetAlpha(0)
+    elseif region.Hide then region:Hide() end
+    state.applying = nil
+end
+
+local function ApplyIconNativeBorders(data, target, texture, declared)
+    local activeRegions = {}
+    for _, region in ipairs(ResolveIconNativeBorderRegions(
+        declared, target, texture))
+    do
+        if region then activeRegions[region] = true end
+    end
+
+    data.nativeBorderStates = data.nativeBorderStates or {}
+    for region, state in pairs(data.nativeBorderStates) do
+        if state.active and not activeRegions[region] then
+            RestoreIconNativeBorder(state)
+        end
+    end
+    for region in pairs(activeRegions) do
+        local state = data.nativeBorderStates[region]
+        if not state then
+            local shown
+            if region.IsShown then shown = region:IsShown() end
+            state = {
+                region = region,
+                alpha = region.GetAlpha and region:GetAlpha() or 1,
+                shown = shown,
+            }
+            data.nativeBorderStates[region] = state
+        end
+        state.active = true
+        ConcealIconNativeBorder(data, state)
+        if not state.hooked and _G.hooksecurefunc then
+            local function MaintainNativeBorder()
+                ConcealIconNativeBorder(data, state)
+            end
+            for _, method in ipairs({ "SetAlpha", "SetShown", "Show" }) do
+                if type(region[method]) == "function" then
+                    pcall(_G.hooksecurefunc, region, method,
+                        MaintainNativeBorder)
+                end
+            end
+            state.hooked = true
+        end
+    end
+end
 
 local function ApplyIconTexCoords(target)
     local data = NSkin:GetSkinData(target, ICON_COMPONENT_STATE, false)
@@ -411,8 +490,28 @@ local function ApplyIconTexCoords(target)
     local height = texture.GetHeight and texture:GetHeight() or data.height
     local shape = ICON_SHAPES[data.shape] or ICON_SHAPES.square
     data.applyingTexCoords = true
-    shape.applyTexCoords(texture, width, height, data.zoom, data.crop)
+    shape.applyTexCoords(texture, width, height, data.zoom)
     data.applyingTexCoords = nil
+end
+
+local function ApplyIconGeometry(target)
+    local data = NSkin:GetSkinData(target, ICON_COMPONENT_STATE, false)
+    local texture = data and data.texture
+    if not data or not data.active or not data.geometryOwned
+        or data.applyingGeometry or not texture
+    then return end
+    local width, height = data.presentationWidth, data.presentationHeight
+    if not width or not height then return end
+    local currentWidth = texture.GetWidth and texture:GetWidth()
+    local currentHeight = texture.GetHeight and texture:GetHeight()
+    if currentWidth == width and currentHeight == height then return end
+    data.applyingGeometry = true
+    if texture.SetSize then texture:SetSize(width, height)
+    else
+        if texture.SetWidth then texture:SetWidth(width) end
+        if texture.SetHeight then texture:SetHeight(height) end
+    end
+    data.applyingGeometry = nil
 end
 
 function NSkin:SkinIcon(target, options)
@@ -449,6 +548,9 @@ function NSkin:SkinIcon(target, options)
         local oldBorder = data.border
             or self:GetPixelBorder(owner, borderKey)
         self:SetPixelBorderShown(oldBorder, false)
+        for _, state in pairs(data.nativeBorderStates or {}) do
+            if state.active then RestoreIconNativeBorder(state) end
+        end
         return true
     end
 
@@ -470,24 +572,38 @@ function NSkin:SkinIcon(target, options)
         or tonumber(style.zoom) or 0
     data.crop = tonumber(options.crop)
         or tonumber(style.crop) or 1
+    data.crop = math.max(0.01, math.min(1, data.crop))
 
     local width = tonumber(options.width) or tonumber(style.width)
     local height = tonumber(options.height) or tonumber(style.height)
     width = width and width > 0 and width or nil
     height = height and height > 0 and height or nil
     local baseline = self:GetComponentBaseline(textureData.baselineID)
-    if width or height then
+    local cropped = data.crop < 1
+    data.geometryOwned = width ~= nil or height ~= nil or cropped
+    if data.geometryOwned then
+        local finalWidth = width or (baseline and baseline.width)
+            or (texture.GetWidth and texture:GetWidth())
+        local finalHeight = cropped and finalWidth
+            and self:SnapToPhysicalPixel(texture, finalWidth * data.crop)
+            or height or (baseline and baseline.height)
+            or (texture.GetHeight and texture:GetHeight())
         self:MarkComponentGeometryModified(
             textureData.baselineID, "size", true)
-        if width and texture.SetWidth then texture:SetWidth(width) end
-        if height and texture.SetHeight then texture:SetHeight(height) end
+        data.presentationWidth = finalWidth
+        data.presentationHeight = finalHeight
+        ApplyIconGeometry(target)
     elseif baseline and baseline.modified.size then
+        data.presentationWidth = nil
+        data.presentationHeight = nil
         self:RestoreComponentBaseline(textureData.baselineID, { size = true })
     end
 
     self:MarkComponentGeometryModified(
         textureData.baselineID, "texCoords", true)
     ApplyIconTexCoords(target)
+    ApplyIconNativeBorders(
+        data, target, texture, options.nativeBorderRegions)
 
     local border = self:GetPixelBorder(owner, borderKey)
         or self:CreatePixelBorder(owner, borderKey,
@@ -544,6 +660,7 @@ function NSkin:SkinIcon(target, options)
                 local state = NSkin:GetSkinData(
                     appearanceTarget, ICON_COMPONENT_STATE, false)
                 if state and state.texture == texture then
+                    ApplyIconGeometry(appearanceTarget)
                     ApplyIconTexCoords(appearanceTarget)
                 end
             end

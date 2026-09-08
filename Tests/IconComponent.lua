@@ -3,6 +3,10 @@ local profile = {}
 local function eq(actual, expected, message)
     assert(actual == expected, message .. ": " .. tostring(actual))
 end
+local function near(actual, expected, message)
+    assert(math.abs(actual - expected) < 0.0001,
+        message .. ": " .. tostring(actual))
+end
 
 _G.wipe = function(target)
     for key in pairs(target) do target[key] = nil end
@@ -34,6 +38,7 @@ local function NewRegion(objectType, parent)
         width = 32,
         height = 32,
         shown = true,
+        alpha = 1,
         points = { { "CENTER", parent, "CENTER", 0, 0 } },
         texCoords = { 0, 1, 0, 1 },
     }
@@ -69,6 +74,8 @@ local function NewRegion(objectType, parent)
     function region:Hide() self.shown = false end
     function region:IsShown() return self.shown end
     function region:IsVisible() return self.shown end
+    function region:GetAlpha() return self.alpha end
+    function region:SetAlpha(alpha) self.alpha = alpha end
     function region:GetEffectiveScale() return 1 end
     return region
 end
@@ -102,7 +109,7 @@ local N = { modules = {}, baseAppearance = {
     window = { border = { 0.2, 0.6, 1, 1 } },
     icon = {
         border = { 0.1, 0.2, 0.3, 1 }, borderMode = "custom",
-        borderSize = 1, borderPadding = 0, width = 24, height = 20,
+        borderSize = 1, borderPadding = 0, width = 0, height = 0,
         zoom = 0.1, crop = 1, shape = "square",
     },
 } }
@@ -128,6 +135,11 @@ button.objectType = "Button"
 button.width, button.height = 64, 64
 local texture = NewRegion("Texture", button)
 button.Icon = texture
+local nativeBorder = NewRegion("Texture", button)
+nativeBorder.alpha = 0.75
+local hiddenNativeBorder = NewRegion("Texture", button)
+hiddenNativeBorder.alpha = 0.5
+hiddenNativeBorder.shown = false
 
 local originalButtonPoint = { button:GetPoint(1) }
 local originalTexturePoint = { texture:GetPoint(1) }
@@ -137,6 +149,7 @@ local element = assert(N:RegisterIcon({
     appearanceWindowID = "Test",
     window = window,
     target = button,
+    nativeBorderRegions = { nativeBorder, hiddenNativeBorder },
 }))
 
 eq(element.kind, "ICON", "icon uses shared typed component")
@@ -146,12 +159,21 @@ eq(element.borderOwner, button, "logical control owns border regions")
 eq(element.highlightRegions[1], texture, "Skinning Mode highlights texture")
 eq(element.pixelBorderTargets[1], button, "resnap follows border owner")
 eq(element.preserveAnchorSpan, true, "icon placement preserves anchor spans")
-eq(texture.width, 24, "appearance width applies to texture")
-eq(texture.height, 20, "appearance height applies to texture")
+eq(texture.width, 32, "zoom does not change presentation width")
+eq(texture.height, 32, "zoom does not change presentation height")
+near(texture.texCoords[1], 0.1, "zoom applies horizontal texture inset")
+near(texture.texCoords[3], 0.1, "zoom applies vertical texture inset")
 eq(button.width, 64, "appearance width does not resize button")
 eq(button.height, 64, "appearance height does not resize button")
 eq(button:GetPoint(1), originalButtonPoint[1],
     "registration does not move button")
+eq(nativeBorder.alpha, 0, "declared native border is concealed")
+nativeBorder:SetAlpha(0.4)
+eq(nativeBorder.alpha, 0,
+    "active native border remains concealed after Blizzard update")
+hiddenNativeBorder:Show()
+eq(hiddenNativeBorder.alpha, 0,
+    "shown native border remains visually concealed while active")
 
 local textureBaseline = assert(N:GetComponentBaseline("Test.Icon:texture"))
 eq(textureBaseline.target, texture, "appearance baseline belongs to texture")
@@ -175,13 +197,27 @@ eq(texture:GetPoint(1), originalTexturePoint[1],
     "icon position reset restores texture baseline")
 
 profile.appearanceOverrides = { elements = { ["Test.Icon"] = { icon = {
-    width = 18, height = 16, zoom = 0.2,
+    width = 40, height = 16, zoom = 0, crop = 0.8,
 } } } }
 N:InvalidateAppearance({ scope = "element", elementID = "Test.Icon" })
 assert(N:RefreshTypedElement(element, "layout"))
-eq(texture.width, 18, "layout refresh updates texture width immediately")
-eq(texture.height, 16, "layout refresh updates texture height immediately")
+eq(texture.width, 40, "layout refresh updates texture width immediately")
+eq(texture.height, 32, "crop ratio changes presentation height")
 eq(button.width, 64, "layout refresh still preserves button width")
+near(texture.texCoords[1], 0, "crop does not add horizontal zoom")
+near(texture.texCoords[3], 0.1, "crop trims texture vertically")
+near((texture.texCoords[2] - texture.texCoords[1])
+    / (texture.texCoords[4] - texture.texCoords[3]), 1.25,
+    "crop preserves image aspect without stretching")
+
+profile.appearanceOverrides.elements["Test.Icon"].icon.zoom = 0.1
+N:InvalidateAppearance({ scope = "element", elementID = "Test.Icon" })
+assert(N:RefreshTypedElementAppearance(element))
+eq(texture.width, 40, "combined zoom and crop preserves width")
+eq(texture.height, 32, "combined zoom and crop preserves crop height")
+near(texture.texCoords[1], 0.1, "combined zoom applies horizontal inset")
+near(texture.texCoords[3], 0.18,
+    "combined zoom and crop applies independent vertical crop")
 
 local styledLeft = texture.texCoords[1]
 texture:SetTexCoord(0, 1, 0, 1)
@@ -190,6 +226,9 @@ eq(texture.texCoords[1], styledLeft,
 texture:SetTexture(12345)
 eq(texture.texCoords[1], styledLeft,
     "Blizzard texture update preserves NSkin crop")
+texture:SetSize(17, 17)
+eq(texture.width, 40, "pooled size update reapplies owned width")
+eq(texture.height, 32, "pooled size update reapplies cropped height")
 
 local borderCount = #button.createdTextures
 local repeated = assert(N:RegisterIcon({
@@ -198,16 +237,27 @@ local repeated = assert(N:RegisterIcon({
     appearanceWindowID = "Test",
     window = window,
     target = button,
+    nativeBorderRegions = { nativeBorder, hiddenNativeBorder },
 }))
 eq(repeated, element, "repeated registration preserves canonical element")
 eq(#button.createdTextures, borderCount,
     "repeated registration does not duplicate border regions")
+eq(#hooks[texture].SetTexture, 1,
+    "repeated registration does not duplicate texture hooks")
+eq(#hooks[nativeBorder].SetAlpha, 1,
+    "repeated registration does not duplicate native border hooks")
 
 assert(N:SkinIcon(button, { texture = texture, reset = true }))
 eq(texture.width, 32, "appearance reset restores Blizzard width")
 eq(texture.height, 32, "appearance reset restores Blizzard height")
 eq(texture.texCoords[1], 0, "appearance reset restores Blizzard crop")
 eq(border.top.shown, false, "appearance reset hides NSkin border")
+eq(nativeBorder.alpha, 0.75, "reset restores native border alpha")
+eq(nativeBorder.shown, true, "reset restores native border visibility")
+eq(hiddenNativeBorder.alpha, 0.5,
+    "reset restores initially hidden native border alpha")
+eq(hiddenNativeBorder.shown, false,
+    "reset restores initially hidden native border visibility")
 texture:SetTexCoord(0.05, 0.95, 0.05, 0.95)
 eq(texture.texCoords[1], 0.05,
     "inactive icon does not overwrite later Blizzard texcoords")
@@ -217,18 +267,22 @@ local reapplied = assert(N:RegisterIcon({
     appearanceWindowID = "Test",
     window = window,
     target = button,
+    nativeBorderRegions = { nativeBorder, hiddenNativeBorder },
 }))
 eq(reapplied, element, "registration after reset preserves canonical element")
-eq(texture.width, 18, "registration after reset reapplies current appearance")
+eq(texture.width, 40, "registration after reset reapplies current appearance")
+eq(texture.height, 32, "registration after reset reapplies crop geometry")
 eq(texture.texCoords[1], styledLeft,
     "registration after reset reactivates texture maintenance")
+eq(nativeBorder.alpha, 0,
+    "registration after reset conceals declared native border again")
 
 local directButton = NewFrame(window)
 directButton.objectType = "Button"
 local directTexture = NewRegion("Texture", directButton)
 directButton.Icon = directTexture
 assert(N:SkinIcon(directButton, { texture = directTexture }))
-eq(directTexture.width, 24, "direct SkinIcon caller remains supported")
+eq(directTexture.width, 32, "direct SkinIcon caller remains supported")
 eq(directButton.width, 32, "direct SkinIcon does not resize its owner")
 
 print("Shared ICON component regression tests passed")

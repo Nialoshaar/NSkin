@@ -172,7 +172,7 @@ local iconAppearanceControls = {
             max = 256, step = 1, decimals = 0, suffix = " px" } },
     { type = "SLIDER", key = "zoom", label = "Edge zoom",
         min = 0, max = 0.45, step = 0.01, decimals = 2, order = 5 },
-    { type = "SLIDER", key = "crop", label = "Centered crop",
+    { type = "SLIDER", key = "crop", label = "Crop ratio",
         min = 0.1, max = 1, step = 0.01, decimals = 2, order = 6 },
     { type = "DROPDOWN", key = "shape", label = "Shape", order = 7,
         values = { { value = "square", label = "Square" } } },

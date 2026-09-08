@@ -17,6 +17,7 @@ local IDs = {
         HeaderControls = "MacroFrame.HeaderControls",
         TopTabs = "MacroFrame.TopTabs",
         Icon = "MacroFrame.SelectedMacroIcon",
+        SelectorIconPrefix = "MacroFrame.MacroSelector.Icon.",
         EditButton = "MacroFrame.EditButton",
         SaveButton = "MacroFrame.SaveButton",
         CancelButton = "MacroFrame.CancelButton",
@@ -43,6 +44,9 @@ local settingsRootTexturesConcealed = false
 local macroRootTexturesConcealed = false
 local nextAnonymousButtonID = 0
 local buttonIDs = setmetatable({}, { __mode = "k" })
+local nextMacroSelectorIconID = 0
+local macroSelectorIconIDs = setmetatable({}, { __mode = "k" })
+local hookedMacroSelectorScrollBoxes = setmetatable({}, { __mode = "k" })
 
 NSkin:RegisterAppearanceScope(IDs.Scope, {
     label = "Game Menu",
@@ -335,11 +339,83 @@ function GameMenuSkin:ApplyMacroIcon(frame)
         window = frame,
         target = button,
         texture = button.Icon,
+        nativeBorderRegions = self:GetMacroIconNativeBorders(
+            button, button.Icon),
         priority = 60,
         isEditable = function()
             return IsVisible(frame) and IsVisible(button)
         end,
     }) ~= nil
+end
+
+function GameMenuSkin:GetMacroIconNativeBorders(button, icon)
+    local regions = {}
+    if not button or not button.GetRegions then return regions end
+    for _, region in ipairs({ button:GetRegions() }) do
+        local layer = region.GetDrawLayer and region:GetDrawLayer()
+        local width, height
+        if region.GetSize then width, height = region:GetSize() end
+        if region ~= icon and region ~= button.SelectedTexture
+            and region ~= button.Highlight and layer == "BACKGROUND"
+            and width == 45 and height == 45
+            and region.IsObjectType and region:IsObjectType("Texture")
+        then
+            regions[#regions + 1] = region
+        end
+    end
+    return regions
+end
+
+function GameMenuSkin:GetMacroSelectorIconID(button)
+    local id = macroSelectorIconIDs[button]
+    if id then return id end
+    nextMacroSelectorIconID = nextMacroSelectorIconID + 1
+    id = IDs.Macro.SelectorIconPrefix .. nextMacroSelectorIconID
+    macroSelectorIconIDs[button] = id
+    return id
+end
+
+function GameMenuSkin:ApplyMacroSelectorIcons(frame)
+    local selector = frame and frame.MacroSelector
+    local scrollBox = selector and selector.ScrollBox
+    if not scrollBox or not scrollBox.ForEachFrame then return false end
+
+    local applied = false
+    scrollBox:ForEachFrame(function(button)
+        local icon = button and button.Icon
+        if not icon then return end
+        local id = GameMenuSkin:GetMacroSelectorIconID(button)
+        local existing = NSkin:GetSkinningElement(id)
+        local element = NSkin:RegisterIcon({
+            id = id,
+            module = "GameMenu",
+            appearanceWindowID = IDs.Macro.Scope,
+            label = "Macro selector icon",
+            window = frame,
+            target = button,
+            texture = icon,
+            nativeBorderRegions = GameMenuSkin:GetMacroIconNativeBorders(
+                button, icon),
+            priority = 61,
+            isEditable = function()
+                return IsVisible(frame) and IsVisible(button)
+            end,
+        })
+        if element then
+            if existing then NSkin:RefreshTypedElementLayout(element) end
+            applied = true
+        end
+    end)
+
+    if not hookedMacroSelectorScrollBoxes[scrollBox]
+        and _G.hooksecurefunc and type(scrollBox.Update) == "function"
+    then
+        _G.hooksecurefunc(scrollBox, "Update", function()
+            GameMenuSkin:ApplyMacroSelectorIcons(frame)
+        end)
+        hookedMacroSelectorScrollBoxes[scrollBox] = true
+    end
+    return applied
 end
 
 function GameMenuSkin:ApplyMacroButtons(frame)
@@ -444,6 +520,7 @@ function GameMenuSkin:ApplyMacroFrame()
     self:ApplyMacroWindowChrome(frame)
     self:ApplyMacroTabs(frame)
     self:ApplyMacroIcon(frame)
+    self:ApplyMacroSelectorIcons(frame)
     self:ApplyMacroButtons(frame)
     self:ApplyMacroText(frame)
     self:ApplyMacroScrollBars(frame)

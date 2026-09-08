@@ -2508,7 +2508,7 @@ local SHARED_SKIN_ADAPTERS = {
             "texture", "quality", "qualityProvider", "borderColor", "borderMode",
             "borderSize", "borderPadding", "borderKey", "borderOwner",
             "outside", "showBorder", "width", "height", "zoom", "crop",
-            "shape",
+            "shape", "nativeBorderRegions",
         }) do
             if options[key] == nil then options[key] = definition[key] end
         end
@@ -2596,6 +2596,7 @@ local TYPED_SKIN_FIELDS_BY_TYPE = {
         "texture", "quality", "qualityProvider", "borderColor", "borderMode",
         "borderSize", "borderPadding", "borderKey", "borderOwner", "outside",
         "showBorder", "width", "height", "zoom", "crop", "shape",
+        "nativeBorderRegions",
     },
 }
 
