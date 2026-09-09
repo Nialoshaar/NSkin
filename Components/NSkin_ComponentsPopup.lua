@@ -275,12 +275,11 @@ end
 
 local function RegisterSelectorIcons(definition, state, selector)
     local scrollBox = selector and selector.ScrollBox
-    if not scrollBox or not scrollBox.ForEachFrame then return false end
     local applied = false
-    scrollBox:ForEachFrame(function(button)
+    if not NSkin:ForEachScrollBoxFrame(scrollBox, function(button)
         applied = RegisterSelectorIcon(
             definition, state, button, 70) ~= nil or applied
-    end)
+    end) then return false end
     if not state.hookedScrollBoxes[scrollBox]
         and _G.hooksecurefunc and type(scrollBox.Update) == "function"
     then

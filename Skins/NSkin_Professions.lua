@@ -413,6 +413,8 @@ end
 local function GetProfessionItemButtonDecorations(button)
     local regions, seen = {}, {}
     AddProfessionButtonDecorations(regions, seen, button)
+    AddRegion(regions, seen, GetButtonStateTexture(
+        button, "GetNormalTexture", "NormalTexture"))
     return regions
 end
 
@@ -511,12 +513,10 @@ local function ApplyReagentFlyout(frame, flyout)
             flyout.UndoItem and flyout.UndoItem.Text),
     })
     local icons = {}
-    if flyout.ScrollBox and flyout.ScrollBox.ForEachFrame then
-        flyout.ScrollBox:ForEachFrame(function(button)
-            local descriptor = GetProfessionItemButtonDescriptor(button)
-            if descriptor then icons[#icons + 1] = descriptor end
-        end)
-    end
+    NSkin:ForEachScrollBoxFrame(flyout.ScrollBox, function(button)
+        local descriptor = GetProfessionItemButtonDescriptor(button)
+        if descriptor then icons[#icons + 1] = descriptor end
+    end)
     if flyout.UndoItem and flyout.UndoItem:IsShown() then
         icons[#icons + 1] = GetProfessionItemButtonDescriptor(flyout.UndoItem)
     end
@@ -647,10 +647,70 @@ local function GetPoolRegions(pool)
     return regions
 end
 
+local function GetReagentSlotSectionType(slot)
+    if not slot then return nil end
+    local schematic
+    if type(slot.GetReagentSlotSchematic) == "function" then
+        local ok, value = pcall(slot.GetReagentSlotSchematic, slot)
+        if ok then schematic = value end
+    end
+    local professionsUtil = _G.ProfessionsUtil
+    if schematic and professionsUtil
+        and type(professionsUtil.IsReagentSlotModifyingRequired) == "function"
+    then
+        local ok, required = pcall(
+            professionsUtil.IsReagentSlotModifyingRequired, schematic)
+        if ok and required then return Enum.CraftingReagentType.Basic end
+    end
+    if schematic and schematic.reagentType ~= nil then
+        return schematic.reagentType
+    end
+    if type(slot.GetReagentType) == "function" then
+        local ok, value = pcall(slot.GetReagentType, slot)
+        if ok then return value end
+    end
+end
+
+local function ReagentSectionMatches(actualType, requestedType)
+    if actualType == requestedType then return true end
+    local optionalType = Enum.CraftingReagentType.Optional
+    return requestedType == Enum.CraftingReagentType.Modifying
+        and optionalType ~= nil and actualType == optionalType
+end
+
 local function GetReagentSlots(form, reagentType)
-    local slots = form and form.reagentSlots
-        and form.reagentSlots[reagentType]
-    return type(slots) == "table" and slots or {}
+    local slots, seen = {}, {}
+    local function AddSlots(candidates)
+        local list = type(candidates) == "table" and candidates or {}
+        for _, slot in ipairs(list) do
+            AddRegion(slots, seen, slot)
+        end
+    end
+    AddSlots(form and form.reagentSlots and form.reagentSlots[reagentType])
+    if form and type(form.GetSlotsByReagentType) == "function" then
+        local ok, candidates = pcall(
+            form.GetSlotsByReagentType, form, reagentType)
+        if ok then AddSlots(candidates) end
+        local optionalType = Enum.CraftingReagentType.Optional
+        if reagentType == Enum.CraftingReagentType.Modifying
+            and optionalType ~= nil and optionalType ~= reagentType
+        then
+            ok, candidates = pcall(
+                form.GetSlotsByReagentType, form, optionalType)
+            if ok then AddSlots(candidates) end
+        end
+    end
+    local pool = form and form.reagentSlotPool
+    if pool and type(pool.EnumerateActive) == "function" then
+        for slot in pool:EnumerateActive() do
+            if ReagentSectionMatches(
+                GetReagentSlotSectionType(slot), reagentType)
+            then
+                AddRegion(slots, seen, slot)
+            end
+        end
+    end
+    return slots
 end
 
 local function GetVisibleReagentSlots(form, reagentType)
@@ -859,13 +919,11 @@ end
 local function GetRecipeRows(page, predicate, visibleOnly)
     local rows = {}
     local scrollBox = page and page.RecipeList and page.RecipeList.ScrollBox
-    if scrollBox and scrollBox.ForEachFrame then
-        scrollBox:ForEachFrame(function(row)
-            if predicate(row) and (not visibleOnly or IsVisible(row)) then
-                rows[#rows + 1] = row
-            end
-        end)
-    end
+    NSkin:ForEachScrollBoxFrame(scrollBox, function(row)
+        if predicate(row) and (not visibleOnly or IsVisible(row)) then
+            rows[#rows + 1] = row
+        end
+    end)
     return rows
 end
 

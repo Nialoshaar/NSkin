@@ -11,6 +11,16 @@ local appearanceWindowRevisions = {}
 local appearanceElementRevisions = {}
 local GetGlobalAppearanceChangeScope
 
+function NSkin:ForEachScrollBoxFrame(scrollBox, callback)
+    if not scrollBox or type(callback) ~= "function" then return false end
+    local view = scrollBox.GetView and scrollBox:GetView()
+    if not view or type(scrollBox.ForEachFrame) ~= "function" then
+        return false
+    end
+    scrollBox:ForEachFrame(callback)
+    return true
+end
+
 local function RoundOne(value)
     value = tonumber(value) or 0
     if value >= 0 then return math.floor(value * 10 + 0.5) / 10 end
@@ -3182,6 +3192,24 @@ function NSkin:RegisterIconGroup(definition)
     for key, value in pairs(definition) do normalized[key] = value end
     normalized.kind = "ICON"
     normalized.iconGroup = true
+    normalized.appearanceStyles = {}
+    local hasIconStyle
+    for _, styleName in ipairs(definition.appearanceStyles or {}) do
+        normalized.appearanceStyles[#normalized.appearanceStyles + 1] = styleName
+        if styleName == "icon" then hasIconStyle = true end
+    end
+    if not hasIconStyle then
+        normalized.appearanceStyles[#normalized.appearanceStyles + 1] = "icon"
+    end
+    normalized.appearanceTypeIDs = {}
+    local hasIconType
+    for _, typeID in ipairs(definition.appearanceTypeIDs or {}) do
+        normalized.appearanceTypeIDs[#normalized.appearanceTypeIDs + 1] = typeID
+        if typeID == "ICON" then hasIconType = true end
+    end
+    if not hasIconType then
+        normalized.appearanceTypeIDs[#normalized.appearanceTypeIDs + 1] = "ICON"
+    end
     normalized.draggable = definition.draggable == true
     normalized.editorOptions = definition.editorOptions or {
         { id = "shared.iconAppearance", label = "Icon",

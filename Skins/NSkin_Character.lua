@@ -214,13 +214,11 @@ end
 
 local function GetVisibleCharacterSectionCards(scrollBox)
     local cards = {}
-    if scrollBox and scrollBox.ForEachFrame then
-        scrollBox:ForEachFrame(function(frame)
-            if IsCharacterSectionCard(frame) and frame:IsShown() then
-                cards[#cards + 1] = frame
-            end
-        end)
-    end
+    NSkin:ForEachScrollBoxFrame(scrollBox, function(frame)
+        if IsCharacterSectionCard(frame) and frame:IsShown() then
+            cards[#cards + 1] = frame
+        end
+    end)
     return cards
 end
 
@@ -231,7 +229,7 @@ local function SkinCharacterSectionCards(scrollBox, elementID, registered)
     local border = NSkin:GetAppearanceBorderColor(
         "sectionCard", style, IDs.Scope, elementID)
     local applied
-    scrollBox:ForEachFrame(function(frame)
+    if not NSkin:ForEachScrollBoxFrame(scrollBox, function(frame)
         if IsCharacterSectionCard(frame) then
             NSkin:SkinSectionCard(frame, {
                 style = style,
@@ -243,7 +241,7 @@ local function SkinCharacterSectionCards(scrollBox, elementID, registered)
             })
             applied = true
         end
-    end)
+    end) then return false end
     if registered then NSkin:NotifySkinningElementBoundsChanged(elementID) end
     return applied == true
 end

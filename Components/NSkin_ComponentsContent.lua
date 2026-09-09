@@ -1320,18 +1320,28 @@ function NSkin:SkinIcon(target, options)
     local cropped = data.crop < 1
     data.geometryOwned = width ~= nil or height ~= nil or cropped
     if data.geometryOwned then
-        local finalWidth = width or (baseline and baseline.width)
+        local points = baseline and baseline.points
+        local constrainedByAnchors = points and #points ~= 1
+        local presentationOwnerWidth = constrainedByAnchors
+            and owner.GetWidth and owner:GetWidth()
+        local presentationOwnerHeight = constrainedByAnchors
+            and owner.GetHeight and owner:GetHeight()
+        presentationOwnerWidth = presentationOwnerWidth
+            and presentationOwnerWidth > 0 and presentationOwnerWidth or nil
+        presentationOwnerHeight = presentationOwnerHeight
+            and presentationOwnerHeight > 0 and presentationOwnerHeight or nil
+        local finalWidth = width or presentationOwnerWidth
+            or (baseline and baseline.width)
             or (texture.GetWidth and texture:GetWidth())
         local finalHeight = cropped and finalWidth
             and self:SnapToPhysicalPixel(texture, finalWidth * data.crop)
-            or height or (baseline and baseline.height)
+            or height or presentationOwnerHeight
+            or (baseline and baseline.height)
             or (texture.GetHeight and texture:GetHeight())
         self:MarkComponentGeometryModified(
             textureData.baselineID, "size", true)
-        local points = baseline and baseline.points
-        if points and #points ~= 1 then
-            data.geometryPoint = points[1]
-                or { "CENTER", owner, "CENTER", 0, 0 }
+        if constrainedByAnchors then
+            data.geometryPoint = { "CENTER", owner, "CENTER", 0, 0 }
             self:MarkComponentGeometryModified(
                 textureData.baselineID, "points", true)
         else

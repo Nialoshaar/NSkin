@@ -476,10 +476,9 @@ end
 function GameMenuSkin:ApplyMacroSelectorIcons(frame)
     local selector = frame and frame.MacroSelector
     local scrollBox = selector and selector.ScrollBox
-    if not scrollBox or not scrollBox.ForEachFrame then return false end
 
     local applied = false
-    scrollBox:ForEachFrame(function(button)
+    if not NSkin:ForEachScrollBoxFrame(scrollBox, function(button)
         local icon = button and button.Icon
         if not icon then return end
         local id = GameMenuSkin:GetMacroSelectorIconID(button)
@@ -517,7 +516,7 @@ function GameMenuSkin:ApplyMacroSelectorIcons(frame)
             if existing then NSkin:RefreshTypedElementLayout(element) end
             applied = true
         end
-    end)
+    end) then return false end
 
     if not hookedMacroSelectorScrollBoxes[scrollBox]
         and _G.hooksecurefunc and type(scrollBox.Update) == "function"

@@ -225,8 +225,7 @@ end
 local function ForEachEventSectionCard(callback)
     local eventsFrame = GetEventsFrame()
     local scrollBox = eventsFrame and eventsFrame.ScrollBox
-    if not scrollBox or type(scrollBox.ForEachFrame) ~= "function" then return end
-    scrollBox:ForEachFrame(function(frame)
+    NSkin:ForEachScrollBoxFrame(scrollBox, function(frame)
         if IsEventSectionCard(frame) then callback(frame) end
     end)
 end

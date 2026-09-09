@@ -634,13 +634,11 @@ function PVESkin:ApplyDungeonSelectionCheckboxes()
     }) do
         local listName, owner = definition[1], definition[2]
         local scrollBox = owner and owner.ScrollBox
-        if scrollBox and scrollBox.ForEachFrame then
-            scrollBox:ForEachFrame(function(choice)
-                if self:StyleDungeonChoice(listName, owner, choice) then
-                    applied = true
-                end
-            end)
-        end
+        NSkin:ForEachScrollBoxFrame(scrollBox, function(choice)
+            if self:StyleDungeonChoice(listName, owner, choice) then
+                applied = true
+            end
+        end)
     end
     return applied
 end

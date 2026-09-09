@@ -76,12 +76,10 @@ end
 local function GetVisibleCategoryCards(frame)
     local cards = {}
     local scrollBox = GetCategoryScrollBox(frame)
-    if scrollBox and scrollBox.ForEachFrame then
-        scrollBox:ForEachFrame(function(categoryFrame)
-            local button = GetCategoryButton(categoryFrame)
-            if IsVisible(button) then cards[#cards + 1] = button end
-        end)
-    end
+    NSkin:ForEachScrollBoxFrame(scrollBox, function(categoryFrame)
+        local button = GetCategoryButton(categoryFrame)
+        if IsVisible(button) then cards[#cards + 1] = button end
+    end)
     return cards
 end
 
@@ -296,12 +294,11 @@ end
 
 function AchievementsSkin:ApplyCategoryCards(frame)
     local scrollBox = GetCategoryScrollBox(frame)
-    if not scrollBox or not scrollBox.ForEachFrame then return false end
 
     local applied = false
-    scrollBox:ForEachFrame(function(categoryFrame)
+    if not NSkin:ForEachScrollBoxFrame(scrollBox, function(categoryFrame)
         applied = self:StyleCategoryCard(categoryFrame) or applied
-    end)
+    end) then return false end
 
     if not categoryCardsRegistered then
         categoryCardsRegistered = NSkin:RegisterSkinningElement(

@@ -86,11 +86,9 @@ end
 local function GetVisibleCategoryCards(frame)
     local cards = {}
     local scrollBox = GetCategoryScrollBox(frame)
-    if scrollBox and scrollBox.ForEachFrame then
-        scrollBox:ForEachFrame(function(button)
-            if IsVisible(button) then cards[#cards + 1] = button end
-        end)
-    end
+    NSkin:ForEachScrollBoxFrame(scrollBox, function(button)
+        if IsVisible(button) then cards[#cards + 1] = button end
+    end)
     return cards
 end
 
@@ -506,9 +504,9 @@ function AuctionHouseSkin:ApplyCategoryCards(frame)
     end
 
     local applied = false
-    scrollBox:ForEachFrame(function(button)
+    if not NSkin:ForEachScrollBoxFrame(scrollBox, function(button)
         applied = self:StyleCategoryCard(button) or applied
-    end)
+    end) then return false end
 
     if not categoryCardsRegistered then
         categoryCardsRegistered = NSkin:RegisterSkinningElement(
@@ -699,11 +697,9 @@ end
 local function GetVisibleRows(frame)
     local rows = {}
     local scrollBox = frame and frame.ScrollBox
-    if scrollBox and scrollBox.ForEachFrame then
-        scrollBox:ForEachFrame(function(row)
-            if IsVisible(row) then rows[#rows + 1] = row end
-        end)
-    end
+    NSkin:ForEachScrollBoxFrame(scrollBox, function(row)
+        if IsVisible(row) then rows[#rows + 1] = row end
+    end)
     return rows
 end
 
@@ -1064,9 +1060,9 @@ function BlackMarketSkin:ApplyRows(frame)
     styles.iconBorder = NSkin:GetAppearanceBorderColor(
         "icon", styles.icon, IDs.Scope, IDs.ResultsTable)
     local applied = false
-    scrollBox:ForEachFrame(function(row)
+    if not NSkin:ForEachScrollBoxFrame(scrollBox, function(row)
         applied = self:ApplyRow(frame, row, styles) or applied
-    end)
+    end) then return false end
     if not hookedScrollBoxes[scrollBox] and _G.hooksecurefunc
         and type(scrollBox.Update) == "function"
     then

@@ -377,20 +377,17 @@ local function StyleJourneyListFrame(frame)
 end
 
 local function StyleVisibleJourneyCards(journeysList)
-    if not journeysList or not journeysList.ForEachFrame then return end
-    journeysList:ForEachFrame(StyleJourneyListFrame)
+    NSkin:ForEachScrollBoxFrame(journeysList, StyleJourneyListFrame)
 end
 
 local function GetVisibleJourneyCards(journeysList)
     local cards = {}
-    if journeysList and journeysList.ForEachFrame then
-        journeysList:ForEachFrame(function(frame)
-            if frame and (frame.RenownCardFactionName or frame.JourneyCardName)
-            then
-                cards[#cards + 1] = frame
-            end
-        end)
-    end
+    NSkin:ForEachScrollBoxFrame(journeysList, function(frame)
+        if frame and (frame.RenownCardFactionName or frame.JourneyCardName)
+        then
+            cards[#cards + 1] = frame
+        end
+    end)
     return cards
 end
 
@@ -453,8 +450,7 @@ function EncounterJournalSkin:StyleBossButton(button)
 end
 
 function EncounterJournalSkin:StyleBossFrames(scrollBox)
-    if not scrollBox or not scrollBox.ForEachFrame then return end
-    scrollBox:ForEachFrame(function(button)
+    NSkin:ForEachScrollBoxFrame(scrollBox, function(button)
         EncounterJournalSkin:StyleBossButton(button)
     end)
 end
@@ -542,8 +538,7 @@ function EncounterJournalSkin:StyleLootButton(button)
 end
 
 function EncounterJournalSkin:StyleLootFrames(scrollBox)
-    if not scrollBox or not scrollBox.ForEachFrame then return end
-    scrollBox:ForEachFrame(function(button)
+    NSkin:ForEachScrollBoxFrame(scrollBox, function(button)
         EncounterJournalSkin:StyleLootButton(button)
     end)
 end
@@ -809,8 +804,7 @@ function EncounterJournalSkin:OnInitializedFrame(button)
 end
 
 function EncounterJournalSkin:StyleVisibleFrames(scrollBox)
-    if not scrollBox or not scrollBox.ForEachFrame then return end
-    scrollBox:ForEachFrame(function(button)
+    NSkin:ForEachScrollBoxFrame(scrollBox, function(button)
         EncounterJournalSkin:StyleButton(button)
     end)
 end
