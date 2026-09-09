@@ -225,6 +225,38 @@ NSkin.baseAppearance = {
         glyphOffsetY = 0,
     },
 
+    columnHeader = {
+        background = { 0.04, 0.04, 0.04, 0.90 },
+        backgroundMode = "CUSTOM",
+        border = { 0.45, 0.45, 0.45, 1 },
+        borderMode = "CUSTOM",
+        borderSize = 1,
+        borderPadding = 0,
+        text = { 1, 1, 1, 1 },
+        textMode = "CUSTOM",
+        font = "Fonts\\FRIZQT__.TTF",
+        outline = "",
+        useGlobalTypography = true,
+        fontMode = "GLOBAL",
+        sizeMode = "BLIZZARD",
+        outlineMode = "GLOBAL",
+        alignment = "BLIZZARD",
+        hoverAlpha = 0.10,
+    },
+
+    row = {
+        background = { 0.04, 0.04, 0.04, 0.72 },
+        backgroundMode = "CUSTOM",
+        selectedBackground = { 1, 1, 1, 0.10 },
+        selectedBackgroundMode = "CUSTOM",
+        border = { 0.25, 0.25, 0.25, 1 },
+        borderMode = "CUSTOM",
+        borderSize = 1,
+        borderPadding = 0,
+        hoverAlpha = 0.10,
+        height = 0,
+    },
+
     progressBar = {
         texture = "Interface\\Buttons\\WHITE8X8",
         background = { 0.06, 0.06, 0.06, 0.90 },

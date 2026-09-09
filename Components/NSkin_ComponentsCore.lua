@@ -253,10 +253,95 @@ function NSkin:SkinTextColor(fontString, style)
     return true
 end
 
-function NSkin:SkinText(fontString, style)
+local function FormatGroupedNumber(value)
+    local numeric = tonumber(value)
+    if not numeric then return value end
+    if type(_G.BreakUpLargeNumbers) == "function" then
+        local ok, formatted = pcall(_G.BreakUpLargeNumbers, numeric)
+        if ok and formatted ~= nil then return tostring(formatted) end
+    end
+    if type(_G.FormatLargeNumber) == "function" then
+        local ok, formatted = pcall(_G.FormatLargeNumber, numeric)
+        if ok and formatted ~= nil then return tostring(formatted) end
+    end
+    local sign = numeric < 0 and "-" or ""
+    local digits = tostring(math.floor(math.abs(numeric)))
+    local separator = _G.LARGE_NUMBER_SEPERATOR
+        or _G.LARGE_NUMBER_SEPARATOR or " "
+    local grouped = digits:reverse():gsub("(%d%d%d)", "%1" .. separator)
+        :reverse():gsub("^" .. separator, "")
+    return sign .. grouped
+end
+
+local function FormatSharedTextValue(value, numberFormat, suffixIcon)
+    if value == nil then return nil end
+    local text = tostring(value)
+    local number = text:match("^%s*([+-]?%d+)%s*$")
+    if not number then return text end
+    local formatted = string.upper(tostring(numberFormat or "")) == "GOLD"
+        and FormatGroupedNumber(number) or text
+    if string.upper(tostring(suffixIcon or "")) ~= "GOLD" then
+        return formatted
+    end
+    local textureFormat = _G.GOLD_AMOUNT_TEXTURE_STRING
+        or _G.GOLD_AMOUNT_TEXTURE
+    if type(textureFormat) == "string" then
+        local ok, result = pcall(string.format,
+            textureFormat, formatted, 0, 0)
+        if ok then return result end
+    end
+    return formatted .. (_G.GOLD_AMOUNT_SYMBOL or "g")
+end
+
+local function RefreshSharedTextFormatting(fontString)
+    local data = NSkin:GetSkinData(fontString, "sharedTextFormatting", false)
+    if not data or not data.active or data.applying then return end
+    local formatted = FormatSharedTextValue(
+        data.rawText, data.numberFormat, data.suffixIcon)
+    data.formattedText = formatted
+    if fontString.GetText and fontString:GetText() == formatted then return end
+    data.applying = true
+    fontString:SetText(formatted)
+    data.applying = nil
+end
+
+local function ApplySharedTextFormatting(fontString, options)
+    local active = options and (options.numberFormat or options.suffixIcon)
+    local data = NSkin:GetSkinData(
+        fontString, "sharedTextFormatting", active ~= nil)
+    if not data then return end
+    local current = fontString.GetText and fontString:GetText()
+    if current ~= data.formattedText then data.rawText = current end
+    data.numberFormat = options and options.numberFormat
+    data.suffixIcon = options and options.suffixIcon
+    data.active = active and true or nil
+    if not data.active then
+        if current == data.formattedText and fontString.SetText then
+            data.applying = true
+            fontString:SetText(data.rawText)
+            data.applying = nil
+        end
+        data.formattedText = nil
+        return
+    end
+    if not data.hooked and _G.hooksecurefunc
+        and type(fontString.SetText) == "function"
+    then
+        _G.hooksecurefunc(fontString, "SetText", function(_, value)
+            if data.applying then return end
+            data.rawText = value
+            RefreshSharedTextFormatting(fontString)
+        end)
+        data.hooked = true
+    end
+    RefreshSharedTextFormatting(fontString)
+end
+
+function NSkin:SkinText(fontString, style, options)
     if not self:SkinTextColor(fontString, style) then return false end
     style = style or self:GetStyle("text")
     self:ApplyResolvedTypography(fontString, style)
+    ApplySharedTextFormatting(fontString, options)
     return true
 end
 
@@ -808,12 +893,34 @@ local function ChangeAffectsStyleFamily(change, elementStyle)
     return false
 end
 
-local function ChangeMatchesSharedType(change, element, sharedType, allowStyleFamily)
-    if change.typeID and element.kind ~= change.typeID then return false end
-    if allowStyleFamily and (change.style or change.changes) then
-        return ChangeAffectsStyleFamily(change, sharedType.style)
+local function ContainsAppearanceValue(values, expected)
+    for i = 1, #(values or {}) do
+        if values[i] == expected then return true end
     end
-    return ChangeMatchesStyle(change, sharedType.style)
+    return false
+end
+
+local function ChangeMatchesSharedType(change, element, sharedType, allowStyleFamily)
+    if change.typeID and element.kind ~= change.typeID
+        and not ContainsAppearanceValue(
+            element.appearanceTypeIDs, change.typeID)
+    then
+        return false
+    end
+    local styles = { sharedType.style }
+    for i = 1, #(element.appearanceStyles or {}) do
+        styles[#styles + 1] = element.appearanceStyles[i]
+    end
+    if allowStyleFamily and (change.style or change.changes) then
+        for i = 1, #styles do
+            if ChangeAffectsStyleFamily(change, styles[i]) then return true end
+        end
+        return false
+    end
+    for i = 1, #styles do
+        if ChangeMatchesStyle(change, styles[i]) then return true end
+    end
+    return false
 end
 
 local function RecordAppearanceFallback(change, reason)
@@ -1851,6 +1958,14 @@ local EDITOR_PRESETS = {
         { id = "shared.sectionCardAppearance", label = "Section Card",
             category = "CUSTOMIZE" },
     },
+    COLUMN_HEADER = {
+        { id = "shared.columnHeaderAppearance", label = "Column Header",
+            category = "CUSTOMIZE" },
+    },
+    ROW = {
+        { id = "shared.rowAppearance", label = "Row",
+            category = "CUSTOMIZE" },
+    },
     MOVABLE = {
         { id = "shared.movable", label = "Position",
             presentation = "INLINE", category = "POSITION" },
@@ -1972,6 +2087,11 @@ local SHARED_TYPE_DEFINITIONS = {
     SECTION_CARD = { style = "sectionCard", skin = "SkinSectionCard",
         appearanceControls = "shared.sectionCardAppearance",
         editorPreset = "SECTION_CARD" },
+    COLUMN_HEADER = { style = "columnHeader", skin = "SkinColumnHeader",
+        appearanceControls = "shared.columnHeaderAppearance",
+        editorPreset = "COLUMN_HEADER" },
+    ROW = { style = "row", skin = "SkinRow",
+        appearanceControls = "shared.rowAppearance", editorPreset = "ROW" },
     TEXT = { style = "text", skin = "SkinText",
         appearanceControls = "shared.textAppearance", editorPreset = "TEXT" },
 }
@@ -2421,6 +2541,38 @@ function NSkin:RegisterSimpleMovableElement(definition)
 end
 
 local SHARED_SKIN_ADAPTERS = {
+    COLUMN_HEADER = function(self, skinMethod, target, style, borderColor,
+        definition)
+        local options = {}
+        for key, value in pairs(definition.skinOptions or {}) do
+            options[key] = value
+        end
+        options.style = style
+        if options.border == nil then options.border = borderColor end
+        for _, key in ipairs({
+            "textRegion", "artworkRegions", "preserveTextures",
+            "hoverRegion", "getHovered", "visualRegion",
+        }) do
+            if options[key] == nil then options[key] = definition[key] end
+        end
+        skinMethod(self, target, options)
+    end,
+    ROW = function(self, skinMethod, target, style, borderColor, definition)
+        local options = {}
+        for key, value in pairs(definition.skinOptions or {}) do
+            options[key] = value
+        end
+        options.style = style
+        if options.border == nil then options.border = borderColor end
+        for _, key in ipairs({
+            "nativeDecorationRegions", "artworkRegions", "preserveTextures", "hoverRegion",
+            "selectedRegion", "getHovered", "getSelected", "visualRegion",
+            "height", "reset",
+        }) do
+            if options[key] == nil then options[key] = definition[key] end
+        end
+        skinMethod(self, target, options)
+    end,
     SECTION_CARD = function(self, skinMethod, target, style, borderColor,
         definition)
         local options = {}
@@ -2518,8 +2670,11 @@ local SHARED_SKIN_ADAPTERS = {
         options.borderColor = options.borderColor or borderColor
         skinMethod(self, definition.iconTarget or target, options)
     end,
-    TEXT = function(self, skinMethod, target, style)
-        skinMethod(self, target, style)
+    TEXT = function(self, skinMethod, target, style, _, definition)
+        skinMethod(self, target, style, {
+            numberFormat = definition.numberFormat,
+            suffixIcon = definition.suffixIcon,
+        })
     end,
 }
 
@@ -2584,6 +2739,15 @@ end
 
 local COMMON_TYPED_SKIN_FIELDS = { "skinAdapter", "skinOptions" }
 local TYPED_SKIN_FIELDS_BY_TYPE = {
+    COLUMN_HEADER = {
+        "textRegion", "artworkRegions", "preserveTextures", "hoverRegion",
+        "getHovered", "visualRegion",
+    },
+    ROW = {
+        "nativeDecorationRegions", "artworkRegions", "preserveTextures", "hoverRegion",
+        "selectedRegion", "getHovered", "getSelected", "visualRegion",
+        "height", "reset",
+    },
     CHECKBOX = { "text", "getChecked" },
     DROPDOWN = { "menus" },
     SEARCH_ACCESSORY = { "menus" },
@@ -2602,6 +2766,7 @@ local TYPED_SKIN_FIELDS_BY_TYPE = {
         "hoverRegion", "selectedRegion", "getHovered", "getSelected",
         "interactionAlpha",
     },
+    TEXT = { "numberFormat", "suffixIcon" },
 }
 
 local function TypedSkinValuesEqual(left, right, visited)
@@ -2791,6 +2956,14 @@ function NSkin:RegisterIcon(definition)
         end
     end
     return element
+end
+
+function NSkin:RegisterColumnHeader(definition)
+    return self:RegisterTypedElement("COLUMN_HEADER", definition)
+end
+
+function NSkin:RegisterRow(definition)
+    return self:RegisterTypedElement("ROW", definition)
 end
 
 function NSkin:RegisterTextElement(definition)

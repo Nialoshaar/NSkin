@@ -1,6 +1,359 @@
 local _, NSkin = ...
 
 local COMPONENT_STATE = "components"
+local COLUMN_HEADER_STATE = "columnHeaderComponent"
+local ROW_STATE = "rowComponent"
+local COLUMN_HEADER_BACKGROUND = "NSkinColumnHeaderBackground"
+local ROW_BACKGROUND = "NSkinRowBackground"
+
+local function ResolveContentValue(value, target)
+    if type(value) ~= "function" then return value end
+    local ok, resolved = pcall(value, target)
+    return ok and resolved or nil
+end
+
+local function AnchorContentSurface(region, visualRegion, inset)
+    if not region or not visualRegion or not region.ClearAllPoints
+        or not region.SetPoint
+    then return end
+    inset = tonumber(inset) or 0
+    region:ClearAllPoints()
+    region:SetPoint("TOPLEFT", visualRegion, "TOPLEFT", inset, -inset)
+    region:SetPoint("BOTTOMRIGHT", visualRegion, "BOTTOMRIGHT", -inset, inset)
+end
+
+local function HideDeclaredContentArtwork(region)
+    if not region or not region.GetObjectType then return end
+    if region.SetAlpha then region:SetAlpha(0) end
+    if region:GetObjectType() == "Texture" and region.SetTexture then
+        region:SetTexture(nil)
+    end
+    if region.Hide then region:Hide() end
+end
+
+local function SuppressDeclaredContentArtwork(regions, preserved)
+    preserved = preserved or {}
+    for _, region in ipairs(regions or {}) do
+        if region and not preserved[region] then
+            HideDeclaredContentArtwork(region)
+        end
+    end
+end
+
+local function PreserveContentRegions(preserved, regions)
+    if regions and regions.GetObjectType then
+        preserved[regions] = true
+        return
+    end
+    for _, region in ipairs(regions or {}) do
+        if region then preserved[region] = true end
+    end
+end
+
+local function ResolveContentState(provider, fallback, target)
+    if type(provider) == "function" then
+        local ok, value = pcall(provider, target)
+        if ok then return value == true end
+    end
+    return fallback and fallback.IsShown and fallback:IsShown() == true
+        or false
+end
+
+local function RestoreContentStateRegion(state)
+    local region = state and state.region
+    if not region then return end
+    state.active = nil
+    state.applying = true
+    if state.alpha ~= nil and region.SetAlpha then region:SetAlpha(state.alpha) end
+    if state.shown ~= nil and region.SetShown then
+        region:SetShown(state.shown)
+    end
+    state.applying = nil
+end
+
+local function ResolveRowNativeDecorationRegions(value, target)
+    if type(value) == "function" then
+        local ok, resolved = pcall(value, target)
+        value = ok and resolved or nil
+    end
+    if not value then return {} end
+    if value.GetObjectType then return { value } end
+    return type(value) == "table" and value or {}
+end
+
+local RefreshRowPresentation
+
+local function ConcealRowStateRegion(rowState, regionState)
+    local region = regionState and regionState.region
+    if not rowState.active or not regionState.active
+        or regionState.applying or not region
+    then return end
+    regionState.applying = true
+    if region.SetAlpha then region:SetAlpha(0)
+    elseif region.Hide then region:Hide() end
+    regionState.applying = nil
+end
+
+local function ApplyRowNativeDecorations(target, state, declared, preserved)
+    local active = {}
+    for _, region in ipairs(ResolveRowNativeDecorationRegions(
+        declared, target))
+    do
+        if region and not preserved[region] then active[region] = true end
+    end
+    state.nativeDecorationStates = state.nativeDecorationStates or {}
+    for region, regionState in pairs(state.nativeDecorationStates) do
+        if regionState.active and not active[region] then
+            RestoreContentStateRegion(regionState)
+        end
+    end
+    for region in pairs(active) do
+        local regionState = state.nativeDecorationStates[region]
+        if not regionState then
+            regionState = {
+                region = region,
+                alpha = region.GetAlpha and region:GetAlpha() or 1,
+                shown = region.IsShown and region:IsShown() or nil,
+            }
+            state.nativeDecorationStates[region] = regionState
+        end
+        regionState.active = true
+        ConcealRowStateRegion(state, regionState)
+        if not regionState.hooked and _G.hooksecurefunc then
+            local function MaintainNativeDecoration()
+                ConcealRowStateRegion(state, regionState)
+            end
+            for _, method in ipairs({ "SetAlpha", "SetShown", "Show" }) do
+                if type(region[method]) == "function" then
+                    pcall(_G.hooksecurefunc, region, method,
+                        MaintainNativeDecoration)
+                end
+            end
+            regionState.hooked = true
+        end
+    end
+end
+
+local function ApplyRowStateRegions(target, state, declared)
+    local active = {}
+    for _, region in ipairs(declared) do
+        if region then active[region] = true end
+    end
+    state.regionStates = state.regionStates or {}
+    for region, regionState in pairs(state.regionStates) do
+        if regionState.active and not active[region] then
+            RestoreContentStateRegion(regionState)
+        end
+    end
+    for region in pairs(active) do
+        local regionState = state.regionStates[region]
+        if not regionState then
+            regionState = {
+                region = region,
+                alpha = region.GetAlpha and region:GetAlpha() or 1,
+                shown = region.IsShown and region:IsShown() or nil,
+            }
+            state.regionStates[region] = regionState
+        end
+        regionState.active = true
+        ConcealRowStateRegion(state, regionState)
+        if not regionState.hooked and _G.hooksecurefunc then
+            local function MaintainStateRegion()
+                ConcealRowStateRegion(state, regionState)
+                RefreshRowPresentation(target)
+            end
+            for _, method in ipairs({ "SetAlpha", "SetShown", "Show", "Hide" }) do
+                if type(region[method]) == "function" then
+                    pcall(_G.hooksecurefunc, region, method,
+                        MaintainStateRegion)
+                end
+            end
+            regionState.hooked = true
+        end
+    end
+end
+
+RefreshRowPresentation = function(target)
+    local state = NSkin:GetSkinData(target, ROW_STATE, false)
+    if not state or not state.active then return end
+    local selected = ResolveContentState(
+        state.getSelected, state.selectedRegion, target)
+    local hovered = ResolveContentState(
+        state.getHovered, state.hoverRegion, target)
+    if state.selectedOverlay then state.selectedOverlay:SetShown(selected) end
+    if state.hoverOverlay then state.hoverOverlay:SetShown(hovered) end
+end
+
+function NSkin:SkinRow(target, options)
+    if not target or not target.CreateTexture
+        or (target.IsForbidden and target:IsForbidden())
+    then return nil end
+    options = options or {}
+    local state = self:GetSkinData(target, ROW_STATE)
+    if options.reset == true then
+        state.active = nil
+        if state.heightModified and state.originalHeight and target.SetHeight then
+            target:SetHeight(state.originalHeight)
+            state.heightModified = nil
+        end
+        for _, regionState in pairs(state.nativeDecorationStates or {}) do
+            if regionState.active then RestoreContentStateRegion(regionState) end
+        end
+        for _, regionState in pairs(state.regionStates or {}) do
+            if regionState.active then RestoreContentStateRegion(regionState) end
+        end
+        if state.background then state.background:Hide() end
+        if state.border then self:SetPixelBorderShown(state.border, false) end
+        if state.selectedOverlay then state.selectedOverlay:Hide() end
+        if state.hoverOverlay then state.hoverOverlay:Hide() end
+        return state
+    end
+    local style = options.style or self:GetStyle("row")
+    if not style then return nil end
+    state.active = true
+    state.hoverRegion = ResolveContentValue(options.hoverRegion, target)
+        or (target.GetHighlightTexture and target:GetHighlightTexture())
+    state.selectedRegion = ResolveContentValue(options.selectedRegion, target)
+    state.getHovered = options.getHovered
+    state.getSelected = options.getSelected
+    local visualRegion = ResolveContentValue(options.visualRegion, target)
+    if not (visualRegion and visualRegion.GetObjectType) then
+        visualRegion = target
+    end
+
+    if not state.originalHeight and target.GetHeight then
+        state.originalHeight = target:GetHeight()
+    end
+    local height = tonumber(options.height)
+        or tonumber(style.height)
+    if height and height > 0 and target.SetHeight then
+        target:SetHeight(height)
+        state.heightModified = true
+    elseif state.heightModified and state.originalHeight and target.SetHeight then
+        target:SetHeight(state.originalHeight)
+        state.heightModified = nil
+    end
+
+    local backgroundColor = self:GetResolvedAppearanceColor(
+        style, "background")
+    local borderColor = options.border
+        or self:GetComponentBorderColor("row", style)
+    local background = self:CreateFlatBackground(
+        target, ROW_BACKGROUND, backgroundColor, borderColor)
+    -- Table templates commonly place their cell FontStrings on BACKGROUND.
+    -- Keep the owned surface below those Blizzard-owned contents.
+    if background and background.SetDrawLayer then
+        background:SetDrawLayer("BACKGROUND", -8)
+    end
+    AnchorContentSurface(background, visualRegion, 1)
+    local border = self:GetPixelBorder(target, ROW_BACKGROUND .. "Border")
+    state.background = background
+    state.border = border
+    if border then border.anchor = visualRegion end
+    self:SetPixelBorderSize(border, style.borderSize or 1)
+    self:SetPixelBorderPadding(border, style.borderPadding or 0)
+
+    if not state.selectedOverlay then
+        state.selectedOverlay = target:CreateTexture(nil, "ARTWORK", nil, 6)
+        self:ConfigureOwnedPixelTexture(state.selectedOverlay)
+    end
+    if not state.hoverOverlay then
+        state.hoverOverlay = target:CreateTexture(nil, "OVERLAY", nil, -1)
+        self:ConfigureOwnedPixelTexture(state.hoverOverlay)
+    end
+    AnchorContentSurface(state.selectedOverlay, visualRegion, 1)
+    AnchorContentSurface(state.hoverOverlay, visualRegion, 1)
+    self:SetOwnedTextureColor(state.selectedOverlay, unpack(
+        self:GetResolvedAppearanceColor(style, "selectedBackground")))
+    self:SetOwnedTextureColor(
+        state.hoverOverlay, 1, 1, 1, tonumber(style.hoverAlpha) or 0.10)
+
+    local preserved = {
+        [background] = true,
+        [state.selectedOverlay] = true,
+        [state.hoverOverlay] = true,
+    }
+    PreserveContentRegions(preserved, options.preserveTextures)
+    ApplyRowNativeDecorations(target, state,
+        options.nativeDecorationRegions or options.artworkRegions, preserved)
+    ApplyRowStateRegions(target, state, {
+        state.hoverRegion, state.selectedRegion,
+    })
+    if not state.hooked and target.HookScript then
+        for _, script in ipairs({ "OnEnter", "OnLeave", "OnShow" }) do
+            target:HookScript(script, RefreshRowPresentation)
+        end
+        state.hooked = true
+    end
+    if not state.methodHooksInstalled and _G.hooksecurefunc then
+        for _, method in ipairs({
+            "LockHighlight", "UnlockHighlight", "SetSelected",
+        }) do
+            if type(target[method]) == "function" then
+                pcall(_G.hooksecurefunc, target, method, function()
+                    RefreshRowPresentation(target)
+                end)
+            end
+        end
+        state.methodHooksInstalled = true
+    end
+    RefreshRowPresentation(target)
+    return state
+end
+
+function NSkin:SkinColumnHeader(target, options)
+    if not target or not target.CreateTexture
+        or (target.IsForbidden and target:IsForbidden())
+    then return nil end
+    options = options or {}
+    local style = options.style or self:GetStyle("columnHeader")
+    if not style then return nil end
+    local state = self:GetSkinData(target, COLUMN_HEADER_STATE)
+    local visualRegion = ResolveContentValue(options.visualRegion, target)
+    if not (visualRegion and visualRegion.GetObjectType) then
+        visualRegion = target
+    end
+    local backgroundColor = self:GetResolvedAppearanceColor(
+        style, "background")
+    local borderColor = options.border
+        or self:GetComponentBorderColor("columnHeader", style)
+    local background = self:CreateFlatBackground(
+        target, COLUMN_HEADER_BACKGROUND, backgroundColor, borderColor)
+    if background and background.SetDrawLayer then
+        background:SetDrawLayer("BACKGROUND", -8)
+    end
+    AnchorContentSurface(background, visualRegion, 1)
+    local border = self:GetPixelBorder(
+        target, COLUMN_HEADER_BACKGROUND .. "Border")
+    if border then border.anchor = visualRegion end
+    self:SetPixelBorderSize(border, style.borderSize or 1)
+    self:SetPixelBorderPadding(border, style.borderPadding or 0)
+
+    local textRegion = ResolveContentValue(options.textRegion, target)
+        or target.Name or target.Text
+        or (target.GetFontString and target:GetFontString())
+    if textRegion then
+        self:SetFontStringColor(textRegion, unpack(
+            self:GetResolvedAppearanceColor(style, "text")))
+        self:ApplyResolvedTypography(textRegion, style)
+        if not state.originalJustifyH and textRegion.GetJustifyH then
+            state.originalJustifyH = textRegion:GetJustifyH()
+        end
+        local alignment = string.upper(tostring(style.alignment or "BLIZZARD"))
+        if textRegion.SetJustifyH then
+            textRegion:SetJustifyH(alignment == "BLIZZARD"
+                and state.originalJustifyH or alignment)
+        end
+    end
+    local preserved = { [background] = true }
+    PreserveContentRegions(preserved, options.preserveTextures)
+    SuppressDeclaredContentArtwork(options.artworkRegions, preserved)
+    if target.IsObjectType and target:IsObjectType("Button") then
+        self:CreateFlatButtonGlow(target, style.hoverAlpha)
+    end
+    return state
+end
+
 local SECTION_CARD_STATE = "sectionCardComponent"
 local SECTION_CARD_BACKGROUND = "NSkinSectionCardBackground"
 local SECTION_CARD_TEXT_STATE = "sectionCardTextAppearance"

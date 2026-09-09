@@ -271,6 +271,130 @@ NSkin:RegisterOptionGroup("shared.textAppearance", {
     end,
 })
 
+local columnHeaderAppearanceControls = {
+    { type = "SECTION", label = "Column Header", order = 10 },
+    { type = "COLOR_PAIR", order = 11,
+        left = { type = "COLOR", key = "background",
+            modeKey = "backgroundMode", label = "Background" },
+        right = { type = "COLOR", key = "border",
+            modeKey = "borderMode", label = "Border" } },
+    CreateBorderGeometryControls(12),
+    { type = "DROPDOWN", key = "alignment", label = "Text alignment",
+        order = 13, values = {
+            { value = "BLIZZARD", label = "Blizzard" },
+            { value = "LEFT", label = "Left" },
+            { value = "CENTER", label = "Center" },
+            { value = "RIGHT", label = "Right" },
+        } },
+    { type = "SLIDER", key = "hoverAlpha", label = "Hover opacity",
+        min = 0, max = 0.5, step = 0.01, decimals = 2, order = 14 },
+}
+AddTypographyControls(columnHeaderAppearanceControls,
+    { useGlobal = "useGlobal", font = "font", size = "textSize",
+        outline = "outline" }, "Header Text", 1,
+    { type = "COLOR", key = "text", modeKey = "textMode",
+        label = "Color" })
+
+NSkin:RegisterOptionGroup("shared.columnHeaderAppearance", {
+    controls = columnHeaderAppearanceControls,
+    get = function(context)
+        local style = NSkin:GetAppearanceStyle(
+            "columnHeader", GetAppearanceWindowID(context), context.id)
+        local values = {
+            background = CopyColor(style.background),
+            backgroundMode = style.backgroundMode,
+            border = CopyColor(style.border), borderMode = style.borderMode,
+            borderSize = style.borderSize, borderPadding = style.borderPadding,
+            text = CopyColor(style.text), textMode = style.textMode,
+            alignment = style.alignment, hoverAlpha = style.hoverAlpha,
+        }
+        GetTypographyValues(values, style,
+            { useGlobal = "useGlobal", font = "font", size = "textSize",
+                outline = "outline" })
+        return values
+    end,
+    set = function(context, values)
+        local changed = SetElementTypography(context, "columnHeader", values,
+            { font = "font", size = "textSize", outline = "outline" })
+        for _, key in ipairs({ "background", "backgroundMode", "border",
+            "borderMode", "borderSize", "borderPadding", "text", "textMode",
+            "alignment", "hoverAlpha" }) do
+            if values[key] ~= nil then
+                changed = SetElementValue(
+                    context, "columnHeader." .. key, values[key]) or changed
+            end
+        end
+        return changed == true
+    end,
+    reset = function(context)
+        return ResetElementPaths(context, {
+            "columnHeader.background", "columnHeader.backgroundMode",
+            "columnHeader.border", "columnHeader.borderMode",
+            "columnHeader.borderSize", "columnHeader.borderPadding",
+            "columnHeader.text", "columnHeader.textMode",
+            "columnHeader.font", "columnHeader.fontMode",
+            "columnHeader.textSize", "columnHeader.sizeMode",
+            "columnHeader.outline", "columnHeader.outlineMode",
+            "columnHeader.alignment", "columnHeader.hoverAlpha",
+        })
+    end,
+})
+
+local rowAppearanceControls = {
+    { type = "SECTION", label = "Row", order = 10 },
+    { type = "COLOR_PAIR", order = 11,
+        left = { type = "COLOR", key = "background",
+            modeKey = "backgroundMode", label = "Background" },
+        right = { type = "COLOR", key = "selectedBackground",
+            modeKey = "selectedBackgroundMode", label = "Selected" } },
+    { type = "COLOR", key = "border", modeKey = "borderMode",
+        label = "Border", order = 12 },
+    CreateBorderGeometryControls(13),
+    { type = "SLIDER", key = "height", label = "Height (0 keeps Blizzard)",
+        min = 0, max = 100, step = 1, decimals = 0, suffix = " px",
+        order = 14 },
+    { type = "SLIDER", key = "hoverAlpha", label = "Hover opacity",
+        min = 0, max = 0.5, step = 0.01, decimals = 2, order = 15 },
+}
+
+NSkin:RegisterOptionGroup("shared.rowAppearance", {
+    controls = rowAppearanceControls,
+    get = function(context)
+        local style = NSkin:GetAppearanceStyle(
+            "row", GetAppearanceWindowID(context), context.id)
+        return {
+            background = CopyColor(style.background),
+            backgroundMode = style.backgroundMode,
+            selectedBackground = CopyColor(style.selectedBackground),
+            selectedBackgroundMode = style.selectedBackgroundMode,
+            border = CopyColor(style.border), borderMode = style.borderMode,
+            borderSize = style.borderSize, borderPadding = style.borderPadding,
+            height = style.height, hoverAlpha = style.hoverAlpha,
+        }
+    end,
+    set = function(context, values)
+        local changed = false
+        for _, key in ipairs({ "background", "backgroundMode",
+            "selectedBackground", "selectedBackgroundMode", "border",
+            "borderMode", "borderSize", "borderPadding", "height",
+            "hoverAlpha" }) do
+            if values[key] ~= nil then
+                changed = SetElementValue(
+                    context, "row." .. key, values[key]) or changed
+            end
+        end
+        return changed == true
+    end,
+    reset = function(context)
+        return ResetElementPaths(context, {
+            "row.background", "row.backgroundMode",
+            "row.selectedBackground", "row.selectedBackgroundMode",
+            "row.border", "row.borderMode", "row.borderSize",
+            "row.borderPadding", "row.height", "row.hoverAlpha",
+        })
+    end,
+})
+
 local sectionCardAppearanceControls = {
     { type = "SECTION", label = "Card", order = 10 },
     {
