@@ -1048,6 +1048,11 @@ local function RefreshIconInteractionGlow(target)
     glow:SetShown(hovered or selected)
 end
 
+local function HideIconInteractionGlow(target)
+    local data = NSkin:GetSkinData(target, ICON_COMPONENT_STATE, false)
+    if data and data.interactionGlow then data.interactionGlow:Hide() end
+end
+
 local function ConcealIconInteractionRegion(data, state)
     local region = state and state.region
     if not data.active or not data.interactionActive or not state.active
@@ -1135,7 +1140,7 @@ local function ApplyIconInteraction(self, data, target, texture, options)
     local buttonStyle = self:GetStyle("button") or {}
     local alpha = tonumber(options.interactionAlpha)
         or tonumber(buttonStyle.hoverAlpha) or 0.10
-    local glow = self:CreateFlatButtonGlow(target, alpha)
+    local glow = self:CreateFlatButtonGlow(target, alpha, true)
     if not glow then return end
     glow:ClearAllPoints()
     glow:SetPoint("TOPLEFT", texture, "TOPLEFT", 1, -1)
@@ -1148,6 +1153,7 @@ local function ApplyIconInteraction(self, data, target, texture, options)
         target:HookScript("OnEnter", RefreshInteraction)
         target:HookScript("OnLeave", RefreshInteraction)
         target:HookScript("OnShow", RefreshInteraction)
+        target:HookScript("OnHide", HideIconInteractionGlow)
         data.interactionHooksInstalled = true
     end
     if not data.interactionMethodHooksInstalled and _G.hooksecurefunc then
@@ -1203,6 +1209,28 @@ local function ApplyIconGeometry(target)
     then return end
     local width, height = data.presentationWidth, data.presentationHeight
     if not width or not height then return end
+    if data.geometryPoint and texture.ClearAllPoints and texture.SetPoint then
+        local pointMatches = texture.GetNumPoints
+            and texture:GetNumPoints() == 1
+        if pointMatches and texture.GetPoint then
+            local point, relativeTo, relativePoint, xOffset, yOffset =
+                texture:GetPoint(1)
+            pointMatches = point == data.geometryPoint[1]
+                and relativeTo == data.geometryPoint[2]
+                and relativePoint == data.geometryPoint[3]
+                and xOffset == data.geometryPoint[4]
+                and yOffset == data.geometryPoint[5]
+        end
+        if not pointMatches then
+            data.applyingGeometry = true
+            texture:ClearAllPoints()
+            texture:SetPoint(
+                data.geometryPoint[1], data.geometryPoint[2],
+                data.geometryPoint[3], data.geometryPoint[4],
+                data.geometryPoint[5])
+            data.applyingGeometry = nil
+        end
+    end
     local currentWidth = texture.GetWidth and texture:GetWidth()
     local currentHeight = texture.GetHeight and texture:GetHeight()
     if currentWidth == width and currentHeight == height then return end
@@ -1237,6 +1265,7 @@ function NSkin:SkinIcon(target, options)
             or ("IconTexture:" .. tostring(texture))
         self:CaptureComponentBaseline(textureData.baselineID, texture, {
             size = true,
+            points = true,
             texCoords = true,
         })
     end
@@ -1244,6 +1273,7 @@ function NSkin:SkinIcon(target, options)
         data.active = nil
         self:RestoreComponentBaseline(textureData.baselineID, {
             size = true,
+            points = true,
             texCoords = true,
         })
         local oldBorder = data.border
@@ -1298,13 +1328,26 @@ function NSkin:SkinIcon(target, options)
             or (texture.GetHeight and texture:GetHeight())
         self:MarkComponentGeometryModified(
             textureData.baselineID, "size", true)
+        local points = baseline and baseline.points
+        if points and #points ~= 1 then
+            data.geometryPoint = points[1]
+                or { "CENTER", owner, "CENTER", 0, 0 }
+            self:MarkComponentGeometryModified(
+                textureData.baselineID, "points", true)
+        else
+            data.geometryPoint = nil
+        end
         data.presentationWidth = finalWidth
         data.presentationHeight = finalHeight
         ApplyIconGeometry(target)
-    elseif baseline and baseline.modified.size then
+    elseif baseline and (baseline.modified.size or baseline.modified.points) then
         data.presentationWidth = nil
         data.presentationHeight = nil
-        self:RestoreComponentBaseline(textureData.baselineID, { size = true })
+        data.geometryPoint = nil
+        self:RestoreComponentBaseline(textureData.baselineID, {
+            size = true,
+            points = true,
+        })
     end
 
     self:MarkComponentGeometryModified(
@@ -1396,7 +1439,7 @@ function NSkin:SkinIcon(target, options)
         end
         for _, method in ipairs({
             "SetSize", "SetWidth", "SetHeight", "SetTexture", "SetAtlas",
-            "SetTexCoord",
+            "SetTexCoord", "ClearAllPoints", "SetPoint", "SetAllPoints",
         }) do
             if type(texture[method]) == "function" then
                 pcall(_G.hooksecurefunc, texture, method, RefreshTextureCrop)

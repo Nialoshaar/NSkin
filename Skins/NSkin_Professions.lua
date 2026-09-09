@@ -402,9 +402,37 @@ local function SuppressCraftingRegions(owner, key, regions)
     end
 end
 
+local function AddProfessionButtonDecorations(regions, seen, button)
+    if not button then return end
+    AddRegion(regions, seen, button.SlotBackground)
+    AddRegion(regions, seen, button.IconBorder)
+    AddRegion(regions, seen, button.IconOverlay)
+    AddRegion(regions, seen, button.IconOverlay2)
+end
+
 local function GetProfessionItemButtonDecorations(button)
-    return CompactRegions(button and button.SlotBackground,
-        button and button.IconBorder)
+    local regions, seen = {}, {}
+    AddProfessionButtonDecorations(regions, seen, button)
+    return regions
+end
+
+local function GetProfessionButtonQuality(button)
+    local reagent = button and button.GetReagent and button:GetReagent()
+    if reagent and reagent.itemID and _G.C_Item
+        and type(_G.C_Item.GetItemQualityByID) == "function"
+    then
+        return _G.C_Item.GetItemQualityByID(reagent.itemID)
+    end
+    if reagent and reagent.currencyID and _G.C_CurrencyInfo
+        and type(_G.C_CurrencyInfo.GetCurrencyInfo) == "function"
+    then
+        local info = _G.C_CurrencyInfo.GetCurrencyInfo(reagent.currencyID)
+        return info and info.quality
+    end
+    if button and type(button.GetItemInfo) == "function" then
+        local ok, _, quality = pcall(button.GetItemInfo, button)
+        if ok then return quality end
+    end
 end
 
 local function GetProfessionItemButtonDescriptor(button)
@@ -413,6 +441,7 @@ local function GetProfessionItemButtonDescriptor(button)
         target = button,
         textureProvider = GetIconTexture,
         borderOwner = button,
+        qualityProvider = GetProfessionButtonQuality,
         nativeDecorationRegions = function(currentButton)
             return GetProfessionItemButtonDecorations(currentButton)
         end,
@@ -632,11 +661,34 @@ local function GetVisibleReagentSlots(form, reagentType)
     return visible
 end
 
+local function GetReagentIconSlots(form, reagentType)
+    local slots, seen = {}, {}
+    for _, slot in ipairs(GetReagentSlots(form, reagentType)) do
+        AddRegion(slots, seen, slot)
+    end
+    -- Enchant recipes create this dedicated slot outside reagentSlots and
+    -- present it in the OptionalReagents container.
+    local enchantSlot = form and form.enchantSlot
+    if reagentType == Enum.CraftingReagentType.Modifying and enchantSlot
+        and (not enchantSlot.IsShown or enchantSlot:IsShown())
+    then
+        AddRegion(slots, seen, enchantSlot)
+    end
+    return slots
+end
+
+local function GetVisibleReagentIconSlots(form, reagentType)
+    local visible = {}
+    for _, slot in ipairs(GetReagentIconSlots(form, reagentType)) do
+        if IsVisible(slot) then visible[#visible + 1] = slot end
+    end
+    return visible
+end
+
 local function GetReagentNativeDecorations(button)
     if not button then return {} end
     local decorations, seen = {}, {}
-    AddRegion(decorations, seen, button.SlotBackground)
-    AddRegion(decorations, seen, button.IconBorder)
+    AddProfessionButtonDecorations(decorations, seen, button)
     AddRegion(decorations, seen, button.CropFrame)
     -- Modifying-required slots use their normal/pushed textures as the
     -- functional large green plus. Other slots use those textures only for
@@ -650,31 +702,23 @@ local function GetReagentNativeDecorations(button)
     return decorations
 end
 
-local function GetReagentQuality(button)
-    local reagent = button and button.GetReagent and button:GetReagent()
-    local item = _G.C_Item
-    if not reagent or not reagent.itemID or not item
-        or type(item.GetItemQualityByID) ~= "function"
-    then return nil end
-    return item.GetItemQualityByID(reagent.itemID)
-end
-
 local function GetReagentIconDescriptors(form, reagentType)
     local descriptors = {}
-    for _, slot in ipairs(GetReagentSlots(form, reagentType)) do
+    for _, slot in ipairs(GetReagentIconSlots(form, reagentType)) do
         local button = slot and slot.Button
         if button then
             descriptors[#descriptors + 1] = {
                 target = button,
                 textureProvider = GetIconTexture,
                 borderOwner = button,
-                qualityProvider = GetReagentQuality,
+                qualityProvider = GetProfessionButtonQuality,
                 nativeDecorationRegions = function(currentButton)
                     return GetReagentNativeDecorations(currentButton)
                 end,
                 hoverRegions = function(currentButton)
                     local overlay = currentButton and currentButton.InputOverlay
                     return CompactRegions(
+                        currentButton and currentButton.HighlightTexture,
                         overlay and overlay.AddIconHighlight)
                 end,
                 getHovered = IsHovered,
@@ -722,11 +766,13 @@ local function RegisterReagentGroup(frame, form, reagentType, id, label)
                     category = "CUSTOMIZE" },
             },
             highlightRegions = function()
-                return GetVisibleReagentSlots(form, reagentType)
+                return GetVisibleReagentIconSlots(form, reagentType)
             end,
             pixelBorderTargets = function()
                 local targets = {}
-                for _, slot in ipairs(GetVisibleReagentSlots(form, reagentType)) do
+                for _, slot in ipairs(GetVisibleReagentIconSlots(
+                    form, reagentType))
+                do
                     if slot.Button then targets[#targets + 1] = slot.Button end
                 end
                 return targets
@@ -734,7 +780,7 @@ local function RegisterReagentGroup(frame, form, reagentType, id, label)
             isEditable = reagentType == Enum.CraftingReagentType.Finishing
                 and NeverEditable or function()
                 return IsVisible(frame)
-                    and #GetVisibleReagentSlots(form, reagentType) > 0
+                    and #GetVisibleReagentIconSlots(form, reagentType) > 0
             end,
         }) ~= nil
     else
@@ -1122,6 +1168,7 @@ end
 local EQUIPMENT_SLOT_KEYS = {
     "Prof0ToolSlot", "Prof1ToolSlot", "Prof0Gear0Slot",
     "Prof1Gear0Slot", "Prof0Gear1Slot", "Prof1Gear1Slot",
+    "CookingToolSlot", "CookingGear0Slot", "FishingToolSlot",
 }
 
 local function GetEquipmentSlots(page, visibleOnly)
@@ -1136,9 +1183,11 @@ local function GetEquipmentSlots(page, visibleOnly)
 end
 
 local function GetEquipmentNativeDecorations(button)
-    return CompactRegions(button and button.SlotBackground,
-        button and button.IconBorder,
-        GetButtonStateTexture(button, "GetNormalTexture", "NormalTexture"))
+    local decorations, seen = {}, {}
+    AddProfessionButtonDecorations(decorations, seen, button)
+    AddRegion(decorations, seen, GetButtonStateTexture(
+        button, "GetNormalTexture", "NormalTexture"))
+    return decorations
 end
 
 local function GetEquipmentIconDescriptors(page)

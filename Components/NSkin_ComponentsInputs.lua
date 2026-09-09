@@ -3,21 +3,36 @@ local _, NSkin = ...
 local COMPONENT_STATE = "components"
 local function ShowFlatButtonGlow(button)
     local data = NSkin:GetSkinData(button, COMPONENT_STATE, false)
-    if data and data.hoverGlow and (not button.IsEnabled or button:IsEnabled()) then
+    if data and data.hoverGlow and not data.hoverGlowManaged
+        and (not button.IsEnabled or button:IsEnabled())
+    then
         data.hoverGlow:Show()
     end
 end
 
 local function HideFlatButtonGlow(button)
     local data = NSkin:GetSkinData(button, COMPONENT_STATE, false)
-    if data and data.hoverGlow then data.hoverGlow:Hide() end
+    if data and data.hoverGlow and not data.hoverGlowManaged then
+        data.hoverGlow:Hide()
+    end
 end
 
-function NSkin:CreateFlatButtonGlow(button, alpha)
+local function EnsureFlatButtonGlowHooks(button, data)
+    if data.hoverGlowHooksInstalled or not button.HookScript then return end
+    button:HookScript("OnEnter", ShowFlatButtonGlow)
+    button:HookScript("OnLeave", HideFlatButtonGlow)
+    data.hoverGlowHooksInstalled = true
+end
+
+function NSkin:CreateFlatButtonGlow(button, alpha, managed)
     if not button or not button.CreateTexture then return nil end
     local data = self:GetSkinData(button, COMPONENT_STATE)
+    data.hoverGlowManaged = managed == true
     if data.hoverGlow then
         self:SetOwnedTextureColor(data.hoverGlow, 1, 1, 1, alpha or 0.10)
+        if not data.hoverGlowManaged then
+            EnsureFlatButtonGlowHooks(button, data)
+        end
         return data.hoverGlow
     end
 
@@ -28,10 +43,7 @@ function NSkin:CreateFlatButtonGlow(button, alpha)
     glow:Hide()
     data.hoverGlow = glow
 
-    if button.HookScript then
-        button:HookScript("OnEnter", ShowFlatButtonGlow)
-        button:HookScript("OnLeave", HideFlatButtonGlow)
-    end
+    if not data.hoverGlowManaged then EnsureFlatButtonGlowHooks(button, data) end
 
     return glow
 end

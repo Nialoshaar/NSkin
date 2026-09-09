@@ -2671,7 +2671,7 @@ local SHARED_SKIN_ADAPTERS = {
             "shape", "nativeDecorationRegions", "nativeBorderRegions",
             "hoverRegion", "hoverRegions", "selectedRegion",
             "getHovered", "getSelected",
-            "interactionAlpha",
+            "interactionAlpha", "reset",
         }) do
             if options[key] == nil then options[key] = definition[key] end
         end
@@ -2775,7 +2775,7 @@ local TYPED_SKIN_FIELDS_BY_TYPE = {
         "nativeDecorationRegions", "nativeBorderRegions",
         "hoverRegion", "hoverRegions", "selectedRegion",
         "getHovered", "getSelected",
-        "interactionAlpha",
+        "interactionAlpha", "reset",
     },
     TEXT = { "numberFormat", "suffixIcon" },
 }
@@ -2908,19 +2908,27 @@ function NSkin:RegisterEditBox(definition)
     return self:RegisterTypedElement("EDIT_BOX", definition)
 end
 
-function NSkin:RegisterIcon(definition)
-    if type(definition) ~= "table" or type(definition.id) ~= "string"
-        or definition.id == "" or not definition.target
-    then return nil end
+local function ResolveIconDefinitionValue(value, target, definition)
+    if type(value) ~= "function" then return value end
+    local ok, resolved = pcall(value, target, definition)
+    return ok and resolved or nil
+end
 
+local function NormalizeIconDefinition(self, definition, context)
+    if type(definition) ~= "table" or not definition.target then return nil end
+    context = context or {}
     -- The caller's target is the logical control that supplies icon state and
     -- quality. The texture is the presentation geometry Skinning Mode edits.
     -- Keeping those roles separate prevents an icon size/position override
     -- from resizing or moving its containing Button/Frame.
     local iconTarget = definition.iconTarget or definition.target
     local skinOptions = definition.skinOptions
-    local texture = definition.texture
-        or (skinOptions and skinOptions.texture)
+    local texture = ResolveIconDefinitionValue(
+        definition.textureProvider or definition.getTexture
+            or definition.texture
+            or (skinOptions and (skinOptions.textureProvider
+                or skinOptions.getTexture or skinOptions.texture)),
+        iconTarget, definition)
     if not texture then
         if iconTarget.GetObjectType
             and iconTarget:GetObjectType() == "Texture"
@@ -2928,21 +2936,42 @@ function NSkin:RegisterIcon(definition)
             texture = iconTarget
         else
             texture = iconTarget.Icon or iconTarget.icon
-                or iconTarget.iconTexture
+                or iconTarget.IconTexture or iconTarget.iconTexture
         end
     end
-    if not texture then return nil end
+    if not texture or not texture.SetTexCoord
+        or (texture.IsForbidden and texture:IsForbidden())
+    then return nil end
 
     local normalized = {}
     for key, value in pairs(definition) do normalized[key] = value end
+    if skinOptions then
+        normalized.skinOptions = {}
+        for key, value in pairs(skinOptions) do
+            normalized.skinOptions[key] = value
+        end
+        normalized.skinOptions.texture = texture
+        normalized.skinOptions.textureProvider = nil
+        normalized.skinOptions.getTexture = nil
+    end
+    normalized.id = context.id or definition.id
+    normalized.appearanceWindowID = context.appearanceWindowID
+        or definition.appearanceWindowID
     normalized.iconTarget = iconTarget
     normalized.target = texture
     normalized.texture = texture
     normalized.iconTextureBaselineID = definition.iconTextureBaselineID
-        or (definition.id .. ":texture")
+        or definition.baselineID
+    if not context.groupChild and not normalized.iconTextureBaselineID
+        and type(normalized.id) == "string"
+    then
+        normalized.iconTextureBaselineID = normalized.id .. ":texture"
+    end
 
-    local borderOwner = definition.borderOwner
-        or (skinOptions and skinOptions.borderOwner)
+    local borderOwner = ResolveIconDefinitionValue(
+        definition.borderOwnerProvider or definition.borderOwner
+            or (skinOptions and skinOptions.borderOwner),
+        iconTarget, definition)
     if not borderOwner then
         if iconTarget.GetObjectType
             and iconTarget:GetObjectType() ~= "Texture"
@@ -2953,15 +2982,30 @@ function NSkin:RegisterIcon(definition)
         end
     end
     normalized.borderOwner = borderOwner
-    if definition.highlightRegions == nil then
+    if normalized.skinOptions then
+        normalized.skinOptions.borderOwner = borderOwner
+    end
+    if context.expose ~= false and definition.highlightRegions == nil then
         normalized.highlightRegions = { texture }
     end
-    if definition.pixelBorderTargets == nil and borderOwner then
+    if context.expose ~= false and definition.pixelBorderTargets == nil
+        and borderOwner
+    then
         normalized.pixelBorderTargets = { borderOwner }
     end
+    return normalized
+end
+
+function NSkin:RegisterIcon(definition)
+    if type(definition) ~= "table" or type(definition.id) ~= "string"
+        or definition.id == "" or not definition.target
+    then return nil end
+    local normalized = NormalizeIconDefinition(self, definition)
+    if not normalized then return nil end
     local element = self:RegisterTypedElement("ICON", normalized)
     if element then
-        local state = self:GetSkinData(iconTarget, "iconComponent", false)
+        local state = self:GetSkinData(
+            normalized.iconTarget, "iconComponent", false)
         if state and state.active ~= true then
             self:RefreshTypedElementAppearance(element)
         end
@@ -2970,12 +3014,6 @@ function NSkin:RegisterIcon(definition)
 end
 
 local ICON_GROUP_COMPONENT_STATE = "iconGroupChildren:"
-
-local function ResolveIconGroupValue(value, target, descriptor)
-    if type(value) ~= "function" then return value end
-    local ok, resolved = pcall(value, target, descriptor)
-    return ok and resolved or nil
-end
 
 local function ResolveIconGroupChildren(definition)
     local children = definition.children
@@ -2987,21 +3025,20 @@ local function ResolveIconGroupChildren(definition)
 end
 
 local function ResetIconGroupChild(self, child)
-    if not child or not child.texture or not child.target then return end
-    self:SkinIcon(child.target, {
-        texture = child.texture,
-        borderOwner = child.borderOwner,
-        borderKey = child.borderKey,
-        baselineID = child.baselineID,
-        reset = true,
-    })
+    local normalized = child and child.normalized
+    if not normalized then return end
+    local resetDefinition = {}
+    for key, value in pairs(normalized) do resetDefinition[key] = value end
+    resetDefinition.reset = true
+    self:SkinTypedElement("ICON", resetDefinition)
     if child.placeholder then child.placeholder:Hide() end
     child.texture = nil
+    child.normalized = nil
     child.active = nil
 end
 
 local function ResolveIconGroupTexture(self, state, target, descriptor)
-    local texture = ResolveIconGroupValue(
+    local texture = ResolveIconDefinitionValue(
         descriptor.textureProvider or descriptor.getTexture
             or descriptor.texture,
         target, descriptor)
@@ -3055,10 +3092,6 @@ function NSkin:SkinIconGroupChildren(definition)
     local reset = definition.reset == true
     if not reset then groupState.definition = definition end
     local active = {}
-    local style = self:GetAppearanceStyle(
-        "icon", definition.appearanceWindowID, definition.id)
-    local borderColor = self:GetAppearanceBorderColor(
-        "icon", style, definition.appearanceWindowID, definition.id)
     local descriptors = reset and {} or ResolveIconGroupChildren(definition)
     for _, descriptor in ipairs(descriptors) do
         local target = descriptor and descriptor.target
@@ -3075,18 +3108,26 @@ function NSkin:SkinIconGroupChildren(definition)
                 ResetIconGroupChild(self, child)
             end
             if texture then
-                local options = {}
-                for key, value in pairs(descriptor) do options[key] = value end
-                options.texture = texture
-                options.style = style
-                options.borderColor = descriptor.borderColor or borderColor
-                options.borderOwner = descriptor.borderOwner or target
+                if texture == child.placeholder then texture:Show() end
+                local childDefinition = {}
+                for key, value in pairs(descriptor) do
+                    childDefinition[key] = value
+                end
+                childDefinition.target = target
+                childDefinition.texture = texture
+                childDefinition.textureProvider = nil
+                childDefinition.getTexture = nil
+                local normalized = NormalizeIconDefinition(self,
+                    childDefinition, {
+                        id = definition.id,
+                        appearanceWindowID = definition.appearanceWindowID,
+                        groupChild = true,
+                        expose = false,
+                    })
                 child.texture = texture
-                child.borderOwner = options.borderOwner
-                child.borderKey = options.borderKey
-                child.baselineID = options.baselineID
-                child.active = true
-                self:SkinIcon(target, options)
+                child.normalized = normalized
+                child.active = normalized ~= nil
+                if normalized then self:SkinTypedElement("ICON", normalized) end
             end
             if target.HookScript then
                 for _, script in ipairs(descriptor.refreshOn or {}) do
