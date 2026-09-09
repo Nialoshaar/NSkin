@@ -726,6 +726,14 @@ local function GetReagentIconSlots(form, reagentType)
     for _, slot in ipairs(GetReagentSlots(form, reagentType)) do
         AddRegion(slots, seen, slot)
     end
+    -- Salvage recipes create this dedicated slot outside reagentSlots and
+    -- present it in the normal Reagents container.
+    local salvageSlot = form and form.salvageSlot
+    if reagentType == Enum.CraftingReagentType.Basic and salvageSlot
+        and (not salvageSlot.IsShown or salvageSlot:IsShown())
+    then
+        AddRegion(slots, seen, salvageSlot)
+    end
     -- Enchant recipes create this dedicated slot outside reagentSlots and
     -- present it in the OptionalReagents container.
     local enchantSlot = form and form.enchantSlot
@@ -850,6 +858,52 @@ local function RegisterReagentGroup(frame, form, reagentType, id, label)
         NSkin:NotifySkinningElementBoundsChanged(id)
     end
     return registeredCraftingGroups[id]
+end
+
+local function IsFrameOwnedBy(frame, owner)
+    local current = frame
+    while current do
+        if current == owner then return true end
+        if type(current.GetParent) ~= "function" then return false end
+        current = current:GetParent()
+    end
+    return false
+end
+
+local function IsReagentSlotReady(slot)
+    local continuable = slot and slot.continuableContainer
+    if continuable and type(continuable.AreAnyLoadsOutstanding) == "function"
+        and continuable:AreAnyLoadsOutstanding()
+    then
+        return false
+    end
+    return slot and slot.Button
+        and GetReagentSlotSectionType(slot) ~= nil
+end
+
+local function GetReagentGroupIDForSlot(slot)
+    local reagentType = GetReagentSlotSectionType(slot)
+    if reagentType == Enum.CraftingReagentType.Basic then
+        return CraftingIDs.Reagents
+    elseif reagentType == Enum.CraftingReagentType.Finishing then
+        return CraftingIDs.FinishingReagents
+    elseif reagentType == Enum.CraftingReagentType.Modifying
+        or (Enum.CraftingReagentType.Optional ~= nil
+            and reagentType == Enum.CraftingReagentType.Optional)
+    then
+        return CraftingIDs.OptionalReagents
+    end
+end
+
+local function RefreshConfiguredReagentSlot(form, slot)
+    if not IsFrameOwnedBy(slot, form) or not IsReagentSlotReady(slot) then
+        return false
+    end
+    local id = GetReagentGroupIDForSlot(slot)
+    if not id or not registeredCraftingGroups[id] then return false end
+    NSkin:RefreshIconGroup(id)
+    NSkin:NotifySkinningElementBoundsChanged(id)
+    return true
 end
 
 local function GetStatLines(details)
@@ -1663,6 +1717,12 @@ function CraftingSkin:HookLifecycle(frame, page, form)
                 ApplyQualityMaker(frame, form)
                 ApplyOutputIcon(frame, form)
                 CraftingSkin:ApplyConcentration(frame, page, form)
+            end)
+        end
+        local reagentSlotMixin = _G.ProfessionsReagentSlotMixin
+        if reagentSlotMixin and type(reagentSlotMixin.Update) == "function" then
+            pcall(_G.hooksecurefunc, reagentSlotMixin, "Update", function(slot)
+                RefreshConfiguredReagentSlot(form, slot)
             end)
         end
         if type(_G.OpenProfessionsItemFlyout) == "function" then

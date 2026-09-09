@@ -1243,6 +1243,42 @@ local function ApplyIconGeometry(target)
     data.applyingGeometry = nil
 end
 
+local function ApplyIconBorderAppearance(self, data, target)
+    local border = data and data.border
+    local style = data and data.borderStyle
+    if not border or not style then return false end
+    local borderColor = data.configuredBorderColor
+        or self:GetResolvedAppearanceColor(style, "border")
+        or self:GetComponentBorderColor("icon", style)
+        or { 1, 1, 1, 1 }
+    if data.borderMode == "quality" then
+        local quality
+        if type(data.qualityProvider) == "function" then
+            local ok, provided = pcall(data.qualityProvider, target)
+            if ok then quality = provided end
+        else
+            quality = data.quality
+        end
+        local item = _G.C_Item
+        if quality ~= nil and item and item.GetItemQualityColor then
+            local red, green, blue = item.GetItemQualityColor(quality)
+            if red then borderColor = { red, green, blue, 1 } end
+        end
+    end
+    self:SetPixelBorderColor(border, unpack(borderColor))
+    self:SetPixelBorderShown(border,
+        data.showBorder ~= false and (tonumber(data.borderSize) or 0) > 0)
+    return true
+end
+
+local function RefreshActiveIconPresentation(target)
+    local data = NSkin:GetSkinData(target, ICON_COMPONENT_STATE, false)
+    if not data or not data.active then return end
+    ApplyIconGeometry(target)
+    ApplyIconTexCoords(target)
+    ApplyIconBorderAppearance(NSkin, data, target)
+end
+
 function NSkin:SkinIcon(target, options)
     if not target then return false end
     options = options or {}
@@ -1289,6 +1325,11 @@ function NSkin:SkinIcon(target, options)
             if state.active then RestoreIconInteractionRegion(state) end
         end
         if data.interactionGlow then data.interactionGlow:Hide() end
+        data.borderStyle = nil
+        data.configuredBorderColor = nil
+        data.borderMode = nil
+        data.qualityProvider = nil
+        data.quality = nil
         return true
     end
 
@@ -1401,30 +1442,27 @@ function NSkin:SkinIcon(target, options)
     self:SetPixelBorderSize(border, math.max(1, borderSize))
     self:SetPixelBorderPadding(border,
         tonumber(options.borderPadding) or tonumber(style.borderPadding) or 0)
-
-    local borderColor = options.borderColor
-        or self:GetResolvedAppearanceColor(style, "border")
-        or self:GetComponentBorderColor("icon", style)
-        or { 1, 1, 1, 1 }
-    local borderMode = string.lower(tostring(
+    data.borderStyle = style
+    data.configuredBorderColor = options.borderColor
+    data.borderMode = string.lower(tostring(
         options.borderMode or style.borderMode or "custom"))
-    local quality
-    if borderMode == "quality" then
-        if type(options.qualityProvider) == "function" then
-            local ok, provided = pcall(options.qualityProvider, target)
-            if ok then quality = provided end
-        else
-            quality = options.quality
+    data.qualityProvider = options.qualityProvider
+    data.quality = options.quality
+    data.showBorder = options.showBorder
+    data.borderSize = borderSize
+    ApplyIconBorderAppearance(self, data, target)
+
+    if not data.contentMethodHooksInstalled and _G.hooksecurefunc then
+        for _, method in ipairs({
+            "SetItem", "SetReagent", "Clear", "Reset",
+        }) do
+            if type(target[method]) == "function" then
+                pcall(_G.hooksecurefunc, target, method,
+                    RefreshActiveIconPresentation)
+            end
         end
-        local item = _G.C_Item
-        if quality ~= nil and item and item.GetItemQualityColor then
-            local red, green, blue = item.GetItemQualityColor(quality)
-            if red then borderColor = { red, green, blue, 1 } end
-        end
+        data.contentMethodHooksInstalled = true
     end
-    self:SetPixelBorderColor(border, unpack(borderColor))
-    self:SetPixelBorderShown(border,
-        options.showBorder ~= false and borderSize > 0)
 
     local sizeWatchTarget = target.HookScript and target or owner
     if not data.sizeHooked and sizeWatchTarget and sizeWatchTarget.HookScript then
@@ -1437,13 +1475,15 @@ function NSkin:SkinIcon(target, options)
         or setmetatable({}, { __mode = "k" })
     textureData.appearanceTargets[target] = true
     if not textureData.appearanceHooked and _G.hooksecurefunc then
-        local function RefreshTextureCrop()
+        local function RefreshTexturePresentation()
             for appearanceTarget in pairs(textureData.appearanceTargets) do
                 local state = NSkin:GetSkinData(
                     appearanceTarget, ICON_COMPONENT_STATE, false)
                 if state and state.texture == texture then
                     ApplyIconGeometry(appearanceTarget)
                     ApplyIconTexCoords(appearanceTarget)
+                    ApplyIconBorderAppearance(
+                        NSkin, state, appearanceTarget)
                 end
             end
         end
@@ -1452,7 +1492,8 @@ function NSkin:SkinIcon(target, options)
             "SetTexCoord", "ClearAllPoints", "SetPoint", "SetAllPoints",
         }) do
             if type(texture[method]) == "function" then
-                pcall(_G.hooksecurefunc, texture, method, RefreshTextureCrop)
+                pcall(_G.hooksecurefunc, texture, method,
+                    RefreshTexturePresentation)
             end
         end
         textureData.appearanceHooked = true

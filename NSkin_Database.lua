@@ -298,7 +298,7 @@ end
 local _, NSkin = ...
 
 local DEFAULT_PROFILE = "Default"
-local CURRENT_DATABASE_VERSION = 8
+local CURRENT_DATABASE_VERSION = 9
 local activeProfile
 
 local function CopyTable(source)
@@ -510,6 +510,32 @@ local function RunMigrations(database, activeProfileTable)
                 for _, styles in pairs(scope or {}) do
                     MigrateIconStyle(styles.icon)
                 end
+            end
+        end
+    end
+    if version < 9 then
+        -- These Professions ICON groups were previously refreshed outside the
+        -- first-class ICON appearance path. Profiles created while that path
+        -- was active can contain complete element snapshots which permanently
+        -- mask later Global ICON changes. Drop only those legacy ICON layers;
+        -- new element overrides remain sparse and inherit normally.
+        local legacyIconGroups = {
+            "Professions.Crafting.Reagents",
+            "Professions.Crafting.FinishingReagents",
+        }
+        for _, profile in pairs(database.profiles) do
+            local overrides = profile.appearanceOverrides
+            local elements = overrides and overrides.elements
+            for _, elementID in ipairs(legacyIconGroups) do
+                local element = elements and elements[elementID]
+                if element then
+                    element.icon = nil
+                    if not next(element) then elements[elementID] = nil end
+                end
+            end
+            if elements and not next(elements) then overrides.elements = nil end
+            if overrides and not next(overrides) then
+                profile.appearanceOverrides = nil
             end
         end
     end
