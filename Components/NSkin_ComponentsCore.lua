@@ -2969,6 +2969,200 @@ function NSkin:RegisterIcon(definition)
     return element
 end
 
+local ICON_GROUP_COMPONENT_STATE = "iconGroupChildren:"
+
+local function ResolveIconGroupValue(value, target, descriptor)
+    if type(value) ~= "function" then return value end
+    local ok, resolved = pcall(value, target, descriptor)
+    return ok and resolved or nil
+end
+
+local function ResolveIconGroupChildren(definition)
+    local children = definition.children
+    if type(children) ~= "function" then
+        return type(children) == "table" and children or {}
+    end
+    local ok, resolved = pcall(children, definition)
+    return ok and type(resolved) == "table" and resolved or {}
+end
+
+local function ResetIconGroupChild(self, child)
+    if not child or not child.texture or not child.target then return end
+    self:SkinIcon(child.target, {
+        texture = child.texture,
+        borderOwner = child.borderOwner,
+        borderKey = child.borderKey,
+        baselineID = child.baselineID,
+        reset = true,
+    })
+    if child.placeholder then child.placeholder:Hide() end
+    child.texture = nil
+    child.active = nil
+end
+
+local function ResolveIconGroupTexture(self, state, target, descriptor)
+    local texture = ResolveIconGroupValue(
+        descriptor.textureProvider or descriptor.getTexture
+            or descriptor.texture,
+        target, descriptor)
+    if not texture then
+        if target.GetObjectType and target:GetObjectType() == "Texture" then
+            texture = target
+        else
+            texture = target.Icon or target.icon or target.IconTexture
+                or target.iconTexture
+        end
+    end
+    if texture and ((texture.IsForbidden and texture:IsForbidden())
+        or not texture.SetTexCoord)
+    then
+        texture = nil
+    end
+    if texture then
+        if state.placeholder then state.placeholder:Hide() end
+        return texture
+    end
+    if descriptor.allowEmpty == false or not target.CreateTexture
+        or (target.IsForbidden and target:IsForbidden())
+        or (_G.InCombatLockdown and _G.InCombatLockdown())
+    then return nil end
+    if not state.placeholder then
+        state.placeholder = target:CreateTexture(nil, "ARTWORK", nil, -8)
+        state.placeholder:SetColorTexture(0, 0, 0, 0)
+        self:ConfigureOwnedPixelTexture(state.placeholder)
+    end
+    local anchor = descriptor.presentationAnchor or target
+    state.placeholder:ClearAllPoints()
+    state.placeholder:SetAllPoints(anchor)
+    state.placeholder:Show()
+    return state.placeholder
+end
+
+-- Applies the normal shared ICON contract to provider-supplied children while
+-- retaining one external logical element. State lives on the group owner so
+-- pooled children and swapped presentation textures can be reset precisely.
+function NSkin:SkinIconGroupChildren(definition)
+    if type(definition) ~= "table" or type(definition.id) ~= "string"
+        or definition.id == "" or type(definition.appearanceWindowID) ~= "string"
+    then return false end
+    local owner = definition.iconStateOwner or definition.target
+    if not owner then return false end
+    local groupState = self:GetSkinData(
+        owner, ICON_GROUP_COMPONENT_STATE .. definition.id)
+    groupState.children = groupState.children
+        or setmetatable({}, { __mode = "k" })
+
+    local reset = definition.reset == true
+    if not reset then groupState.definition = definition end
+    local active = {}
+    local style = self:GetAppearanceStyle(
+        "icon", definition.appearanceWindowID, definition.id)
+    local borderColor = self:GetAppearanceBorderColor(
+        "icon", style, definition.appearanceWindowID, definition.id)
+    local descriptors = reset and {} or ResolveIconGroupChildren(definition)
+    for _, descriptor in ipairs(descriptors) do
+        local target = descriptor and descriptor.target
+        if target and not (target.IsForbidden and target:IsForbidden()) then
+            local child = groupState.children[target]
+            if not child then
+                child = { target = target, refreshScripts = {} }
+                groupState.children[target] = child
+            end
+            active[target] = true
+            local texture = ResolveIconGroupTexture(
+                self, child, target, descriptor)
+            if child.texture and child.texture ~= texture then
+                ResetIconGroupChild(self, child)
+            end
+            if texture then
+                local options = {}
+                for key, value in pairs(descriptor) do options[key] = value end
+                options.texture = texture
+                options.style = style
+                options.borderColor = descriptor.borderColor or borderColor
+                options.borderOwner = descriptor.borderOwner or target
+                child.texture = texture
+                child.borderOwner = options.borderOwner
+                child.borderKey = options.borderKey
+                child.baselineID = options.baselineID
+                child.active = true
+                self:SkinIcon(target, options)
+            end
+            if target.HookScript then
+                for _, script in ipairs(descriptor.refreshOn or {}) do
+                    if not child.refreshScripts[script] then
+                        target:HookScript(script, function()
+                            local current = groupState.definition
+                            if current then NSkin:SkinIconGroupChildren(current) end
+                        end)
+                        child.refreshScripts[script] = true
+                    end
+                end
+            end
+        end
+    end
+    for target, child in pairs(groupState.children) do
+        if child.active and not active[target] then
+            ResetIconGroupChild(self, child)
+        end
+    end
+    if type(definition.refreshContent) == "function" and not reset then
+        definition.refreshContent(definition, descriptors)
+    end
+    -- A locally resolved group refresh is successful even when every current
+    -- child is unavailable/forbidden. Returning false here would escalate a
+    -- harmless pooled or hidden state into the broad appearance fallback.
+    return true
+end
+
+function NSkin:RefreshIconGroup(elementOrID)
+    local element = type(elementOrID) == "table" and elementOrID
+        or self:GetSkinningElement(elementOrID)
+    return element and element.iconGroup == true
+        and self:SkinIconGroupChildren(element) or false
+end
+
+function NSkin:ResetIconGroup(elementOrID)
+    local element = type(elementOrID) == "table" and elementOrID
+        or self:GetSkinningElement(elementOrID)
+    if not element or element.iconGroup ~= true then return false end
+    local reset = {}
+    for key, value in pairs(element) do reset[key] = value end
+    reset.reset = true
+    return self:SkinIconGroupChildren(reset)
+end
+
+function NSkin:RegisterIconGroup(definition)
+    if type(definition) ~= "table" or type(definition.id) ~= "string"
+        or definition.id == "" or not definition.target
+        or not definition.children
+    then return nil end
+    local normalized = {}
+    for key, value in pairs(definition) do normalized[key] = value end
+    normalized.kind = "ICON"
+    normalized.iconGroup = true
+    normalized.draggable = definition.draggable == true
+    normalized.editorOptions = definition.editorOptions or {
+        { id = "shared.iconAppearance", label = "Icon",
+            presentation = "INLINE", category = "CUSTOMIZE" },
+    }
+    normalized.refreshAppearance = function(_, element)
+        return NSkin:SkinIconGroupChildren(element)
+    end
+    normalized.refreshLayout = function(_, element)
+        if not NSkin:SkinIconGroupChildren(element) then return false end
+        NSkin:NotifySkinningElementBoundsChanged(element.id)
+        NSkin:ResnapPixelBordersForElement(element)
+        return true
+    end
+    if not self:RegisterSkinningElement(normalized.id, normalized) then
+        return nil
+    end
+    local element = self:GetSkinningElement(normalized.id)
+    self:SkinIconGroupChildren(element)
+    return element
+end
+
 function NSkin:RegisterColumnHeader(definition)
     return self:RegisterTypedElement("COLUMN_HEADER", definition)
 end
