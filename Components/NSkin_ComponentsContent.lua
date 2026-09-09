@@ -937,6 +937,7 @@ local function ConcealIconNativeDecoration(data, state)
 end
 
 local function ApplyIconNativeDecorations(data, target, texture, declared)
+    data.nativeDecorationDeclaration = declared
     local activeRegions = {}
     for _, region in ipairs(ResolveIconNativeDecorationRegions(
         declared, target, texture))
@@ -979,6 +980,28 @@ local function ApplyIconNativeDecorations(data, target, texture, declared)
             state.hooked = true
         end
     end
+end
+
+local function GetIconButtonStateTexture(target, method, ...)
+    if not target then return nil end
+    if type(target[method]) == "function" then
+        local ok, region = pcall(target[method], target)
+        if ok and region then return region end
+    end
+    for index = 1, select("#", ...) do
+        local region = target[select(index, ...)]
+        if region then return region end
+    end
+end
+
+local function ResolveIconInteractionRegion(value, target, texture)
+    if type(value) ~= "function" then return value end
+    local ok, region = pcall(value, target, texture)
+    return ok and region or nil
+end
+
+local function IsIconTargetHovered(target)
+    return target and target.IsMouseOver and target:IsMouseOver() or false
 end
 
 local function RestoreIconInteractionRegion(state)
@@ -1037,8 +1060,18 @@ local function ConcealIconInteractionRegion(data, state)
 end
 
 local function ApplyIconInteraction(self, data, target, texture, options)
-    local hoverRegion = options.hoverRegion
-    local selectedRegion = options.selectedRegion
+    data.interactionOptions = options
+    local configuredHover = ResolveIconInteractionRegion(
+        options.hoverRegion, target, texture)
+    local configuredHoverRegions = ResolveIconNativeDecorationRegions(
+        options.hoverRegions, target, texture)
+    local nativeHover = GetIconButtonStateTexture(target,
+        "GetHighlightTexture", "HighlightTexture", "highlightTexture",
+        "Highlight", "highlight")
+    local hoverRegion = nativeHover or configuredHover
+        or configuredHoverRegions[1]
+    local selectedRegion = ResolveIconInteractionRegion(
+        options.selectedRegion, target, texture)
     local active = hoverRegion ~= nil or selectedRegion ~= nil
         or type(options.getHovered) == "function"
         or type(options.getSelected) == "function"
@@ -1048,10 +1081,15 @@ local function ApplyIconInteraction(self, data, target, texture, options)
     data.hoverRegion = hoverRegion
     data.selectedRegion = selectedRegion
     data.getHovered = options.getHovered
+        or (hoverRegion and IsIconTargetHovered or nil)
     data.getSelected = options.getSelected
     data.interactionRegionStates = data.interactionRegionStates or {}
 
     local declared = {}
+    for _, region in ipairs(configuredHoverRegions) do
+        declared[region] = true
+    end
+    if configuredHover then declared[configuredHover] = true end
     if hoverRegion then declared[hoverRegion] = true end
     if selectedRegion then declared[selectedRegion] = true end
     for region, state in pairs(data.interactionRegionStates) do
@@ -1116,10 +1154,26 @@ local function ApplyIconInteraction(self, data, target, texture, options)
         local function RefreshInteractionMethod(changedTarget)
             RefreshIconInteractionGlow(changedTarget)
         end
-        for _, method in ipairs({ "SetChecked", "SetEnabled" }) do
+        for _, method in ipairs({
+            "SetChecked", "SetEnabled", "SetHighlightTexture",
+            "ClearHighlightTexture",
+        }) do
             if type(target[method]) == "function" then
-                pcall(_G.hooksecurefunc, target, method,
-                    RefreshInteractionMethod)
+                if method == "SetHighlightTexture"
+                    or method == "ClearHighlightTexture"
+                then
+                    pcall(_G.hooksecurefunc, target, method, function()
+                        local state = NSkin:GetSkinData(
+                            target, ICON_COMPONENT_STATE, false)
+                        if state and state.active and state.interactionOptions then
+                            ApplyIconInteraction(NSkin, state, target,
+                                state.texture, state.interactionOptions)
+                        end
+                    end)
+                else
+                    pcall(_G.hooksecurefunc, target, method,
+                        RefreshInteractionMethod)
+                end
             end
         end
         data.interactionMethodHooksInstalled = true
@@ -1258,6 +1312,26 @@ function NSkin:SkinIcon(target, options)
     ApplyIconTexCoords(target)
     ApplyIconNativeDecorations(data, target, texture,
         options.nativeDecorationRegions or options.nativeBorderRegions)
+    if not data.nativeDecorationControlHooksInstalled
+        and _G.hooksecurefunc
+    then
+        data.nativeDecorationControlHooksInstalled = true
+        for _, method in ipairs({
+            "SetNormalTexture", "SetNormalAtlas",
+            "SetPushedTexture", "SetPushedAtlas",
+        }) do
+            if type(target[method]) == "function" then
+                pcall(_G.hooksecurefunc, target, method, function()
+                    local state = NSkin:GetSkinData(
+                        target, ICON_COMPONENT_STATE, false)
+                    if state and state.active then
+                        ApplyIconNativeDecorations(state, target,
+                            state.texture, state.nativeDecorationDeclaration)
+                    end
+                end)
+            end
+        end
+    end
     ApplyIconInteraction(self, data, target, texture, options)
 
     local border = self:GetPixelBorder(owner, borderKey)

@@ -1,12 +1,139 @@
 local _, NSkin = ...
 
 local POPUP_COMPONENT_STATE = "iconSelectPopupComponent"
+local SHARED_POPUP_SURFACE_STATE = "sharedPopupSurfaceComponent"
 local SELECTOR_SLOT_TEXTURE = "interface/buttons/ui-emptyslot-disabled"
 local selectorSlotFileID
 local selectorSlotFileIDResolved = false
 
 local function IsVisible(frame)
     return frame and frame.IsVisible and frame:IsVisible() or false
+end
+
+local function RestorePopupDecoration(state)
+    local region = state and state.region
+    if not region then return end
+    state.active = nil
+    state.applying = true
+    if region.SetAlpha then region:SetAlpha(state.alpha) end
+    if state.shown ~= nil and region.SetShown then
+        region:SetShown(state.shown)
+    end
+    state.applying = nil
+end
+
+local function SuppressPopupDecorations(frame, regions, reset)
+    local data = NSkin:GetSkinData(frame, SHARED_POPUP_SURFACE_STATE)
+    data.nativeDecorationStates = data.nativeDecorationStates or {}
+    local declared = {}
+    for _, region in ipairs(regions or {}) do
+        if region then declared[region] = true end
+    end
+    for region, state in pairs(data.nativeDecorationStates) do
+        if state.active and (reset or not declared[region]) then
+            RestorePopupDecoration(state)
+        end
+    end
+    if reset then return end
+    for region in pairs(declared) do
+        local state = data.nativeDecorationStates[region]
+        if not state then
+            state = {
+                region = region,
+                alpha = region.GetAlpha and region:GetAlpha() or 1,
+                shown = region.IsShown and region:IsShown() or nil,
+            }
+            data.nativeDecorationStates[region] = state
+        end
+        state.active = true
+        local function Conceal()
+            if not state.active or state.applying then return end
+            state.applying = true
+            if region.SetAlpha then region:SetAlpha(0) end
+            state.applying = nil
+        end
+        Conceal()
+        if not state.hooked and _G.hooksecurefunc then
+            for _, method in ipairs({ "SetAlpha", "SetShown", "Show" }) do
+                if type(region[method]) == "function" then
+                    pcall(_G.hooksecurefunc, region, method, Conceal)
+                end
+            end
+            state.hooked = true
+        end
+    end
+end
+
+-- Shared popup composition for transient Blizzard panels whose adapters know
+-- their exact native decoration and child-control fields. The popup owns one
+-- surface while the existing shared components continue to own each control's
+-- appearance and interaction behavior.
+function NSkin:SkinPopupSurface(frame, options)
+    if not frame then return false end
+    options = options or {}
+    local windowStyle = options.windowStyle or self:GetStyle("window")
+    local borderColor = options.border
+        or self:GetAppearanceBorderColor("window", windowStyle)
+        or self:GetWindowBorderColor()
+    SuppressPopupDecorations(frame, options.nativeDecorationRegions,
+        options.reset == true)
+    local data = self:GetSkinData(frame, SHARED_POPUP_SURFACE_STATE)
+    if options.reset == true then
+        if data.background then data.background:Hide() end
+        local border = self:GetPixelBorder(
+            frame, "NSkinSharedPopupBackgroundBorder")
+        self:SetPixelBorderShown(border, false)
+        return true
+    end
+
+    data.background = self:CreateFlatBackground(frame,
+        "NSkinSharedPopupBackground",
+        self:GetResolvedAppearanceColor(windowStyle, "background"),
+        borderColor)
+    local border = self:GetPixelBorder(
+        frame, "NSkinSharedPopupBackgroundBorder")
+    self:SetPixelBorderColor(border, unpack(borderColor))
+    self:SetPixelBorderSize(border, tonumber(windowStyle.borderSize) or 1)
+    self:SetPixelBorderPadding(border,
+        tonumber(windowStyle.borderPadding) or 0)
+
+    if options.title then self:SkinText(options.title, options.textStyle) end
+    for _, textRegion in ipairs(options.textRegions or {}) do
+        self:SkinText(textRegion, options.textStyle)
+    end
+    if options.closeButton then
+        self:SkinWindowHeaderButton(options.closeButton, { glyph = "close" }, {
+            style = options.buttonStyle,
+            border = options.buttonBorder,
+        })
+    end
+    for _, button in ipairs(options.actionButtons or {}) do
+        self:SkinActionButton(button, {
+            style = options.buttonStyle,
+            border = options.buttonBorder,
+        })
+    end
+    for _, checkbox in ipairs(options.checkboxes or {}) do
+        self:SkinCheckButton(checkbox, {
+            style = options.buttonStyle,
+            border = options.buttonBorder,
+            text = checkbox.Text or checkbox.text,
+        })
+    end
+    for _, editBox in ipairs(options.editBoxes or {}) do
+        self:SkinEditBox(editBox, {
+            style = options.editBoxStyle,
+            border = options.editBoxBorder,
+            decrementButton = editBox.DecrementButton,
+            incrementButton = editBox.IncrementButton,
+            spinnerButtonStyle = options.buttonStyle,
+            spinnerButtonBorder = options.buttonBorder,
+        })
+    end
+    if options.scrollBar then
+        self:SkinScrollBar(options.scrollBar, options.scrollBarStyle)
+    end
+    return true
 end
 
 local function NormalizeTexturePath(path)

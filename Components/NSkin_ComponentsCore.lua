@@ -2669,7 +2669,8 @@ local SHARED_SKIN_ADAPTERS = {
             "borderSize", "borderPadding", "borderKey", "borderOwner",
             "outside", "showBorder", "width", "height", "zoom", "crop",
             "shape", "nativeDecorationRegions", "nativeBorderRegions",
-            "hoverRegion", "selectedRegion", "getHovered", "getSelected",
+            "hoverRegion", "hoverRegions", "selectedRegion",
+            "getHovered", "getSelected",
             "interactionAlpha",
         }) do
             if options[key] == nil then options[key] = definition[key] end
@@ -2772,7 +2773,8 @@ local TYPED_SKIN_FIELDS_BY_TYPE = {
         "borderSize", "borderPadding", "borderKey", "borderOwner", "outside",
         "showBorder", "width", "height", "zoom", "crop", "shape",
         "nativeDecorationRegions", "nativeBorderRegions",
-        "hoverRegion", "selectedRegion", "getHovered", "getSelected",
+        "hoverRegion", "hoverRegions", "selectedRegion",
+        "getHovered", "getSelected",
         "interactionAlpha",
     },
     TEXT = { "numberFormat", "suffixIcon" },

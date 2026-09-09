@@ -237,6 +237,7 @@ local CraftingIDs = {
     QualityMaker = "Professions.Crafting.QualityMaker",
     Concentrate = "Professions.Crafting.Concentrate",
     ConcentrationDisplay = "Professions.Crafting.ConcentrationDisplay",
+    OutputIcon = "Professions.Crafting.OutputIcon",
     Reagents = "Professions.Crafting.Reagents",
     OptionalReagents = "Professions.Crafting.OptionalReagents",
     FinishingReagents = "Professions.Crafting.FinishingReagents",
@@ -249,6 +250,9 @@ local CraftingIDs = {
     Create = "Professions.Crafting.Create",
     CreateAll = "Professions.Crafting.CreateAll",
     CreateCount = "Professions.Crafting.CreateCount",
+    Details = "Professions.Crafting.Details",
+    ReagentFlyout = "Professions.Crafting.ReagentFlyout",
+    QualityDialog = "Professions.Crafting.QualityDialog",
     TextPrefix = "Professions.Crafting.Text.",
 }
 
@@ -283,6 +287,10 @@ local function IsChecked(target)
     return target and target.GetChecked and target:GetChecked() == true or false
 end
 
+local function NeverEditable()
+    return false
+end
+
 local function GetIconTexture(target)
     if not target then return nil end
     return target.Icon or target.icon or target.IconTexture
@@ -306,6 +314,17 @@ local function GetButtonStateTexture(button, method, field)
     if not button then return nil end
     if button[field] then return button[field] end
     if type(button[method]) == "function" then return button[method](button) end
+end
+
+local function GetConcentrateDisplayedTexture(button)
+    if button and button.IsEnabled and not button:IsEnabled() then
+        local disabled = GetButtonStateTexture(
+            button, "GetDisabledTexture", "DisabledTexture")
+        if disabled and disabled.IsObjectType
+            and disabled:IsObjectType("Texture")
+        then return disabled end
+    end
+    return GetConcentrateIconTexture(button)
 end
 
 local function GetEquipmentQuality(button)
@@ -383,7 +402,195 @@ local function SuppressCraftingRegions(owner, key, regions)
     end
 end
 
-local function RegisterCraftingText(frame, id, label, target, priority)
+local function GetProfessionItemButtonDecorations(button)
+    return CompactRegions(button and button.SlotBackground,
+        button and button.IconBorder)
+end
+
+local function SkinProfessionItemButton(button, iconStyle, iconBorder)
+    local texture = GetIconTexture(button)
+    if not button or not texture then return false end
+    return NSkin:SkinIcon(button, {
+        style = iconStyle,
+        borderColor = iconBorder,
+        texture = texture,
+        borderOwner = button,
+        nativeDecorationRegions = GetProfessionItemButtonDecorations(button),
+        hoverRegion = GetButtonStateTexture(
+            button, "GetHighlightTexture", "HighlightTexture"),
+        getHovered = IsHovered,
+    }) == true
+end
+
+local function GetQualityDialogArtwork(dialog)
+    local regions = CompactRegions(dialog and dialog.NineSlice,
+        dialog and dialog.Bg)
+    if not dialog or not dialog.GetRegions then return regions end
+    for _, region in ipairs({ dialog:GetRegions() }) do
+        if region.IsObjectType and region:IsObjectType("Texture")
+            and region.GetAtlas
+            and region:GetAtlas() == "Professions-QualityWindow-Background"
+        then
+            regions[#regions + 1] = region
+        end
+    end
+    return regions
+end
+
+local function RegisterCraftingPopup(frame, id, label, popup, refresh,
+    appearanceStyles, appearanceTypeIDs)
+    if not popup then return false end
+    if not registeredCraftingGroups[id] then
+        registeredCraftingGroups[id] = NSkin:RegisterSkinningElement(id, {
+            module = "Professions", appearanceWindowID = IDs.Scope,
+            label = label, kind = "WINDOW", window = frame, target = popup,
+            priority = 175, draggable = false,
+            appearanceStyles = appearanceStyles,
+            appearanceTypeIDs = appearanceTypeIDs,
+            highlightRegions = { popup },
+            pixelBorderTargets = { popup },
+            refreshAppearance = refresh,
+            refreshLayout = refresh,
+            isEditable = function()
+                return IsVisible(frame) and IsVisible(popup)
+            end,
+        }) == true
+    end
+    refresh()
+    if registeredCraftingGroups[id] then
+        NSkin:NotifySkinningElementBoundsChanged(id)
+    end
+    return registeredCraftingGroups[id]
+end
+
+local function ApplyReagentFlyout(frame, flyout)
+    if not flyout then return false end
+    local id = CraftingIDs.ReagentFlyout
+    local windowStyle = NSkin:GetAppearanceStyle("window", IDs.Scope, id)
+    local buttonStyle = NSkin:GetAppearanceStyle("button", IDs.Scope, id)
+    local buttonBorder = NSkin:GetAppearanceBorderColor(
+        "button", buttonStyle, IDs.Scope, id)
+    local iconStyle = NSkin:GetAppearanceStyle("icon", IDs.Scope, id)
+    local iconBorder = NSkin:GetAppearanceBorderColor(
+        "icon", iconStyle, IDs.Scope, id)
+    NSkin:SkinPopupSurface(flyout, {
+        windowStyle = windowStyle,
+        nativeDecorationRegions = CompactRegions(flyout.NineSlice),
+        buttonStyle = buttonStyle,
+        buttonBorder = buttonBorder,
+        checkboxes = CompactRegions(flyout.HideUnownedCheckbox),
+        scrollBar = flyout.ScrollBar,
+        scrollBarStyle = NSkin:GetAppearanceStyle(
+            "scrollBar", IDs.Scope, id),
+        textStyle = NSkin:GetAppearanceStyle("text", IDs.Scope, id),
+        textRegions = CompactRegions(flyout.Text,
+            flyout.UndoItem and flyout.UndoItem.Text),
+    })
+    local applied = false
+    if flyout.ScrollBox and flyout.ScrollBox.ForEachFrame then
+        flyout.ScrollBox:ForEachFrame(function(button)
+            applied = SkinProfessionItemButton(
+                button, iconStyle, iconBorder) or applied
+        end)
+    end
+    if flyout.UndoItem and flyout.UndoItem:IsShown() then
+        applied = SkinProfessionItemButton(
+            flyout.UndoItem, iconStyle, iconBorder) or applied
+    end
+    local data = NSkin:GetSkinData(flyout, "professionsFlyoutSkin")
+    if not data.scrollBoxHooked and flyout.ScrollBox
+        and type(flyout.ScrollBox.Update) == "function" and _G.hooksecurefunc
+    then
+        pcall(_G.hooksecurefunc, flyout.ScrollBox, "Update", function()
+            ApplyReagentFlyout(frame, flyout)
+        end)
+        data.scrollBoxHooked = true
+    end
+    return applied or true
+end
+
+local function RegisterReagentFlyout(frame, flyout)
+    return RegisterCraftingPopup(frame, CraftingIDs.ReagentFlyout,
+        "Reagent selection popup", flyout,
+        function() return ApplyReagentFlyout(frame, flyout) end,
+        { "button", "icon", "text", "scrollBar" },
+        { "ACTION_BUTTON", "ICON", "TEXT", "SCROLLBAR" })
+end
+
+local function ApplyQualityDialog(frame, dialog)
+    if not dialog then return false end
+    local id = CraftingIDs.QualityDialog
+    local windowStyle = NSkin:GetAppearanceStyle("window", IDs.Scope, id)
+    local buttonStyle = NSkin:GetAppearanceStyle("button", IDs.Scope, id)
+    local buttonBorder = NSkin:GetAppearanceBorderColor(
+        "button", buttonStyle, IDs.Scope, id)
+    local editBoxStyle = NSkin:GetAppearanceStyle("editBox", IDs.Scope, id)
+    local editBoxBorder = NSkin:GetAppearanceBorderColor(
+        "editBox", editBoxStyle, IDs.Scope, id)
+    local iconStyle = NSkin:GetAppearanceStyle("icon", IDs.Scope, id)
+    local iconBorder = NSkin:GetAppearanceBorderColor(
+        "icon", iconStyle, IDs.Scope, id)
+    local editBoxes = {}
+    for _, container in ipairs({
+        dialog.Container1, dialog.Container2, dialog.Container3,
+    }) do
+        if container then
+            SkinProfessionItemButton(container.Button, iconStyle, iconBorder)
+            if container.EditBox then editBoxes[#editBoxes + 1] = container.EditBox end
+        end
+    end
+    return NSkin:SkinPopupSurface(dialog, {
+        windowStyle = windowStyle,
+        nativeDecorationRegions = GetQualityDialogArtwork(dialog),
+        title = dialog.TitleContainer and dialog.TitleContainer.TitleText,
+        closeButton = dialog.ClosePanelButton,
+        actionButtons = CompactRegions(dialog.AcceptButton, dialog.CancelButton),
+        editBoxes = editBoxes,
+        buttonStyle = buttonStyle,
+        buttonBorder = buttonBorder,
+        editBoxStyle = editBoxStyle,
+        editBoxBorder = editBoxBorder,
+        textStyle = NSkin:GetAppearanceStyle("text", IDs.Scope, id),
+    })
+end
+
+local function RegisterQualityDialog(frame, dialog)
+    return RegisterCraftingPopup(frame, CraftingIDs.QualityDialog,
+        "Reagent quality popup", dialog,
+        function() return ApplyQualityDialog(frame, dialog) end,
+        { "button", "icon", "editBox", "text" },
+        { "ACTION_BUTTON", "ICON", "EDIT_BOX", "TEXT" })
+end
+
+local function ApplyOutputIcon(frame, form)
+    local button = form and form.OutputIcon
+    local texture = button and button.Icon
+    if not button or not texture then return false end
+    local element = NSkin:RegisterIcon({
+        id = CraftingIDs.OutputIcon,
+        module = "Professions",
+        appearanceWindowID = IDs.Scope,
+        label = "Recipe output icon",
+        window = frame,
+        target = button,
+        texture = texture,
+        borderOwner = button,
+        nativeDecorationRegions = CompactRegions(button.IconBorder),
+        hoverRegion = GetButtonStateTexture(
+            button, "GetHighlightTexture", "HighlightTexture"),
+        getHovered = IsHovered,
+        priority = 58,
+        draggable = false,
+        isEditable = function()
+            return IsCraftingVisible(frame, button)
+        end,
+    })
+    RefreshTypedElement(element)
+    return element ~= nil
+end
+
+local function RegisterCraftingText(frame, id, label, target, priority,
+    appearanceOnly)
     if not target then return nil end
     return NSkin:RegisterTextElement({
         id = id, module = "Professions",
@@ -391,7 +598,7 @@ local function RegisterCraftingText(frame, id, label, target, priority)
         label = label, window = frame, target = target,
         priority = priority, draggable = false,
         highlightRegions = { target },
-        isEditable = function()
+        isEditable = appearanceOnly and NeverEditable or function()
             return IsCraftingVisible(frame, target)
         end,
     })
@@ -458,10 +665,14 @@ local function SkinReagentGroup(frame, form, reagentType, id)
             applied = NSkin:SkinIcon(button, {
                 style = style, borderColor = border, texture = texture,
                 qualityProvider = GetReagentQuality,
-                nativeDecorationRegions = GetReagentNativeDecorations(button),
-                hoverRegion = button.HighlightTexture
-                    or GetButtonStateTexture(button,
-                        "GetHighlightTexture", "HighlightTexture"),
+                nativeDecorationRegions = function(currentButton)
+                    return GetReagentNativeDecorations(currentButton)
+                end,
+                hoverRegions = function(currentButton)
+                    local overlay = currentButton and currentButton.InputOverlay
+                    return CompactRegions(
+                        overlay and overlay.AddIconHighlight)
+                end,
                 getHovered = IsHovered,
             }) == true or applied
         end
@@ -506,7 +717,8 @@ local function RegisterReagentGroup(frame, form, reagentType, id, label)
             end,
             refreshAppearance = Refresh,
             refreshLayout = Refresh,
-            isEditable = function()
+            isEditable = reagentType == Enum.CraftingReagentType.Finishing
+                and NeverEditable or function()
                 return IsVisible(frame)
                     and #GetVisibleReagentSlots(form, reagentType) > 0
             end,
@@ -565,9 +777,7 @@ local function RegisterStatLines(frame, details)
             priority = 120, draggable = false,
             highlightRegions = function() return GetVisibleStatLines(details) end,
             refreshAppearance = Refresh, refreshLayout = Refresh,
-            isEditable = function()
-                return IsVisible(frame) and #GetVisibleStatLines(details) > 0
-            end,
+            isEditable = NeverEditable,
         }) == true
     end
     Refresh()
@@ -733,11 +943,17 @@ local function ApplyHybridRankBar(frame, page)
         progressStyle.background, progressBorder)
     if background and bar.Fill then
         background:ClearAllPoints()
-        background:SetAllPoints(bar.Fill)
+        background:SetPoint("TOPLEFT", bar.Fill, "TOPLEFT")
+        if bar.ExpansionDropdownButton then
+            background:SetPoint("BOTTOMRIGHT",
+                bar.ExpansionDropdownButton, "BOTTOMLEFT")
+        else
+            background:SetPoint("BOTTOMRIGHT", bar.Fill, "BOTTOMRIGHT")
+        end
     end
     local pixelBorder = NSkin:GetPixelBorder(
         bar, "NSkinProfessionsRankBarBackgroundBorder")
-    if pixelBorder and bar.Fill then pixelBorder.anchor = bar.Fill end
+    if pixelBorder and background then pixelBorder.anchor = background end
     NSkin:SetPixelBorderColor(pixelBorder, unpack(progressBorder))
     NSkin:SetPixelBorderSize(pixelBorder, 1)
     NSkin:SetPixelBorderPadding(pixelBorder, 0)
@@ -763,7 +979,22 @@ local function ApplyHybridRankBar(frame, page)
         NSkin:SkinDropdown(dropdown, {
             style = NSkin:GetAppearanceStyle(
                 "button", IDs.Scope, CraftingIDs.RankBar),
+            menus = { "MENU_PROFESSIONS_RANK_BAR" },
         })
+        -- The native button is one pixel taller than Fill. Align only the
+        -- owned presentation surface to the bar while retaining Blizzard's
+        -- original click target and anchor geometry.
+        local dropdownBackground = NSkin:GetFlatBackground(dropdown)
+        if dropdownBackground then
+            dropdownBackground:ClearAllPoints()
+            dropdownBackground:SetPoint(
+                "TOPLEFT", dropdown, "TOPLEFT", 1, 0)
+            dropdownBackground:SetPoint(
+                "BOTTOMRIGHT", dropdown, "BOTTOMRIGHT", -1, 1)
+            local dropdownBorder = NSkin:GetPixelBorder(
+                dropdown, "NSkinFlatBackgroundBorder")
+            if dropdownBorder then dropdownBorder.anchor = dropdownBackground end
+        end
     end
     if not registeredCraftingGroups[CraftingIDs.RankBar] then
         local function Refresh() return ApplyHybridRankBar(frame, page) end
@@ -810,9 +1041,7 @@ local function ApplyQualityMaker(frame, form)
             draggable = false,
             skinOptions = { background = true, useAppearanceTexture = true },
             highlightRegions = { quality },
-            isEditable = function()
-                return IsCraftingVisible(frame, quality)
-            end,
+            isEditable = NeverEditable,
         }) ~= nil
     end
 
@@ -868,9 +1097,7 @@ local function ApplyQualityMaker(frame, form)
                 draggable = false, highlightRegions = { quality },
                 pixelBorderTargets = { center },
                 refreshAppearance = Refresh, refreshLayout = Refresh,
-                isEditable = function()
-                    return IsCraftingVisible(frame, quality)
-                end,
+                isEditable = NeverEditable,
             }) == true
     end
     NSkin:ResnapPixelBordersForTarget(center)
@@ -988,13 +1215,26 @@ function CraftingSkin:SkinConcentrate(frame, form)
         "icon", style, IDs.Scope, CraftingIDs.Concentrate)
     local applied = false
     for _, button in ipairs(GetConcentrateButtons(form, false)) do
-        -- ProfessionsConcentrateContainerTemplate owns the presentation at
-        -- ConcentrateToggleButton.Icon; the CheckButton remains the logical
-        -- hover/checked/disabled interaction target.
-        local texture = GetConcentrateIconTexture(button)
+        -- The template displays Icon while enabled and its full-size
+        -- DisabledTexture while disabled. The CheckButton remains the logical
+        -- interaction target in both states.
+        local texture = GetConcentrateDisplayedTexture(button)
         if texture then
+            local data = NSkin:GetSkinData(
+                button, "professionsConcentrateIcon")
+            if data.presentationTexture
+                and data.presentationTexture ~= texture
+            then
+                NSkin:SkinIcon(button, {
+                    texture = data.presentationTexture,
+                    borderOwner = button,
+                    reset = true,
+                })
+            end
+            data.presentationTexture = texture
             applied = NSkin:SkinIcon(button, {
                 style = style, borderColor = border, texture = texture,
+                borderOwner = button,
                 nativeDecorationRegions = CompactRegions(
                     button.NormalTexture,
                     button.PushedTexture),
@@ -1004,6 +1244,14 @@ function CraftingSkin:SkinConcentrate(frame, form)
                     button, "GetCheckedTexture", "CheckedTexture"),
                 getHovered = IsHovered, getSelected = IsChecked,
             }) == true or applied
+            if not data.stateHooksInstalled and button.HookScript then
+                local function RefreshDisplayedTexture()
+                    CraftingSkin:SkinConcentrate(frame, form)
+                end
+                button:HookScript("OnEnable", RefreshDisplayedTexture)
+                button:HookScript("OnDisable", RefreshDisplayedTexture)
+                data.stateHooksInstalled = true
+            end
         end
     end
     return applied
@@ -1036,10 +1284,7 @@ function CraftingSkin:ApplyConcentration(frame, page, form)
                 refreshLayout = function()
                     return self:SkinConcentrate(frame, form)
                 end,
-                isEditable = function()
-                    return IsVisible(frame)
-                        and #GetConcentrateButtons(form, true) > 0
-                end,
+                isEditable = NeverEditable,
             }) == true
     end
     applied = self:SkinConcentrate(frame, form) or applied
@@ -1093,6 +1338,31 @@ function CraftingSkin:ApplyConcentration(frame, page, form)
     return applied
 end
 
+function CraftingSkin:ApplyDetailsGroup(frame, form)
+    local details = form and form.Details
+    if not details then return false end
+    local element = NSkin:RegisterSimpleMovableElement({
+        id = CraftingIDs.Details,
+        module = "Professions",
+        appearanceWindowID = IDs.Scope,
+        label = "Crafting Details",
+        kind = "MOVABLE",
+        window = frame,
+        target = details,
+        priority = 145,
+        draggable = true,
+        highlightRegions = { details },
+        isEditable = function()
+            return IsCraftingVisible(frame, details)
+        end,
+    })
+    registeredCraftingGroups[CraftingIDs.Details] = element or nil
+    if element then
+        NSkin:NotifySkinningElementBoundsChanged(CraftingIDs.Details)
+    end
+    return element ~= nil
+end
+
 function CraftingSkin:ApplyStaticText(frame, form)
     local details = form and form.Details
     local choices = details and details.CraftingChoicesContainer
@@ -1103,16 +1373,20 @@ function CraftingSkin:ApplyStaticText(frame, form)
         { "Output", "Recipe output", form and form.OutputText },
         { "RequiredTools", "Required tools", form and form.RequiredTools },
         { "Description", "Recipe description", form and form.Description },
-        { "ReagentsLabel", "Reagents label", form and form.Reagents and form.Reagents.Label },
+        { "ReagentsLabel", "Reagents label",
+            form and form.Reagents and form.Reagents.Label },
         { "OptionalReagentsLabel", "Optional reagents label",
             form and form.OptionalReagents and form.OptionalReagents.Label },
-        { "DetailsLabel", "Crafting details label", details and details.Label },
-        { "ConcentrateLabel", "Concentration label", concentrate and concentrate.Label },
-        { "FinishingLabel", "Finishing reagents label", finishing and finishing.Label },
+        { "DetailsLabel", "Crafting details label",
+            details and details.Label, true },
+        { "ConcentrateLabel", "Concentration label",
+            concentrate and concentrate.Label, true },
+        { "FinishingLabel", "Finishing reagents label",
+            finishing and finishing.Label, true },
     }) do
         applied = RegisterCraftingText(frame,
             CraftingIDs.TextPrefix .. definition[1], definition[2],
-            definition[3], 60 + index) ~= nil or applied
+            definition[3], 60 + index, definition[4]) ~= nil or applied
     end
     return applied
 end
@@ -1198,6 +1472,7 @@ function CraftingSkin:ApplyControls(frame, page, form)
             id = CraftingIDs.Filter, module = "Professions",
             appearanceWindowID = IDs.Scope, label = "Recipe filter",
             window = frame, target = recipeList.FilterDropdown, priority = 161,
+            menus = { "MENU_PROFESSIONS_FILTER" },
             isEditable = function()
                 return IsCraftingVisible(frame, recipeList.FilterDropdown)
             end,
@@ -1275,6 +1550,7 @@ function CraftingSkin:HookLifecycle(frame, page, form)
         end
         if type(form.Init) == "function" then
             pcall(_G.hooksecurefunc, form, "Init", function()
+                CraftingSkin:ApplyDetailsGroup(frame, form)
                 RegisterReagentGroup(frame, form,
                     Enum.CraftingReagentType.Basic, CraftingIDs.Reagents,
                     "Basic reagent rows")
@@ -1286,8 +1562,26 @@ function CraftingSkin:HookLifecycle(frame, page, form)
                     CraftingIDs.FinishingReagents, "Finishing reagent slots")
                 RegisterStatLines(frame, form.Details)
                 ApplyQualityMaker(frame, form)
+                ApplyOutputIcon(frame, form)
                 CraftingSkin:ApplyConcentration(frame, page, form)
             end)
+        end
+        if type(_G.OpenProfessionsItemFlyout) == "function" then
+            pcall(_G.hooksecurefunc, "OpenProfessionsItemFlyout",
+                function(_, _, behavior)
+                    local flyout = behavior and behavior.flyout
+                    if flyout then RegisterReagentFlyout(frame, flyout) end
+                end)
+        end
+        local qualityDialog = form.QualityDialog
+        if qualityDialog then
+            for _, method in ipairs({ "Open", "Setup" }) do
+                if type(qualityDialog[method]) == "function" then
+                    pcall(_G.hooksecurefunc, qualityDialog, method, function()
+                        RegisterQualityDialog(frame, qualityDialog)
+                    end)
+                end
+            end
         end
         if form.Details and type(form.Details.SetStats) == "function" then
             pcall(_G.hooksecurefunc, form.Details, "SetStats", function()
@@ -1328,6 +1622,8 @@ function CraftingSkin:ApplyDynamic()
     RegisterStatLines(frame, form.Details)
     RegisterRecipeGroups(frame, page)
     ApplyQualityMaker(frame, form)
+    ApplyOutputIcon(frame, form)
+    RegisterQualityDialog(frame, form.QualityDialog)
     return true
 end
 
@@ -1337,6 +1633,7 @@ function CraftingSkin:Apply()
     local form = page and page.SchematicForm
     if not frame or not page or not form then return false end
     local applied = self:ApplyWindowChrome(frame)
+    applied = self:ApplyDetailsGroup(frame, form) or applied
     applied = ApplyHybridRankBar(frame, page) or applied
     applied = self:ApplyEquipment(frame, page) or applied
     applied = self:ApplyConcentration(frame, page, form) or applied
