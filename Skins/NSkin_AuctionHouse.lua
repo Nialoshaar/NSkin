@@ -729,27 +729,51 @@ local function GetInsetDecorations(inset)
     return decorations
 end
 
+local function NormalizeBlackMarketTitle(text)
+    if type(text) ~= "string" then return nil end
+    return (text:gsub("|[nN]", " "):gsub("[\r\n]+", " ")
+        :gsub("%s+", " "):match("^%s*(.-)%s*$"))
+end
+
 local function GetBlackMarketTitle(frame)
-    if not frame or not frame.GetRegions then return nil end
-    local fallback
+    if not frame or not frame.GetRegions then return nil, {} end
+    local expected = NormalizeBlackMarketTitle(_G.BLACK_MARKET_TITLE)
+    local inheritedTitle = frame.TitleText
+    if not (inheritedTitle and inheritedTitle.IsObjectType
+        and inheritedTitle:IsObjectType("FontString"))
+    then
+        inheritedTitle = nil
+    end
+    local title, matches = nil, {}
     for _, region in ipairs({ frame:GetRegions() }) do
         if region.IsObjectType and region:IsObjectType("FontString") then
-            fallback = fallback or region
-            if region.GetText and region:GetText() == _G.BLACK_MARKET_TITLE then
-                return region
+            local text = region.GetText
+                and NormalizeBlackMarketTitle(region:GetText())
+            if expected and text == expected then
+                matches[#matches + 1] = region
+                -- BlackMarketFrame declares this anonymous title directly;
+                -- BaseBasicFrameTemplate also contributes frame.TitleText.
+                if not title and region ~= inheritedTitle then title = region end
             end
         end
     end
-    return fallback
+    title = title or matches[1] or inheritedTitle
+    local duplicates, seen = {}, {}
+    for _, region in ipairs(matches) do
+        if region ~= title then AddUniqueRegion(duplicates, seen, region) end
+    end
+    if inheritedTitle and inheritedTitle ~= title then
+        AddUniqueRegion(duplicates, seen, inheritedTitle)
+    end
+    return title, duplicates
 end
 
 local function FormatBlackMarketTitle(title)
     if not title or not title.SetText then return end
     local text = _G.BLACK_MARKET_TITLE
         or (title.GetText and title:GetText())
-    if type(text) == "string" then
-        title:SetText((text:gsub("[\r\n]+", " ")))
-    end
+    text = NormalizeBlackMarketTitle(text)
+    if text then title:SetText(text) end
 end
 
 local function GetMoneyBorderDecorations(borderFrame)
@@ -827,6 +851,10 @@ local function IsItemHovered(button)
     return button and button.IsMouseOver and button:IsMouseOver() or false
 end
 
+local function IsRowHovered(row)
+    return row and row.IsMouseOver and row:IsMouseOver() or false
+end
+
 local function GetMarketItemQuality(button)
     local owner = button and button.GetParent and button:GetParent()
     if not owner or not _G.C_BlackMarket then return nil end
@@ -875,7 +903,8 @@ function BlackMarketSkin:ApplyWindowChrome(frame)
         shadows and shadows.Upper,
         shadows and shadows.Lower,
     })
-    local title = GetBlackMarketTitle(frame)
+    local title, duplicateTitles = GetBlackMarketTitle(frame)
+    SuppressBlackMarketDecorations(frame, "DuplicateTitles", duplicateTitles)
     FormatBlackMarketTitle(title)
     NSkin:SkinStandardWindowChrome({
         frame = frame, appearanceWindowID = IDs.Scope,
@@ -983,6 +1012,7 @@ function BlackMarketSkin:ApplyRow(frame, row, styles)
         border = styles.rowBorder,
         nativeDecorationRegions = GetRowNativeDecorations(row),
         hoverRegion = row.GetHighlightTexture and row:GetHighlightTexture(),
+        getHovered = IsRowHovered,
         selectedRegion = row.Selection,
     }) ~= nil
     local item = row.Item
