@@ -71,7 +71,7 @@ local function RestoreContentStateRegion(state)
     state.applying = nil
 end
 
-local function ResolveRowNativeDecorationRegions(value, target)
+local function ResolveRowRegions(value, target)
     if type(value) == "function" then
         local ok, resolved = pcall(value, target)
         value = ok and resolved or nil
@@ -82,6 +82,86 @@ local function ResolveRowNativeDecorationRegions(value, target)
 end
 
 local RefreshRowPresentation
+local RefreshRowContentAppearance
+
+local function RestoreRowContentRegion(regionState)
+    local region = regionState and regionState.region
+    if not region then return end
+    regionState.active = nil
+    regionState.applying = true
+    if regionState.color and region.SetTextColor then
+        region:SetTextColor(unpack(regionState.color))
+    end
+    if regionState.vertexColor and region.SetVertexColor then
+        region:SetVertexColor(unpack(regionState.vertexColor))
+    end
+    if regionState.font and region.SetFont then
+        region:SetFont(unpack(regionState.font))
+    end
+    regionState.applying = nil
+end
+
+local function ApplyRowContentRegions(target, state, declared)
+    local active = {}
+    for _, region in ipairs(ResolveRowRegions(
+        declared, target))
+    do
+        if region and region.GetFont and region.SetTextColor then
+            active[region] = true
+        end
+    end
+    state.contentRegionStates = state.contentRegionStates or {}
+    for region, regionState in pairs(state.contentRegionStates) do
+        if regionState.active and not active[region] then
+            RestoreRowContentRegion(regionState)
+        end
+    end
+    for region in pairs(active) do
+        local regionState = state.contentRegionStates[region]
+        if not regionState then
+            regionState = { region = region }
+            if region.GetTextColor then
+                regionState.color = { region:GetTextColor() }
+            end
+            if region.GetVertexColor then
+                regionState.vertexColor = { region:GetVertexColor() }
+            end
+            if region.GetFont then regionState.font = { region:GetFont() } end
+            state.contentRegionStates[region] = regionState
+        end
+        regionState.active = true
+        if not regionState.hooked and _G.hooksecurefunc then
+            local function ReassertContentAppearance()
+                if not regionState.applying then
+                    RefreshRowContentAppearance(target)
+                end
+            end
+            for _, method in ipairs({ "SetTextColor", "SetVertexColor" }) do
+                if type(region[method]) == "function" then
+                    pcall(_G.hooksecurefunc, region, method,
+                        ReassertContentAppearance)
+                end
+            end
+            regionState.hooked = true
+        end
+    end
+end
+
+RefreshRowContentAppearance = function(target)
+    local state = NSkin:GetSkinData(target, ROW_STATE, false)
+    if not state or not state.active or state.applyingContent
+        or not state.contentStyle
+    then return end
+    state.applyingContent = true
+    for _, regionState in pairs(state.contentRegionStates or {}) do
+        if regionState.active then
+            regionState.applying = true
+            NSkin:SkinText(regionState.region, state.contentStyle)
+            regionState.applying = nil
+        end
+    end
+    state.applyingContent = nil
+end
 
 local function ConcealRowStateRegion(rowState, regionState)
     local region = regionState and regionState.region
@@ -96,7 +176,7 @@ end
 
 local function ApplyRowNativeDecorations(target, state, declared, preserved)
     local active = {}
-    for _, region in ipairs(ResolveRowNativeDecorationRegions(
+    for _, region in ipairs(ResolveRowRegions(
         declared, target))
     do
         if region and not preserved[region] then active[region] = true end
@@ -182,6 +262,7 @@ RefreshRowPresentation = function(target)
         state.getHovered, state.hoverRegion, target)
     if state.selectedOverlay then state.selectedOverlay:SetShown(selected) end
     if state.hoverOverlay then state.hoverOverlay:SetShown(hovered) end
+    RefreshRowContentAppearance(target)
 end
 
 function NSkin:SkinRow(target, options)
@@ -202,6 +283,9 @@ function NSkin:SkinRow(target, options)
         for _, regionState in pairs(state.regionStates or {}) do
             if regionState.active then RestoreContentStateRegion(regionState) end
         end
+        for _, regionState in pairs(state.contentRegionStates or {}) do
+            if regionState.active then RestoreRowContentRegion(regionState) end
+        end
         if state.background then state.background:Hide() end
         if state.border then self:SetPixelBorderShown(state.border, false) end
         if state.selectedOverlay then state.selectedOverlay:Hide() end
@@ -216,6 +300,7 @@ function NSkin:SkinRow(target, options)
     state.selectedRegion = ResolveContentValue(options.selectedRegion, target)
     state.getHovered = options.getHovered
     state.getSelected = options.getSelected
+    state.contentStyle = options.contentStyle
     local visualRegion = ResolveContentValue(options.visualRegion, target)
     if not (visualRegion and visualRegion.GetObjectType) then
         visualRegion = target
@@ -279,6 +364,7 @@ function NSkin:SkinRow(target, options)
     ApplyRowStateRegions(target, state, {
         state.hoverRegion, state.selectedRegion,
     })
+    ApplyRowContentRegions(target, state, options.contentRegions)
     if not state.hooked and target.HookScript then
         for _, script in ipairs({ "OnEnter", "OnLeave", "OnShow" }) do
             target:HookScript(script, RefreshRowPresentation)
@@ -558,7 +644,59 @@ local function RefreshSectionCardPresentation(target)
     if state.textRegion then
         EnforceSectionCardTextAppearance(state.textRegion)
     end
+    if state.interactionManaged and state.glow then
+        state.glow:SetShown(ResolveContentState(
+            state.getHovered, state.hoverRegion, target))
+    end
     RefreshSectionCardGlyph(target)
+end
+
+local function RestoreSectionCardHoverRegion(regionState)
+    if not regionState or not regionState.region then return end
+    RestoreContentStateRegion(regionState)
+end
+
+local function ConcealSectionCardHoverRegion(target, state)
+    local regionState = state.hoverRegionState
+    if not state.active or not regionState or not regionState.active
+        or regionState.applying
+    then return end
+    regionState.applying = true
+    if regionState.region.SetAlpha then regionState.region:SetAlpha(0)
+    elseif regionState.region.Hide then regionState.region:Hide() end
+    regionState.applying = nil
+end
+
+local function ApplySectionCardHoverRegion(target, state, region)
+    local previous = state.hoverRegionState
+    if previous and previous.active and previous.region ~= region then
+        RestoreSectionCardHoverRegion(previous)
+    end
+    if not region then
+        state.hoverRegionState = nil
+        return
+    end
+    local regionState = previous and previous.region == region and previous
+        or {
+            region = region,
+            alpha = region.GetAlpha and region:GetAlpha() or 1,
+            shown = region.IsShown and region:IsShown() or nil,
+        }
+    state.hoverRegionState = regionState
+    regionState.active = true
+    ConcealSectionCardHoverRegion(target, state)
+    if not regionState.hooked and _G.hooksecurefunc then
+        local function MaintainHoverRegion()
+            ConcealSectionCardHoverRegion(target, state)
+            RefreshSectionCardPresentation(target)
+        end
+        for _, method in ipairs({ "SetAlpha", "SetShown", "Show", "Hide" }) do
+            if type(region[method]) == "function" then
+                pcall(_G.hooksecurefunc, region, method, MaintainHoverRegion)
+            end
+        end
+        regionState.hooked = true
+    end
 end
 
 local function QueueSectionCardGlyphRefresh(target)
@@ -583,8 +721,13 @@ function NSkin:SkinSectionCard(target, options)
     local style = options.style or self:GetStyle("sectionCard")
     if not style then return nil end
     local state = self:GetSkinData(target, SECTION_CARD_STATE)
+    state.active = true
     state.options = options
     state.collapsible = options.collapsible == true
+    state.getHovered = options.getHovered
+    state.hoverRegion = ResolveSectionCardValue(options.hoverRegion, target)
+    state.interactionManaged = options.getHovered ~= nil
+        or options.hoverRegion ~= nil
     local visualRegion = ResolveSectionCardValue(options.visualRegion, target)
     if not (visualRegion and visualRegion.GetObjectType) then
         visualRegion = target
@@ -621,6 +764,9 @@ function NSkin:SkinSectionCard(target, options)
     self:SetPixelBorderPadding(border, style.borderPadding or 0)
     local glow = self:CreateFlatButtonGlow(target, style.hoverAlpha)
     AnchorSectionCardSurface(glow, visualRegion, 1)
+    state.glow = glow
+    ApplySectionCardHoverRegion(target, state,
+        state.interactionManaged and state.hoverRegion or nil)
 
     local icon = ResolveSectionCardValue(options.icon, target)
     SuppressSectionCardArtwork(

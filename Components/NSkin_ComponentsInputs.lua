@@ -475,6 +475,22 @@ function NSkin:SkinEditBox(editBox, options)
         end
         editData.editBoxStateHooked = true
     end
+    local spinnerStyle = options.spinnerButtonStyle or self:GetStyle("button")
+    local spinnerBorder = options.spinnerButtonBorder
+        or self:GetComponentBorderColor("button", spinnerStyle)
+    for _, definition in ipairs({
+        { button = options.decrementButton, glyph = "minimize" },
+        { button = options.incrementButton, glyph = "maximize" },
+    }) do
+        if definition.button then
+            self:SkinWindowHeaderButton(definition.button, {
+                glyph = definition.glyph,
+            }, {
+                style = spinnerStyle,
+                border = spinnerBorder,
+            })
+        end
+    end
 end
 
 function NSkin:SkinSearchBox(searchBox, style, borderColor)

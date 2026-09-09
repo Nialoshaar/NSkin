@@ -2567,7 +2567,7 @@ local SHARED_SKIN_ADAPTERS = {
         for _, key in ipairs({
             "nativeDecorationRegions", "artworkRegions", "preserveTextures", "hoverRegion",
             "selectedRegion", "getHovered", "getSelected", "visualRegion",
-            "height", "reset",
+            "contentRegions", "contentStyle", "height", "reset",
         }) do
             if options[key] == nil then options[key] = definition[key] end
         end
@@ -2585,7 +2585,7 @@ local SHARED_SKIN_ADAPTERS = {
             "collapsible", "expanded", "text", "textRegion", "icon",
             "getExpanded", "isExpanded", "height", "stripArtwork",
             "artworkRegions", "preserveTextures", "background",
-            "visualRegion", "preserveTextLayout",
+            "visualRegion", "preserveTextLayout", "hoverRegion", "getHovered",
         }) do
             if options[key] == nil then options[key] = definition[key] end
         end
@@ -2648,6 +2648,14 @@ local SHARED_SKIN_ADAPTERS = {
         end
         options.style = style
         if options.border == nil then options.border = borderColor end
+        for _, key in ipairs({ "decrementButton", "incrementButton" }) do
+            if options[key] == nil then options[key] = definition[key] end
+        end
+        options.spinnerButtonStyle = self:GetAppearanceStyle(
+            "button", definition.appearanceWindowID, definition.id)
+        options.spinnerButtonBorder = self:GetAppearanceBorderColor(
+            "button", options.spinnerButtonStyle,
+            definition.appearanceWindowID, definition.id)
         skinMethod(self, target, options)
     end,
     ICON = function(self, skinMethod, target, style, borderColor, definition)
@@ -2746,7 +2754,7 @@ local TYPED_SKIN_FIELDS_BY_TYPE = {
     ROW = {
         "nativeDecorationRegions", "artworkRegions", "preserveTextures", "hoverRegion",
         "selectedRegion", "getHovered", "getSelected", "visualRegion",
-        "height", "reset",
+        "contentRegions", "contentStyle", "height", "reset",
     },
     CHECKBOX = { "text", "getChecked" },
     DROPDOWN = { "menus" },
@@ -2755,8 +2763,9 @@ local TYPED_SKIN_FIELDS_BY_TYPE = {
         "collapsible", "expanded", "text", "textRegion", "icon",
         "getExpanded", "isExpanded", "height", "stripArtwork",
         "artworkRegions", "preserveTextures", "background", "visualRegion",
-        "preserveTextLayout",
+        "preserveTextLayout", "hoverRegion", "getHovered",
     },
+    EDIT_BOX = { "decrementButton", "incrementButton" },
     ICON = {
         "iconTarget", "iconTextureBaselineID",
         "texture", "quality", "qualityProvider", "borderColor", "borderMode",

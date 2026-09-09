@@ -249,8 +249,6 @@ local CraftingIDs = {
     Create = "Professions.Crafting.Create",
     CreateAll = "Professions.Crafting.CreateAll",
     CreateCount = "Professions.Crafting.CreateCount",
-    Decrement = "Professions.Crafting.CreateCount.Decrement",
-    Increment = "Professions.Crafting.CreateCount.Increment",
     TextPrefix = "Professions.Crafting.Text.",
 }
 
@@ -289,6 +287,19 @@ local function GetIconTexture(target)
     if not target then return nil end
     return target.Icon or target.icon or target.IconTexture
         or target.iconTexture
+end
+
+local function GetConcentrateIconTexture(button)
+    local icon = GetIconTexture(button)
+    if icon and icon.IsObjectType and icon:IsObjectType("Texture") then
+        return icon
+    end
+    -- Some client revisions wrap the template's Icon region in a keyed
+    -- container. Keep this adapter-specific and only follow its known fields.
+    local texture = icon and (icon.Texture or icon.Icon)
+    if texture and texture.IsObjectType
+        and texture:IsObjectType("Texture")
+    then return texture end
 end
 
 local function GetButtonStateTexture(button, method, field)
@@ -608,8 +619,10 @@ local function ApplyRecipeSections(frame, page)
             style = style, border = border, textRegion = row.Label,
             preserveTextLayout = true, collapsible = true,
             getExpanded = IsRecipeCategoryExpanded,
+            hoverRegion = row.CollapseIconAlphaAdd,
+            getHovered = IsHovered,
             artworkRegions = CompactRegions(row.LeftPiece, row.CenterPiece,
-                row.RightPiece, row.CollapseIcon, row.CollapseIconAlphaAdd),
+                row.RightPiece, row.CollapseIcon),
         }) ~= nil or applied
     end
     return applied
@@ -628,11 +641,9 @@ local function ApplyRecipeRows(frame, page)
             selectedRegion = row.SelectedOverlay,
             getHovered = IsHovered,
             getSelected = IsRecipeSelected,
+            contentRegions = CompactRegions(row.Label, row.Count),
+            contentStyle = textStyle,
         }) ~= nil or applied
-        applied = NSkin:SkinText(row.Label, textStyle) == true or applied
-        if row.Count then
-            applied = NSkin:SkinText(row.Count, textStyle) == true or applied
-        end
     end
     return applied
 end
@@ -977,7 +988,10 @@ function CraftingSkin:SkinConcentrate(frame, form)
         "icon", style, IDs.Scope, CraftingIDs.Concentrate)
     local applied = false
     for _, button in ipairs(GetConcentrateButtons(form, false)) do
-        local texture = button.Icon
+        -- ProfessionsConcentrateContainerTemplate owns the presentation at
+        -- ConcentrateToggleButton.Icon; the CheckButton remains the logical
+        -- hover/checked/disabled interaction target.
+        local texture = GetConcentrateIconTexture(button)
         if texture then
             applied = NSkin:SkinIcon(button, {
                 style = style, borderColor = border, texture = texture,
@@ -1103,32 +1117,6 @@ function CraftingSkin:ApplyStaticText(frame, form)
     return applied
 end
 
-local function RegisterSpinnerButton(frame, id, label, button, glyph, priority)
-    if not button then return nil end
-    local function Refresh()
-        local style = NSkin:GetAppearanceStyle("button", IDs.Scope, id)
-        local border = NSkin:GetAppearanceBorderColor(
-            "button", style, IDs.Scope, id)
-        return NSkin:SkinWindowHeaderButton(button, { glyph = glyph }, {
-            style = style, border = border,
-        }) ~= nil
-    end
-    Refresh()
-    if not registeredCraftingGroups[id] then
-        registeredCraftingGroups[id] = NSkin:RegisterSkinningElement(id, {
-            module = "Professions", appearanceWindowID = IDs.Scope,
-            label = label, kind = "ACTION_BUTTON", window = frame,
-            target = button, priority = priority, draggable = false,
-            highlightRegions = { button }, pixelBorderTargets = { button },
-            refreshAppearance = Refresh, refreshLayout = Refresh,
-            isEditable = function()
-                return IsCraftingVisible(frame, button)
-            end,
-        }) == true
-    end
-    return registeredCraftingGroups[id]
-end
-
 function CraftingSkin:ApplyControls(frame, page, form)
     local applied = false
     for index, definition in ipairs({
@@ -1151,16 +1139,18 @@ function CraftingSkin:ApplyControls(frame, page, form)
     end
     local input = page.CreateMultipleInputBox
     if input then
-        applied = RegisterSpinnerButton(frame, CraftingIDs.Decrement,
-            "Decrease craft count", input.DecrementButton, "minimize", 153)
-            ~= nil or applied
-        applied = RegisterSpinnerButton(frame, CraftingIDs.Increment,
-            "Increase craft count", input.IncrementButton, "maximize", 154)
-            ~= nil or applied
         local element = NSkin:RegisterEditBox({
             id = CraftingIDs.CreateCount, module = "Professions",
             appearanceWindowID = IDs.Scope, label = "Craft count",
             window = frame, target = input, priority = 155,
+            decrementButton = input.DecrementButton,
+            incrementButton = input.IncrementButton,
+            appearanceStyles = { "button" },
+            appearanceTypeIDs = { "ACTION_BUTTON" },
+            highlightRegions = CompactRegions(input.DecrementButton,
+                input, input.IncrementButton),
+            pixelBorderTargets = CompactRegions(input.DecrementButton,
+                input, input.IncrementButton),
             isEditable = function()
                 return IsCraftingVisible(frame, input)
             end,
