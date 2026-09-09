@@ -263,13 +263,36 @@ function NSkin:SkinCheckButton(checkButton, options)
         checked:Hide()
     end
 
-    local label = options.text or checkButton.Text
+    local label = options.text or checkButton.Text or checkButton.text
     if label then
-        self:SetFontStringColor(label, unpack(
-            options.textColor or style.text or self:GetStyle("text").color))
-        self:ApplyResolvedTypography(label, self:GetStyle("text"))
-        label:SetAlpha(1)
-        label:Show()
+        local baseline = options.labelBaselineID
+            and self:GetComponentBaseline(options.labelBaselineID)
+        local points = baseline and baseline.points
+        local point = points and #points == 1 and points[1]
+        if point and point[1] == "LEFT" and point[2] == checkButton
+            and point[3] == "RIGHT" and label.ClearAllPoints
+            and label.SetPoint
+        then
+            local currentPoint, currentRelativeTo, currentRelativePoint,
+                currentX, currentY = label:GetPoint(1)
+            local desiredY = tonumber(point[5]) or 0
+            if label:GetNumPoints() ~= 1 or currentPoint ~= "LEFT"
+                or currentRelativeTo ~= checkButton
+                or currentRelativePoint ~= "RIGHT"
+                or tonumber(currentX) ~= 5 or tonumber(currentY) ~= desiredY
+            then
+                label:ClearAllPoints()
+                label:SetPoint("LEFT", checkButton, "RIGHT", 5, desiredY)
+                self:MarkComponentGeometryModified(
+                    options.labelBaselineID, "points", true)
+            end
+        end
+        local textStyle = options.textStyle or self:GetStyle("text")
+        local textColor = options.textColor
+            or self:GetResolvedAppearanceColor(textStyle, "color")
+            or style.text
+        self:SetFontStringColor(label, unpack(textColor))
+        self:ApplyResolvedTypography(label, textStyle)
     end
     return true
 end

@@ -25,6 +25,49 @@ RegisterColorAppearanceGroup("appearance.button", "button", {
     { type = "COLOR", key = "text", label = "Button text" },
     { type = "RESET", label = "Reset Buttons" },
 })
+NSkin:RegisterOptionGroup("shared.checkboxAppearance", {
+    controls = {
+        { type = "COLOR_PAIR",
+            left = { type = "COLOR", key = "background",
+                label = "Background" },
+            right = { type = "COLOR", key = "border", label = "Border" } },
+        { type = "CONTROL_PAIR",
+            left = { type = "COLOR", key = "checked",
+                label = "Checked" },
+            right = { type = "SLIDER", key = "hoverAlpha",
+                label = "Hover opacity", min = 0, max = 0.5,
+                step = 0.01, decimals = 2 } },
+        { type = "RESET", label = "Reset Checkbox" },
+    },
+    get = function(context)
+        local style = NSkin:GetAppearanceStyle(
+            "button", GetAppearanceWindowID(context), context.id)
+        return {
+            background = CopyColor(style.background),
+            border = CopyColor(NSkin:GetAppearanceBorderColor(
+                "button", style, GetAppearanceWindowID(context), context.id)),
+            checked = CopyColor(style.checked or NSkin:GetSharedBorderColor()),
+            hoverAlpha = style.hoverAlpha,
+        }
+    end,
+    set = function(context, values)
+        local changed
+        for _, key in ipairs({ "background", "border", "checked",
+            "hoverAlpha" }) do
+            if values[key] ~= nil then
+                changed = SetElementValue(
+                    context, "button." .. key, values[key]) or changed
+            end
+        end
+        return changed == true
+    end,
+    reset = function(context)
+        return ResetElementPaths(context, {
+            "button.background", "button.border", "button.checked",
+            "button.hoverAlpha",
+        })
+    end,
+})
 RegisterColorAppearanceGroup("appearance.search", "searchBox", {
     { type = "COLOR", key = "backgroundColor", label = "Search background" },
     { type = "SLIDER", key = "backgroundOpacity", label = "Background opacity",

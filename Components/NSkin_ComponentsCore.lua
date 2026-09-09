@@ -1980,6 +1980,12 @@ local EDITOR_PRESETS = {
         { id = "shared.movable", label = "Position",
             presentation = "INLINE", category = "POSITION" },
     },
+    CHECKBOX = {
+        { id = "shared.movable", label = "Position",
+            presentation = "INLINE", category = "POSITION" },
+        { id = "shared.checkboxAppearance", label = "Checkbox",
+            presentation = "INLINE", category = "CUSTOMIZE" },
+    },
     SCROLLBAR = {
         { id = "shared.movable", label = "Position",
             presentation = "INLINE", category = "POSITION" },
@@ -2077,7 +2083,7 @@ local SHARED_TYPE_DEFINITIONS = {
     ACTION_BUTTON = { style = "button", skin = "SkinActionButton",
         editorPreset = "MOVABLE" },
     CHECKBOX = { style = "button", skin = "SkinCheckButton",
-        editorPreset = "MOVABLE" },
+        editorPreset = "CHECKBOX" },
     DROPDOWN = { style = "button", skin = "SkinDropdown", editorPreset = "MOVABLE" },
     NAVIGATION_BAR = { style = "navigationBar", skin = "SkinNavigationBar",
         editorPreset = "MOVABLE" },
@@ -2404,6 +2410,9 @@ function NSkin:RestoreMovableElementOriginal(elementOrID, suppressNotify)
             element.target:SetSize(size[1], size[2])
         end
     end
+    for i = 1, #(element.geometryBaselineIDs or {}) do
+        self:RestoreComponentBaseline(element.geometryBaselineIDs[i])
+    end
     if not suppressNotify then self:NotifySkinningElementBoundsChanged(element.id) end
     return true
 end
@@ -2619,6 +2628,14 @@ local SHARED_SKIN_ADAPTERS = {
         options.style = style
         if options.border == nil then options.border = borderColor end
         if options.text == nil then options.text = definition.text end
+        if options.textStyle == nil and options.text then
+            options.textStyle = self:GetAppearanceStyle(
+                "text", definition.appearanceWindowID, definition.id)
+        end
+        if options.checked == nil then options.checked = style.checked end
+        if options.labelBaselineID == nil then
+            options.labelBaselineID = definition.labelBaselineID
+        end
         if options.getChecked == nil then
             options.getChecked = definition.getChecked
         end
@@ -2767,7 +2784,7 @@ local TYPED_SKIN_FIELDS_BY_TYPE = {
         "selectedRegion", "getHovered", "getSelected", "visualRegion",
         "contentRegions", "contentStyle", "height", "reset",
     },
-    CHECKBOX = { "text", "getChecked" },
+    CHECKBOX = { "text", "getChecked", "labelBaselineID" },
     DROPDOWN = { "menus" },
     SEARCH_ACCESSORY = { "menus" },
     SECTION_CARD = {
@@ -2898,8 +2915,119 @@ function NSkin:RegisterSectionCard(definition)
     return self:RegisterTypedElement("SECTION_CARD", definition)
 end
 
+local function ResolveCheckboxLabel(definition)
+    local target = definition and definition.target
+    local label = definition and definition.text
+        or (target and (target.Text or target.text))
+    if not label or not label.GetObjectType
+        or label:GetObjectType() ~= "FontString"
+    then return nil end
+    return label
+end
+
+local function AppendUniqueValue(values, value)
+    for i = 1, #values do
+        if values[i] == value then return end
+    end
+    values[#values + 1] = value
+end
+
+local function GetCheckboxHighlightRegions(target, label, provided)
+    return function(element)
+        local regions = { target }
+        local resolved = type(provided) == "function"
+            and provided(element) or provided
+        for i = 1, #(type(resolved) == "table" and resolved or {}) do
+            local region = resolved[i]
+            if region then AppendUniqueValue(regions, region) end
+        end
+        if (label.IsVisible and label:IsVisible())
+            or (not label.IsVisible and (not label.IsShown or label:IsShown()))
+        then
+            AppendUniqueValue(regions, label)
+        end
+        return regions
+    end
+end
+
+local function GetEditorOptionID(option)
+    return type(option) == "table" and option.id or option
+end
+
+local function AppendCheckboxEditorOption(options, id, label)
+    for i = 1, #options do
+        if GetEditorOptionID(options[i]) == id then return end
+    end
+    options[#options + 1] = {
+        id = id, label = label, category = "CUSTOMIZE",
+    }
+end
+
+local function GetCheckboxEditorOptions(definition, hasLabel)
+    if not definition.editorOptions then
+        local extras = hasLabel and {
+            { id = "shared.textAppearance", label = "Text",
+                category = "CUSTOMIZE" },
+        } or nil
+        return NSkin:CreateEditorOptionsPreset("CHECKBOX", extras)
+    end
+    local options = {}
+    if type(definition.editorOptions) == "table" then
+        for i = 1, #definition.editorOptions do
+            options[i] = definition.editorOptions[i]
+        end
+    else
+        options[1] = definition.editorOptions
+    end
+    AppendCheckboxEditorOption(
+        options, "shared.checkboxAppearance", "Checkbox")
+    if hasLabel then
+        AppendCheckboxEditorOption(options, "shared.textAppearance", "Text")
+    end
+    return options
+end
+
 function NSkin:RegisterCheckbox(definition)
-    return self:RegisterTypedElement("CHECKBOX", definition)
+    if type(definition) ~= "table" or type(definition.id) ~= "string"
+        or definition.id == "" or not definition.target
+    then return nil end
+    local normalized = {}
+    for key, value in pairs(definition) do normalized[key] = value end
+    local label = ResolveCheckboxLabel(definition)
+    if label then
+        normalized.text = label
+        normalized.labelBaselineID = definition.id .. ":Label"
+        self:CaptureComponentBaseline(normalized.labelBaselineID, label, {
+            points = true,
+            canCapture = function(target)
+                return target.GetNumPoints and target:GetNumPoints() > 0
+            end,
+        })
+        normalized.geometryBaselineIDs = { normalized.labelBaselineID }
+        normalized.highlightRegions = GetCheckboxHighlightRegions(
+            definition.target, label, definition.highlightRegions)
+
+        normalized.appearanceStyles = {}
+        for i = 1, #(definition.appearanceStyles or {}) do
+            AppendUniqueValue(normalized.appearanceStyles,
+                definition.appearanceStyles[i])
+        end
+        AppendUniqueValue(normalized.appearanceStyles, "text")
+        normalized.appearanceTypeIDs = {}
+        for i = 1, #(definition.appearanceTypeIDs or {}) do
+            AppendUniqueValue(normalized.appearanceTypeIDs,
+                definition.appearanceTypeIDs[i])
+        end
+        AppendUniqueValue(normalized.appearanceTypeIDs, "TEXT")
+
+    end
+    normalized.editorOptions = GetCheckboxEditorOptions(
+        definition, label ~= nil)
+    local element = self:RegisterTypedElement("CHECKBOX", normalized)
+    if element and label then
+        self:NotifySkinningElementBoundsChanged(element.id)
+    end
+    return element
 end
 
 function NSkin:RegisterDropdown(definition)

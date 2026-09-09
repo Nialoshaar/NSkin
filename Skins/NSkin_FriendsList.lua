@@ -24,7 +24,6 @@ local IDs = {
     Raid = {
         Scope = "FriendsList.Raid",
         AllAssist = "FriendsList.Raid.AllAssist",
-        AllAssistText = "FriendsList.Raid.AllAssistText",
         RaidInfoButton = "FriendsList.Raid.RaidInfoButton",
         ConvertToRaidButton = "FriendsList.Raid.ConvertToRaidButton",
     },
@@ -254,22 +253,6 @@ function FriendsListSkin:ApplyRaidControls()
             end,
         })
     end
-    if allAssistText then
-        NSkin:RegisterTextElement({
-            id = IDs.Raid.AllAssistText,
-            module = "FriendsList",
-            appearanceWindowID = IDs.Raid.Scope,
-            label = "Raid all-assist text",
-            window = friendsFrame,
-            target = allAssistText,
-            priority = 83,
-            highlightRegions = { allAssistText },
-            isEditable = function()
-                return raidFrame:IsVisible() and allAssistText:IsVisible()
-            end,
-        })
-    end
-
     for _, definition in ipairs({
         { IDs.Raid.RaidInfoButton, "Raid info button",
             _G.RaidFrameRaidInfoButton },
