@@ -76,8 +76,65 @@ local function AnchorOverlay(overlay, element)
     return true
 end
 
+local function GetEditorElement(element)
+    return element and NSkin.GetSkinningEditorElement
+        and NSkin:GetSkinningEditorElement(element) or element
+end
+
+local function EditorElementBelongsToParent(element, parent)
+    if not element or not parent then return false end
+    if NSkin:GetCompositionParent(element) == parent then return true end
+    if not element.isAnchorGroup then return false end
+    for _, member in ipairs(NSkin:GetAnchorGroupMembers(element) or {}) do
+        if NSkin:GetCompositionParent(member) == parent then return true end
+    end
+    return false
+end
+
+local function RefreshAnchorGroupOverlay(element)
+    if not controller or not element or not element.isAnchorGroup then return end
+    local overlay = controller.anchorGroupOverlays[element.id]
+    if not overlay then
+        overlay = CreateFrame("Frame", nil, UIParent)
+        overlay:SetFrameStrata("FULLSCREEN_DIALOG")
+        overlay:SetFrameLevel(math.max(1,
+            (element.window:GetFrameLevel() or 0) + 1010 + (element.priority or 0)))
+        overlay:EnableMouse(false)
+        overlay.texture = overlay:CreateTexture(nil, "BACKGROUND")
+        overlay.texture:SetAllPoints()
+        overlay.border = NSkin:CreatePixelBorder(
+            overlay, "NSkinSkinningModeAnchorGroupHighlight", 1,
+            NSkin:GetStyle("skinningMode").hover, false, overlay)
+        overlay.element = element
+        controller.anchorGroupOverlays[element.id] = overlay
+    end
+    local style = NSkin:GetStyle("skinningMode")
+    local visible = controller.enabled and element.window:IsShown()
+        and NSkin:IsSkinningElementEditable(element)
+        and (controller.selectedElement == element
+            or (not controller.dragging and controller.hoveredElement == element))
+        and AnchorOverlay(overlay, element)
+    overlay.texture:SetColorTexture(unpack(visible and style.highlight or TRANSPARENT))
+    NSkin:SetPixelBorderColor(overlay.border, unpack(style.hover))
+    NSkin:SetPixelBorderShown(overlay.border, visible)
+    overlay:SetShown(visible == true)
+end
+
 local function RefreshOverlayAppearance(element)
     if not controller then return end
+    local editorElement = GetEditorElement(element)
+    if editorElement ~= element then
+        local overlay = controller.overlays[element.id]
+        if overlay then
+            overlay.texture:SetColorTexture(unpack(TRANSPARENT))
+            NSkin:SetPixelBorderShown(overlay.border, false)
+        end
+        RefreshAnchorGroupOverlay(editorElement)
+        return
+    elseif element.isAnchorGroup then
+        RefreshAnchorGroupOverlay(element)
+        return
+    end
     local overlay = controller.overlays[element.id]
     if not overlay then return end
     local style = NSkin:GetStyle("skinningMode")
@@ -85,8 +142,8 @@ local function RefreshOverlayAppearance(element)
     local visible = not overlay.dragHidden
         and (selected or (not controller.dragging and overlay.hovered == true))
     local hovered = controller.hoveredElement
-    if hovered and (NSkin:GetCompositionParent(hovered) == element
-        or NSkin:GetCompositionParent(element) == hovered)
+    if hovered and (EditorElementBelongsToParent(hovered, element)
+        or EditorElementBelongsToParent(element, hovered))
     then visible = false end
     overlay.texture:SetColorTexture(unpack(visible and style.highlight or TRANSPARENT))
     NSkin:SetPixelBorderColor(overlay.border, unpack(style.hover))
@@ -136,6 +193,9 @@ end
 
 local function SelectElement(element)
     if not element then return end
+    local clickedElement = element
+    element = GetEditorElement(element)
+    if element.isAnchorGroup then element.clickedAnchorMember = clickedElement end
     NSkin:MarkSkinningWindowActive(element.window)
     local previous = controller.selectedElement
     controller.selectedElement = element
@@ -519,6 +579,12 @@ local function RefreshAbsoluteWindowOverlays(window)
             end
         end
     end
+    for _, groupOverlay in pairs(controller.anchorGroupOverlays) do
+        local group = groupOverlay.element
+        if group and group.window == window then
+            RefreshAnchorGroupOverlay(group)
+        end
+    end
     if selectionLost then DockWithoutSelection() end
 end
 
@@ -532,6 +598,10 @@ local function EnsureAbsoluteWindowLifecycle(window)
             if element.window == window and overlay and overlay.usesAbsoluteBounds then
                 overlay:Hide()
             end
+        end
+        for _, overlay in pairs(controller.anchorGroupOverlays) do
+            local group = overlay.element
+            if group and group.window == window then overlay:Hide() end
         end
     end)
     watcher:Show()
@@ -579,7 +649,7 @@ local function CreateOverlay(element)
     NSkin:SetPixelBorderShown(overlay.border, false)
     overlay:SetScript("OnEnter", function(self)
         self.hovered = true
-        controller.hoveredElement = element
+        controller.hoveredElement = GetEditorElement(element)
         RefreshOverlayAppearance(element)
         local parent = NSkin:GetCompositionParent(element)
         if parent then RefreshOverlayAppearance(parent) end
@@ -590,7 +660,9 @@ local function CreateOverlay(element)
     end)
     overlay:SetScript("OnLeave", function(self)
         self.hovered = nil
-        if controller.hoveredElement == element then controller.hoveredElement = nil end
+        if controller.hoveredElement == GetEditorElement(element) then
+            controller.hoveredElement = nil
+        end
         RefreshOverlayAppearance(element)
         local parent = NSkin:GetCompositionParent(element)
         if parent then RefreshOverlayAppearance(parent) end
@@ -661,7 +733,9 @@ local function CreateOverlay(element)
         overlay:SetScript("OnDragStart", function()
             local pointerElement = ResolvePointerElement()
             SelectElement(pointerElement)
-            if pointerElement.kind == "TAB_GROUP" or pointerElement.draggable then
+            if GetEditorElement(pointerElement) == pointerElement
+                and (pointerElement.kind == "TAB_GROUP" or pointerElement.draggable)
+            then
                 BeginDrag(pointerElement)
             end
         end)
@@ -675,7 +749,7 @@ local function CreateOverlay(element)
         RefreshOverlayAppearance(element)
     end)
     overlay:SetScript("OnHide", function()
-        if controller.hoveredElement == element then
+        if controller.hoveredElement == GetEditorElement(element) then
             controller.hoveredElement = nil
             overlay.hovered = nil
             local parent = NSkin:GetCompositionParent(element)
@@ -709,15 +783,21 @@ local function ShowElementOverlay(element)
     -- visibility. UIParent overlays must be hidden explicitly with the window.
     overlay:SetShown(anchored
         and (not overlay.usesAbsoluteBounds or element.window:IsShown()))
+    local editorElement = GetEditorElement(element)
+    if editorElement ~= element then RefreshAnchorGroupOverlay(editorElement) end
     if not controller.selectedElement and element.window:IsShown() then DockInspector(element) end
 end
 
 local function HandleSkinningElementRegistered(_, element)
     ShowElementOverlay(element)
-    if controller and controller.selectedElement == element
+    local editorElement = GetEditorElement(element)
+    if controller and controller.selectedElement == editorElement then
+        controller.dockedWindow:Refresh(editorElement)
+    end
+    if controller and controller.selectedElement == editorElement
         and NSkin.RefreshSkinningDebugInspector
     then
-        NSkin:RefreshSkinningDebugInspector(element,
+        NSkin:RefreshSkinningDebugInspector(editorElement,
             controller.dockedWindow.frame)
     end
 end
@@ -725,10 +805,14 @@ end
 local function HandleElementBoundsChanged(_, element)
     local overlay = controller and controller.overlays[element.id]
     if not overlay then return end
+    local editorElement = GetEditorElement(element)
     if not NSkin:IsSkinningElementEditable(element)
         or (overlay.usesAbsoluteBounds and not element.window:IsShown())
     then
         overlay:Hide()
+        if editorElement ~= element then
+            RefreshAnchorGroupOverlay(editorElement)
+        end
         if controller.selectedElement == element then
             DockWithoutSelection()
         end
@@ -740,10 +824,11 @@ local function HandleElementBoundsChanged(_, element)
         overlay:Hide()
         if controller.selectedElement == element then DockWithoutSelection() end
     end
-    if controller.selectedElement == element
+    if editorElement ~= element then RefreshAnchorGroupOverlay(editorElement) end
+    if controller.selectedElement == editorElement
         and NSkin.RefreshSkinningDebugInspector
     then
-        NSkin:RefreshSkinningDebugInspector(element,
+        NSkin:RefreshSkinningDebugInspector(editorElement,
             controller.dockedWindow.frame)
     end
 end
@@ -753,6 +838,7 @@ local function CreateController()
     controller = {
         overlays = {},
         overlayElements = {},
+        anchorGroupOverlays = {},
         gridPools = setmetatable({}, { __mode = "k" }),
         absoluteWindowLifecycles = setmetatable({}, { __mode = "k" }),
         previewOptions = { preview = true, suppressNotify = true },
@@ -854,6 +940,7 @@ function NSkin:SetSkinningModeEnabled(enabled)
             controller.eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
         end
         for _, overlay in pairs(controller.overlays) do overlay:Hide() end
+        for _, overlay in pairs(controller.anchorGroupOverlays) do overlay:Hide() end
         controller.dockedWindow.frame:Hide()
         if self.HideSkinningDebugInspector then
             self:HideSkinningDebugInspector()

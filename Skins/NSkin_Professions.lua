@@ -251,6 +251,7 @@ local CraftingIDs = {
     CreateAll = "Professions.Crafting.CreateAll",
     CreateCount = "Professions.Crafting.CreateCount",
     Details = "Professions.Crafting.Details",
+    CraftingChoicesSlots = "Professions.Crafting.CraftingChoicesSlots",
     ReagentFlyout = "Professions.Crafting.ReagentFlyout",
     QualityDialog = "Professions.Crafting.QualityDialog",
     TextPrefix = "Professions.Crafting.Text.",
@@ -809,7 +810,9 @@ local function GetReagentIconDescriptors(form, reagentType)
 end
 
 local function SkinReagentNames(form, reagentType, id)
-    local textStyle = NSkin:GetAppearanceStyle("text", IDs.Scope, id)
+    local appearanceID = NSkin:GetElementAppearanceID(id, "TEXT")
+    local textStyle = NSkin:GetAppearanceStyle(
+        "text", IDs.Scope, appearanceID)
     local applied = false
     for _, slot in ipairs(GetReagentSlots(form, reagentType)) do
         if slot and slot.Name then
@@ -863,6 +866,10 @@ local function RegisterReagentGroup(frame, form, reagentType, id, label)
             end,
         }
         if isFinishing then
+            definition.anchorGroupID = CraftingIDs.CraftingChoicesSlots
+            definition.anchorGroupLabel = "Crafting Choices Slots"
+            definition.anchorGroupAppearanceSource =
+                CraftingIDs.FinishingReagents
             definition.composition = {
                 mode = "COMPOSITE", movementOwner = parent,
                 members = {
@@ -1319,7 +1326,10 @@ local function ApplyQualityMaker(frame, form)
                 module = "Professions", appearanceWindowID = IDs.Scope,
                 label = "Crafting quality meter", kind = "PROGRESS_BAR",
                 window = frame, target = quality, priority = 30,
-                draggable = false, highlightRegions = { quality },
+                draggable = false,
+                highlightRegions = function()
+                    return CompactRegions(center.Background or center, fill)
+                end,
                 pixelBorderTargets = { center },
                 refreshAppearance = Refresh, refreshLayout = Refresh,
                 compositionParentID = CraftingIDs.Details,
@@ -1480,6 +1490,9 @@ function CraftingSkin:ApplyConcentration(frame, page, form)
                 module = "Professions", appearanceWindowID = IDs.Scope,
                 label = "Concentration toggle", kind = "ICON",
                 window = frame, target = container or buttons[1], priority = 55,
+                anchorGroupID = CraftingIDs.CraftingChoicesSlots,
+                anchorGroupLabel = "Crafting Choices Slots",
+                anchorGroupAppearanceSource = CraftingIDs.FinishingReagents,
                 draggable = false,
                 children = function()
                     return GetConcentrateIconDescriptors(form)
@@ -1491,9 +1504,11 @@ function CraftingSkin:ApplyConcentration(frame, page, form)
                 appearanceTypeIDs = { "TEXT" },
                 refreshContent = function()
                     local label = container and container.Label
+                    local appearanceID = NSkin:GetElementAppearanceID(
+                        CraftingIDs.Concentrate, "TEXT")
                     return label and NSkin:SkinText(label,
                         NSkin:GetAppearanceStyle("text", IDs.Scope,
-                            CraftingIDs.Concentrate)) == true or false
+                            appearanceID)) == true or false
                 end,
                 composition = {
                     mode = "COMPOSITE", movementOwner = container or buttons[1],
