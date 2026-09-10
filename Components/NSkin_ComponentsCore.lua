@@ -2203,6 +2203,7 @@ function NSkin:RegisterSkinningElement(elementID, definition)
         element.id = elementID
         skinningElements[elementID] = element
     end
+    self:InitializeElementComposition(element)
     FireComponentCallback("SkinningElementRegistered", element)
     return true
 end
@@ -2399,7 +2400,7 @@ end
 function NSkin:RestoreMovableElementOriginal(elementOrID, suppressNotify)
     local element = type(elementOrID) == "table"
         and elementOrID or skinningElements[elementOrID]
-    if not element or not element.target then return false end
+    if not element or not element.target or element.compositionParentID then return false end
     local restored = self:RestoreComponentBaseline(element.id)
     if not restored then
         local points = movableOriginalPoints[element.id]
@@ -2442,6 +2443,15 @@ function NSkin:RegisterMovableElement(definition)
         or not definition.target
     then return false end
     local id = definition.id
+    -- Container membership removes geometry ownership, not component identity.
+    if definition.compositionParentID then
+        definition.draggable = false
+        definition.movable = false
+        definition.applyPlacement = nil
+        definition.setPlacement = nil
+        definition.resetPlacement = nil
+        return self:RegisterSkinningElement(id, definition)
+    end
     self:CaptureComponentBaseline(id, definition.target, {
         points = true,
         size = definition.supportsResize == true,
@@ -2549,7 +2559,7 @@ function NSkin:RegisterSimpleMovableElement(definition)
     local existing = definition.id and self:GetSkinningElement(definition.id)
     if existing then
         local saved = self:GetSavedMovableElementPlacement(definition.id)
-        if saved and self:IsSkinningElementEditable(existing) then
+        if saved and existing.applyPlacement and self:IsSkinningElementEditable(existing) then
             existing.applyPlacement(existing, saved, SUPPRESS_NOTIFICATION)
         end
         self:NotifySkinningElementBoundsChanged(definition.id)
@@ -2871,6 +2881,7 @@ function NSkin:RegisterTypedElement(typeID, definition)
                 existing.typedDefinitionKeys[key] = true
             end
         end
+        self:InitializeElementComposition(existing)
         if skinChanged then self:RefreshTypedElementAppearance(existing) end
         return existing
     end
@@ -2917,12 +2928,13 @@ end
 
 local function ResolveCheckboxLabel(definition)
     local target = definition and definition.target
-    local label = definition and definition.text
-        or (target and (target.Text or target.text))
-    if not label or not label.GetObjectType
-        or label:GetObjectType() ~= "FontString"
-    then return nil end
-    return label
+    local function IsLabel(label)
+        return label and label.GetObjectType
+            and label:GetObjectType() == "FontString"
+    end
+    if IsLabel(definition.text) then return definition.text end
+    if target and IsLabel(target.Text) then return target.Text end
+    if target and IsLabel(target.text) then return target.text end
 end
 
 local function AppendUniqueValue(values, value)
@@ -2930,61 +2942,6 @@ local function AppendUniqueValue(values, value)
         if values[i] == value then return end
     end
     values[#values + 1] = value
-end
-
-local function GetCheckboxHighlightRegions(target, label, provided)
-    return function(element)
-        local regions = { target }
-        local resolved = type(provided) == "function"
-            and provided(element) or provided
-        for i = 1, #(type(resolved) == "table" and resolved or {}) do
-            local region = resolved[i]
-            if region then AppendUniqueValue(regions, region) end
-        end
-        if (label.IsVisible and label:IsVisible())
-            or (not label.IsVisible and (not label.IsShown or label:IsShown()))
-        then
-            AppendUniqueValue(regions, label)
-        end
-        return regions
-    end
-end
-
-local function GetEditorOptionID(option)
-    return type(option) == "table" and option.id or option
-end
-
-local function AppendCheckboxEditorOption(options, id, label)
-    for i = 1, #options do
-        if GetEditorOptionID(options[i]) == id then return end
-    end
-    options[#options + 1] = {
-        id = id, label = label, category = "CUSTOMIZE",
-    }
-end
-
-local function GetCheckboxEditorOptions(definition, hasLabel)
-    if not definition.editorOptions then
-        local extras = hasLabel and {
-            { id = "shared.textAppearance", label = "Text",
-                category = "CUSTOMIZE" },
-        } or nil
-        return NSkin:CreateEditorOptionsPreset("CHECKBOX", extras)
-    end
-    local options = {}
-    if type(definition.editorOptions) == "table" then
-        for i = 1, #definition.editorOptions do
-            options[i] = definition.editorOptions[i]
-        end
-    else
-        options[1] = definition.editorOptions
-    end
-    AppendCheckboxEditorOption(
-        options, "shared.checkboxAppearance", "Checkbox")
-    if hasLabel then
-        AppendCheckboxEditorOption(options, "shared.textAppearance", "Text")
-    end
-    return options
 end
 
 function NSkin:RegisterCheckbox(definition)
@@ -3004,8 +2961,13 @@ function NSkin:RegisterCheckbox(definition)
             end,
         })
         normalized.geometryBaselineIDs = { normalized.labelBaselineID }
-        normalized.highlightRegions = GetCheckboxHighlightRegions(
-            definition.target, label, definition.highlightRegions)
+        normalized.composition = {
+            mode = "COMPOSITE", movementOwner = definition.target,
+            members = {
+                { kind = "CHECKBOX", role = "PRIMARY", target = definition.target },
+                { kind = "TEXT", role = "SECONDARY", target = label, label = "Text" },
+            },
+        }
 
         normalized.appearanceStyles = {}
         for i = 1, #(definition.appearanceStyles or {}) do
@@ -3021,8 +2983,7 @@ function NSkin:RegisterCheckbox(definition)
         AppendUniqueValue(normalized.appearanceTypeIDs, "TEXT")
 
     end
-    normalized.editorOptions = GetCheckboxEditorOptions(
-        definition, label ~= nil)
+    normalized.composition = normalized.composition or { mode = "STANDALONE" }
     local element = self:RegisterTypedElement("CHECKBOX", normalized)
     if element and label then
         self:NotifySkinningElementBoundsChanged(element.id)
@@ -3467,7 +3428,7 @@ end
 
 function NSkin:GetSkinningElementBounds(element)
     if not element then return end
-    local regions = element.highlightRegions
+    local regions = self:GetCompositionHighlightRegions(element)
     if type(regions) == "function" then regions = regions(element) end
     if type(regions) == "table" then
         local left, right, bottom, top
@@ -3530,6 +3491,13 @@ function NSkin:NotifySkinningElementBoundsChanged(elementID)
     local element = skinningElements[elementID]
     if not element then return false end
     FireComponentCallback("SkinningElementBoundsChanged", element)
+    local composition = element.composition
+    if composition and composition.mode == "CONTAINER" then
+        for _, childID in ipairs(composition.children or {}) do
+            local child = skinningElements[childID]
+            if child then FireComponentCallback("SkinningElementBoundsChanged", child) end
+        end
+    end
     return true
 end
 

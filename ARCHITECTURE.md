@@ -958,6 +958,20 @@ Options/Components/
 
 Keep visual implementation, editor composition, and option definitions clearly separated.
 
+The shared composition implementation stores `composition` on the existing
+Skinning Mode element: an explicit `mode`, Composite `members` with canonical
+`kind` and primary/secondary `role`, or Container `children` containing canonical
+element IDs. `movementOwner` is the registration's movement target. Container
+children declare `compositionParentID` in their window adapter, including when
+they register before the parent. Keep both sides of that explicit membership
+consistent; optional runtime children need not exist yet.
+
+`GetCompositionEditorOptions` derives member presentation from canonical editor
+presets using the existing element appearance context. Composition has no separate
+appearance state. Container child registration omits movement callbacks and
+movement baseline capture. Skinning Mode owns hit priority and hover policy;
+composition metadata contains no selection-policy flags.
+
 ---
 
 # 31. Validation Rules for Codex

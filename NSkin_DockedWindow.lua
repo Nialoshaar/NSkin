@@ -49,7 +49,7 @@ local RefreshInspector
 local function ResetElementCustomizations(element)
     if not element then return false end
     local resetGroups = {}
-    local editorOptions = element.editorOptions
+    local editorOptions = NSkin:GetCompositionEditorOptions(element)
     if type(editorOptions) == "string" then
         resetGroups[editorOptions] = true
     elseif type(editorOptions) == "table" then
@@ -65,7 +65,9 @@ local function ResetElementCustomizations(element)
 
     -- Clear anything not represented by the visible compact subsets too.
     NSkin:ResetElementAppearanceOverride(element.id)
-    if type(element.resetPlacement) == "function" then
+    if element.compositionParentID then
+        -- Appearance reset must not acquire child geometry ownership.
+    elseif type(element.resetPlacement) == "function" then
         element.resetPlacement(element)
     elseif type(element.restoreGeometry) == "function" then
         element.restoreGeometry(element)
@@ -113,7 +115,7 @@ local function LoadEditorOptions(element)
         section:Hide()
     end
 
-    local editorOptions = element and element.editorOptions
+    local editorOptions = NSkin:GetCompositionEditorOptions(element)
     if not editorOptions then
         ResizeInspector(nil)
         return

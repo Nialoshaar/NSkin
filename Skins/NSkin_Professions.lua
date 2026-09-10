@@ -287,10 +287,6 @@ local function IsChecked(target)
     return target and target.GetChecked and target:GetChecked() == true or false
 end
 
-local function NeverEditable()
-    return false
-end
-
 local function GetIconTexture(target)
     if not target then return nil end
     return target.Icon or target.icon or target.IconTexture
@@ -634,7 +630,8 @@ local function RegisterCraftingText(frame, id, label, target, priority,
         label = label, window = frame, target = target,
         priority = priority, draggable = false,
         highlightRegions = { target },
-        isEditable = appearanceOnly and NeverEditable or function()
+        compositionParentID = appearanceOnly and CraftingIDs.Details or nil,
+        isEditable = function()
             return IsCraftingVisible(frame, target)
         end,
     })
@@ -845,8 +842,9 @@ local function RegisterReagentGroup(frame, form, reagentType, id, label)
                 end
                 return targets
             end,
-            isEditable = reagentType == Enum.CraftingReagentType.Finishing
-                and NeverEditable or function()
+            compositionParentID = reagentType == Enum.CraftingReagentType.Finishing
+                and CraftingIDs.Details or nil,
+            isEditable = function()
                 return IsVisible(frame)
                     and #GetVisibleReagentIconSlots(form, reagentType) > 0
             end,
@@ -952,7 +950,10 @@ local function RegisterStatLines(frame, details)
             priority = 120, draggable = false,
             highlightRegions = function() return GetVisibleStatLines(details) end,
             refreshAppearance = Refresh, refreshLayout = Refresh,
-            isEditable = NeverEditable,
+            compositionParentID = CraftingIDs.Details,
+            isEditable = function(element)
+                return IsCraftingVisible(frame, element.target)
+            end,
         }) == true
     end
     Refresh()
@@ -1214,7 +1215,10 @@ local function ApplyQualityMaker(frame, form)
             draggable = false,
             skinOptions = { background = true, useAppearanceTexture = true },
             highlightRegions = { quality },
-            isEditable = NeverEditable,
+            compositionParentID = CraftingIDs.Details,
+            isEditable = function(element)
+                return IsCraftingVisible(frame, element.target)
+            end,
         }) ~= nil
     end
 
@@ -1270,7 +1274,10 @@ local function ApplyQualityMaker(frame, form)
                 draggable = false, highlightRegions = { quality },
                 pixelBorderTargets = { center },
                 refreshAppearance = Refresh, refreshLayout = Refresh,
-                isEditable = NeverEditable,
+                compositionParentID = CraftingIDs.Details,
+                isEditable = function(element)
+                    return IsCraftingVisible(frame, element.target)
+                end,
             }) == true
     end
     NSkin:ResnapPixelBordersForTarget(center)
@@ -1432,7 +1439,10 @@ function CraftingSkin:ApplyConcentration(frame, page, form)
                 pixelBorderTargets = function()
                     return GetConcentrateButtons(form, true)
                 end,
-                isEditable = NeverEditable,
+                compositionParentID = CraftingIDs.Details,
+                isEditable = function(element)
+                    return IsCraftingVisible(frame, element.target)
+                end,
             }) ~= nil
     elseif registeredCraftingGroups[CraftingIDs.Concentrate] then
         NSkin:RefreshIconGroup(CraftingIDs.Concentrate)
@@ -1499,6 +1509,16 @@ function CraftingSkin:ApplyDetailsGroup(frame, form)
         module = "Professions",
         appearanceWindowID = IDs.Scope,
         label = "Crafting Details",
+        composition = {
+            mode = "CONTAINER", movementOwner = details,
+            children = {
+                CraftingIDs.StatLines, CraftingIDs.QualityMaker,
+                CraftingIDs.Concentrate, CraftingIDs.FinishingReagents,
+                CraftingIDs.TextPrefix .. "DetailsLabel",
+                CraftingIDs.TextPrefix .. "ConcentrateLabel",
+                CraftingIDs.TextPrefix .. "FinishingLabel",
+            },
+        },
         kind = "MOVABLE",
         window = frame,
         target = details,

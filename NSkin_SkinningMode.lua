@@ -57,6 +57,7 @@ local function AnchorOverlay(overlay, element)
         return true
     end
     if element and element.kind ~= "TAB_GROUP"
+        and not (element.composition and element.composition.mode == "COMPOSITE")
         and type(element.highlightRegions) ~= "table"
         and type(element.highlightRegions) ~= "function"
         and type(element.getHighlightBounds) ~= "function"
@@ -83,6 +84,10 @@ local function RefreshOverlayAppearance(element)
     local selected = controller.selectedElement == element
     local visible = not overlay.dragHidden
         and (selected or (not controller.dragging and overlay.hovered == true))
+    local hovered = controller.hoveredElement
+    if hovered and (NSkin:GetCompositionParent(hovered) == element
+        or NSkin:GetCompositionParent(element) == hovered)
+    then visible = false end
     overlay.texture:SetColorTexture(unpack(visible and style.highlight or TRANSPARENT))
     NSkin:SetPixelBorderColor(overlay.border, unpack(style.hover))
     NSkin:SetPixelBorderShown(overlay.border, visible)
@@ -371,6 +376,7 @@ end
 
 local function BeginDrag(element)
     if not element or (element.kind ~= "TAB_GROUP" and not element.draggable)
+        or not NSkin:GetCompositionMovementOwner(element)
         or controller.dragging then return end
     controller.dragging = true
     local overlay = controller.overlays[element.id]
@@ -516,6 +522,7 @@ end
 
 local function CreateOverlay(element)
     local usesAbsoluteBounds = element.kind == "TAB_GROUP"
+        or (element.composition and element.composition.mode == "COMPOSITE")
         or type(element.highlightRegions) == "table"
         or type(element.highlightRegions) == "function"
         or type(element.getHighlightBounds) == "function"
@@ -537,7 +544,8 @@ local function CreateOverlay(element)
     -- prevents their drag handlers from ever starting.
     overlay:EnableMouse(element.kind ~= "WINDOW")
     overlay:SetFrameLevel(math.max(1,
-        (element.window:GetFrameLevel() or 0) + 10 + (element.priority or 0)))
+        (element.window:GetFrameLevel() or 0) + 10 + (element.priority or 0)
+            + (element.compositionParentID and 1000 or 0)))
     overlay:RegisterForClicks("LeftButtonUp")
     overlay.texture = overlay:CreateTexture(nil, "BACKGROUND")
     overlay.texture:SetAllPoints()
@@ -549,11 +557,25 @@ local function CreateOverlay(element)
     NSkin:SetPixelBorderShown(overlay.border, false)
     overlay:SetScript("OnEnter", function(self)
         self.hovered = true
+        controller.hoveredElement = element
         RefreshOverlayAppearance(element)
+        local parent = NSkin:GetCompositionParent(element)
+        if parent then RefreshOverlayAppearance(parent) end
+        local selected = controller.selectedElement
+        if selected and NSkin:GetCompositionParent(selected) == element then
+            RefreshOverlayAppearance(selected)
+        end
     end)
     overlay:SetScript("OnLeave", function(self)
         self.hovered = nil
+        if controller.hoveredElement == element then controller.hoveredElement = nil end
         RefreshOverlayAppearance(element)
+        local parent = NSkin:GetCompositionParent(element)
+        if parent then RefreshOverlayAppearance(parent) end
+        local selected = controller.selectedElement
+        if selected and NSkin:GetCompositionParent(selected) == element then
+            RefreshOverlayAppearance(selected)
+        end
     end)
 
     local function ResolvePointerElement()
@@ -574,10 +596,15 @@ local function CreateOverlay(element)
                 if left and cursorX >= left and cursorX <= right
                     and cursorY >= bottom and cursorY <= top
                 then
-                    local priority = tonumber(candidate.priority) or 0
+                    local priority = (tonumber(candidate.priority) or 0)
+                        + (candidate.compositionParentID and 1000 or 0)
                     local area = math.max(0, right - left) * math.max(0, top - bottom)
-                    if not best or priority > bestPriority
-                        or (priority == bestPriority and area < bestArea)
+                    -- Development selection policy: children win over their
+                    -- Container. Structure itself makes no selection decision.
+                    if not best or candidate.compositionParentID == best.id
+                        or (best.compositionParentID ~= candidate.id
+                            and (priority > bestPriority
+                                or (priority == bestPriority and area < bestArea)))
                     then
                         best, bestPriority, bestArea = candidate, priority, area
                     end
@@ -626,6 +653,12 @@ local function CreateOverlay(element)
         RefreshOverlayAppearance(element)
     end)
     overlay:SetScript("OnHide", function()
+        if controller.hoveredElement == element then
+            controller.hoveredElement = nil
+            overlay.hovered = nil
+            local parent = NSkin:GetCompositionParent(element)
+            if parent then RefreshOverlayAppearance(parent) end
+        end
         if controller.enabled and controller.selectedElement == element
             and (not element.window:IsShown()
                 or (element.target and element.target.IsVisible
