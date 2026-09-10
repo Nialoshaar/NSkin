@@ -348,8 +348,27 @@ local function ApplySharedTextFormatting(fontString, options)
 end
 
 function NSkin:SkinText(fontString, style, options)
-    if not self:SkinTextColor(fontString, style) then return false end
     style = style or self:GetStyle("text")
+    local state = self:GetSkinData(fontString, "sharedTextAppearance")
+    state.style = style
+    if not state.colorHooked and _G.hooksecurefunc
+        and type(fontString.SetTextColor) == "function"
+    then
+        _G.hooksecurefunc(fontString, "SetTextColor", function()
+            local current = NSkin:GetSkinData(
+                fontString, "sharedTextAppearance", false)
+            if not current or not current.active or current.applying then return end
+            current.applying = true
+            NSkin:SkinTextColor(fontString, current.style)
+            current.applying = nil
+        end)
+        state.colorHooked = true
+    end
+    state.active = true
+    state.applying = true
+    local colored = self:SkinTextColor(fontString, style)
+    state.applying = nil
+    if not colored then return false end
     self:ApplyResolvedTypography(fontString, style)
     ApplySharedTextFormatting(fontString, options)
     return true
@@ -2410,9 +2429,6 @@ function NSkin:RestoreMovableElementOriginal(elementOrID, suppressNotify)
         if size and element.supportsResize and element.target.SetSize then
             element.target:SetSize(size[1], size[2])
         end
-    end
-    for i = 1, #(element.geometryBaselineIDs or {}) do
-        self:RestoreComponentBaseline(element.geometryBaselineIDs[i])
     end
     if not suppressNotify then self:NotifySkinningElementBoundsChanged(element.id) end
     return true

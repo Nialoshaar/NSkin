@@ -102,6 +102,10 @@ end
 local function RefreshInspector()
     if controller and controller.dockedWindow then
         controller.dockedWindow:Refresh(controller.selectedElement)
+        if NSkin.RefreshSkinningDebugInspector then
+            NSkin:RefreshSkinningDebugInspector(controller.selectedElement,
+                controller.dockedWindow.frame)
+        end
     end
 end
 
@@ -380,14 +384,32 @@ local function BeginDrag(element)
         or controller.dragging then return end
     controller.dragging = true
     local overlay = controller.overlays[element.id]
+    local movementOwner = NSkin:GetCompositionMovementOwner(element)
+    local composite = element.composition
+        and element.composition.mode == "COMPOSITE"
     local coordinateScale = 1
-    if overlay and overlay.usesAbsoluteBounds then
-        coordinateScale = UIParent:GetEffectiveScale() / element.window:GetEffectiveScale()
+    local ownerLeft, ownerTop, ownerWidth, ownerHeight
+    if composite then
+        local windowScale = element.window:GetEffectiveScale()
+        local ownerScale = movementOwner and movementOwner.GetEffectiveScale
+            and movementOwner:GetEffectiveScale() or windowScale
+        coordinateScale = ownerScale / windowScale
+        ownerLeft = movementOwner and movementOwner.GetLeft
+            and movementOwner:GetLeft()
+        ownerTop = movementOwner and movementOwner.GetTop
+            and movementOwner:GetTop()
+        ownerWidth = movementOwner and movementOwner.GetWidth
+            and movementOwner:GetWidth()
+        ownerHeight = movementOwner and movementOwner.GetHeight
+            and movementOwner:GetHeight()
+    elseif overlay and overlay.usesAbsoluteBounds then
+        coordinateScale = UIParent:GetEffectiveScale()
+            / element.window:GetEffectiveScale()
     end
     controller.dragWidth = math.max(1,
-        (overlay and overlay:GetWidth() or 1) * coordinateScale)
+        (ownerWidth or (overlay and overlay:GetWidth()) or 1) * coordinateScale)
     controller.dragHeight = math.max(1,
-        (overlay and overlay:GetHeight() or 1) * coordinateScale)
+        (ownerHeight or (overlay and overlay:GetHeight()) or 1) * coordinateScale)
     -- Keep the ghost in the edited window's coordinate space. A UIParent
     -- ghost is the wrong size and offset when Blizzard scales the window.
     controller.ghost:SetParent(element.window)
@@ -404,8 +426,8 @@ local function BeginDrag(element)
     end
     RefreshAllOverlayAppearances()
     local cursorX, cursorY = GetCursorPositionForWindow(element.window)
-    local left = overlay and overlay:GetLeft()
-    local top = overlay and overlay:GetTop()
+    local left = composite and ownerLeft or overlay and overlay:GetLeft()
+    local top = composite and ownerTop or overlay and overlay:GetTop()
     left = left and left * coordinateScale or cursorX
     top = top and top * coordinateScale or cursorY
     controller.grabOffsetX = cursorX - left
@@ -692,6 +714,12 @@ end
 
 local function HandleSkinningElementRegistered(_, element)
     ShowElementOverlay(element)
+    if controller and controller.selectedElement == element
+        and NSkin.RefreshSkinningDebugInspector
+    then
+        NSkin:RefreshSkinningDebugInspector(element,
+            controller.dockedWindow.frame)
+    end
 end
 
 local function HandleElementBoundsChanged(_, element)
@@ -711,6 +739,12 @@ local function HandleElementBoundsChanged(_, element)
     else
         overlay:Hide()
         if controller.selectedElement == element then DockWithoutSelection() end
+    end
+    if controller.selectedElement == element
+        and NSkin.RefreshSkinningDebugInspector
+    then
+        NSkin:RefreshSkinningDebugInspector(element,
+            controller.dockedWindow.frame)
     end
 end
 
@@ -768,9 +802,19 @@ function NSkin:RefreshSkinningModeAppearance(change)
         then
             controller.dockedWindow:Refresh(selected)
         end
+        if selected and selected.id == change.elementID
+            and self.RefreshSkinningDebugInspector
+        then
+            self:RefreshSkinningDebugInspector(selected,
+                controller.dockedWindow.frame)
+        end
         return
     end
     controller.dockedWindow:RefreshAppearance()
+    if self.RefreshSkinningDebugInspector then
+        self:RefreshSkinningDebugInspector(controller.selectedElement,
+            controller.dockedWindow.frame)
+    end
 end
 
 function NSkin:SetSkinningModeEnabled(enabled)
@@ -811,6 +855,9 @@ function NSkin:SetSkinningModeEnabled(enabled)
         end
         for _, overlay in pairs(controller.overlays) do overlay:Hide() end
         controller.dockedWindow.frame:Hide()
+        if self.HideSkinningDebugInspector then
+            self:HideSkinningDebugInspector()
+        end
         controller.selectedElement = nil
         self:Print("Skinning Mode disabled.")
     end

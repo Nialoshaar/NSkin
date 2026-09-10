@@ -41,6 +41,34 @@ function NSkin:GetCompositionMovementOwner(element)
     return composition and composition.movementOwner or element.target
 end
 
+local function ResolveMemberTargets(member, element, visibleOnly)
+    local provider = member and (member.targets or member.regions)
+    local targets
+    if type(provider) == "function" then
+        local ok, resolved = pcall(provider, element, member)
+        if ok and type(resolved) == "table" then targets = resolved end
+    elseif type(provider) == "table" then
+        targets = provider
+    elseif member and member.target then
+        targets = { member.target }
+    end
+    local result = {}
+    for i = 1, #(targets or {}) do
+        local target = targets[i]
+        if target and (not visibleOnly
+            or ((not target.IsVisible or target:IsVisible())
+                and (not target.IsShown or target:IsShown())))
+        then
+            result[#result + 1] = target
+        end
+    end
+    return result
+end
+
+function NSkin:GetCompositionMemberTargets(element, member, visibleOnly)
+    return ResolveMemberTargets(member, element, visibleOnly == true)
+end
+
 function NSkin:GetCompositionHighlightRegions(element)
     local composition = element.composition
     if not composition or composition.mode ~= "COMPOSITE" then
@@ -51,10 +79,9 @@ function NSkin:GetCompositionHighlightRegions(element)
     if type(provided) == "function" then provided = provided(element) end
     for i = 1, #(provided or {}) do regions[#regions + 1] = provided[i] end
     for _, member in ipairs(composition.members) do
-        local target = member.target
-        if target and (not target.IsVisible or target:IsVisible())
-            and (not target.IsShown or target:IsShown())
-        then regions[#regions + 1] = target end
+        for _, target in ipairs(ResolveMemberTargets(member, element, true)) do
+            regions[#regions + 1] = target
+        end
     end
     return regions
 end

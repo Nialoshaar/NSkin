@@ -332,6 +332,7 @@ function DockedWindow:RefreshAppearance()
     if state.gridToggle and state.gridToggle.RefreshState then
         state.gridToggle:RefreshState()
     end
+    if state.debugToggle then NSkin:SkinFlatButton(state.debugToggle, "Debug") end
 end
 
 function NSkin:CreateDockedWindow(owner)
@@ -416,6 +417,28 @@ function NSkin:CreateDockedWindow(owner)
     end)
     RefreshGridToggle()
     state.gridToggle = gridToggle
+    local debugToggle = CreateFrame("Button", nil, inspector)
+    debugToggle:SetSize(52, 22)
+    debugToggle:SetPoint("RIGHT", close, "LEFT", -4, 0)
+    gridToggle:ClearAllPoints()
+    gridToggle:SetPoint("RIGHT", debugToggle, "LEFT", -4, 0)
+    NSkin:SkinFlatButton(debugToggle, "Debug")
+    debugToggle:SetScript("OnClick", function()
+        NSkin:ToggleSkinningDebugInspector(inspector)
+    end)
+    debugToggle:SetScript("OnEnter", function(self)
+        if GameTooltip then
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetText("Toggle debug inspector")
+            GameTooltip:AddLine("Shows the selected element's composition, runtime targets, appearance layers, editor options, and bounds.",
+                1, 1, 1, true)
+            GameTooltip:Show()
+        end
+    end)
+    debugToggle:SetScript("OnLeave", function()
+        if GameTooltip then GameTooltip:Hide() end
+    end)
+    state.debugToggle = debugToggle
     inspector.selection = CreateLabel(
         inspector, "Select an element", "TOPLEFT", inspector, "TOPLEFT", 12, -34
     )
