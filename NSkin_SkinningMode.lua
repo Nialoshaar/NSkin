@@ -57,6 +57,7 @@ local function AnchorOverlay(overlay, element)
         return true
     end
     if element and element.kind ~= "TAB_GROUP"
+        and not (element.composition and element.composition.mode == "COMPOSITE")
         and type(element.highlightRegions) ~= "table"
         and type(element.highlightRegions) ~= "function"
         and type(element.getHighlightBounds) ~= "function"
@@ -83,6 +84,10 @@ local function RefreshOverlayAppearance(element)
     local selected = controller.selectedElement == element
     local visible = not overlay.dragHidden
         and (selected or (not controller.dragging and overlay.hovered == true))
+    local hovered = controller.hoveredElement
+    if hovered and (NSkin:GetCompositionParent(hovered) == element
+        or NSkin:GetCompositionParent(element) == hovered)
+    then visible = false end
     overlay.texture:SetColorTexture(unpack(visible and style.highlight or TRANSPARENT))
     NSkin:SetPixelBorderColor(overlay.border, unpack(style.hover))
     NSkin:SetPixelBorderShown(overlay.border, visible)
@@ -97,6 +102,10 @@ end
 local function RefreshInspector()
     if controller and controller.dockedWindow then
         controller.dockedWindow:Refresh(controller.selectedElement)
+        if NSkin.RefreshSkinningDebugInspector then
+            NSkin:RefreshSkinningDebugInspector(controller.selectedElement,
+                controller.dockedWindow.frame)
+        end
     end
 end
 
@@ -371,17 +380,36 @@ end
 
 local function BeginDrag(element)
     if not element or (element.kind ~= "TAB_GROUP" and not element.draggable)
+        or not NSkin:GetCompositionMovementOwner(element)
         or controller.dragging then return end
     controller.dragging = true
     local overlay = controller.overlays[element.id]
+    local movementOwner = NSkin:GetCompositionMovementOwner(element)
+    local composite = element.composition
+        and element.composition.mode == "COMPOSITE"
     local coordinateScale = 1
-    if overlay and overlay.usesAbsoluteBounds then
-        coordinateScale = UIParent:GetEffectiveScale() / element.window:GetEffectiveScale()
+    local ownerLeft, ownerTop, ownerWidth, ownerHeight
+    if composite then
+        local windowScale = element.window:GetEffectiveScale()
+        local ownerScale = movementOwner and movementOwner.GetEffectiveScale
+            and movementOwner:GetEffectiveScale() or windowScale
+        coordinateScale = ownerScale / windowScale
+        ownerLeft = movementOwner and movementOwner.GetLeft
+            and movementOwner:GetLeft()
+        ownerTop = movementOwner and movementOwner.GetTop
+            and movementOwner:GetTop()
+        ownerWidth = movementOwner and movementOwner.GetWidth
+            and movementOwner:GetWidth()
+        ownerHeight = movementOwner and movementOwner.GetHeight
+            and movementOwner:GetHeight()
+    elseif overlay and overlay.usesAbsoluteBounds then
+        coordinateScale = UIParent:GetEffectiveScale()
+            / element.window:GetEffectiveScale()
     end
     controller.dragWidth = math.max(1,
-        (overlay and overlay:GetWidth() or 1) * coordinateScale)
+        (ownerWidth or (overlay and overlay:GetWidth()) or 1) * coordinateScale)
     controller.dragHeight = math.max(1,
-        (overlay and overlay:GetHeight() or 1) * coordinateScale)
+        (ownerHeight or (overlay and overlay:GetHeight()) or 1) * coordinateScale)
     -- Keep the ghost in the edited window's coordinate space. A UIParent
     -- ghost is the wrong size and offset when Blizzard scales the window.
     controller.ghost:SetParent(element.window)
@@ -398,8 +426,8 @@ local function BeginDrag(element)
     end
     RefreshAllOverlayAppearances()
     local cursorX, cursorY = GetCursorPositionForWindow(element.window)
-    local left = overlay and overlay:GetLeft()
-    local top = overlay and overlay:GetTop()
+    local left = composite and ownerLeft or overlay and overlay:GetLeft()
+    local top = composite and ownerTop or overlay and overlay:GetTop()
     left = left and left * coordinateScale or cursorX
     top = top and top * coordinateScale or cursorY
     controller.grabOffsetX = cursorX - left
@@ -516,6 +544,7 @@ end
 
 local function CreateOverlay(element)
     local usesAbsoluteBounds = element.kind == "TAB_GROUP"
+        or (element.composition and element.composition.mode == "COMPOSITE")
         or type(element.highlightRegions) == "table"
         or type(element.highlightRegions) == "function"
         or type(element.getHighlightBounds) == "function"
@@ -537,7 +566,8 @@ local function CreateOverlay(element)
     -- prevents their drag handlers from ever starting.
     overlay:EnableMouse(element.kind ~= "WINDOW")
     overlay:SetFrameLevel(math.max(1,
-        (element.window:GetFrameLevel() or 0) + 10 + (element.priority or 0)))
+        (element.window:GetFrameLevel() or 0) + 10 + (element.priority or 0)
+            + (element.compositionParentID and 1000 or 0)))
     overlay:RegisterForClicks("LeftButtonUp")
     overlay.texture = overlay:CreateTexture(nil, "BACKGROUND")
     overlay.texture:SetAllPoints()
@@ -549,11 +579,25 @@ local function CreateOverlay(element)
     NSkin:SetPixelBorderShown(overlay.border, false)
     overlay:SetScript("OnEnter", function(self)
         self.hovered = true
+        controller.hoveredElement = element
         RefreshOverlayAppearance(element)
+        local parent = NSkin:GetCompositionParent(element)
+        if parent then RefreshOverlayAppearance(parent) end
+        local selected = controller.selectedElement
+        if selected and NSkin:GetCompositionParent(selected) == element then
+            RefreshOverlayAppearance(selected)
+        end
     end)
     overlay:SetScript("OnLeave", function(self)
         self.hovered = nil
+        if controller.hoveredElement == element then controller.hoveredElement = nil end
         RefreshOverlayAppearance(element)
+        local parent = NSkin:GetCompositionParent(element)
+        if parent then RefreshOverlayAppearance(parent) end
+        local selected = controller.selectedElement
+        if selected and NSkin:GetCompositionParent(selected) == element then
+            RefreshOverlayAppearance(selected)
+        end
     end)
 
     local function ResolvePointerElement()
@@ -574,10 +618,15 @@ local function CreateOverlay(element)
                 if left and cursorX >= left and cursorX <= right
                     and cursorY >= bottom and cursorY <= top
                 then
-                    local priority = tonumber(candidate.priority) or 0
+                    local priority = (tonumber(candidate.priority) or 0)
+                        + (candidate.compositionParentID and 1000 or 0)
                     local area = math.max(0, right - left) * math.max(0, top - bottom)
-                    if not best or priority > bestPriority
-                        or (priority == bestPriority and area < bestArea)
+                    -- Development selection policy: children win over their
+                    -- Container. Structure itself makes no selection decision.
+                    if not best or candidate.compositionParentID == best.id
+                        or (best.compositionParentID ~= candidate.id
+                            and (priority > bestPriority
+                                or (priority == bestPriority and area < bestArea)))
                     then
                         best, bestPriority, bestArea = candidate, priority, area
                     end
@@ -626,6 +675,12 @@ local function CreateOverlay(element)
         RefreshOverlayAppearance(element)
     end)
     overlay:SetScript("OnHide", function()
+        if controller.hoveredElement == element then
+            controller.hoveredElement = nil
+            overlay.hovered = nil
+            local parent = NSkin:GetCompositionParent(element)
+            if parent then RefreshOverlayAppearance(parent) end
+        end
         if controller.enabled and controller.selectedElement == element
             and (not element.window:IsShown()
                 or (element.target and element.target.IsVisible
@@ -659,6 +714,12 @@ end
 
 local function HandleSkinningElementRegistered(_, element)
     ShowElementOverlay(element)
+    if controller and controller.selectedElement == element
+        and NSkin.RefreshSkinningDebugInspector
+    then
+        NSkin:RefreshSkinningDebugInspector(element,
+            controller.dockedWindow.frame)
+    end
 end
 
 local function HandleElementBoundsChanged(_, element)
@@ -678,6 +739,12 @@ local function HandleElementBoundsChanged(_, element)
     else
         overlay:Hide()
         if controller.selectedElement == element then DockWithoutSelection() end
+    end
+    if controller.selectedElement == element
+        and NSkin.RefreshSkinningDebugInspector
+    then
+        NSkin:RefreshSkinningDebugInspector(element,
+            controller.dockedWindow.frame)
     end
 end
 
@@ -735,9 +802,19 @@ function NSkin:RefreshSkinningModeAppearance(change)
         then
             controller.dockedWindow:Refresh(selected)
         end
+        if selected and selected.id == change.elementID
+            and self.RefreshSkinningDebugInspector
+        then
+            self:RefreshSkinningDebugInspector(selected,
+                controller.dockedWindow.frame)
+        end
         return
     end
     controller.dockedWindow:RefreshAppearance()
+    if self.RefreshSkinningDebugInspector then
+        self:RefreshSkinningDebugInspector(controller.selectedElement,
+            controller.dockedWindow.frame)
+    end
 end
 
 function NSkin:SetSkinningModeEnabled(enabled)
@@ -778,6 +855,9 @@ function NSkin:SetSkinningModeEnabled(enabled)
         end
         for _, overlay in pairs(controller.overlays) do overlay:Hide() end
         controller.dockedWindow.frame:Hide()
+        if self.HideSkinningDebugInspector then
+            self:HideSkinningDebugInspector()
+        end
         controller.selectedElement = nil
         self:Print("Skinning Mode disabled.")
     end

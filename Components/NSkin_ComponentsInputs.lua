@@ -288,11 +288,7 @@ function NSkin:SkinCheckButton(checkButton, options)
             end
         end
         local textStyle = options.textStyle or self:GetStyle("text")
-        local textColor = options.textColor
-            or self:GetResolvedAppearanceColor(textStyle, "color")
-            or style.text
-        self:SetFontStringColor(label, unpack(textColor))
-        self:ApplyResolvedTypography(label, textStyle)
+        self:SkinText(label, textStyle)
     end
     return true
 end

@@ -49,7 +49,7 @@ local RefreshInspector
 local function ResetElementCustomizations(element)
     if not element then return false end
     local resetGroups = {}
-    local editorOptions = element.editorOptions
+    local editorOptions = NSkin:GetCompositionEditorOptions(element)
     if type(editorOptions) == "string" then
         resetGroups[editorOptions] = true
     elseif type(editorOptions) == "table" then
@@ -65,7 +65,9 @@ local function ResetElementCustomizations(element)
 
     -- Clear anything not represented by the visible compact subsets too.
     NSkin:ResetElementAppearanceOverride(element.id)
-    if type(element.resetPlacement) == "function" then
+    if element.compositionParentID then
+        -- Appearance reset must not acquire child geometry ownership.
+    elseif type(element.resetPlacement) == "function" then
         element.resetPlacement(element)
     elseif type(element.restoreGeometry) == "function" then
         element.restoreGeometry(element)
@@ -113,7 +115,7 @@ local function LoadEditorOptions(element)
         section:Hide()
     end
 
-    local editorOptions = element and element.editorOptions
+    local editorOptions = NSkin:GetCompositionEditorOptions(element)
     if not editorOptions then
         ResizeInspector(nil)
         return
@@ -330,6 +332,7 @@ function DockedWindow:RefreshAppearance()
     if state.gridToggle and state.gridToggle.RefreshState then
         state.gridToggle:RefreshState()
     end
+    if state.debugToggle then NSkin:SkinFlatButton(state.debugToggle, "Debug") end
 end
 
 function NSkin:CreateDockedWindow(owner)
@@ -414,6 +417,28 @@ function NSkin:CreateDockedWindow(owner)
     end)
     RefreshGridToggle()
     state.gridToggle = gridToggle
+    local debugToggle = CreateFrame("Button", nil, inspector)
+    debugToggle:SetSize(52, 22)
+    debugToggle:SetPoint("RIGHT", close, "LEFT", -4, 0)
+    gridToggle:ClearAllPoints()
+    gridToggle:SetPoint("RIGHT", debugToggle, "LEFT", -4, 0)
+    NSkin:SkinFlatButton(debugToggle, "Debug")
+    debugToggle:SetScript("OnClick", function()
+        NSkin:ToggleSkinningDebugInspector(inspector)
+    end)
+    debugToggle:SetScript("OnEnter", function(self)
+        if GameTooltip then
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetText("Toggle debug inspector")
+            GameTooltip:AddLine("Shows the selected element's composition, runtime targets, appearance layers, editor options, and bounds.",
+                1, 1, 1, true)
+            GameTooltip:Show()
+        end
+    end)
+    debugToggle:SetScript("OnLeave", function()
+        if GameTooltip then GameTooltip:Hide() end
+    end)
+    state.debugToggle = debugToggle
     inspector.selection = CreateLabel(
         inspector, "Select an element", "TOPLEFT", inspector, "TOPLEFT", 12, -34
     )

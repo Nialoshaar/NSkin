@@ -287,10 +287,6 @@ local function IsChecked(target)
     return target and target.GetChecked and target:GetChecked() == true or false
 end
 
-local function NeverEditable()
-    return false
-end
-
 local function GetIconTexture(target)
     if not target then return nil end
     return target.Icon or target.icon or target.IconTexture
@@ -628,16 +624,32 @@ end
 local function RegisterCraftingText(frame, id, label, target, priority,
     appearanceOnly)
     if not target then return nil end
-    return NSkin:RegisterTextElement({
+    local definition = {
         id = id, module = "Professions",
         appearanceWindowID = IDs.Scope,
         label = label, window = frame, target = target,
         priority = priority, draggable = false,
-        highlightRegions = { target },
-        isEditable = appearanceOnly and NeverEditable or function()
+        compositionParentID = appearanceOnly and CraftingIDs.Details or nil,
+        isEditable = function()
             return IsCraftingVisible(frame, target)
         end,
-    })
+    }
+    if id == CraftingIDs.TextPrefix .. "DetailsLabel"
+        and target.GetStringWidth and target.GetStringHeight
+        and target.GetCenter
+    then
+        definition.getHighlightBounds = function()
+            local centerX, centerY = target:GetCenter()
+            if not centerX or not centerY then return end
+            local width = math.max(1, target:GetStringWidth() or 0)
+            local height = math.max(1, target:GetStringHeight() or 0)
+            return centerX - width / 2, centerX + width / 2,
+                centerY - height / 2, centerY + height / 2
+        end
+    else
+        definition.highlightRegions = { target }
+    end
+    return NSkin:RegisterTextElement(definition)
 end
 
 local function GetPoolRegions(pool)
@@ -804,6 +816,14 @@ local function SkinReagentNames(form, reagentType, id)
             applied = NSkin:SkinText(slot.Name, textStyle) == true or applied
         end
     end
+    if reagentType == Enum.CraftingReagentType.Finishing then
+        local details = form and form.Details
+        local choices = details and details.CraftingChoicesContainer
+        local container = choices and choices.FinishingReagentSlotContainer
+        if container and container.Label then
+            applied = NSkin:SkinText(container.Label, textStyle) == true or applied
+        end
+    end
     return applied
 end
 
@@ -814,7 +834,8 @@ local function RegisterReagentGroup(frame, form, reagentType, id, label)
             and form.OptionalReagents
             or form.Details.CraftingChoicesContainer.FinishingReagentSlotContainer
     if not registeredCraftingGroups[id] then
-        registeredCraftingGroups[id] = NSkin:RegisterIconGroup({
+        local isFinishing = reagentType == Enum.CraftingReagentType.Finishing
+        local definition = {
             id = id,
             module = "Professions", appearanceWindowID = IDs.Scope,
             label = label, kind = "ICON", window = frame, target = parent,
@@ -825,17 +846,7 @@ local function RegisterReagentGroup(frame, form, reagentType, id, label)
             refreshContent = function()
                 return SkinReagentNames(form, reagentType, id)
             end,
-            appearanceStyles = { "text" },
-            appearanceTypeIDs = { "TEXT" },
-            editorOptions = {
-                { id = "shared.iconAppearance", label = "Icons",
-                    presentation = "INLINE", category = "CUSTOMIZE" },
-                { id = "shared.textAppearance", label = "Names",
-                    category = "CUSTOMIZE" },
-            },
-            highlightRegions = function()
-                return GetVisibleReagentIconSlots(form, reagentType)
-            end,
+            appearanceStyles = { "text" }, appearanceTypeIDs = { "TEXT" },
             pixelBorderTargets = function()
                 local targets = {}
                 for _, slot in ipairs(GetVisibleReagentIconSlots(
@@ -845,12 +856,47 @@ local function RegisterReagentGroup(frame, form, reagentType, id, label)
                 end
                 return targets
             end,
-            isEditable = reagentType == Enum.CraftingReagentType.Finishing
-                and NeverEditable or function()
+            compositionParentID = isFinishing and CraftingIDs.Details or nil,
+            isEditable = function()
                 return IsVisible(frame)
                     and #GetVisibleReagentIconSlots(form, reagentType) > 0
             end,
-        }) ~= nil
+        }
+        if isFinishing then
+            definition.composition = {
+                mode = "COMPOSITE", movementOwner = parent,
+                members = {
+                    {
+                        kind = "ICON", role = "PRIMARY", target = parent,
+                        label = "Icons",
+                        targets = function()
+                            local targets = {}
+                            for _, slot in ipairs(GetVisibleReagentIconSlots(
+                                form, reagentType))
+                            do
+                                targets[#targets + 1] = slot.Button or slot
+                            end
+                            return targets
+                        end,
+                    },
+                    {
+                        kind = "TEXT", role = "SECONDARY",
+                        target = parent.Label, label = "Text",
+                    },
+                },
+            }
+        else
+            definition.editorOptions = {
+                { id = "shared.iconAppearance", label = "Icons",
+                    presentation = "INLINE", category = "CUSTOMIZE" },
+                { id = "shared.textAppearance", label = "Names",
+                    category = "CUSTOMIZE" },
+            }
+            definition.highlightRegions = function()
+                return GetVisibleReagentIconSlots(form, reagentType)
+            end
+        end
+        registeredCraftingGroups[id] = NSkin:RegisterIconGroup(definition) ~= nil
     else
         NSkin:RefreshIconGroup(id)
     end
@@ -952,7 +998,10 @@ local function RegisterStatLines(frame, details)
             priority = 120, draggable = false,
             highlightRegions = function() return GetVisibleStatLines(details) end,
             refreshAppearance = Refresh, refreshLayout = Refresh,
-            isEditable = NeverEditable,
+            compositionParentID = CraftingIDs.Details,
+            isEditable = function(element)
+                return IsCraftingVisible(frame, element.target)
+            end,
         }) == true
     end
     Refresh()
@@ -1214,7 +1263,10 @@ local function ApplyQualityMaker(frame, form)
             draggable = false,
             skinOptions = { background = true, useAppearanceTexture = true },
             highlightRegions = { quality },
-            isEditable = NeverEditable,
+            compositionParentID = CraftingIDs.Details,
+            isEditable = function(element)
+                return IsCraftingVisible(frame, element.target)
+            end,
         }) ~= nil
     end
 
@@ -1270,7 +1322,10 @@ local function ApplyQualityMaker(frame, form)
                 draggable = false, highlightRegions = { quality },
                 pixelBorderTargets = { center },
                 refreshAppearance = Refresh, refreshLayout = Refresh,
-                isEditable = NeverEditable,
+                compositionParentID = CraftingIDs.Details,
+                isEditable = function(element)
+                    return IsCraftingVisible(frame, element.target)
+                end,
             }) == true
     end
     NSkin:ResnapPixelBordersForTarget(center)
@@ -1383,6 +1438,12 @@ local function GetConcentrateButtons(form, visibleOnly)
     return buttons
 end
 
+local function GetConcentrateContainer(form)
+    local details = form and form.Details
+    local choices = details and details.CraftingChoicesContainer
+    return choices and choices.ConcentrateContainer or form and form.Concentrate
+end
+
 local function GetConcentrateIconDescriptors(form)
     local descriptors = {}
     for _, button in ipairs(GetConcentrateButtons(form, false)) do
@@ -1411,28 +1472,50 @@ end
 function CraftingSkin:ApplyConcentration(frame, page, form)
     local applied = false
     local buttons = GetConcentrateButtons(form, false)
+    local container = GetConcentrateContainer(form)
     if #buttons > 0 and not registeredCraftingGroups[CraftingIDs.Concentrate] then
         registeredCraftingGroups[CraftingIDs.Concentrate] =
             NSkin:RegisterIconGroup({
                 id = CraftingIDs.Concentrate,
                 module = "Professions", appearanceWindowID = IDs.Scope,
                 label = "Concentration toggle", kind = "ICON",
-                window = frame, target = buttons[1], priority = 55,
+                window = frame, target = container or buttons[1], priority = 55,
                 draggable = false,
                 children = function()
                     return GetConcentrateIconDescriptors(form)
                 end,
-                editorOptions = {
-                    { id = "shared.iconAppearance", label = "Toggle icon",
-                        presentation = "INLINE", category = "CUSTOMIZE" },
-                },
-                highlightRegions = function()
-                    return GetConcentrateButtons(form, true)
-                end,
                 pixelBorderTargets = function()
                     return GetConcentrateButtons(form, true)
                 end,
-                isEditable = NeverEditable,
+                appearanceStyles = { "text" },
+                appearanceTypeIDs = { "TEXT" },
+                refreshContent = function()
+                    local label = container and container.Label
+                    return label and NSkin:SkinText(label,
+                        NSkin:GetAppearanceStyle("text", IDs.Scope,
+                            CraftingIDs.Concentrate)) == true or false
+                end,
+                composition = {
+                    mode = "COMPOSITE", movementOwner = container or buttons[1],
+                    members = {
+                        {
+                            kind = "ICON", role = "PRIMARY",
+                            target = container or buttons[1], label = "Icon",
+                            targets = function()
+                                return GetConcentrateButtons(form, true)
+                            end,
+                        },
+                        {
+                            kind = "TEXT", role = "SECONDARY",
+                            target = container and container.Label,
+                            label = "Text",
+                        },
+                    },
+                },
+                compositionParentID = CraftingIDs.Details,
+                isEditable = function(element)
+                    return IsCraftingVisible(frame, element.target)
+                end,
             }) ~= nil
     elseif registeredCraftingGroups[CraftingIDs.Concentrate] then
         NSkin:RefreshIconGroup(CraftingIDs.Concentrate)
@@ -1499,6 +1582,14 @@ function CraftingSkin:ApplyDetailsGroup(frame, form)
         module = "Professions",
         appearanceWindowID = IDs.Scope,
         label = "Crafting Details",
+        composition = {
+            mode = "CONTAINER", movementOwner = details,
+            children = {
+                CraftingIDs.StatLines, CraftingIDs.QualityMaker,
+                CraftingIDs.Concentrate, CraftingIDs.FinishingReagents,
+                CraftingIDs.TextPrefix .. "DetailsLabel",
+            },
+        },
         kind = "MOVABLE",
         window = frame,
         target = details,
@@ -1518,9 +1609,6 @@ end
 
 function CraftingSkin:ApplyStaticText(frame, form)
     local details = form and form.Details
-    local choices = details and details.CraftingChoicesContainer
-    local concentrate = choices and choices.ConcentrateContainer
-    local finishing = choices and choices.FinishingReagentSlotContainer
     local applied = false
     for index, definition in ipairs({
         { "Output", "Recipe output", form and form.OutputText },
@@ -1532,10 +1620,6 @@ function CraftingSkin:ApplyStaticText(frame, form)
             form and form.OptionalReagents and form.OptionalReagents.Label },
         { "DetailsLabel", "Crafting details label",
             details and details.Label, true },
-        { "ConcentrateLabel", "Concentration label",
-            concentrate and concentrate.Label, true },
-        { "FinishingLabel", "Finishing reagents label",
-            finishing and finishing.Label, true },
     }) do
         applied = RegisterCraftingText(frame,
             CraftingIDs.TextPrefix .. definition[1], definition[2],
