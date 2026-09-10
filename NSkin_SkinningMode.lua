@@ -229,7 +229,6 @@ HideGrid = function()
     for i = 1, #pool.vertical do pool.vertical[i]:Hide() end
     for i = 1, #pool.horizontal do pool.horizontal[i]:Hide() end
     for i = 1, #pool.borders do pool.borders[i]:Hide() end
-    for i = 1, #(pool.alignmentZones or {}) do pool.alignmentZones[i]:Hide() end
     controller.activeGridPool = nil
 end
 
@@ -237,7 +236,7 @@ RefreshGrid = function(window)
     if controller.activeGridPool then HideGrid() end
     local pool = controller.gridPools[window]
     if not pool then
-        pool = { vertical = {}, horizontal = {}, borders = {}, alignmentZones = {} }
+        pool = { vertical = {}, horizontal = {}, borders = {} }
         controller.gridPools[window] = pool
     end
     controller.activeGridPool = pool
@@ -246,29 +245,6 @@ RefreshGrid = function(window)
     local marginX, marginY = 30, 30
     local style = NSkin:GetStyle("skinningMode")
     local gridAlpha = tonumber(style.gridAlpha) or 0.4
-    if #pool.alignmentZones == 0 then
-        local labels = { "LEFT", "CENTER", "RIGHT" }
-        for i = 1, 3 do
-            local zone = CreateFrame("Frame", nil, window)
-            zone:SetFrameLevel(window:GetFrameLevel() + 20)
-            zone.texture = zone:CreateTexture(nil, "OVERLAY")
-            zone.texture:SetAllPoints()
-            zone.label = zone:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-            zone.label:SetPoint("CENTER")
-            zone.label:SetText(labels[i])
-            zone.label:SetTextColor(1, 1, 1, 0.85)
-            pool.alignmentZones[i] = zone
-        end
-    end
-    for i = 1, 3 do
-        local zone = pool.alignmentZones[i]
-        zone:ClearAllPoints()
-        zone:SetPoint("TOPLEFT", window, "TOPLEFT", (i - 1) * width / 3, 0)
-        zone:SetPoint("BOTTOMRIGHT", window, "BOTTOMLEFT", i * width / 3, 0)
-        zone.texture:SetColorTexture(style.activeDropZone[1],
-            style.activeDropZone[2], style.activeDropZone[3], 0.05)
-        zone:Show()
-    end
     local firstX = math.ceil(-marginX / visualGridSize)
     local lastX = math.floor((width + marginX) / visualGridSize)
     local verticalCount = 0
@@ -368,15 +344,6 @@ local function UpdateDrag()
     local alignmentIndex = centerX < window:GetWidth() / 3 and 1
         or (centerX < window:GetWidth() * 2 / 3 and 2 or 3)
     controller.dropAlignmentIndex = alignmentIndex
-    if controller.activeGridPool then
-        for i = 1, 3 do
-            local zone = controller.activeGridPool.alignmentZones[i]
-            local alpha = i == alignmentIndex and 0.22 or 0.05
-            local color = NSkin:GetStyle("skinningMode").activeDropZone
-            zone.texture:SetColorTexture(color[1], color[2], color[3], alpha)
-            zone.label:SetAlpha(i == alignmentIndex and 1 or 0.45)
-        end
-    end
     if localX == controller.previewX and localY == controller.previewY then return end
     controller.previewX, controller.previewY = localX, localY
     local placement = controller.previewPlacement
