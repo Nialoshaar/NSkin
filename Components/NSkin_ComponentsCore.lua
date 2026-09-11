@@ -1066,13 +1066,34 @@ local function RefreshSharedTypeAppearance(self, change)
     return true, matched
 end
 
+local function RefreshAnchorGroupAppearance(self, change)
+    if not self.GetAnchorGroupMembers then return false, "unresolved_element" end
+    local members = self:GetAnchorGroupMembers(change.elementID)
+    if not members or #members == 0 then return false, "unresolved_element" end
+    for _, element in ipairs(members) do
+        local refreshed, reason = RefreshElementForChange(
+            self, element, change, false)
+        if not refreshed and reason ~= "module_disabled"
+            and reason ~= "style_mismatch"
+        then
+            return false, reason
+        end
+    end
+    return true
+end
+
 function NSkin:RefreshAppearance(change)
     self:InvalidateAppearance(change)
 
     if change and change.scope == "element" then
         local element = self:GetSkinningElement(change.elementID)
-        local refreshed, fallbackReason = RefreshElementForChange(
-            self, element, change, false)
+        local refreshed, fallbackReason
+        if element then
+            refreshed, fallbackReason = RefreshElementForChange(
+                self, element, change, false)
+        else
+            refreshed, fallbackReason = RefreshAnchorGroupAppearance(self, change)
+        end
         if refreshed then
             if self.RefreshSkinningModeAppearance then
                 self:RefreshSkinningModeAppearance(change)
@@ -2223,6 +2244,9 @@ function NSkin:RegisterSkinningElement(elementID, definition)
         skinningElements[elementID] = element
     end
     self:InitializeElementComposition(element)
+    if self.InitializeElementAnchorGroup then
+        self:InitializeElementAnchorGroup(element)
+    end
     FireComponentCallback("SkinningElementRegistered", element)
     return true
 end
@@ -2748,10 +2772,12 @@ function NSkin:SkinTypedElement(typeID, definition)
     if not typeDefinition or not adapter or type(skinMethod) ~= "function" then
         return false
     end
+    local appearanceID = self.GetElementAppearanceID
+        and self:GetElementAppearanceID(definition, typeID) or definition.id
     local style = self:GetAppearanceStyle(typeDefinition.style,
-        definition.appearanceWindowID, definition.id)
+        definition.appearanceWindowID, appearanceID)
     local borderColor = self:GetAppearanceBorderColor(
-        typeDefinition.style, style, definition.appearanceWindowID, definition.id)
+        typeDefinition.style, style, definition.appearanceWindowID, appearanceID)
     if type(definition.skinAdapter) == "function" then
         definition.skinAdapter(self, definition.target, style, borderColor,
             definition)
@@ -3444,6 +3470,17 @@ end
 
 function NSkin:GetSkinningElementBounds(element)
     if not element then return end
+    if type(element.getHighlightBounds) == "function" then
+        local ok, left, right, bottom, top = pcall(element.getHighlightBounds, element)
+        if ok and left and right and bottom and top then
+            if element.highlightBoundsAreNormalized then
+                return left, right, bottom, top
+            end
+            return self:GetUIParentNormalizedBounds(
+                element.target or element.window, left, right, bottom, top
+            )
+        end
+    end
     local regions = self:GetCompositionHighlightRegions(element)
     if type(regions) == "function" then regions = regions(element) end
     if type(regions) == "table" then
@@ -3463,15 +3500,6 @@ function NSkin:GetSkinningElementBounds(element)
         end
         if left then return left, right, bottom, top end
     end
-    if type(element.getHighlightBounds) == "function" then
-        local ok, left, right, bottom, top = pcall(element.getHighlightBounds, element)
-        if ok and left and right and bottom and top then
-            return self:GetUIParentNormalizedBounds(
-                element.target or element.window, left, right, bottom, top
-            )
-        end
-    end
-
     if element.kind == "TAB_GROUP" then
         local tabs = element.container and element.container.tabs or element.tabs
         local left, right, bottom, top

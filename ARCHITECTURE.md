@@ -993,7 +993,38 @@ The user runs the repository tests locally when needed.
 
 ---
 
-# 32. Refactor Review Checklist
+# 32. Minimal Appearance Anchor Groups
+
+An Anchor Group is an explicit, addon-authored editor relationship declared by
+multiple registered elements with the same stable `anchorGroupID`. It is
+orthogonal to `STANDALONE`, `COMPOSITE`, and `CONTAINER`: every member retains
+its canonical ID, composition, container parent, lifecycle, runtime targets,
+movement owner, and reset ownership.
+
+The group may affect only:
+
+- the Skinning Mode selection label and dock target;
+- aggregation of unique canonical component option groups;
+- the visual highlight, computed as the union of each visible member's own
+  logical bounds;
+- the individual appearance lookup key for canonical component types exposed
+  by at least two group members.
+
+Matching canonical types share the group ID as their sparse individual
+appearance namespace. Non-matching types continue to use the canonical member
+element ID. The existing default, global, window, and individual inheritance
+resolver remains authoritative; an Anchor Group changes only the final
+individual key. A deterministic migration may copy an existing member's real
+local override into an empty group namespace, but must not materialize inherited
+values or erase the original member override.
+
+Anchor Groups are visual/editor-only in this phase. They do not own movement,
+dragging, placement, Blizzard anchors, or `SetPoint()` calls, and they are not a
+new component or composition mode.
+
+---
+
+# 33. Refactor Review Checklist
 
 For any major shared-component/editor refactor, check for:
 
@@ -1014,7 +1045,7 @@ For any major shared-component/editor refactor, check for:
 
 ---
 
-# 33. Decision Rule for New Architecture
+# 34. Decision Rule for New Architecture
 
 Before adding a new shared abstraction, ask:
 
@@ -1028,7 +1059,7 @@ If it is merely a temporary implementation detail for one task, it should normal
 
 ---
 
-# 34. Updating This File
+# 35. Updating This File
 
 `ARCHITECTURE.md` should describe stable project-wide rules.
 
@@ -1058,7 +1089,7 @@ If yes, it probably belongs here.
 
 ---
 
-# 35. Current Architectural Summary
+# 36. Current Architectural Summary
 
 ```text
 NSkin
@@ -1076,6 +1107,7 @@ NSkin
 │
 ├─ Skinning Mode
 │   ├─ selection policy
+│   ├─ virtual appearance Anchor Groups
 │   ├─ highlights
 │   ├─ movement
 │   └─ dock presentation

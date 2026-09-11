@@ -251,6 +251,7 @@ local CraftingIDs = {
     CreateAll = "Professions.Crafting.CreateAll",
     CreateCount = "Professions.Crafting.CreateCount",
     Details = "Professions.Crafting.Details",
+    CraftingChoicesSlots = "Professions.Crafting.CraftingChoicesSlots",
     ReagentFlyout = "Professions.Crafting.ReagentFlyout",
     QualityDialog = "Professions.Crafting.QualityDialog",
     TextPrefix = "Professions.Crafting.Text.",
@@ -273,6 +274,56 @@ local function CompactRegions(...)
         AddRegion(regions, seen, select(index, ...))
     end
     return regions
+end
+
+local function AddNormalizedBounds(bounds, left, right, bottom, top)
+    if not left or not right or not bottom or not top then return end
+    bounds.left = bounds.left and math.min(bounds.left, left) or left
+    bounds.right = bounds.right and math.max(bounds.right, right) or right
+    bounds.bottom = bounds.bottom and math.min(bounds.bottom, bottom) or bottom
+    bounds.top = bounds.top and math.max(bounds.top, top) or top
+end
+
+local function AddRegionBounds(bounds, region)
+    if not IsVisible(region) then return end
+    AddNormalizedBounds(bounds, NSkin:GetUIParentNormalizedBounds(region))
+end
+
+local function AddRenderedTextBounds(bounds, text)
+    if not IsVisible(text) or not text.GetStringWidth
+        or not text.GetStringHeight
+    then return end
+    local width = text:GetStringWidth()
+    local height = text:GetStringHeight()
+    if not width or not height or width <= 0 or height <= 0 then return end
+
+    local frameLeft = text.GetLeft and text:GetLeft()
+    local frameRight = text.GetRight and text:GetRight()
+    local frameBottom = text.GetBottom and text:GetBottom()
+    local frameTop = text.GetTop and text:GetTop()
+    if not frameLeft or not frameRight or not frameBottom or not frameTop then return end
+
+    local justifyH = text.GetJustifyH and text:GetJustifyH() or "CENTER"
+    local left = justifyH == "LEFT" and frameLeft
+        or justifyH == "RIGHT" and frameRight - width
+        or (frameLeft + frameRight - width) / 2
+    local right = left + width
+    local justifyV = text.GetJustifyV and text:GetJustifyV() or "MIDDLE"
+    local bottom = justifyV == "BOTTOM" and frameBottom
+        or justifyV == "TOP" and frameTop - height
+        or (frameBottom + frameTop - height) / 2
+    local top = bottom + height
+    AddNormalizedBounds(bounds, NSkin:GetUIParentNormalizedBounds(
+        text, left, right, bottom, top))
+end
+
+local function GetIconAndLabelBounds(iconTextures, label)
+    local bounds = {}
+    for _, texture in ipairs(iconTextures or {}) do
+        AddRegionBounds(bounds, texture)
+    end
+    AddRenderedTextBounds(bounds, label)
+    return bounds.left, bounds.right, bounds.bottom, bounds.top
 end
 
 local function IsCraftingVisible(frame, target)
@@ -809,7 +860,9 @@ local function GetReagentIconDescriptors(form, reagentType)
 end
 
 local function SkinReagentNames(form, reagentType, id)
-    local textStyle = NSkin:GetAppearanceStyle("text", IDs.Scope, id)
+    local appearanceID = NSkin:GetElementAppearanceID(id, "TEXT")
+    local textStyle = NSkin:GetAppearanceStyle(
+        "text", IDs.Scope, appearanceID)
     local applied = false
     for _, slot in ipairs(GetReagentSlots(form, reagentType)) do
         if slot and slot.Name then
@@ -863,6 +916,23 @@ local function RegisterReagentGroup(frame, form, reagentType, id, label)
             end,
         }
         if isFinishing then
+            definition.anchorGroupID = CraftingIDs.CraftingChoicesSlots
+            definition.anchorGroupLabel = "Crafting Choices Slots"
+            definition.anchorGroupAppearanceSource =
+                CraftingIDs.FinishingReagents
+            definition.getHighlightBounds = function()
+                local textures = {}
+                for _, slot in ipairs(GetVisibleReagentIconSlots(
+                    form, reagentType))
+                do
+                    local button = slot.Button
+                    local texture = button and GetIconTexture(button)
+                    textures[#textures + 1] = IsVisible(texture)
+                        and texture or button
+                end
+                return GetIconAndLabelBounds(textures, parent.Label)
+            end
+            definition.highlightBoundsAreNormalized = true
             definition.composition = {
                 mode = "COMPOSITE", movementOwner = parent,
                 members = {
@@ -1319,7 +1389,10 @@ local function ApplyQualityMaker(frame, form)
                 module = "Professions", appearanceWindowID = IDs.Scope,
                 label = "Crafting quality meter", kind = "PROGRESS_BAR",
                 window = frame, target = quality, priority = 30,
-                draggable = false, highlightRegions = { quality },
+                draggable = false,
+                highlightRegions = function()
+                    return CompactRegions(center.Background or center, fill)
+                end,
                 pixelBorderTargets = { center },
                 refreshAppearance = Refresh, refreshLayout = Refresh,
                 compositionParentID = CraftingIDs.Details,
@@ -1480,6 +1553,9 @@ function CraftingSkin:ApplyConcentration(frame, page, form)
                 module = "Professions", appearanceWindowID = IDs.Scope,
                 label = "Concentration toggle", kind = "ICON",
                 window = frame, target = container or buttons[1], priority = 55,
+                anchorGroupID = CraftingIDs.CraftingChoicesSlots,
+                anchorGroupLabel = "Crafting Choices Slots",
+                anchorGroupAppearanceSource = CraftingIDs.FinishingReagents,
                 draggable = false,
                 children = function()
                     return GetConcentrateIconDescriptors(form)
@@ -1489,11 +1565,23 @@ function CraftingSkin:ApplyConcentration(frame, page, form)
                 end,
                 appearanceStyles = { "text" },
                 appearanceTypeIDs = { "TEXT" },
+                getHighlightBounds = function()
+                    local textures = {}
+                    for _, button in ipairs(GetConcentrateButtons(form, true)) do
+                        local texture = GetConcentrateDisplayedTexture(button)
+                        if texture then textures[#textures + 1] = texture end
+                    end
+                    return GetIconAndLabelBounds(
+                        textures, container and container.Label)
+                end,
+                highlightBoundsAreNormalized = true,
                 refreshContent = function()
                     local label = container and container.Label
+                    local appearanceID = NSkin:GetElementAppearanceID(
+                        CraftingIDs.Concentrate, "TEXT")
                     return label and NSkin:SkinText(label,
                         NSkin:GetAppearanceStyle("text", IDs.Scope,
-                            CraftingIDs.Concentrate)) == true or false
+                            appearanceID)) == true or false
                 end,
                 composition = {
                     mode = "COMPOSITE", movementOwner = container or buttons[1],

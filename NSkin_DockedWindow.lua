@@ -51,16 +51,19 @@ local function ResetElementCustomizations(element)
     local resetGroups = {}
     local editorOptions = NSkin:GetCompositionEditorOptions(element)
     if type(editorOptions) == "string" then
-        resetGroups[editorOptions] = true
+        resetGroups[editorOptions] = element
     elseif type(editorOptions) == "table" then
         for i = 1, #editorOptions do
             local definition = editorOptions[i]
             local id = type(definition) == "table" and definition.id or definition
-            if type(id) == "string" then resetGroups[id] = true end
+            if type(id) == "string" then
+                resetGroups[id] = type(definition) == "table"
+                    and definition.context or element
+            end
         end
     end
-    for id in pairs(resetGroups) do
-        NSkin:ResetOptionGroup(id, element)
+    for id, context in pairs(resetGroups) do
+        NSkin:ResetOptionGroup(id, context)
     end
 
     -- Clear anything not represented by the visible compact subsets too.
@@ -137,15 +140,17 @@ local function LoadEditorOptions(element)
         local definition = groups[i]
         local label = type(definition) == "table" and definition.label
         local id = type(definition) == "table" and definition.id or definition
+        local optionContext = type(definition) == "table"
+            and definition.context or element
         local inline = IsInlineEditorDefinition(definition)
         if type(id) == "string" and inline then
             local view = state.optionViews[id]
             if not view then
                 view = NSkin:CreateOptionGroupView(
-                    state.scrollChild, id, "COMPACT", element)
+                    state.scrollChild, id, "COMPACT", optionContext)
                 state.optionViews[id] = view
             else
-                view:SetContext(element)
+                view:SetContext(optionContext)
             end
             if view then
                 view.isSkinningModeInspector = true
@@ -162,6 +167,8 @@ local function LoadEditorOptions(element)
         local definition = groups[i]
         local label = type(definition) == "table" and definition.label
         local id = type(definition) == "table" and definition.id or definition
+        local optionContext = type(definition) == "table"
+            and definition.context or element
         local inline = IsInlineEditorDefinition(definition)
         if type(id) == "string" and not inline then
             sectionIndex = sectionIndex + 1
@@ -223,7 +230,7 @@ local function LoadEditorOptions(element)
             local hasInheritedReset = optionDefinition
                 and optionDefinition.inheritedReset == true
             section.reset.optionGroupID = id
-            section.reset.context = element
+            section.reset.context = optionContext
             section.reset.sectionLabel = type(definition) == "table"
                 and (definition.label or id) or id
             section.reset.tooltip = optionDefinition
@@ -246,10 +253,10 @@ local function LoadEditorOptions(element)
                 local view = state.optionViews[id]
                 if not view then
                     view = NSkin:CreateOptionGroupView(
-                        state.scrollChild, id, "COMPACT", element)
+                        state.scrollChild, id, "COMPACT", optionContext)
                     state.optionViews[id] = view
                 else
-                    view:SetContext(element)
+                    view:SetContext(optionContext)
                 end
                 if view then
                     view.isSkinningModeInspector = true
