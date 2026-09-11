@@ -2,6 +2,7 @@ local _, NSkin = ...
 
 local AuctionHouseSkin = NSkin:NewModule("AuctionHouse")
 local RefreshBlackMarketAppearance
+local RefreshCustomerOrdersAppearance
 
 local IDs = {
     Scope = "AuctionHouse",
@@ -595,6 +596,7 @@ end
 
 function AuctionHouseSkin:RefreshAppearance()
     if initialized then self:Apply() end
+    if RefreshCustomerOrdersAppearance then RefreshCustomerOrdersAppearance() end
     if RefreshBlackMarketAppearance then RefreshBlackMarketAppearance() end
 end
 
@@ -603,6 +605,640 @@ NSkin:RegisterWindowSkin({
     addon = "Blizzard_AuctionHouseUI",
     apply = function() return AuctionHouseSkin:Initialize() end,
 })
+do
+local CustomerOrdersSkin = {}
+
+local CustomerOrdersIDs = {
+    Window = "AuctionHouse.CustomerOrders.Window",
+    HeaderControls = "AuctionHouse.CustomerOrders.HeaderControls",
+    Tabs = "AuctionHouse.CustomerOrders.Tabs",
+    FavoriteButton = "AuctionHouse.CustomerOrders.Browse.FavoriteButton",
+    SearchBox = "AuctionHouse.CustomerOrders.Browse.SearchBox",
+    FilterDropdown = "AuctionHouse.CustomerOrders.Browse.FilterDropdown",
+    SearchButton = "AuctionHouse.CustomerOrders.Browse.SearchButton",
+    RecraftCard = "AuctionHouse.CustomerOrders.Browse.RecraftCard",
+    PrimaryCards = "AuctionHouse.CustomerOrders.Browse.PrimaryCards",
+    SecondaryCards = "AuctionHouse.CustomerOrders.Browse.SecondaryCards",
+    SecondaryRows = "AuctionHouse.CustomerOrders.Browse.SecondaryRows",
+    TertiaryRows = "AuctionHouse.CustomerOrders.Browse.TertiaryRows",
+    CategoryScrollBar = "AuctionHouse.CustomerOrders.Browse.CategoryScrollBar",
+    RecipeScrollBar = "AuctionHouse.CustomerOrders.Browse.RecipeScrollBar",
+    RecipeRows = "AuctionHouse.CustomerOrders.Browse.RecipeRows",
+    ColumnHeaders = "AuctionHouse.CustomerOrders.Browse.ColumnHeaders",
+}
+
+local CATEGORY_RECRAFT = "RECRAFT"
+local CATEGORY_PRIMARY = "PRIMARY"
+local CATEGORY_SECONDARY = "SECONDARY"
+local CATEGORY_SECONDARY_CARD = "SECONDARY_CARD"
+local CATEGORY_SECONDARY_ROW = "SECONDARY_ROW"
+local CATEGORY_TERTIARY = "TERTIARY"
+local CATEGORY_SPACER = "SPACER"
+
+local customerOrdersInitialized = false
+local customerOrdersLifecycleHooked = false
+local customerOrdersTabsHooked = setmetatable({}, { __mode = "k" })
+local customerOrdersElements = {}
+
+local function GetCustomerOrdersFrame()
+    local frame = _G.ProfessionsCustomerOrdersFrame
+    return frame, frame and frame.BrowseOrders
+end
+
+local function RefreshTypedElement(element)
+    if element then NSkin:RefreshTypedElementAppearance(element) end
+    return element
+end
+
+local function IsHovered(target)
+    return target and target.IsMouseOver and target:IsMouseOver() or false
+end
+
+local function GetCategoryScrollBox(browse)
+    local categoryList = browse and browse.CategoryList
+    return categoryList and categoryList.ScrollBox
+end
+
+local function GetRecipeScrollBox(browse)
+    local recipeList = browse and browse.RecipeList
+    return recipeList and recipeList.ScrollBox
+end
+
+local function GetCategoryRuntimeData(button)
+    if not button then return nil end
+    local data = button.GetElementData and button:GetElementData()
+    if data and type(data.GetData) == "function" then data = data:GetData() end
+    return data
+end
+
+local function NormalizeCategoryType(value)
+    local categoryTypes = _G.Enum
+        and _G.Enum.CraftingOrderCustomerCategoryType
+    if categoryTypes then
+        if value == categoryTypes.Primary then return CATEGORY_PRIMARY end
+        if value == categoryTypes.Secondary then return CATEGORY_SECONDARY end
+        if value == categoryTypes.Tertiary then return CATEGORY_TERTIARY end
+    end
+    if type(value) == "string" then
+        local normalized = value:upper():gsub("[^A-Z]", "")
+        if normalized:find("TERTIARY", 1, true) then return CATEGORY_TERTIARY end
+        if normalized:find("SECONDARY", 1, true) then return CATEGORY_SECONDARY end
+        if normalized:find("PRIMARY", 1, true) then return CATEGORY_PRIMARY end
+    elseif value == 0 then
+        return CATEGORY_PRIMARY
+    elseif value == 1 then
+        return CATEGORY_SECONDARY
+    elseif value == 2 then
+        return CATEGORY_TERTIARY
+    end
+end
+
+local function CategoryNodeHasChildren(button)
+    local node = button and button.GetElementData
+        and button:GetElementData()
+    return node and type(node.GetSize) == "function"
+ and node:GetSize() > 0 or false
+end
+
+local function GetCategoryClass(button)
+    local data = GetCategoryRuntimeData(button)
+    if (button and button.isSpacer) or (data and data.isSpacer) then
+        return CATEGORY_SPACER
+    end
+    if (button and button.isRecraftCategory)
+        or (data and data.isRecraftCategory)
+    then
+        return CATEGORY_RECRAFT
+    end
+    local categoryInfo = button and button.categoryInfo
+        or data and data.categoryInfo
+    local categoryClass = NormalizeCategoryType(
+        categoryInfo and categoryInfo.type)
+    if categoryClass == CATEGORY_SECONDARY then
+        return CategoryNodeHasChildren(button)
+            and CATEGORY_SECONDARY_CARD or CATEGORY_SECONDARY_ROW
+    end
+    return categoryClass
+end
+
+local function GetCategoryText(button)
+    return button and (button.Text or button.Label or button.Name)
+end
+
+local function GetCategoryNormalTexture(button)
+    if not button then return nil end
+    return button.NormalTexture
+        or (button.GetNormalTexture and button:GetNormalTexture())
+end
+
+local function GetCategoryHighlightTexture(button)
+    if not button then return nil end
+    return button.HighlightTexture
+        or (button.GetHighlightTexture and button:GetHighlightTexture())
+end
+
+local function GetCategorySelectedTexture(button)
+    if not button then return nil end
+    return button.SelectedTexture or button.Selection
+end
+
+local function GetCategoryButtons(browse, categoryClass, visibleOnly)
+    local buttons = {}
+    NSkin:ForEachScrollBoxFrame(GetCategoryScrollBox(browse), function(button)
+        if GetCategoryClass(button) == categoryClass
+            and (not visibleOnly or IsVisible(button))
+        then
+            buttons[#buttons + 1] = button
+        end
+    end)
+    return buttons
+end
+
+local function GetVisibleRecipeRows(browse)
+    local rows = {}
+    NSkin:ForEachScrollBoxFrame(GetRecipeScrollBox(browse), function(row)
+        if IsVisible(row) then rows[#rows + 1] = row end
+    end)
+    return rows
+end
+
+local function IsRecipeRowHovered(row)
+    return row and row.isMouseFocus == true
+end
+
+local function GetGeneratedHeaders(browse, visibleOnly)
+    local headers = {}
+    local builder = browse and browse.tableBuilder
+    if not builder or type(builder.EnumerateHeaders) ~= "function" then
+        return headers
+    end
+    for header in builder:EnumerateHeaders() do
+        if not visibleOnly or IsVisible(header) then
+            headers[#headers + 1] = header
+        end
+    end
+    return headers
+end
+
+function CustomerOrdersSkin:ApplyWindowChrome(frame)
+    NSkin:SkinStandardWindowChrome({
+        frame = frame, appearanceWindowID = IDs.Scope,
+        elementID = CustomerOrdersIDs.Window,
+        headerControlsID = CustomerOrdersIDs.HeaderControls,
+        title = frame.TitleContainer and frame.TitleContainer.TitleText,
+    })
+    NSkin:RegisterSkinningElement(CustomerOrdersIDs.Window, {
+        label = "Customer Orders window", kind = "WINDOW",
+        module = "AuctionHouse", appearanceWindowID = IDs.Scope,
+        window = frame, target = frame, priority = 0, draggable = false,
+    })
+    return true
+end
+
+function CustomerOrdersSkin:ApplyTabs(frame)
+    local tabs = { frame.BrowseTab, frame.OrdersTab }
+    if not tabs[1] or not tabs[2] then return false end
+    local selected = _G.PanelTemplates_GetSelectedTab
+        and _G.PanelTemplates_GetSelectedTab(frame)
+    local style = NSkin:GetAppearanceStyle(
+        "tab", IDs.Scope, CustomerOrdersIDs.Tabs)
+    local border = NSkin:GetAppearanceBorderColor(
+        "tab", style, IDs.Scope, CustomerOrdersIDs.Tabs)
+    for index, tab in ipairs(tabs) do
+        NSkin:SkinTab(tab, selected == index, style, border)
+        if not customerOrdersTabsHooked[tab] and tab.HookScript then
+            tab:HookScript("OnClick", function()
+                CustomerOrdersSkin:ApplyTabs(frame)
+            end)
+            customerOrdersTabsHooked[tab] = true
+        end
+    end
+    local registered = NSkin:RegisterTabGroup(CustomerOrdersIDs.Tabs, {
+        label = "Customer Orders bottom tabs", kind = "TAB_GROUP",
+        module = "AuctionHouse", appearanceWindowID = IDs.Scope,
+        window = frame, owner = frame, tabs = tabs, priority = 10,
+        orientation = "HORIZONTAL", edge = "BOTTOM",
+        getSelected = function(tab)
+            local current = _G.PanelTemplates_GetSelectedTab
+                and _G.PanelTemplates_GetSelectedTab(frame)
+            return current == 1 and tab == frame.BrowseTab
+                or current == 2 and tab == frame.OrdersTab
+        end,
+        isEditable = function() return IsVisible(frame) end,
+    })
+    if registered then NSkin:ApplyTabGroupLayout(CustomerOrdersIDs.Tabs) end
+    return registered == true
+end
+
+function CustomerOrdersSkin:ApplySearchControls(frame, browse)
+    local searchBar = browse and browse.SearchBar
+    if not searchBar then return false end
+    local favorite = searchBar.FavoritesSearchButton
+    local searchBox = searchBar.SearchBox
+    local dropdown = searchBar.FilterDropdown
+    local searchButton = searchBar.SearchButton
+    local applied = false
+
+    if favorite then
+        local element = NSkin:RegisterTypedElement("BUTTON", {
+            id = CustomerOrdersIDs.FavoriteButton,
+            module = "AuctionHouse", appearanceWindowID = IDs.Scope,
+            label = "Favorite searches button", window = frame,
+            target = favorite, preserveTexture = favorite.Icon, priority = 20,
+            isEditable = function()
+                return IsVisible(frame) and IsVisible(browse)
+                    and IsVisible(favorite)
+            end,
+        })
+        applied = RefreshTypedElement(element) ~= nil or applied
+    end
+    if searchBox then
+        local element = NSkin:RegisterSearchBox({
+            id = CustomerOrdersIDs.SearchBox,
+            module = "AuctionHouse", appearanceWindowID = IDs.Scope,
+            label = "Customer order search box", window = frame,
+            target = searchBox, priority = 21,
+            isEditable = function()
+                return IsVisible(frame) and IsVisible(browse)
+                    and IsVisible(searchBox)
+            end,
+        })
+        applied = RefreshTypedElement(element) ~= nil or applied
+    end
+    if dropdown then
+        local element = NSkin:RegisterDropdown({
+            id = CustomerOrdersIDs.FilterDropdown,
+            module = "AuctionHouse", appearanceWindowID = IDs.Scope,
+            label = "Customer order filters", window = frame,
+            target = dropdown,
+            menus = { "MENU_PROFESSIONS_CUSTOMER_ORDER_BROWSE" },
+            priority = 22,
+            isEditable = function()
+                return IsVisible(frame) and IsVisible(browse)
+                    and IsVisible(dropdown)
+            end,
+        })
+        applied = RefreshTypedElement(element) ~= nil or applied
+    end
+    if searchButton then
+        local element = NSkin:RegisterActionButton({
+            id = CustomerOrdersIDs.SearchButton,
+            module = "AuctionHouse", appearanceWindowID = IDs.Scope,
+            label = "Customer order search button", window = frame,
+            target = searchButton, priority = 23,
+            isEditable = function()
+                return IsVisible(frame) and IsVisible(browse)
+                    and IsVisible(searchButton)
+            end,
+        })
+        applied = RefreshTypedElement(element) ~= nil or applied
+    end
+    return applied
+end
+
+local CategoryDefinitions = {
+    {
+        class = CATEGORY_RECRAFT, id = CustomerOrdersIDs.RecraftCard,
+        label = "Start Recrafting Order", kind = "SECTION_CARD",
+    },
+    {
+        class = CATEGORY_PRIMARY, id = CustomerOrdersIDs.PrimaryCards,
+        label = "Primary category cards", kind = "SECTION_CARD",
+    },
+    {
+        class = CATEGORY_SECONDARY_CARD, id = CustomerOrdersIDs.SecondaryCards,
+        label = "Secondary category cards", kind = "SECTION_CARD",
+    },
+    {
+        class = CATEGORY_SECONDARY_ROW, id = CustomerOrdersIDs.SecondaryRows,
+        label = "Secondary category rows", kind = "SECTION_ROW",
+    },
+    {
+        class = CATEGORY_TERTIARY, id = CustomerOrdersIDs.TertiaryRows,
+        label = "Tertiary category rows", kind = "SECTION_ROW",
+    },
+}
+
+local function ResetMismatchedCategorySkin(button, kind)
+    if kind == "SECTION_CARD" then
+        NSkin:SkinSectionRow(button, { reset = true })
+    else
+        NSkin:SkinSectionCard(button, { reset = true })
+    end
+end
+
+local function ResetCategorySkin(button)
+    NSkin:SkinSectionCard(button, { reset = true })
+    NSkin:SkinSectionRow(button, { reset = true })
+end
+
+local function ApplyCategoryButton(button, definition)
+    if not button or GetCategoryClass(button) ~= definition.class then
+        return false
+    end
+    ResetMismatchedCategorySkin(button, definition.kind)
+    local normal = GetCategoryNormalTexture(button)
+    local hover = GetCategoryHighlightTexture(button)
+    local selected = GetCategorySelectedTexture(button)
+    local text = GetCategoryText(button)
+    local styleName = definition.kind == "SECTION_CARD"
+        and "sectionCard" or "sectionRow"
+    local style = NSkin:GetAppearanceStyle(
+        styleName, IDs.Scope, definition.id)
+    local border = NSkin:GetAppearanceBorderColor(
+        styleName, style, IDs.Scope, definition.id)
+    if definition.kind == "SECTION_CARD" then
+        return NSkin:SkinSectionCard(button, {
+            style = style, border = border, height = 0,
+            preserveTextLayout = true, textRegion = text,
+            nativeDecorationRegions = { normal, selected },
+            hoverRegion = hover,
+            getHovered = IsHovered,
+        }) ~= nil
+    end
+    return NSkin:SkinSectionRow(button, {
+        style = style, border = border, height = 0,
+        textRegion = text, contentRegions = { text },
+        contentStyle = NSkin:GetAppearanceStyle(
+            "text", IDs.Scope, definition.id),
+        nativeDecorationRegions = { normal }, hoverRegion = hover,
+        selectedRegion = selected,
+        getHovered = IsHovered,
+    }) ~= nil
+end
+
+function CustomerOrdersSkin:ApplyCategoryTargets(frame, browse)
+    local scrollBox = GetCategoryScrollBox(browse)
+    if not scrollBox then return false end
+    local applied = false
+    NSkin:ForEachScrollBoxFrame(scrollBox, function(button)
+        local class = GetCategoryClass(button)
+        local matched = false
+        for _, definition in ipairs(CategoryDefinitions) do
+            if definition.class == class then
+                matched = ApplyCategoryButton(button, definition)
+                break
+            end
+        end
+        if not matched and (class == CATEGORY_SPACER or class == nil) then
+            ResetCategorySkin(button)
+        end
+        applied = matched or applied
+    end)
+
+    for index, definition in ipairs(CategoryDefinitions) do
+        local categoryDefinition = definition
+        local function Refresh()
+            for _, button in ipairs(GetCategoryButtons(
+                browse, categoryDefinition.class, false))
+            do
+                ApplyCategoryButton(button, categoryDefinition)
+            end
+            return true
+        end
+        if not customerOrdersElements[categoryDefinition.id] then
+            customerOrdersElements[categoryDefinition.id] =
+                NSkin:RegisterSkinningElement(categoryDefinition.id, {
+                    module = "AuctionHouse", appearanceWindowID = IDs.Scope,
+                    label = categoryDefinition.label,
+                    kind = categoryDefinition.kind,
+                    window = frame, target = scrollBox,
+                    priority = 30 + index, draggable = false,
+                    appearanceStyles = categoryDefinition.kind == "SECTION_ROW"
+                        and { "text" } or nil,
+                    appearanceTypeIDs = categoryDefinition.kind == "SECTION_ROW"
+                        and { "TEXT" } or nil,
+                    highlightRegions = function()
+                        return GetCategoryButtons(
+                            browse, categoryDefinition.class, true)
+                    end,
+                    pixelBorderTargets = function()
+                        return GetCategoryButtons(
+                            browse, categoryDefinition.class, true)
+                    end,
+                    refreshAppearance = Refresh,
+                    refreshLayout = Refresh,
+                    isEditable = function()
+                        return IsVisible(frame) and IsVisible(browse)
+                            and #GetCategoryButtons(
+                                browse, categoryDefinition.class, true) > 0
+                    end,
+                }) == true
+        end
+        Refresh()
+        if customerOrdersElements[categoryDefinition.id] then
+            NSkin:NotifySkinningElementBoundsChanged(categoryDefinition.id)
+        end
+    end
+    return applied
+end
+
+function CustomerOrdersSkin:ApplyRecipeRows(frame, browse)
+    local scrollBox = GetRecipeScrollBox(browse)
+    if not scrollBox then return false end
+    local style = NSkin:GetAppearanceStyle(
+        "row", IDs.Scope, CustomerOrdersIDs.RecipeRows)
+    local border = NSkin:GetAppearanceBorderColor(
+        "row", style, IDs.Scope, CustomerOrdersIDs.RecipeRows)
+    local applied = false
+    NSkin:ForEachScrollBoxFrame(scrollBox, function(row)
+        applied = NSkin:SkinRow(row, {
+            style = style,
+            border = border,
+            hoverRegion = row.HighlightTexture,
+            getHovered = IsRecipeRowHovered,
+        }) ~= nil or applied
+    end)
+
+    if not customerOrdersElements[CustomerOrdersIDs.RecipeRows] then
+        local function Refresh()
+            return CustomerOrdersSkin:ApplyRecipeRows(frame, browse)
+        end
+        customerOrdersElements[CustomerOrdersIDs.RecipeRows] =
+            NSkin:RegisterSkinningElement(CustomerOrdersIDs.RecipeRows, {
+                module = "AuctionHouse", appearanceWindowID = IDs.Scope,
+                label = "Customer order recipe rows", kind = "ROW",
+                window = frame, target = scrollBox,
+                priority = 39, draggable = false,
+                highlightRegions = function()
+                    return GetVisibleRecipeRows(browse)
+                end,
+                pixelBorderTargets = function()
+                    return GetVisibleRecipeRows(browse)
+                end,
+                editorOptions = {
+                    { id = "shared.rowAppearance", label = "Rows",
+                        category = "CUSTOMIZE" },
+                },
+                refreshAppearance = Refresh,
+                refreshLayout = Refresh,
+                isEditable = function()
+                    return IsVisible(frame) and IsVisible(browse)
+                        and #GetVisibleRecipeRows(browse) > 0
+                end,
+            }) == true
+    end
+    if customerOrdersElements[CustomerOrdersIDs.RecipeRows] then
+        NSkin:NotifySkinningElementBoundsChanged(
+            CustomerOrdersIDs.RecipeRows)
+    end
+    return applied
+        or customerOrdersElements[CustomerOrdersIDs.RecipeRows] == true
+end
+
+function CustomerOrdersSkin:ApplyScrollBars(frame, browse)
+    local categoryList = browse and browse.CategoryList
+    local recipeList = browse and browse.RecipeList
+    local applied = false
+    for index, definition in ipairs({
+        { CustomerOrdersIDs.CategoryScrollBar,
+            "Customer order category scrollbar",
+            categoryList and categoryList.ScrollBar, categoryList },
+        { CustomerOrdersIDs.RecipeScrollBar,
+            "Customer order recipe scrollbar",
+            recipeList and recipeList.ScrollBar, recipeList },
+    }) do
+        local id, label, scrollBar, owner = unpack(definition)
+        if scrollBar then
+            local element = NSkin:RegisterScrollBar({
+                id = id, module = "AuctionHouse",
+                appearanceWindowID = IDs.Scope, label = label,
+                window = frame, target = scrollBar, priority = 40 + index,
+                isEditable = function()
+                    return IsVisible(frame) and IsVisible(browse)
+                        and IsVisible(owner) and IsVisible(scrollBar)
+                end,
+            })
+            applied = RefreshTypedElement(element) ~= nil or applied
+        end
+    end
+    return applied
+end
+
+function CustomerOrdersSkin:ApplyColumnHeaders(frame, browse)
+    local recipeList = browse and browse.RecipeList
+    local container = recipeList and recipeList.HeaderContainer
+    if not container then return false end
+    local id = CustomerOrdersIDs.ColumnHeaders
+    local function Refresh()
+        local style = NSkin:GetAppearanceStyle(
+            "columnHeader", IDs.Scope, id)
+        local border = NSkin:GetAppearanceBorderColor(
+            "columnHeader", style, IDs.Scope, id)
+        for _, header in ipairs(GetGeneratedHeaders(browse, false)) do
+            NSkin:SkinColumnHeader(header, {
+                style = style, border = border,
+                textRegion = header.Text or header.Name,
+                artworkRegions = {
+                    header.Left, header.Middle, header.Right,
+                },
+            })
+        end
+        return true
+    end
+    if not customerOrdersElements[id] then
+        customerOrdersElements[id] = NSkin:RegisterSimpleMovableElement({
+            id = id,
+            module = "AuctionHouse", appearanceWindowID = IDs.Scope,
+            label = "Customer order recipe column headers",
+            kind = "COLUMN_HEADER", window = frame, target = container,
+            priority = 50,
+            highlightRegions = function()
+                return GetGeneratedHeaders(browse, true)
+            end,
+            pixelBorderTargets = function()
+                return GetGeneratedHeaders(browse, true)
+            end,
+            refreshAppearance = Refresh, refreshLayout = Refresh,
+            isEditable = function()
+                return IsVisible(frame) and IsVisible(browse)
+                    and #GetGeneratedHeaders(browse, true) > 0
+            end,
+        }) ~= nil
+    end
+    Refresh()
+    if customerOrdersElements[id] then
+        NSkin:NotifySkinningElementBoundsChanged(id)
+    end
+    return customerOrdersElements[id] == true
+end
+
+function CustomerOrdersSkin:Apply()
+    local frame, browse = GetCustomerOrdersFrame()
+    if not frame or not browse then return false end
+    local applied = self:ApplyWindowChrome(frame)
+    applied = self:ApplyTabs(frame) or applied
+    applied = self:ApplySearchControls(frame, browse) or applied
+    applied = self:ApplyCategoryTargets(frame, browse) or applied
+    applied = self:ApplyRecipeRows(frame, browse) or applied
+    applied = self:ApplyScrollBars(frame, browse) or applied
+    applied = self:ApplyColumnHeaders(frame, browse) or applied
+    return applied
+end
+
+function CustomerOrdersSkin:HookLifecycle(frame, browse)
+    if customerOrdersLifecycleHooked then return end
+    if frame.HookScript then
+        frame:HookScript("OnShow", function() CustomerOrdersSkin:Apply() end)
+    end
+    if _G.hooksecurefunc then
+        if type(browse.Init) == "function" then
+            pcall(_G.hooksecurefunc, browse, "Init", function()
+                CustomerOrdersSkin:ApplySearchControls(frame, browse)
+                CustomerOrdersSkin:ApplyCategoryTargets(frame, browse)
+                CustomerOrdersSkin:ApplyRecipeRows(frame, browse)
+                CustomerOrdersSkin:ApplyScrollBars(frame, browse)
+                CustomerOrdersSkin:ApplyColumnHeaders(frame, browse)
+            end)
+        end
+        if type(browse.SetupTable) == "function" then
+            pcall(_G.hooksecurefunc, browse, "SetupTable", function()
+                CustomerOrdersSkin:ApplyRecipeRows(frame, browse)
+                CustomerOrdersSkin:ApplyColumnHeaders(frame, browse)
+            end)
+        end
+        local categoryList = browse.CategoryList
+        if categoryList and type(categoryList.OnDataLoadFinished) == "function" then
+            pcall(_G.hooksecurefunc, categoryList,
+                "OnDataLoadFinished", function()
+                    CustomerOrdersSkin:ApplyCategoryTargets(frame, browse)
+                end)
+        end
+        local scrollBox = GetCategoryScrollBox(browse)
+        if scrollBox and type(scrollBox.Update) == "function" then
+            pcall(_G.hooksecurefunc, scrollBox, "Update", function()
+                CustomerOrdersSkin:ApplyCategoryTargets(frame, browse)
+            end)
+        end
+        local recipeScrollBox = GetRecipeScrollBox(browse)
+        if recipeScrollBox and type(recipeScrollBox.Update) == "function" then
+            pcall(_G.hooksecurefunc, recipeScrollBox, "Update", function()
+                CustomerOrdersSkin:ApplyRecipeRows(frame, browse)
+            end)
+        end
+    end
+    customerOrdersLifecycleHooked = true
+end
+
+function CustomerOrdersSkin:Initialize()
+    local frame, browse = GetCustomerOrdersFrame()
+    if not frame or not browse then return false end
+    self:HookLifecycle(frame, browse)
+    customerOrdersInitialized = true
+    return self:Apply()
+end
+
+RefreshCustomerOrdersAppearance = function()
+    if customerOrdersInitialized then CustomerOrdersSkin:Apply() end
+end
+
+NSkin:RegisterWindowSkin({
+    key = "AuctionHouse.CustomerOrders",
+    module = "AuctionHouse",
+    addon = "Blizzard_ProfessionsCustomerOrders",
+    apply = function() return CustomerOrdersSkin:Initialize() end,
+})
+end
 do
 local BlackMarketSkin = {}
 

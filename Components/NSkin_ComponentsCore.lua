@@ -2619,6 +2619,12 @@ function NSkin:RegisterSimpleMovableElement(definition)
 end
 
 local SHARED_SKIN_ADAPTERS = {
+    BUTTON = function(self, skinMethod, target, style, borderColor, definition)
+        local options = definition.skinOptions or {}
+        skinMethod(self, target, options.label, style.background, borderColor,
+            options.textSize, options.labelOffsetX, options.labelOffsetY,
+            options.preserveTexture or definition.preserveTexture)
+    end,
     COLUMN_HEADER = function(self, skinMethod, target, style, borderColor,
         definition)
         local options = {}
@@ -2685,8 +2691,9 @@ local SHARED_SKIN_ADAPTERS = {
         for _, key in ipairs({
             "collapsible", "expanded", "text", "textRegion", "icon",
             "getExpanded", "isExpanded", "height", "stripArtwork",
-            "artworkRegions", "preserveTextures", "background",
-            "visualRegion", "preserveTextLayout", "hoverRegion", "getHovered",
+            "nativeDecorationRegions", "artworkRegions", "preserveTextures",
+            "background", "visualRegion", "preserveTextLayout",
+            "hoverRegion", "getHovered", "reset",
         }) do
             if options[key] == nil then options[key] = definition[key] end
         end
@@ -2859,6 +2866,7 @@ end
 
 local COMMON_TYPED_SKIN_FIELDS = { "skinAdapter", "skinOptions" }
 local TYPED_SKIN_FIELDS_BY_TYPE = {
+    BUTTON = { "preserveTexture" },
     COLUMN_HEADER = {
         "textRegion", "artworkRegions", "preserveTextures", "hoverRegion",
         "getHovered", "visualRegion",
@@ -2880,8 +2888,9 @@ local TYPED_SKIN_FIELDS_BY_TYPE = {
     SECTION_CARD = {
         "collapsible", "expanded", "text", "textRegion", "icon",
         "getExpanded", "isExpanded", "height", "stripArtwork",
-        "artworkRegions", "preserveTextures", "background", "visualRegion",
-        "preserveTextLayout", "hoverRegion", "getHovered",
+        "nativeDecorationRegions", "artworkRegions", "preserveTextures",
+        "background", "visualRegion", "preserveTextLayout", "hoverRegion",
+        "getHovered", "reset",
     },
     EDIT_BOX = { "decrementButton", "incrementButton" },
     ICON = {

@@ -84,7 +84,7 @@ function NSkin:SetFlatButtonLabel(button, label, size, offsetX, offsetY)
 end
 
 function NSkin:SkinFlatButton(button, label, backgroundColor, borderColor,
-    labelSize, labelOffsetX, labelOffsetY)
+    labelSize, labelOffsetX, labelOffsetY, preserveTexture)
     if not button or not button.CreateTexture or not button.CreateFontString then return end
 
     local style = self:GetStyle("button")
@@ -93,7 +93,7 @@ function NSkin:SkinFlatButton(button, label, backgroundColor, borderColor,
 
     local background = self:GetFlatBackground(button)
     if not background then
-        self:HideTextureRegions(button)
+        self:HideTextureRegions(button, preserveTexture)
     end
 
     self:CreateFlatBackground(button, nil, backgroundColor, borderColor)

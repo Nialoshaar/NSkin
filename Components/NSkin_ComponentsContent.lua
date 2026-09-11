@@ -800,9 +800,7 @@ local function SuppressSectionCardArtwork(target, options, icon,
             end
         end
     end
-    for _, region in ipairs(options.artworkRegions or {}) do
-        if not preserved[region] then HideSectionCardArtwork(region) end
-    end
+    return preserved
 end
 
 local function ResolveSectionCardText(target, state, options)
@@ -886,7 +884,9 @@ end
 local function EnforceSectionCardTextAppearance(textRegion)
     local data = NSkin:GetSkinData(
         textRegion, SECTION_CARD_TEXT_STATE, false)
-    if not data or data.enforcing or not data.style then return end
+    if not data or not data.active or data.enforcing or not data.style then
+        return
+    end
     data.enforcing = true
     if data.color and textRegion.SetTextColor then
         NSkin:SetFontStringColor(textRegion, unpack(data.color))
@@ -897,6 +897,13 @@ end
 
 local function ConfigureSectionCardTextAppearance(textRegion, style, color)
     local data = NSkin:GetSkinData(textRegion, SECTION_CARD_TEXT_STATE)
+    if not data.originalColor and textRegion.GetTextColor then
+        data.originalColor = { textRegion:GetTextColor() }
+    end
+    if not data.originalFont and textRegion.GetFont then
+        data.originalFont = { textRegion:GetFont() }
+    end
+    data.active = true
     data.style = style
     data.color = { unpack(color) }
     if not data.colorHookInstalled and _G.hooksecurefunc
@@ -910,9 +917,24 @@ local function ConfigureSectionCardTextAppearance(textRegion, style, color)
     EnforceSectionCardTextAppearance(textRegion)
 end
 
+local function RestoreSectionCardTextAppearance(textRegion)
+    local data = textRegion and NSkin:GetSkinData(
+        textRegion, SECTION_CARD_TEXT_STATE, false)
+    if not data or not data.active then return end
+    data.active = nil
+    data.enforcing = true
+    if data.originalColor and textRegion.SetTextColor then
+        textRegion:SetTextColor(unpack(data.originalColor))
+    end
+    if data.originalFont and textRegion.SetFont then
+        textRegion:SetFont(unpack(data.originalFont))
+    end
+    data.enforcing = nil
+end
+
 local function RefreshSectionCardPresentation(target)
     local state = NSkin:GetSkinData(target, SECTION_CARD_STATE, false)
-    if not state then return end
+    if not state or not state.active then return end
     if state.textRegion then
         EnforceSectionCardTextAppearance(state.textRegion)
     end
@@ -990,9 +1012,28 @@ function NSkin:SkinSectionCard(target, options)
     then return nil end
 
     options = options or {}
+    local state = self:GetSkinData(target, SECTION_CARD_STATE)
+    if options.reset == true then
+        state.active = nil
+        if state.heightModified and state.originalHeight and target.SetHeight then
+            target:SetHeight(state.originalHeight)
+            state.heightModified = nil
+        end
+        for _, regionState in pairs(state.nativeDecorationStates or {}) do
+            if regionState.active then RestoreContentStateRegion(regionState) end
+        end
+        if state.hoverRegionState and state.hoverRegionState.active then
+            RestoreSectionCardHoverRegion(state.hoverRegionState)
+        end
+        RestoreSectionCardTextAppearance(state.textRegion)
+        if state.background then state.background:Hide() end
+        if state.border then self:SetPixelBorderShown(state.border, false) end
+        if state.glow then state.glow:Hide() end
+        if state.glyph then state.glyph:Hide() end
+        return state
+    end
     local style = options.style or self:GetStyle("sectionCard")
     if not style then return nil end
-    local state = self:GetSkinData(target, SECTION_CARD_STATE)
     state.active = true
     state.options = options
     state.collapsible = options.collapsible == true
@@ -1030,10 +1071,14 @@ function NSkin:SkinSectionCard(target, options)
     AnchorSectionCardSurface(background, visualRegion, 1)
     local border = self:GetPixelBorder(
         target, SECTION_CARD_BACKGROUND .. "Border")
+    state.background = background
+    state.border = border
     if border then border.anchor = visualRegion end
     self:SetPixelBorderColor(border, unpack(borderColor))
     self:SetPixelBorderSize(border, style.borderSize or 1)
     self:SetPixelBorderPadding(border, style.borderPadding or 0)
+    self:SetPixelBorderShown(border,
+        style.showBorder ~= false and (tonumber(style.borderSize) or 0) > 0)
     local glow = self:CreateFlatButtonGlow(target, style.hoverAlpha)
     AnchorSectionCardSurface(glow, visualRegion, 1)
     state.glow = glow
@@ -1041,10 +1086,15 @@ function NSkin:SkinSectionCard(target, options)
         state.interactionManaged and state.hoverRegion or nil)
 
     local icon = ResolveSectionCardValue(options.icon, target)
-    SuppressSectionCardArtwork(
+    local preserved = SuppressSectionCardArtwork(
         target, options, icon, background, border, glow)
+    ApplyRowNativeDecorations(target, state,
+        options.nativeDecorationRegions or options.artworkRegions, preserved)
 
     local textRegion = ResolveSectionCardText(target, state, options)
+    if state.textRegion and state.textRegion ~= textRegion then
+        RestoreSectionCardTextAppearance(state.textRegion)
+    end
     state.textRegion = textRegion
     if textRegion and textRegion.GetFont then
         ConfigureSectionCardTextAppearance(textRegion, style,
