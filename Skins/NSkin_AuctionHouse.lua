@@ -625,6 +625,25 @@ local CustomerOrdersIDs = {
     RecipeScrollBar = "AuctionHouse.CustomerOrders.Browse.RecipeScrollBar",
     RecipeRows = "AuctionHouse.CustomerOrders.Browse.RecipeRows",
     ColumnHeaders = "AuctionHouse.CustomerOrders.Browse.ColumnHeaders",
+    FormRequiredReagents = "AuctionHouse.CustomerOrders.Form.RequiredReagents",
+    FormOptionalReagents = "AuctionHouse.CustomerOrders.Form.OptionalReagents",
+    FormBackButton = "AuctionHouse.CustomerOrders.Form.BackButton",
+    FormListOrderButton = "AuctionHouse.CustomerOrders.Form.ListOrderButton",
+    FormViewListingsButton = "AuctionHouse.CustomerOrders.Form.ViewListingsButton",
+    FormRecipientDropdown = "AuctionHouse.CustomerOrders.Form.RecipientDropdown",
+    FormDurationDropdown = "AuctionHouse.CustomerOrders.Form.DurationDropdown",
+    FormTipGoldInput = "AuctionHouse.CustomerOrders.Form.TipGoldInput",
+    FormTipSilverInput = "AuctionHouse.CustomerOrders.Form.TipSilverInput",
+    FormNoteInput = "AuctionHouse.CustomerOrders.Form.NoteInput",
+    FormAllocateBestQuality = "AuctionHouse.CustomerOrders.Form.AllocateBestQuality",
+    FormTrackRecipe = "AuctionHouse.CustomerOrders.Form.TrackRecipe",
+    FormPostingFeeGold = "AuctionHouse.CustomerOrders.Form.PostingFeeGold",
+    FormPostingFeeSilver = "AuctionHouse.CustomerOrders.Form.PostingFeeSilver",
+    FormTotalPriceGold = "AuctionHouse.CustomerOrders.Form.TotalPriceGold",
+    FormTotalPriceSilver = "AuctionHouse.CustomerOrders.Form.TotalPriceSilver",
+    FormPlayerMoneyGold = "AuctionHouse.CustomerOrders.Form.PlayerMoneyGold",
+    FormPlayerMoneySilver = "AuctionHouse.CustomerOrders.Form.PlayerMoneySilver",
+    FormPlayerMoneyCopper = "AuctionHouse.CustomerOrders.Form.PlayerMoneyCopper",
 }
 
 local CATEGORY_RECRAFT = "RECRAFT"
@@ -764,6 +783,161 @@ end
 
 local function IsRecipeRowHovered(row)
     return row and row.isMouseFocus == true
+end
+
+local function AddCustomerOrderRegion(regions, seen, region)
+    if region and not seen[region] then
+        seen[region] = true
+        regions[#regions + 1] = region
+    end
+end
+
+local function GetFormReagentSlots(form, container, visibleOnly)
+    local slots = {}
+    local pool = form and form.reagentSlotPool
+    if not pool or type(pool.EnumerateActive) ~= "function" then return slots end
+    for slot in pool:EnumerateActive() do
+        local parent = slot.GetParent and slot:GetParent()
+        if parent == container and (not visibleOnly or IsVisible(slot)) then
+            slots[#slots + 1] = slot
+        end
+    end
+    return slots
+end
+
+local function GetFormReagentTexture(button)
+    return button and (button.Icon or button.icon or button.IconTexture)
+end
+
+local function GetFormReagentQuality(button)
+    local slot = button and button.GetParent and button:GetParent()
+    local reagent
+    if button and type(button.GetReagent) == "function" then
+        reagent = button:GetReagent()
+    elseif slot and type(slot.GetReagent) == "function" then
+        reagent = slot:GetReagent()
+    end
+    if reagent and reagent.itemID and _G.C_Item
+        and type(_G.C_Item.GetItemQualityByID) == "function"
+    then
+        return _G.C_Item.GetItemQualityByID(reagent.itemID)
+    end
+    if reagent and reagent.currencyID and _G.C_CurrencyInfo
+        and type(_G.C_CurrencyInfo.GetCurrencyInfo) == "function"
+    then
+        local info = _G.C_CurrencyInfo.GetCurrencyInfo(reagent.currencyID)
+        return info and info.quality
+    end
+end
+
+local function GetFormReagentDecorations(button)
+    local regions, seen = {}, {}
+    AddCustomerOrderRegion(regions, seen, button and button.IconBorder)
+    AddCustomerOrderRegion(regions, seen, button and button.SlotBackground)
+    return regions
+end
+
+local function GetFormReagentDescriptors(form, container)
+    local descriptors = {}
+    for _, slot in ipairs(GetFormReagentSlots(form, container, false)) do
+        local button = slot.Button
+        if button then
+            descriptors[#descriptors + 1] = {
+                target = button,
+                textureProvider = GetFormReagentTexture,
+                borderOwner = button,
+                qualityProvider = GetFormReagentQuality,
+                nativeDecorationRegions = function(currentButton)
+                    return GetFormReagentDecorations(currentButton)
+                end,
+                hoverRegion = button.HighlightTexture,
+                getHovered = IsHovered,
+            }
+        end
+    end
+    return descriptors
+end
+
+local function GetVisibleFormReagentRegions(form, container, label)
+    local regions = GetFormReagentSlots(form, container, true)
+    if IsVisible(label) then regions[#regions + 1] = label end
+    return regions
+end
+
+local function GetVisibleFormReagentButtons(form, container)
+    local buttons = {}
+    for _, slot in ipairs(GetFormReagentSlots(form, container, true)) do
+        if slot.Button then buttons[#buttons + 1] = slot.Button end
+    end
+    return buttons
+end
+
+local function SkinFormReagentText(form, container, id, label)
+    local appearanceID = NSkin:GetElementAppearanceID(id, "TEXT")
+    local style = NSkin:GetAppearanceStyle("text", IDs.Scope, appearanceID)
+    local applied = false
+    for _, slot in ipairs(GetFormReagentSlots(form, container, false)) do
+        if slot.Name then
+            applied = NSkin:SkinText(slot.Name, style) == true or applied
+        end
+    end
+    if label then
+        applied = NSkin:SkinText(label, style) == true or applied
+    end
+    return applied
+end
+
+local function IsCustomerOrderFormElementVisible(frame, form, target)
+    return IsVisible(frame) and IsVisible(form) and IsVisible(target)
+end
+
+local function SuppressCustomerOrderDecorations(owner, key, regions)
+    if not owner then return end
+    local data = NSkin:GetSkinData(owner, "customerOrderDecorations")
+    data[key] = data[key] or { states = {} }
+    local group = data[key]
+    local declared = {}
+    for _, region in ipairs(regions or {}) do
+        if region then declared[region] = true end
+    end
+    for region, state in pairs(group.states) do
+        if state.active and not declared[region] then
+            state.active = nil
+            state.applying = true
+            if region.SetAlpha then region:SetAlpha(state.alpha) end
+            if state.shown ~= nil and region.SetShown then
+                region:SetShown(state.shown)
+            end
+            state.applying = nil
+        end
+    end
+    for region in pairs(declared) do
+        local state = group.states[region]
+        if not state then
+            state = {
+                alpha = region.GetAlpha and region:GetAlpha() or 1,
+                shown = region.IsShown and region:IsShown() or nil,
+            }
+            group.states[region] = state
+        end
+        state.active = true
+        local function Conceal()
+            if state.active and not state.applying then
+                state.applying = true
+                if region.SetAlpha then region:SetAlpha(0) end
+                state.applying = nil
+            end
+        end
+        Conceal()
+        if not state.hooked and _G.hooksecurefunc then
+            for _, method in ipairs({ "SetAlpha", "SetShown", "Show" }) do
+                if type(region[method]) == "function" then
+                    pcall(_G.hooksecurefunc, region, method, Conceal)
+                end
+            end
+            state.hooked = true
+        end
+    end
 end
 
 local function GetGeneratedHeaders(browse, visibleOnly)
@@ -1163,6 +1337,255 @@ function CustomerOrdersSkin:ApplyColumnHeaders(frame, browse)
     return customerOrdersElements[id] == true
 end
 
+function CustomerOrdersSkin:ApplyFormReagentGroup(frame, form, id, label,
+    container, includeContainerLabel)
+    if not container then return false end
+    local text = includeContainerLabel and container.Label or nil
+    local function RefreshText()
+        return SkinFormReagentText(form, container, id, text)
+    end
+    if not customerOrdersElements[id] then
+        customerOrdersElements[id] = NSkin:RegisterIconGroup({
+            id = id, module = "AuctionHouse", appearanceWindowID = IDs.Scope,
+            label = label, window = frame, target = container,
+            priority = 60, draggable = false,
+            children = function()
+                return GetFormReagentDescriptors(form, container)
+            end,
+            refreshContent = RefreshText,
+            appearanceStyles = { "text" },
+            appearanceTypeIDs = { "TEXT" },
+            editorOptions = {
+                { id = "shared.iconAppearance", label = "Icons",
+                    presentation = "INLINE", category = "CUSTOMIZE" },
+                { id = "shared.textAppearance", label = "Text",
+                    category = "CUSTOMIZE" },
+            },
+            highlightRegions = function()
+                return GetVisibleFormReagentRegions(form, container, text)
+            end,
+            pixelBorderTargets = function()
+                return GetVisibleFormReagentButtons(form, container)
+            end,
+            isEditable = function()
+                return IsVisible(frame) and IsVisible(form)
+                    and #GetFormReagentSlots(form, container, true) > 0
+            end,
+        })
+    else
+        NSkin:RefreshIconGroup(id)
+    end
+    RefreshText()
+    if customerOrdersElements[id] then
+        NSkin:NotifySkinningElementBoundsChanged(id)
+    end
+    return customerOrdersElements[id] ~= nil
+end
+
+function CustomerOrdersSkin:ApplyFormReagents(frame, form)
+    local reagentContainer = form and form.ReagentContainer
+    if not reagentContainer then return false end
+    local applied = self:ApplyFormReagentGroup(frame, form,
+        CustomerOrdersIDs.FormRequiredReagents, "Required reagent slots",
+        reagentContainer.Reagents, false)
+    applied = self:ApplyFormReagentGroup(frame, form,
+        CustomerOrdersIDs.FormOptionalReagents, "Optional reagent slots",
+        reagentContainer.OptionalReagents, true) or applied
+    return applied
+end
+
+local function RegisterCustomerOrderText(frame, form, id, label, target,
+    priority, numberFormat)
+    if not target then return nil end
+    local element = NSkin:RegisterTextElement({
+        id = id, module = "AuctionHouse", appearanceWindowID = IDs.Scope,
+        label = label, window = frame, target = target,
+        numberFormat = numberFormat, priority = priority, draggable = false,
+        highlightRegions = { target },
+        isEditable = function()
+            return IsCustomerOrderFormElementVisible(frame, form, target)
+        end,
+    })
+    return RefreshTypedElement(element)
+end
+
+function CustomerOrdersSkin:ApplyFormText(frame, form)
+    local payment = form and form.PaymentContainer
+    local posting = payment and payment.PostingFeeMoneyDisplayFrame
+    local total = payment and payment.TotalPriceMoneyDisplayFrame
+    local playerMoney = frame and frame.MoneyFrameBorder
+        and frame.MoneyFrameBorder.MoneyFrame
+    local applied = false
+    for index, definition in ipairs({
+        { CustomerOrdersIDs.FormPostingFeeGold, "Posting fee gold",
+            posting and posting.GoldDisplay, "GOLD" },
+        { CustomerOrdersIDs.FormPostingFeeSilver, "Posting fee silver",
+            posting and posting.SilverDisplay },
+        { CustomerOrdersIDs.FormTotalPriceGold, "Total price gold",
+            total and total.GoldDisplay, "GOLD" },
+        { CustomerOrdersIDs.FormTotalPriceSilver, "Total price silver",
+            total and total.SilverDisplay },
+        { CustomerOrdersIDs.FormPlayerMoneyGold, "Player money gold",
+            playerMoney and playerMoney.GoldDisplay, "GOLD" },
+        { CustomerOrdersIDs.FormPlayerMoneySilver, "Player money silver",
+            playerMoney and playerMoney.SilverDisplay },
+        { CustomerOrdersIDs.FormPlayerMoneyCopper, "Player money copper",
+            playerMoney and playerMoney.CopperDisplay },
+    }) do
+        applied = RegisterCustomerOrderText(frame, form, definition[1],
+            definition[2], definition[3], 70 + index,
+            definition[4]) ~= nil or applied
+    end
+    return applied
+end
+
+local function RegisterCustomerOrderActionButton(frame, form, id, label,
+    button, priority)
+    if not button then return nil end
+    local element = NSkin:RegisterActionButton({
+        id = id, module = "AuctionHouse", appearanceWindowID = IDs.Scope,
+        label = label, window = frame, target = button, priority = priority,
+        highlightRegions = { button },
+        isEditable = function()
+            return IsCustomerOrderFormElementVisible(frame, form, button)
+        end,
+    })
+    return RefreshTypedElement(element)
+end
+
+function CustomerOrdersSkin:ApplyFormControls(frame, form)
+    local payment = form and form.PaymentContainer
+    if not payment then return false end
+    local applied = RegisterCustomerOrderActionButton(frame, form,
+        CustomerOrdersIDs.FormBackButton, "Crafting order back button",
+        form.BackButton, 80) ~= nil
+    applied = RegisterCustomerOrderActionButton(frame, form,
+        CustomerOrdersIDs.FormListOrderButton, "Place crafting order button",
+        payment.ListOrderButton, 81) ~= nil or applied
+
+    local listings = payment.ViewListingsButton
+    if listings then
+        local preserved = listings.NormalTexture
+            or (listings.GetNormalTexture and listings:GetNormalTexture())
+        local element = NSkin:RegisterTypedElement("BUTTON", {
+            id = CustomerOrdersIDs.FormViewListingsButton,
+            module = "AuctionHouse", appearanceWindowID = IDs.Scope,
+            label = "View similar orders button", window = frame,
+            target = listings, preserveTexture = preserved, priority = 82,
+            highlightRegions = { listings },
+            isEditable = function()
+                return IsCustomerOrderFormElementVisible(
+                    frame, form, listings)
+            end,
+        })
+        applied = RefreshTypedElement(element) ~= nil or applied
+    end
+
+    for index, definition in ipairs({
+        { CustomerOrdersIDs.FormRecipientDropdown,
+            "Order recipient dropdown", form.OrderRecipientDropdown,
+            "MENU_PROFESSIONS_CUSTOMER_ORDER_RECIPIENT" },
+        { CustomerOrdersIDs.FormDurationDropdown,
+            "Order duration dropdown", payment.DurationDropdown,
+            "MENU_PROFESSIONS_CUSTOMER_ORDER_DURATION" },
+    }) do
+        local dropdown = definition[3]
+        if dropdown then
+            local element = NSkin:RegisterDropdown({
+                id = definition[1], module = "AuctionHouse",
+                appearanceWindowID = IDs.Scope, label = definition[2],
+                window = frame, target = dropdown,
+                menus = { definition[4] }, priority = 83 + index,
+                highlightRegions = { dropdown },
+                isEditable = function()
+                    return IsCustomerOrderFormElementVisible(
+                        frame, form, dropdown)
+                end,
+            })
+            applied = RefreshTypedElement(element) ~= nil or applied
+        end
+    end
+
+    local tip = payment.TipMoneyInputFrame
+    local note = payment.NoteEditBox
+    local noteScrolling = note and note.ScrollingEditBox
+    local noteSurface = noteScrolling and noteScrolling.ScrollBox
+    local noteInput = noteSurface and noteSurface.EditBox
+    if note then
+        SuppressCustomerOrderDecorations(note, "Border", { note.Border })
+    end
+    for index, definition in ipairs({
+        { CustomerOrdersIDs.FormTipGoldInput, "Commission gold input",
+            tip and tip.GoldBox },
+        { CustomerOrdersIDs.FormTipSilverInput, "Commission silver input",
+            tip and tip.SilverBox },
+        { CustomerOrdersIDs.FormNoteInput, "Crafter note input", noteInput,
+            noteSurface, true },
+    }) do
+        local editBox = definition[3]
+        local surface = definition[4]
+        if editBox then
+            local element = NSkin:RegisterEditBox({
+                id = definition[1], module = "AuctionHouse",
+                appearanceWindowID = IDs.Scope, label = definition[2],
+                window = frame, target = editBox, priority = 86 + index,
+                skinOptions = surface and {
+                    surface = surface,
+                    manageTextColor = not definition[5],
+                } or nil,
+                highlightRegions = { surface or editBox },
+                isEditable = function()
+                    return IsCustomerOrderFormElementVisible(
+                        frame, form, surface or editBox)
+                end,
+            })
+            applied = RefreshTypedElement(element) ~= nil or applied
+        end
+    end
+
+    local track = form.TrackRecipeCheckbox
+    local trackButton = track and (track.Checkbox or track)
+    for index, definition in ipairs({
+        { CustomerOrdersIDs.FormAllocateBestQuality,
+            "Allocate best quality", form.AllocateBestQualityCheckbox,
+            form.AllocateBestQualityCheckbox
+                and (form.AllocateBestQualityCheckbox.Text
+                    or form.AllocateBestQualityCheckbox.text) },
+        { CustomerOrdersIDs.FormTrackRecipe, "Track recipe", trackButton,
+            track and (track.Text or track.text) },
+    }) do
+        local checkbox, text = definition[3], definition[4]
+        if checkbox then
+            local element = NSkin:RegisterCheckbox({
+                id = definition[1], module = "AuctionHouse",
+                appearanceWindowID = IDs.Scope, label = definition[2],
+                window = frame, target = checkbox, text = text,
+                getChecked = function(target)
+                    return target and target.GetChecked
+                        and target:GetChecked() == true or false
+                end,
+                priority = 90 + index,
+                highlightRegions = { checkbox, text },
+                isEditable = function()
+                    return IsCustomerOrderFormElementVisible(
+                        frame, form, checkbox)
+                end,
+            })
+            applied = RefreshTypedElement(element) ~= nil or applied
+        end
+    end
+    return applied
+end
+
+function CustomerOrdersSkin:ApplyForm(frame)
+    local form = frame and frame.Form
+    if not form then return false end
+    local applied = self:ApplyFormReagents(frame, form)
+    applied = self:ApplyFormText(frame, form) or applied
+    applied = self:ApplyFormControls(frame, form) or applied
+    return applied
+end
+
 function CustomerOrdersSkin:Apply()
     local frame, browse = GetCustomerOrdersFrame()
     if not frame or not browse then return false end
@@ -1173,13 +1596,20 @@ function CustomerOrdersSkin:Apply()
     applied = self:ApplyRecipeRows(frame, browse) or applied
     applied = self:ApplyScrollBars(frame, browse) or applied
     applied = self:ApplyColumnHeaders(frame, browse) or applied
+    applied = self:ApplyForm(frame) or applied
     return applied
 end
 
 function CustomerOrdersSkin:HookLifecycle(frame, browse)
     if customerOrdersLifecycleHooked then return end
+    local form = frame and frame.Form
     if frame.HookScript then
         frame:HookScript("OnShow", function() CustomerOrdersSkin:Apply() end)
+    end
+    if form and form.HookScript then
+        form:HookScript("OnShow", function()
+            CustomerOrdersSkin:ApplyForm(frame)
+        end)
     end
     if _G.hooksecurefunc then
         if type(browse.Init) == "function" then
@@ -1214,6 +1644,16 @@ function CustomerOrdersSkin:HookLifecycle(frame, browse)
         if recipeScrollBox and type(recipeScrollBox.Update) == "function" then
             pcall(_G.hooksecurefunc, recipeScrollBox, "Update", function()
                 CustomerOrdersSkin:ApplyRecipeRows(frame, browse)
+            end)
+        end
+        if form and type(form.Init) == "function" then
+            pcall(_G.hooksecurefunc, form, "Init", function()
+                CustomerOrdersSkin:ApplyForm(frame)
+            end)
+        end
+        if form and type(form.UpdateReagentSlots) == "function" then
+            pcall(_G.hooksecurefunc, form, "UpdateReagentSlots", function()
+                CustomerOrdersSkin:ApplyFormReagents(frame, form)
             end)
         end
     end

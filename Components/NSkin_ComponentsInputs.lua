@@ -367,7 +367,7 @@ local function RefreshEditBoxState(editBox)
         or NSkin:GetResolvedAppearanceColor(style, borderKey)
         or data.editBoxBorder or NSkin:GetResolvedAppearanceColor(style, "border")
     NSkin:CreateFlatBackground(surface, nil, background, border)
-    if editBox.SetTextColor then
+    if data.editBoxManageTextColor ~= false and editBox.SetTextColor then
         local textColor = NSkin:GetResolvedAppearanceColor(style, textKey)
             or NSkin:GetResolvedAppearanceColor(style, "text")
         if textColor then NSkin:SetFontStringColor(editBox, unpack(textColor)) end
@@ -396,6 +396,7 @@ function NSkin:SkinEditBox(editBox, options)
     editData.editBoxStyle = style
     editData.editBoxBorder = options.border
     editData.editBoxSurface = surface
+    editData.editBoxManageTextColor = options.manageTextColor ~= false
     local configuredWidth, configuredHeight = tonumber(style.width), tonumber(style.height)
     configuredWidth = configuredWidth and configuredWidth > 0 and configuredWidth or nil
     configuredHeight = configuredHeight and configuredHeight > 0 and configuredHeight or nil
