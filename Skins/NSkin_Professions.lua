@@ -2,6 +2,7 @@ local _, NSkin = ...
 
 local ProfessionsSkin = NSkin:NewModule("Professions")
 local RefreshCraftingAppearance
+local RefreshSpecAppearance
 
 local IDs = {
     Scope = "Professions",
@@ -218,6 +219,7 @@ end
 function ProfessionsSkin:RefreshAppearance()
     if initialized then self:Apply() end
     if RefreshCraftingAppearance then RefreshCraftingAppearance() end
+    if RefreshSpecAppearance then RefreshSpecAppearance() end
 end
 
 NSkin:RegisterWindowSkin({
@@ -1992,5 +1994,299 @@ NSkin:RegisterWindowSkin({
     module = "Professions",
     addon = "Blizzard_Professions",
     apply = function() return CraftingSkin:Initialize() end,
+})
+
+local SpecSkin = {}
+
+local SpecIDs = {
+    Tabs = "Professions.SpecPage.Tabs",
+    ViewPreviewButton = "Professions.SpecPage.ViewPreviewButton",
+    ApplyButton = "Professions.SpecPage.ApplyButton",
+    SpendPointsButton = "Professions.SpecPage.DetailedView.SpendPointsButton",
+    PointsText = "Professions.SpecPage.DetailedView.PointsText",
+    PathName = "Professions.SpecPage.DetailedView.PathName",
+    PreviewTitle = "Professions.SpecPage.TreePreview.Title",
+    PreviewDescription = "Professions.SpecPage.TreePreview.Description",
+    PreviewHighlightHeader = "Professions.SpecPage.TreePreview.HighlightHeader",
+    PreviewHighlightPrefix = "Professions.SpecPage.TreePreview.Highlight",
+    UnspentPoints = "Professions.SpecPage.DetailedView.UnspentPoints",
+}
+
+local specLifecycleHooked = false
+local specInitialized = false
+
+local function IsSpecElementVisible(frame, page, target)
+    return IsVisible(frame) and IsVisible(page) and IsVisible(target)
+end
+
+local function GetSpecTabs(page)
+    local pool = page and page.tabsPool
+    if not pool or type(pool.EnumerateActive) ~= "function" then return {} end
+
+    local active, byTreeID = {}, {}
+    for tab in pool:EnumerateActive() do
+        active[#active + 1] = tab
+        if tab and tab.traitTreeID then byTreeID[tab.traitTreeID] = tab end
+    end
+
+    local tabs, included = {}, {}
+    local professionID = page.GetProfessionID and page:GetProfessionID()
+    local tabIDs = professionID and _G.C_ProfSpecs
+        and _G.C_ProfSpecs.GetSpecTabIDsForSkillLine
+        and _G.C_ProfSpecs.GetSpecTabIDsForSkillLine(professionID)
+    for _, treeID in ipairs(tabIDs or {}) do
+        local tab = byTreeID[treeID]
+        if tab then
+            tabs[#tabs + 1] = tab
+            included[tab] = true
+        end
+    end
+    for _, tab in ipairs(active) do
+        if not included[tab] then tabs[#tabs + 1] = tab end
+    end
+    return tabs
+end
+
+local function GetRenderedTextBounds(target)
+    local bounds = {}
+    AddRenderedTextBounds(bounds, target)
+    return bounds.left, bounds.right, bounds.bottom, bounds.top
+end
+
+local function RegisterSpecText(frame, page, id, label, target, priority)
+    if not target then return nil end
+    local element = NSkin:RegisterTextElement({
+        id = id, module = "Professions", appearanceWindowID = IDs.Scope,
+        label = label, window = frame, target = target, priority = priority,
+        getHighlightBounds = function()
+            return GetRenderedTextBounds(target)
+        end,
+        highlightBoundsAreNormalized = true,
+        isEditable = function()
+            return IsSpecElementVisible(frame, page, target)
+        end,
+    })
+    RefreshTypedElement(element)
+    return element
+end
+
+function SpecSkin:ApplyTabs(frame, page)
+    local tabs = GetSpecTabs(page)
+    if #tabs == 0 then return false end
+
+    local style = NSkin:GetAppearanceStyle("tab", IDs.Scope, SpecIDs.Tabs)
+    local border = NSkin:GetAppearanceBorderColor(
+        "tab", style, IDs.Scope, SpecIDs.Tabs)
+    for _, tab in ipairs(tabs) do
+        NSkin:SkinTab(tab, tab.isSelected == true, style, border)
+    end
+
+    local registered = NSkin:RegisterTabGroup(SpecIDs.Tabs, {
+        module = "Professions", appearanceWindowID = IDs.Scope,
+        label = "Specialization tabs", window = frame, owner = page,
+        tabs = tabs, orientation = "HORIZONTAL", edge = "TOP",
+        priority = 210,
+        getSelected = function(tab) return tab.isSelected == true end,
+        isEditable = function()
+            return IsVisible(frame) and IsVisible(page) and #GetSpecTabs(page) > 0
+        end,
+    })
+    if registered then NSkin:ApplyTabGroupLayout(SpecIDs.Tabs) end
+    return registered == true
+end
+
+function SpecSkin:ApplyButtons(frame, page)
+    local detailedView = page.DetailedView
+    local applied = false
+    for index, definition in ipairs({
+        { SpecIDs.ViewPreviewButton, "View preview", page.ViewPreviewButton },
+        { SpecIDs.ApplyButton, "Apply specialization", page.ApplyButton },
+        { SpecIDs.SpendPointsButton, "Spend specialization points",
+            detailedView and detailedView.SpendPointsButton },
+    }) do
+        local button = definition[3]
+        if button then
+            local element = NSkin:RegisterActionButton({
+                id = definition[1], module = "Professions",
+                appearanceWindowID = IDs.Scope, label = definition[2],
+                window = frame, target = button, priority = 220 + index,
+                isEditable = function()
+                    return IsSpecElementVisible(frame, page, button)
+                end,
+            })
+            RefreshTypedElement(element)
+            applied = element ~= nil or applied
+        end
+    end
+    return applied
+end
+
+function SpecSkin:ApplyDetailedText(frame, page)
+    local detailedView = page.DetailedView
+    if not detailedView then return false end
+    local applied = false
+    for index, definition in ipairs({
+        { SpecIDs.PointsText, "Specialization points", detailedView.PointsText },
+        { SpecIDs.PathName, "Specialization path name", detailedView.PathName },
+    }) do
+        applied = RegisterSpecText(frame, page, definition[1], definition[2],
+            definition[3], 230 + index) ~= nil or applied
+    end
+    return applied
+end
+
+function SpecSkin:ApplyTreePreviewText(frame, page)
+    local preview = page.TreePreview
+    if not preview then return false end
+    local applied = false
+    local definitions = {
+        { SpecIDs.PreviewTitle, "Specialization preview title", preview.Title },
+        { SpecIDs.PreviewDescription, "Specialization preview description",
+            preview.Description },
+        { SpecIDs.PreviewHighlightHeader, "Specialization highlights header",
+            preview.HighlightsHeader },
+    }
+    for index = 1, 4 do
+        local highlight = preview["Highlight" .. index]
+        definitions[#definitions + 1] = {
+            SpecIDs.PreviewHighlightPrefix .. index .. ".Description",
+            "Specialization highlight " .. index,
+            highlight and highlight.Description,
+        }
+    end
+    for index, definition in ipairs(definitions) do
+        applied = RegisterSpecText(frame, page, definition[1], definition[2],
+            definition[3], 240 + index) ~= nil or applied
+    end
+    return applied
+end
+
+function SpecSkin:ApplyUnspentPoints(frame, page)
+    local unspent = page.DetailedView and page.DetailedView.UnspentPoints
+    local icon = unspent and unspent.Icon
+    local count = unspent and unspent.Count
+    if not unspent or not icon or not count then return false end
+
+    local element = NSkin:RegisterIconGroup({
+        id = SpecIDs.UnspentPoints, module = "Professions",
+        appearanceWindowID = IDs.Scope, label = "Unspent points",
+        window = frame, target = unspent, priority = 250, draggable = true,
+        children = {
+            {
+                target = unspent, texture = icon, borderOwner = unspent,
+                nativeDecorationRegions = CompactRegions(
+                    unspent.CurrencyBackground),
+            },
+        },
+        appearanceStyles = { "text" },
+        appearanceTypeIDs = { "TEXT" },
+        editorOptions = {
+            { id = "shared.iconAppearance", label = "Icon",
+                presentation = "INLINE", category = "CUSTOMIZE" },
+            { id = "shared.textAppearance", label = "Text",
+                category = "CUSTOMIZE" },
+        },
+        refreshContent = function()
+            local appearanceID = NSkin:GetElementAppearanceID(
+                SpecIDs.UnspentPoints, "TEXT")
+            return NSkin:SkinText(count, NSkin:GetAppearanceStyle(
+                "text", IDs.Scope, appearanceID)) == true
+        end,
+        getHighlightBounds = function()
+            return GetIconAndLabelBounds({ icon }, count)
+        end,
+        highlightBoundsAreNormalized = true,
+        pixelBorderTargets = { unspent },
+        composition = {
+            mode = "COMPOSITE", movementOwner = unspent,
+            members = {
+                { kind = "ICON", role = "PRIMARY", target = icon,
+                    label = "Icon" },
+                { kind = "TEXT", role = "SECONDARY", target = count,
+                    label = "Text" },
+            },
+        },
+        isEditable = function()
+            return IsSpecElementVisible(frame, page, unspent)
+        end,
+    })
+    RefreshTypedElement(element)
+    return element ~= nil
+end
+
+function SpecSkin:ApplyDetailedView(frame, page)
+    local applied = self:ApplyDetailedText(frame, page)
+    applied = self:ApplyUnspentPoints(frame, page) or applied
+    applied = self:ApplyButtons(frame, page) or applied
+    return applied
+end
+
+function SpecSkin:Apply()
+    local frame = _G.ProfessionsFrame
+    local page = frame and frame.SpecPage
+    if not frame or not page then return false end
+    local applied = self:ApplyTabs(frame, page)
+    applied = self:ApplyButtons(frame, page) or applied
+    applied = self:ApplyDetailedText(frame, page) or applied
+    applied = self:ApplyTreePreviewText(frame, page) or applied
+    applied = self:ApplyUnspentPoints(frame, page) or applied
+    return applied
+end
+
+function SpecSkin:HookLifecycle(frame, page)
+    if specLifecycleHooked then return end
+    if page.HookScript then
+        page:HookScript("OnShow", function() SpecSkin:Apply() end)
+    end
+    local preview = page.TreePreview
+    if preview and preview.HookScript then
+        preview:HookScript("OnShow", function()
+            SpecSkin:ApplyTreePreviewText(frame, page)
+            SpecSkin:ApplyButtons(frame, page)
+        end)
+        preview:HookScript("OnHide", function()
+            SpecSkin:ApplyDetailedView(frame, page)
+        end)
+    end
+    if _G.hooksecurefunc then
+        for method, callback in pairs({
+            InitializeTabs = function() SpecSkin:ApplyTabs(frame, page) end,
+            UpdateTabs = function() SpecSkin:ApplyTabs(frame, page) end,
+            UpdateTreePreviewButtonVisibility = function()
+                SpecSkin:ApplyButtons(frame, page)
+            end,
+            UpdateDetailedPanel = function()
+                SpecSkin:ApplyDetailedView(frame, page)
+            end,
+            UpdateCurrencyDisplay = function()
+                SpecSkin:ApplyUnspentPoints(frame, page)
+            end,
+        }) do
+            if type(page[method]) == "function" then
+                pcall(_G.hooksecurefunc, page, method, callback)
+            end
+        end
+    end
+    specLifecycleHooked = true
+end
+
+function SpecSkin:Initialize()
+    local frame = _G.ProfessionsFrame
+    local page = frame and frame.SpecPage
+    if not frame or not page then return false end
+    self:HookLifecycle(frame, page)
+    specInitialized = true
+    return self:Apply()
+end
+
+RefreshSpecAppearance = function()
+    if specInitialized then SpecSkin:Apply() end
+end
+
+NSkin:RegisterWindowSkin({
+    key = "Professions.Specializations",
+    module = "Professions",
+    addon = "Blizzard_Professions",
+    apply = function() return SpecSkin:Initialize() end,
 })
 end

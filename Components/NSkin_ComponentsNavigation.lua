@@ -654,7 +654,14 @@ local function RefreshTabGroupAppearance(group)
     for i = 1, #(tabs or {}) do
         local tab = tabs[i]
         if tab then
-            local selected = tab.IsSelected and tab:IsSelected()
+            local selected
+            if type(group.getSelected) == "function" then
+                local ok, value = pcall(group.getSelected, tab, group)
+                if ok then selected = value == true end
+            end
+            if selected == nil then
+                selected = tab.IsSelected and tab:IsSelected()
+            end
             NSkin:SkinTab(tab, selected, style, borderColor)
         end
     end
