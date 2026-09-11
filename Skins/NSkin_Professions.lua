@@ -276,6 +276,56 @@ local function CompactRegions(...)
     return regions
 end
 
+local function AddNormalizedBounds(bounds, left, right, bottom, top)
+    if not left or not right or not bottom or not top then return end
+    bounds.left = bounds.left and math.min(bounds.left, left) or left
+    bounds.right = bounds.right and math.max(bounds.right, right) or right
+    bounds.bottom = bounds.bottom and math.min(bounds.bottom, bottom) or bottom
+    bounds.top = bounds.top and math.max(bounds.top, top) or top
+end
+
+local function AddRegionBounds(bounds, region)
+    if not IsVisible(region) then return end
+    AddNormalizedBounds(bounds, NSkin:GetUIParentNormalizedBounds(region))
+end
+
+local function AddRenderedTextBounds(bounds, text)
+    if not IsVisible(text) or not text.GetStringWidth
+        or not text.GetStringHeight
+    then return end
+    local width = text:GetStringWidth()
+    local height = text:GetStringHeight()
+    if not width or not height or width <= 0 or height <= 0 then return end
+
+    local frameLeft = text.GetLeft and text:GetLeft()
+    local frameRight = text.GetRight and text:GetRight()
+    local frameBottom = text.GetBottom and text:GetBottom()
+    local frameTop = text.GetTop and text:GetTop()
+    if not frameLeft or not frameRight or not frameBottom or not frameTop then return end
+
+    local justifyH = text.GetJustifyH and text:GetJustifyH() or "CENTER"
+    local left = justifyH == "LEFT" and frameLeft
+        or justifyH == "RIGHT" and frameRight - width
+        or (frameLeft + frameRight - width) / 2
+    local right = left + width
+    local justifyV = text.GetJustifyV and text:GetJustifyV() or "MIDDLE"
+    local bottom = justifyV == "BOTTOM" and frameBottom
+        or justifyV == "TOP" and frameTop - height
+        or (frameBottom + frameTop - height) / 2
+    local top = bottom + height
+    AddNormalizedBounds(bounds, NSkin:GetUIParentNormalizedBounds(
+        text, left, right, bottom, top))
+end
+
+local function GetIconAndLabelBounds(iconTextures, label)
+    local bounds = {}
+    for _, texture in ipairs(iconTextures or {}) do
+        AddRegionBounds(bounds, texture)
+    end
+    AddRenderedTextBounds(bounds, label)
+    return bounds.left, bounds.right, bounds.bottom, bounds.top
+end
+
 local function IsCraftingVisible(frame, target)
     return IsVisible(frame) and IsVisible(target)
 end
@@ -870,6 +920,19 @@ local function RegisterReagentGroup(frame, form, reagentType, id, label)
             definition.anchorGroupLabel = "Crafting Choices Slots"
             definition.anchorGroupAppearanceSource =
                 CraftingIDs.FinishingReagents
+            definition.getHighlightBounds = function()
+                local textures = {}
+                for _, slot in ipairs(GetVisibleReagentIconSlots(
+                    form, reagentType))
+                do
+                    local button = slot.Button
+                    local texture = button and GetIconTexture(button)
+                    textures[#textures + 1] = IsVisible(texture)
+                        and texture or button
+                end
+                return GetIconAndLabelBounds(textures, parent.Label)
+            end
+            definition.highlightBoundsAreNormalized = true
             definition.composition = {
                 mode = "COMPOSITE", movementOwner = parent,
                 members = {
@@ -1502,6 +1565,16 @@ function CraftingSkin:ApplyConcentration(frame, page, form)
                 end,
                 appearanceStyles = { "text" },
                 appearanceTypeIDs = { "TEXT" },
+                getHighlightBounds = function()
+                    local textures = {}
+                    for _, button in ipairs(GetConcentrateButtons(form, true)) do
+                        local texture = GetConcentrateDisplayedTexture(button)
+                        if texture then textures[#textures + 1] = texture end
+                    end
+                    return GetIconAndLabelBounds(
+                        textures, container and container.Label)
+                end,
+                highlightBoundsAreNormalized = true,
                 refreshContent = function()
                     local label = container and container.Label
                     local appearanceID = NSkin:GetElementAppearanceID(

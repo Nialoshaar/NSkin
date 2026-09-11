@@ -270,6 +270,17 @@ local function BuildLines(element)
             AddField(lines, "  composition", memberElement.composition
                 and memberElement.composition.mode or "STANDALONE")
             AddField(lines, "  runtime targets", #targets, false, targets)
+            local left, right, bottom, top =
+                NSkin:GetSkinningElementBounds(memberElement)
+            if left then
+                AddField(lines, "  resolved bounds", string.format(
+                    "L %.1f / R %.1f / B %.1f / T %.1f",
+                    left, right, bottom, top))
+                AddField(lines, "  resolved size", string.format(
+                    "%.1f x %.1f", right - left, top - bottom))
+            else
+                AddField(lines, "  resolved bounds", "none", true)
+            end
         end
     elseif composition.mode == "COMPOSITE" then
         for index, member in ipairs(composition.members or {}) do

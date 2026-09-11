@@ -3470,6 +3470,17 @@ end
 
 function NSkin:GetSkinningElementBounds(element)
     if not element then return end
+    if type(element.getHighlightBounds) == "function" then
+        local ok, left, right, bottom, top = pcall(element.getHighlightBounds, element)
+        if ok and left and right and bottom and top then
+            if element.highlightBoundsAreNormalized then
+                return left, right, bottom, top
+            end
+            return self:GetUIParentNormalizedBounds(
+                element.target or element.window, left, right, bottom, top
+            )
+        end
+    end
     local regions = self:GetCompositionHighlightRegions(element)
     if type(regions) == "function" then regions = regions(element) end
     if type(regions) == "table" then
@@ -3489,18 +3500,6 @@ function NSkin:GetSkinningElementBounds(element)
         end
         if left then return left, right, bottom, top end
     end
-    if type(element.getHighlightBounds) == "function" then
-        local ok, left, right, bottom, top = pcall(element.getHighlightBounds, element)
-        if ok and left and right and bottom and top then
-            if element.highlightBoundsAreNormalized then
-                return left, right, bottom, top
-            end
-            return self:GetUIParentNormalizedBounds(
-                element.target or element.window, left, right, bottom, top
-            )
-        end
-    end
-
     if element.kind == "TAB_GROUP" then
         local tabs = element.container and element.container.tabs or element.tabs
         local left, right, bottom, top

@@ -346,7 +346,13 @@ function NSkin:GetCompositionEditorOptions(element)
         for _, definition in ipairs(definitions or {}) do
             local option = type(definition) == "table" and definition
                 or { id = definition }
+            local context = optionContext or element
+            local lacksPlacementContract = option.id == "shared.movable"
+                and (type(context.getPlacement) ~= "function"
+                    or type(context.setPlacement) ~= "function"
+                    or type(context.resetPlacement) ~= "function")
             if not seen[option.id]
+                and not lacksPlacementContract
                 and not ((element.compositionParentID or member
                     or element.isAnchorGroup)
                     and (option.category == "POSITION" or option.id == "shared.movable"))
