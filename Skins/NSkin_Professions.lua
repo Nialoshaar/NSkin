@@ -3,6 +3,7 @@ local _, NSkin = ...
 local ProfessionsSkin = NSkin:NewModule("Professions")
 local RefreshCraftingAppearance
 local RefreshSpecAppearance
+local RefreshOrdersAppearance
 
 local IDs = {
     Scope = "Professions",
@@ -220,6 +221,7 @@ function ProfessionsSkin:RefreshAppearance()
     if initialized then self:Apply() end
     if RefreshCraftingAppearance then RefreshCraftingAppearance() end
     if RefreshSpecAppearance then RefreshSpecAppearance() end
+    if RefreshOrdersAppearance then RefreshOrdersAppearance() end
 end
 
 NSkin:RegisterWindowSkin({
@@ -1098,9 +1100,9 @@ local function IsRecipeRow(row)
     return row and row.Label and row.SelectedOverlay and row.HighlightOverlay
 end
 
-local function GetRecipeRows(page, predicate, visibleOnly)
+local function GetRecipeRows(recipeList, predicate, visibleOnly)
     local rows = {}
-    local scrollBox = page and page.RecipeList and page.RecipeList.ScrollBox
+    local scrollBox = recipeList and recipeList.ScrollBox
     NSkin:ForEachScrollBoxFrame(scrollBox, function(row)
         if predicate(row) and (not visibleOnly or IsVisible(row)) then
             rows[#rows + 1] = row
@@ -1119,13 +1121,12 @@ local function IsRecipeSelected(row)
         and row.SelectedOverlay:IsShown() or false
 end
 
-local function ApplyRecipeSections(frame, page)
-    local id = CraftingIDs.RecipeSections
+local function ApplyRecipeSections(recipeList, id)
     local style = NSkin:GetAppearanceStyle("sectionCard", IDs.Scope, id)
     local border = NSkin:GetAppearanceBorderColor(
         "sectionCard", style, IDs.Scope, id)
     local applied = false
-    for _, row in ipairs(GetRecipeRows(page, IsRecipeCategory, false)) do
+    for _, row in ipairs(GetRecipeRows(recipeList, IsRecipeCategory, false)) do
         applied = NSkin:SkinSectionCard(row, {
             style = style, border = border, textRegion = row.Label,
             preserveTextLayout = true, collapsible = true,
@@ -1139,14 +1140,13 @@ local function ApplyRecipeSections(frame, page)
     return applied
 end
 
-local function ApplyRecipeRows(frame, page)
-    local id = CraftingIDs.RecipeRows
+local function ApplyRecipeRows(recipeList, id)
     local style = NSkin:GetAppearanceStyle("sectionRow", IDs.Scope, id)
     local border = NSkin:GetAppearanceBorderColor(
         "sectionRow", style, IDs.Scope, id)
     local textStyle = NSkin:GetAppearanceStyle("text", IDs.Scope, id)
     local applied = false
-    for _, row in ipairs(GetRecipeRows(page, IsRecipeRow, false)) do
+    for _, row in ipairs(GetRecipeRows(recipeList, IsRecipeRow, false)) do
         applied = NSkin:SkinSectionRow(row, {
             style = style, border = border,
             hoverRegion = row.HighlightOverlay,
@@ -1160,42 +1160,57 @@ local function ApplyRecipeRows(frame, page)
     return applied
 end
 
-local function RegisterRecipeGroups(frame, page)
+local function RegisterRecipeListGroups(frame, recipeList, sectionID, rowID,
+    registeredGroups, priority)
     for _, definition in ipairs({
-        { CraftingIDs.RecipeSections, "Recipe section cards", "SECTION_CARD",
-            IsRecipeCategory, ApplyRecipeSections, nil },
-        { CraftingIDs.RecipeRows, "Recipe list rows", "SECTION_ROW",
-            IsRecipeRow, ApplyRecipeRows, "text" },
+        { sectionID, "Recipe section cards", "SECTION_CARD",
+            IsRecipeCategory, nil },
+        { rowID, "Recipe list rows", "SECTION_ROW",
+            IsRecipeRow, "text" },
     }) do
-        local id, label, kind, predicate, apply, extraStyle = unpack(definition)
-        local function Refresh() return apply(frame, page) end
-        if not registeredCraftingGroups[id] then
-            registeredCraftingGroups[id] = NSkin:RegisterSkinningElement(id, {
+        local id, label, kind, predicate, extraStyle = unpack(definition)
+        local function Refresh()
+            if kind == "SECTION_CARD" then
+                return ApplyRecipeSections(recipeList, id)
+            end
+            return ApplyRecipeRows(recipeList, id)
+        end
+        if not registeredGroups[id] then
+            registeredGroups[id] = NSkin:RegisterSkinningElement(id, {
                 module = "Professions", appearanceWindowID = IDs.Scope,
                 label = label, kind = kind, window = frame,
-                target = page.RecipeList.ScrollBox,
-                priority = kind == "SECTION_CARD" and 130 or 131,
+                target = recipeList.ScrollBox,
+                priority = priority + (kind == "SECTION_CARD" and 0 or 1),
                 draggable = false,
                 appearanceStyles = extraStyle and { extraStyle } or nil,
                 appearanceTypeIDs = extraStyle and { "TEXT" } or nil,
                 highlightRegions = function()
-                    return GetRecipeRows(page, predicate, true)
+                    return GetRecipeRows(recipeList, predicate, true)
                 end,
                 pixelBorderTargets = function()
-                    return GetRecipeRows(page, predicate, true)
+                    return GetRecipeRows(recipeList, predicate, true)
                 end,
                 refreshAppearance = Refresh, refreshLayout = Refresh,
                 isEditable = function()
                     return IsVisible(frame)
-                        and #GetRecipeRows(page, predicate, true) > 0
+                        and #GetRecipeRows(recipeList, predicate, true) > 0
                 end,
             }) == true
         end
         Refresh()
-        if registeredCraftingGroups[id] then
+        if registeredGroups[id] then
             NSkin:NotifySkinningElementBoundsChanged(id)
         end
     end
+end
+
+local function RegisterRecipeGroups(frame, page)
+    local recipeList = page and page.RecipeList
+    if not recipeList or not recipeList.ScrollBox then return false end
+    RegisterRecipeListGroups(frame, recipeList,
+        CraftingIDs.RecipeSections, CraftingIDs.RecipeRows,
+        registeredCraftingGroups, 130)
+    return true
 end
 
 function CraftingSkin:ApplyWindowChrome(frame)
@@ -2288,5 +2303,395 @@ NSkin:RegisterWindowSkin({
     module = "Professions",
     addon = "Blizzard_Professions",
     apply = function() return SpecSkin:Initialize() end,
+})
+
+local OrdersSkin = {}
+
+local OrdersIDs = {
+    Tabs = "Professions.Orders.Browse.Tabs",
+    SearchActions = "Professions.Orders.Browse.SearchActions",
+    Search = "Professions.Orders.Browse.RecipeSearch",
+    Filter = "Professions.Orders.Browse.RecipeFilter",
+    RecipeSections = "Professions.Orders.Browse.RecipeSections",
+    RecipeRows = "Professions.Orders.Browse.RecipeRows",
+    OrderRows = "Professions.Orders.Browse.OrderRows",
+    RecipeScrollBar = "Professions.Orders.Browse.RecipeScrollBar",
+    OrderScrollBar = "Professions.Orders.Browse.OrderScrollBar",
+    ColumnHeaders = "Professions.Orders.Browse.ColumnHeaders",
+}
+
+local ordersLifecycleHooked = false
+local ordersInitialized = false
+local registeredOrdersElements = {}
+local ordersSearchController
+
+local function GetOrdersPage()
+    local frame = _G.ProfessionsFrame
+    return frame, frame and frame.OrdersPage
+end
+
+local function GetOrderTabs(page)
+    local browse = page and page.BrowseFrame
+    if not browse then return {} end
+    return CompactRegions(
+        browse.PublicOrdersButton,
+        browse.GuildOrdersButton,
+        browse.NpcOrdersButton,
+        browse.PersonalOrdersButton)
+end
+
+local function GetVisibleRegionBounds(regions)
+    local bounds = {}
+    for _, region in ipairs(regions or {}) do AddRegionBounds(bounds, region) end
+    return bounds.left, bounds.right, bounds.bottom, bounds.top
+end
+
+local function GetOrderRows(page, visibleOnly)
+    local rows = {}
+    local scrollBox = page and page.BrowseFrame
+        and page.BrowseFrame.OrderList
+        and page.BrowseFrame.OrderList.ScrollBox
+    NSkin:ForEachScrollBoxFrame(scrollBox, function(row)
+        if not visibleOnly or IsVisible(row) then rows[#rows + 1] = row end
+    end)
+    return rows
+end
+
+local function GetOrderHeaders(page, visibleOnly)
+    local headers = {}
+    local builder = page and page.tableBuilder
+    if not builder or type(builder.EnumerateHeaders) ~= "function" then
+        return headers
+    end
+    for header in builder:EnumerateHeaders() do
+        if not visibleOnly or IsVisible(header) then
+            headers[#headers + 1] = header
+        end
+    end
+    return headers
+end
+
+function OrdersSkin:ApplyTabs(frame, page)
+    local tabs = GetOrderTabs(page)
+    if #tabs == 0 then return false end
+    local style = NSkin:GetAppearanceStyle("tab", IDs.Scope, OrdersIDs.Tabs)
+    local border = NSkin:GetAppearanceBorderColor(
+        "tab", style, IDs.Scope, OrdersIDs.Tabs)
+    for _, tab in ipairs(tabs) do
+        NSkin:SkinTab(tab, tab.orderType == page.orderType, style, border)
+    end
+    local registered = NSkin:RegisterTabGroup(OrdersIDs.Tabs, {
+        module = "Professions", appearanceWindowID = IDs.Scope,
+        label = "Crafting order type tabs", window = frame,
+        owner = page.BrowseFrame, tabs = tabs,
+        orientation = "HORIZONTAL", edge = "TOP", priority = 300,
+        getSelected = function(tab)
+            return tab.orderType == page.orderType
+        end,
+        isEditable = function()
+            return IsVisible(frame) and IsVisible(page.BrowseFrame)
+        end,
+    })
+    if registered then NSkin:ApplyTabGroupLayout(OrdersIDs.Tabs) end
+    return registered == true
+end
+
+function OrdersSkin:ApplySearchActions(frame, page)
+    local browse = page and page.BrowseFrame
+    local favorite = browse and browse.FavoritesSearchButton
+    local search = browse and browse.SearchButton
+    local icon = favorite and favorite.Icon
+    if not favorite or not search or not icon then return false end
+
+    if not registeredOrdersElements[OrdersIDs.SearchActions] then
+        registeredOrdersElements[OrdersIDs.SearchActions] =
+            NSkin:RegisterIconGroup({
+                id = OrdersIDs.SearchActions, module = "Professions",
+                appearanceWindowID = IDs.Scope,
+                label = "Favorite and search actions", window = frame,
+                target = favorite, priority = 310, draggable = true,
+                children = {
+                    {
+                        target = favorite, texture = icon,
+                        borderOwner = favorite,
+                        nativeDecorationRegions = function(button)
+                            return GetProfessionItemButtonDecorations(button)
+                        end,
+                        hoverRegion = favorite.GetHighlightTexture
+                            and favorite:GetHighlightTexture(),
+                        getHovered = IsHovered,
+                    },
+                },
+                appearanceStyles = { "button" },
+                appearanceTypeIDs = { "ACTION_BUTTON" },
+                editorOptions = {
+                    { id = "shared.iconAppearance", label = "Favorite icon",
+                        presentation = "INLINE", category = "CUSTOMIZE" },
+                },
+                refreshContent = function()
+                    local appearanceID = NSkin:GetElementAppearanceID(
+                        OrdersIDs.SearchActions, "ACTION_BUTTON")
+                    local buttonStyle = NSkin:GetAppearanceStyle(
+                        "button", IDs.Scope, appearanceID)
+                    NSkin:SkinActionButton(search, {
+                        style = buttonStyle,
+                        border = NSkin:GetAppearanceBorderColor(
+                            "button", buttonStyle, IDs.Scope, appearanceID),
+                    })
+                    return true
+                end,
+                getHighlightBounds = function()
+                    return GetVisibleRegionBounds({ icon, search })
+                end,
+                highlightBoundsAreNormalized = true,
+                pixelBorderTargets = { favorite, search },
+                composition = {
+                    mode = "COMPOSITE", movementOwner = favorite,
+                    members = {
+                        { kind = "ICON", role = "PRIMARY", target = favorite,
+                            label = "Favorite" },
+                        { kind = "ACTION_BUTTON", role = "SECONDARY",
+                            target = search, label = "Search" },
+                    },
+                },
+                isEditable = function()
+                    return IsVisible(frame) and IsVisible(browse)
+                        and IsVisible(favorite) and IsVisible(search)
+                end,
+            }) ~= nil
+    else
+        NSkin:RefreshIconGroup(OrdersIDs.SearchActions)
+    end
+    return registeredOrdersElements[OrdersIDs.SearchActions] == true
+end
+
+function OrdersSkin:ApplyRecipeSearch(frame, page)
+    local recipeList = page and page.BrowseFrame
+        and page.BrowseFrame.RecipeList
+    local searchBox = recipeList and recipeList.SearchBox
+    local dropdown = recipeList and recipeList.FilterDropdown
+    if not searchBox or not dropdown then return false end
+
+    if not ordersSearchController then
+        ordersSearchController = NSkin:RegisterAccessoryGroup({
+            id = OrdersIDs.Search,
+            module = "Professions", appearanceWindowID = IDs.Scope,
+            window = frame, visibilityFrame = page.BrowseFrame,
+            primary = searchBox, accessory = dropdown,
+            ids = { primary = OrdersIDs.Search, accessory = OrdersIDs.Filter },
+            primaryLabel = "Crafting order recipe search",
+            accessoryLabel = "Crafting order recipe filter",
+            accessoryMenus = { "MENU_PROFESSIONS_FILTER" },
+            anchorGrouped = function(primary, accessory)
+                if not primary or not accessory then return false end
+                accessory:ClearAllPoints()
+                accessory:SetPoint("LEFT", primary, "RIGHT", 4, 0)
+                return true
+            end,
+        })
+    else
+        ordersSearchController:Refresh()
+    end
+    return ordersSearchController ~= nil
+end
+
+function OrdersSkin:ApplyRecipeList(frame, page)
+    local recipeList = page and page.BrowseFrame
+        and page.BrowseFrame.RecipeList
+    if not recipeList or not recipeList.ScrollBox then return false end
+    RegisterRecipeListGroups(frame, recipeList,
+        OrdersIDs.RecipeSections, OrdersIDs.RecipeRows,
+        registeredOrdersElements, 320)
+    return true
+end
+
+function OrdersSkin:ApplyOrderRows(frame, page)
+    local orderList = page and page.BrowseFrame
+        and page.BrowseFrame.OrderList
+    local scrollBox = orderList and orderList.ScrollBox
+    if not scrollBox then return false end
+    local id = OrdersIDs.OrderRows
+    local function Refresh()
+        local style = NSkin:GetAppearanceStyle("row", IDs.Scope, id)
+        local border = NSkin:GetAppearanceBorderColor(
+            "row", style, IDs.Scope, id)
+        local applied = false
+        for _, row in ipairs(GetOrderRows(page, false)) do
+            applied = NSkin:SkinRow(row, {
+                style = style, border = border,
+                hoverRegion = row.HighlightTexture,
+                getHovered = IsHovered,
+            }) ~= nil or applied
+        end
+        return applied
+    end
+    if not registeredOrdersElements[id] then
+        registeredOrdersElements[id] = NSkin:RegisterSkinningElement(id, {
+            module = "Professions", appearanceWindowID = IDs.Scope,
+            label = "Crafting order result rows", kind = "ROW",
+            window = frame, target = scrollBox, priority = 330,
+            draggable = false,
+            highlightRegions = function() return GetOrderRows(page, true) end,
+            pixelBorderTargets = function() return GetOrderRows(page, true) end,
+            refreshAppearance = Refresh, refreshLayout = Refresh,
+            isEditable = function()
+                return IsVisible(frame) and IsVisible(page)
+                    and #GetOrderRows(page, true) > 0
+            end,
+        }) == true
+    end
+    Refresh()
+    if registeredOrdersElements[id] then
+        NSkin:NotifySkinningElementBoundsChanged(id)
+    end
+    return registeredOrdersElements[id] == true
+end
+
+function OrdersSkin:ApplyColumnHeaders(frame, page)
+    local orderList = page and page.BrowseFrame
+        and page.BrowseFrame.OrderList
+    local container = orderList and orderList.HeaderContainer
+    if not container then return false end
+    local id = OrdersIDs.ColumnHeaders
+    local function Refresh()
+        local style = NSkin:GetAppearanceStyle(
+            "columnHeader", IDs.Scope, id)
+        local border = NSkin:GetAppearanceBorderColor(
+            "columnHeader", style, IDs.Scope, id)
+        local applied = false
+        for _, header in ipairs(GetOrderHeaders(page, false)) do
+            applied = NSkin:SkinColumnHeader(header, {
+                style = style, border = border,
+                textRegion = header.Text or header.Name,
+                artworkRegions = CompactRegions(
+                    header.Left, header.Middle, header.Right),
+            }) ~= nil or applied
+        end
+        return applied
+    end
+    if not registeredOrdersElements[id] then
+        registeredOrdersElements[id] = NSkin:RegisterSkinningElement(id, {
+            module = "Professions", appearanceWindowID = IDs.Scope,
+            label = "Crafting order column headers", kind = "COLUMN_HEADER",
+            window = frame, target = container, priority = 340,
+            draggable = false,
+            highlightRegions = function() return GetOrderHeaders(page, true) end,
+            pixelBorderTargets = function() return GetOrderHeaders(page, true) end,
+            refreshAppearance = Refresh, refreshLayout = Refresh,
+            isEditable = function()
+                return IsVisible(frame) and IsVisible(page)
+                    and #GetOrderHeaders(page, true) > 0
+            end,
+        }) == true
+    end
+    Refresh()
+    if registeredOrdersElements[id] then
+        NSkin:NotifySkinningElementBoundsChanged(id)
+    end
+    return registeredOrdersElements[id] == true
+end
+
+function OrdersSkin:ApplyScrollBars(frame, page)
+    local browse = page and page.BrowseFrame
+    local recipeList = browse and browse.RecipeList
+    local orderList = browse and browse.OrderList
+    local applied = false
+    for index, definition in ipairs({
+        { OrdersIDs.RecipeScrollBar, "Crafting order recipe scrollbar",
+            recipeList and recipeList.ScrollBar },
+        { OrdersIDs.OrderScrollBar, "Crafting order results scrollbar",
+            orderList and orderList.ScrollBar },
+    }) do
+        local scrollBar = definition[3]
+        if scrollBar then
+            local element = NSkin:RegisterScrollBar({
+                id = definition[1], module = "Professions",
+                appearanceWindowID = IDs.Scope, label = definition[2],
+                window = frame, target = scrollBar, priority = 350 + index,
+                isEditable = function()
+                    return IsVisible(frame) and IsVisible(page)
+                        and IsVisible(scrollBar)
+                end,
+            })
+            RefreshTypedElement(element)
+            applied = element ~= nil or applied
+        end
+    end
+    return applied
+end
+
+function OrdersSkin:Apply()
+    local frame, page = GetOrdersPage()
+    if not frame or not page or not page.BrowseFrame then return false end
+    local applied = CraftingSkin:ApplyWindowChrome(frame)
+    applied = self:ApplyTabs(frame, page) or applied
+    applied = self:ApplySearchActions(frame, page) or applied
+    applied = self:ApplyRecipeSearch(frame, page) or applied
+    applied = self:ApplyRecipeList(frame, page) or applied
+    applied = self:ApplyOrderRows(frame, page) or applied
+    applied = self:ApplyColumnHeaders(frame, page) or applied
+    applied = self:ApplyScrollBars(frame, page) or applied
+    return applied
+end
+
+function OrdersSkin:HookLifecycle(frame, page)
+    if ordersLifecycleHooked then return end
+    if page.HookScript then
+        page:HookScript("OnShow", function() OrdersSkin:Apply() end)
+    end
+    if _G.hooksecurefunc then
+        for method, callback in pairs({
+            InitOrderTypeTabs = function() OrdersSkin:ApplyTabs(frame, page) end,
+            UpdateFavoritesButton = function()
+                OrdersSkin:ApplySearchActions(frame, page)
+            end,
+            SetupTable = function()
+                OrdersSkin:ApplyColumnHeaders(frame, page)
+                OrdersSkin:ApplyOrderRows(frame, page)
+            end,
+            Refresh = function()
+                OrdersSkin:ApplyRecipeList(frame, page)
+                OrdersSkin:ApplyRecipeSearch(frame, page)
+            end,
+        }) do
+            if type(page[method]) == "function" then
+                pcall(_G.hooksecurefunc, page, method, callback)
+            end
+        end
+        local recipeScrollBox = page.BrowseFrame.RecipeList
+            and page.BrowseFrame.RecipeList.ScrollBox
+        if recipeScrollBox and type(recipeScrollBox.Update) == "function" then
+            pcall(_G.hooksecurefunc, recipeScrollBox, "Update", function()
+                OrdersSkin:ApplyRecipeList(frame, page)
+            end)
+        end
+        local orderScrollBox = page.BrowseFrame.OrderList
+            and page.BrowseFrame.OrderList.ScrollBox
+        if orderScrollBox and type(orderScrollBox.Update) == "function" then
+            pcall(_G.hooksecurefunc, orderScrollBox, "Update", function()
+                OrdersSkin:ApplyOrderRows(frame, page)
+            end)
+        end
+    end
+    ordersLifecycleHooked = true
+end
+
+function OrdersSkin:Initialize()
+    local frame, page = GetOrdersPage()
+    if not frame or not page or not page.BrowseFrame then return false end
+    self:HookLifecycle(frame, page)
+    ordersInitialized = true
+    return self:Apply()
+end
+
+RefreshOrdersAppearance = function()
+    if ordersInitialized then OrdersSkin:Apply() end
+end
+
+NSkin:RegisterWindowSkin({
+    key = "Professions.Orders",
+    module = "Professions",
+    addon = "Blizzard_Professions",
+    apply = function() return OrdersSkin:Initialize() end,
 })
 end
