@@ -395,6 +395,130 @@ NSkin:RegisterOptionGroup("shared.rowAppearance", {
     end,
 })
 
+local function CreateSectionRowAppearanceControls(global)
+    local function Color(key, modeKey, label, order)
+        local control = {
+            type = "COLOR", key = key, label = label, order = order,
+        }
+        if not global then control.modeKey = modeKey end
+        return control
+    end
+    local controls = {
+        { type = "SECTION", label = "Section Row", order = 10 },
+        { type = "COLOR_PAIR", order = 11,
+            left = Color("background", "backgroundMode", "Background"),
+            right = Color("selectedBackground", "selectedBackgroundMode",
+                "Selected") },
+        { type = "CHECKBOX", key = "showBorder", label = "Show border",
+            order = 12 },
+        Color("border", "borderMode", "Border", 13),
+        CreateBorderGeometryControls(14),
+        { type = "SLIDER", key = "hoverAlpha", label = "Hover opacity",
+            min = 0, max = 0.5, step = 0.01, decimals = 2, order = 15 },
+    }
+    if global then
+        controls[#controls + 1] = {
+            type = "RESET", label = "Reset Section Rows", order = 99,
+        }
+    end
+    return controls
+end
+
+NSkin:RegisterOptionGroup("appearance.sectionRow", {
+    controls = CreateSectionRowAppearanceControls(true),
+    get = function()
+        local style = NSkin:GetStyle("sectionRow")
+        return {
+            background = CopyColor(style.background),
+            selectedBackground = CopyColor(style.selectedBackground),
+            showBorder = style.showBorder == true,
+            border = CopyColor(style.border), borderSize = style.borderSize,
+            borderPadding = style.borderPadding, hoverAlpha = style.hoverAlpha,
+        }
+    end,
+    set = function(_, values)
+        local style = NSkin:GetStyle("sectionRow")
+        local changed = false
+        for _, key in ipairs({ "background", "selectedBackground", "border" }) do
+            if values[key] then
+                changed = SetColor("sectionRow." .. key, style[key],
+                    values[key], values[key][4]) or changed
+            end
+        end
+        for _, key in ipairs({
+            "showBorder", "borderSize", "borderPadding", "hoverAlpha",
+        }) do
+            if values[key] ~= nil then
+                changed = SetScalar(
+                    "sectionRow." .. key, style[key], values[key]) or changed
+            end
+        end
+        return changed == true
+    end,
+    reset = function()
+        local paths = {}
+        for _, key in ipairs({
+            "background", "selectedBackground", "showBorder", "border",
+            "borderSize", "borderPadding", "hoverAlpha",
+        }) do
+            paths[#paths + 1] = "sectionRow." .. key
+        end
+        return ResetPaths(paths)
+    end,
+})
+
+local sectionRowAppearanceControls = CreateSectionRowAppearanceControls(false)
+local sectionRowResetPaths = {}
+for _, key in ipairs({
+    "background", "backgroundMode", "selectedBackground",
+    "selectedBackgroundMode", "showBorder", "border", "borderMode",
+    "borderSize", "borderPadding", "hoverAlpha",
+}) do
+    sectionRowResetPaths[key] = "sectionRow." .. key
+end
+
+NSkin:RegisterOptionGroup("shared.sectionRowAppearance", {
+    controls = sectionRowAppearanceControls,
+    get = function(context)
+        local style = NSkin:GetAppearanceStyle(
+            "sectionRow", GetAppearanceWindowID(context), context.id)
+        return {
+            background = CopyColor(style.background),
+            backgroundMode = style.backgroundMode,
+            selectedBackground = CopyColor(style.selectedBackground),
+            selectedBackgroundMode = style.selectedBackgroundMode,
+            showBorder = style.showBorder == true,
+            border = CopyColor(style.border), borderMode = style.borderMode,
+            borderSize = style.borderSize, borderPadding = style.borderPadding,
+            hoverAlpha = style.hoverAlpha,
+        }
+    end,
+    set = function(context, values)
+        local changed = false
+        for _, key in ipairs({
+            "background", "backgroundMode", "selectedBackground",
+            "selectedBackgroundMode", "showBorder", "border", "borderMode",
+            "borderSize", "borderPadding", "hoverAlpha",
+        }) do
+            if values[key] ~= nil then
+                changed = SetElementValue(
+                    context, "sectionRow." .. key, values[key]) or changed
+            end
+        end
+        return changed == true
+    end,
+    reset = function(context)
+        local paths = {}
+        for _, path in pairs(sectionRowResetPaths) do
+            paths[#paths + 1] = path
+        end
+        return ResetElementPaths(context, paths)
+    end,
+    resetSubset = function(context, keys)
+        return ResetMappedElementKeys(context, keys, sectionRowResetPaths)
+    end,
+})
+
 local sectionCardAppearanceControls = {
     { type = "SECTION", label = "Card", order = 10 },
     {

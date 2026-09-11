@@ -2016,6 +2016,12 @@ local EDITOR_PRESETS = {
         { id = "shared.rowAppearance", label = "Row",
             category = "CUSTOMIZE" },
     },
+    SECTION_ROW = {
+        { id = "shared.sectionRowAppearance", label = "Section Row",
+            category = "CUSTOMIZE" },
+        { id = "shared.textAppearance", label = "Text",
+            category = "CUSTOMIZE" },
+    },
     MOVABLE = {
         { id = "shared.movable", label = "Position",
             presentation = "INLINE", category = "POSITION" },
@@ -2148,6 +2154,9 @@ local SHARED_TYPE_DEFINITIONS = {
         editorPreset = "COLUMN_HEADER" },
     ROW = { style = "row", skin = "SkinRow",
         appearanceControls = "shared.rowAppearance", editorPreset = "ROW" },
+    SECTION_ROW = { style = "sectionRow", skin = "SkinSectionRow",
+        appearanceControls = "shared.sectionRowAppearance",
+        editorPreset = "SECTION_ROW" },
     TEXT = { style = "text", skin = "SkinText",
         appearanceControls = "shared.textAppearance", editorPreset = "TEXT" },
 }
@@ -2642,6 +2651,29 @@ local SHARED_SKIN_ADAPTERS = {
         end
         skinMethod(self, target, options)
     end,
+    SECTION_ROW = function(self, skinMethod, target, style, borderColor,
+        definition)
+        local options = {}
+        for key, value in pairs(definition.skinOptions or {}) do
+            options[key] = value
+        end
+        options.style = style
+        if options.border == nil then options.border = borderColor end
+        for _, key in ipairs({
+            "nativeDecorationRegions", "artworkRegions", "preserveTextures",
+            "hoverRegion", "selectedRegion", "getHovered", "getSelected",
+            "visualRegion", "textRegion", "contentRegions", "contentStyle",
+            "collapseButton", "reset",
+        }) do
+            if options[key] == nil then options[key] = definition[key] end
+        end
+        if options.contentStyle == nil then
+            local appearanceID = self:GetElementAppearanceID(definition, "TEXT")
+            options.contentStyle = self:GetAppearanceStyle(
+                "text", definition.appearanceWindowID, appearanceID)
+        end
+        skinMethod(self, target, options)
+    end,
     SECTION_CARD = function(self, skinMethod, target, style, borderColor,
         definition)
         local options = {}
@@ -2835,6 +2867,12 @@ local TYPED_SKIN_FIELDS_BY_TYPE = {
         "nativeDecorationRegions", "artworkRegions", "preserveTextures", "hoverRegion",
         "selectedRegion", "getHovered", "getSelected", "visualRegion",
         "contentRegions", "contentStyle", "height", "reset",
+    },
+    SECTION_ROW = {
+        "nativeDecorationRegions", "artworkRegions", "preserveTextures",
+        "hoverRegion", "selectedRegion", "getHovered", "getSelected",
+        "visualRegion", "textRegion", "contentRegions", "contentStyle",
+        "collapseButton", "reset",
     },
     CHECKBOX = { "text", "getChecked", "labelBaselineID" },
     DROPDOWN = { "menus" },
@@ -3369,6 +3407,25 @@ end
 
 function NSkin:RegisterRow(definition)
     return self:RegisterTypedElement("ROW", definition)
+end
+
+function NSkin:RegisterSectionRow(definition)
+    if type(definition) ~= "table" then return nil end
+    local normalized = {}
+    for key, value in pairs(definition) do normalized[key] = value end
+    normalized.appearanceStyles = {}
+    for i = 1, #(definition.appearanceStyles or {}) do
+        AppendUniqueValue(normalized.appearanceStyles,
+            definition.appearanceStyles[i])
+    end
+    AppendUniqueValue(normalized.appearanceStyles, "text")
+    normalized.appearanceTypeIDs = {}
+    for i = 1, #(definition.appearanceTypeIDs or {}) do
+        AppendUniqueValue(normalized.appearanceTypeIDs,
+            definition.appearanceTypeIDs[i])
+    end
+    AppendUniqueValue(normalized.appearanceTypeIDs, "TEXT")
+    return self:RegisterTypedElement("SECTION_ROW", normalized)
 end
 
 function NSkin:RegisterTextElement(definition)

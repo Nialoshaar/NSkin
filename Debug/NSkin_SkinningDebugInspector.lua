@@ -131,6 +131,14 @@ local function CollectRuntimeTargets(element)
         end
         return targets
     end
+    local runtimeTargets = element.highlightRegions
+    if type(runtimeTargets) == "function" then
+        local ok, value = pcall(runtimeTargets, element)
+        runtimeTargets = ok and value or nil
+    end
+    if type(runtimeTargets) == "table" and #runtimeTargets > 0 then
+        return runtimeTargets
+    end
     return element.target and { element.target } or {}
 end
 
@@ -201,7 +209,8 @@ local function AddAppearance(lines, element, kind, canonicalElement)
     AddField(lines, "  window override", HasTableValues(windowOverride) and "yes" or "no")
     AddField(lines, "  element override", HasTableValues(elementOverride) and "yes" or "no")
     local preferred = { "width", "height", "size", "crop", "zoom",
-        "background", "border", "color", "textSize", "font" }
+        "background", "border", "showBorder", "hoverAlpha", "color",
+        "textSize", "font" }
     for _, key in ipairs(preferred) do
         if effective[key] ~= nil then AddField(lines, "  " .. key, effective[key]) end
     end
@@ -216,6 +225,7 @@ local function BuildLines(element)
     end
     AddField(lines, "name", element.label or element.id)
     AddField(lines, "element ID", element.id)
+    AddField(lines, "type", element.kind or "none", not element.kind)
     AddField(lines, "window scope", element.appearanceWindowID or "nil",
         not element.appearanceWindowID)
     local runtimeTargets = CollectRuntimeTargets(element)

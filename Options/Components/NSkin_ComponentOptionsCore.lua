@@ -1692,6 +1692,7 @@ local function BuildAppearanceOptions(parent)
         { "Buttons", "appearance.button" },
         { "Tabs", "appearance.tab" },
         { "Section cards", "appearance.sectionCard" },
+        { "Section rows", "appearance.sectionRow" },
         { "Search boxes", "appearance.search" },
         { "Progress bars", "appearance.progress" },
         { "Icons", "appearance.icon" },

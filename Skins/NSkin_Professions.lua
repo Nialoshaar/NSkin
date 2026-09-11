@@ -334,6 +334,13 @@ local function IsHovered(target)
     return target and target.IsMouseOver and target:IsMouseOver() or false
 end
 
+local function IsRecipeListEntryHovered(target)
+    if target and target.IsMouseMotionFocus then
+        return target:IsMouseMotionFocus() == true
+    end
+    return IsHovered(target)
+end
+
 local function IsChecked(target)
     return target and target.GetChecked and target:GetChecked() == true or false
 end
@@ -1122,7 +1129,7 @@ local function ApplyRecipeSections(frame, page)
             preserveTextLayout = true, collapsible = true,
             getExpanded = IsRecipeCategoryExpanded,
             hoverRegion = row.CollapseIconAlphaAdd,
-            getHovered = IsHovered,
+            getHovered = IsRecipeListEntryHovered,
             artworkRegions = CompactRegions(row.LeftPiece, row.CenterPiece,
                 row.RightPiece, row.CollapseIcon),
         }) ~= nil or applied
@@ -1132,16 +1139,17 @@ end
 
 local function ApplyRecipeRows(frame, page)
     local id = CraftingIDs.RecipeRows
-    local style = NSkin:GetAppearanceStyle("row", IDs.Scope, id)
-    local border = NSkin:GetAppearanceBorderColor("row", style, IDs.Scope, id)
+    local style = NSkin:GetAppearanceStyle("sectionRow", IDs.Scope, id)
+    local border = NSkin:GetAppearanceBorderColor(
+        "sectionRow", style, IDs.Scope, id)
     local textStyle = NSkin:GetAppearanceStyle("text", IDs.Scope, id)
     local applied = false
     for _, row in ipairs(GetRecipeRows(page, IsRecipeRow, false)) do
-        applied = NSkin:SkinRow(row, {
+        applied = NSkin:SkinSectionRow(row, {
             style = style, border = border,
             hoverRegion = row.HighlightOverlay,
             selectedRegion = row.SelectedOverlay,
-            getHovered = IsHovered,
+            getHovered = IsRecipeListEntryHovered,
             getSelected = IsRecipeSelected,
             contentRegions = CompactRegions(row.Label, row.Count),
             contentStyle = textStyle,
@@ -1154,21 +1162,12 @@ local function RegisterRecipeGroups(frame, page)
     for _, definition in ipairs({
         { CraftingIDs.RecipeSections, "Recipe section cards", "SECTION_CARD",
             IsRecipeCategory, ApplyRecipeSections, nil },
-        { CraftingIDs.RecipeRows, "Recipe list rows", "ROW",
+        { CraftingIDs.RecipeRows, "Recipe list rows", "SECTION_ROW",
             IsRecipeRow, ApplyRecipeRows, "text" },
     }) do
         local id, label, kind, predicate, apply, extraStyle = unpack(definition)
         local function Refresh() return apply(frame, page) end
         if not registeredCraftingGroups[id] then
-            local editorOptions
-            if kind == "ROW" then
-                editorOptions = {
-                    { id = "shared.rowAppearance", label = "Rows",
-                        category = "CUSTOMIZE" },
-                    { id = "shared.textAppearance", label = "Recipe text",
-                        category = "CUSTOMIZE" },
-                }
-            end
             registeredCraftingGroups[id] = NSkin:RegisterSkinningElement(id, {
                 module = "Professions", appearanceWindowID = IDs.Scope,
                 label = label, kind = kind, window = frame,
@@ -1177,7 +1176,6 @@ local function RegisterRecipeGroups(frame, page)
                 draggable = false,
                 appearanceStyles = extraStyle and { extraStyle } or nil,
                 appearanceTypeIDs = extraStyle and { "TEXT" } or nil,
-                editorOptions = editorOptions,
                 highlightRegions = function()
                     return GetRecipeRows(page, predicate, true)
                 end,

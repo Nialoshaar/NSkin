@@ -86,6 +86,7 @@ SECTION_HEADER
 SECTION_CARD
 COLUMN_HEADER
 ROW
+SECTION_ROW
 TEXT
 ```
 
@@ -644,7 +645,8 @@ Special Blizzard slots such as enchant/salvage remain normal ICONs when their vi
 
 # 17. ROW Contract
 
-ROW owns row-level visual state such as:
+ROW is used for tabular/data-record rows, often containing several cells or
+fields. It owns row-level visual state such as:
 
 - background
 - border
@@ -662,7 +664,22 @@ That does not make those texts a separate bespoke text type.
 
 ---
 
-# 18. SECTION_CARD Contract
+# 18. SECTION_ROW Contract
+
+SECTION_ROW is used for lightweight hierarchical/list entries, usually
+preserving Blizzard indentation and layout. It is borderless by default and
+may own shared background, border, hover, and selected-state presentation.
+
+Its text remains canonical TEXT behavior rather than a separate section-row
+text type. SECTION_ROW may be collapsible or non-collapsible. When supplied,
+an optional collapse/expand control retains Blizzard's logical state and
+callbacks while SECTION_ROW skins only its visual interaction presentation.
+
+Do not use SECTION_ROW for tabular/data-record rows that belong to ROW.
+
+---
+
+# 19. SECTION_CARD Contract
 
 SECTION_CARD represents collapsible/category/header-like content rather than generic table rows.
 
@@ -677,7 +694,7 @@ Do not use SECTION_CARD as a generic substitute for ROW.
 
 ---
 
-# 19. EDIT_BOX Contract
+# 20. EDIT_BOX Contract
 
 Spinner-style edit boxes are legitimate component variations.
 
@@ -693,7 +710,7 @@ This differs from compositions such as checkbox+text, where the members remain d
 
 ---
 
-# 20. Popup Architecture
+# 21. Popup Architecture
 
 Reusable popup families belong in shared popup infrastructure when their visual/behavioral structure is genuinely shared.
 
@@ -710,7 +727,7 @@ Examples may include:
 
 ---
 
-# 21. Menu Architecture
+# 22. Menu Architecture
 
 Use generic Blizzard menu styling where Blizzard menu infrastructure is shared.
 
@@ -720,7 +737,7 @@ Window adapters may still provide exceptional menu anchors or state where requir
 
 ---
 
-# 22. Window Chrome
+# 23. Window Chrome
 
 Standard window chrome should use shared window/chrome components.
 
@@ -732,7 +749,7 @@ Preserve functional Blizzard artwork/state.
 
 ---
 
-# 23. Skinning Mode Principles
+# 24. Skinning Mode Principles
 
 Skinning Mode should operate on semantic editor elements rather than arbitrary frame traversal.
 
@@ -767,7 +784,7 @@ Keep the architecture "docked-window ready" without requiring final UX polish du
 
 ---
 
-# 24. Docked Window Principles
+# 25. Docked Window Principles
 
 The docked window should stay compact and understandable.
 
@@ -806,7 +823,7 @@ but it must not redefine TEXT controls.
 
 ---
 
-# 25. Window-Specific Containers
+# 26. Window-Specific Containers
 
 Semantic Containers belong in the window adapter because only that adapter understands the meaning of the Blizzard UI structure.
 
@@ -823,7 +840,7 @@ This same pattern should apply to future complex groups in other windows.
 
 ---
 
-# 26. Shared Intrinsic Compositions
+# 27. Shared Intrinsic Compositions
 
 Common intrinsic relationships should not be repeated in every window adapter.
 
@@ -848,7 +865,7 @@ This is not generic structural inference: the shared checkbox implementation kno
 
 ---
 
-# 27. Performance Rules
+# 28. Performance Rules
 
 Perfy auditing and Optimization Passes 1–4 established the current performance baseline.
 
@@ -883,7 +900,7 @@ local change
 
 ---
 
-# 28. Lifecycle Rules
+# 29. Lifecycle Rules
 
 Respect Blizzard's own lifecycle.
 
@@ -904,7 +921,7 @@ Use targeted hooks rather than replacing Blizzard lifecycle logic.
 
 ---
 
-# 29. Native Decoration Suppression
+# 30. Native Decoration Suppression
 
 Only suppress native Blizzard visual regions that have been explicitly audited as decoration.
 
@@ -928,7 +945,7 @@ When NSkin owns hover presentation for a component:
 
 ---
 
-# 30. Shared File Organization
+# 31. Shared File Organization
 
 Current shared component organization includes:
 
@@ -974,7 +991,7 @@ composition metadata contains no selection-policy flags.
 
 ---
 
-# 31. Validation Rules for Codex
+# 32. Validation Rules for Codex
 
 For normal NSkin implementation tasks:
 
@@ -993,7 +1010,7 @@ The user runs the repository tests locally when needed.
 
 ---
 
-# 32. Minimal Appearance Anchor Groups
+# 33. Minimal Appearance Anchor Groups
 
 An Anchor Group is an explicit, addon-authored editor relationship declared by
 multiple registered elements with the same stable `anchorGroupID`. It is
@@ -1024,7 +1041,7 @@ new component or composition mode.
 
 ---
 
-# 33. Refactor Review Checklist
+# 34. Refactor Review Checklist
 
 For any major shared-component/editor refactor, check for:
 
@@ -1045,7 +1062,7 @@ For any major shared-component/editor refactor, check for:
 
 ---
 
-# 34. Decision Rule for New Architecture
+# 35. Decision Rule for New Architecture
 
 Before adding a new shared abstraction, ask:
 
@@ -1059,7 +1076,7 @@ If it is merely a temporary implementation detail for one task, it should normal
 
 ---
 
-# 35. Updating This File
+# 36. Updating This File
 
 `ARCHITECTURE.md` should describe stable project-wide rules.
 
@@ -1089,7 +1106,7 @@ If yes, it probably belongs here.
 
 ---
 
-# 36. Current Architectural Summary
+# 37. Current Architectural Summary
 
 ```text
 NSkin

@@ -257,6 +257,19 @@ NSkin.baseAppearance = {
         height = 0,
     },
 
+    sectionRow = {
+        background = { 0, 0, 0, 0 },
+        backgroundMode = "CUSTOM",
+        selectedBackground = { 1, 1, 1, 0.10 },
+        selectedBackgroundMode = "CUSTOM",
+        border = { 0.25, 0.25, 0.25, 1 },
+        borderMode = "CUSTOM",
+        showBorder = false,
+        borderSize = 1,
+        borderPadding = 0,
+        hoverAlpha = 0.10,
+    },
+
     progressBar = {
         texture = "Interface\\Buttons\\WHITE8X8",
         background = { 0.06, 0.06, 0.06, 0.90 },
