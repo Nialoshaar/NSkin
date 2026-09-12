@@ -48,6 +48,10 @@ NSkin.moduleDefinitions = {
         optionsGroup = "windows", optionsOrder = 87,
     },
     {
+        key = "NPCInteraction", label = "NPC Interaction", defaultEnabled = true,
+        optionsGroup = "windows", optionsOrder = 88,
+    },
+    {
         key = "Transmogrification", label = "Transmogrification",
         defaultEnabled = true, optionsGroup = "windows", optionsOrder = 90,
     },

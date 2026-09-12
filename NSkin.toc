@@ -37,6 +37,7 @@ Skins\NSkin_GroupFinder.lua
 Skins\NSkin_GreatVault.lua
 Skins\NSkin_Merchant.lua
 Skins\NSkin_Mailbox.lua
+Skins\NSkin_NPCInteraction.lua
 Skins\NSkin_Storage.lua
 Skins\NSkin_ItemUpgrade.lua
 Skins\NSkin_Achievements.lua
