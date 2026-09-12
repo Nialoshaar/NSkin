@@ -36,6 +36,10 @@ NSkin.moduleDefinitions = {
         optionsGroup = "windows", optionsOrder = 70,
     },
     {
+        key = "Delves", label = "Delves", defaultEnabled = true,
+        optionsGroup = "windows", optionsOrder = 75,
+    },
+    {
         key = "Merchant", label = "Merchant", defaultEnabled = true,
         optionsGroup = "windows", optionsOrder = 80,
     },
