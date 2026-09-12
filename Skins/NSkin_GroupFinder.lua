@@ -59,6 +59,16 @@ local IDs = {
         MarkerTabs =
             "GroupFinder.CompactRaidFrameManager.MarkerTabs",
     },
+    Challenges = {
+        Scope = "GroupFinder.ChallengesKeystone",
+        Window = "GroupFinder.ChallengesKeystone.Window",
+        HeaderControls = "GroupFinder.ChallengesKeystone.HeaderControls",
+        StartButton = "GroupFinder.ChallengesKeystone.StartButton",
+        Instructions = "GroupFinder.ChallengesKeystone.Instructions",
+        DungeonName = "GroupFinder.ChallengesKeystone.DungeonName",
+        TimeLimit = "GroupFinder.ChallengesKeystone.TimeLimit",
+        PowerLevel = "GroupFinder.ChallengesKeystone.PowerLevel",
+    },
     Roles = {
         Tank = "GroupFinder.DungeonFinder.Role.Tank",
         Healer = "GroupFinder.DungeonFinder.Role.Healer",
@@ -90,6 +100,8 @@ local compactRaidInitialized = false
 local compactRaidShowHooked = false
 local compactRaidTabsHooked = false
 local compactRaidTabsRegistered = false
+local challengesInitialized = false
+local challengesShowHooked = false
 
 NSkin:RegisterAppearanceScope(IDs.Scope, {
     label = "Dungeons & Raids",
@@ -108,6 +120,10 @@ NSkin:RegisterAppearanceScope(IDs.PVP.Scope, {
 })
 NSkin:RegisterAppearanceScope(IDs.CompactRaidManager.Scope, {
     label = "Compact Raid Manager",
+    parent = IDs.Scope,
+})
+NSkin:RegisterAppearanceScope(IDs.Challenges.Scope, {
+    label = "Mythic Keystone",
     parent = IDs.Scope,
 })
 
@@ -945,6 +961,51 @@ function PVESkin:ApplyWindowChrome()
     return true
 end
 
+local function SuppressChallengeDecorations(frame)
+    if not frame then return end
+    local data = NSkin:GetSkinData(frame, "challengeDecorations")
+    data.states = data.states or {}
+    local regions = {}
+    local function AddRegion(region)
+        if region then regions[#regions + 1] = region end
+    end
+    AddRegion(frame.InstructionsBackground or frame.InstructionBackground)
+    AddRegion(frame.RuneBG)
+    for region in pairs(frame.baseStates or {}) do
+        if region.GetObjectType and region:GetObjectType() == "Texture" then
+            AddRegion(region)
+        end
+    end
+    for _, region in ipairs(regions) do
+        if region then
+            local state = data.states[region]
+            if not state then
+                state = {
+                    alpha = region.GetAlpha and region:GetAlpha() or 1,
+                    shown = region.IsShown and region:IsShown() or nil,
+                }
+                data.states[region] = state
+            end
+            state.active = true
+            local function Conceal()
+                if not state.active or state.applying then return end
+                state.applying = true
+                if region.SetAlpha then region:SetAlpha(0) end
+                state.applying = nil
+            end
+            Conceal()
+            if not state.hooked and _G.hooksecurefunc then
+                for _, method in ipairs({ "SetAlpha", "SetShown", "Show" }) do
+                    if type(region[method]) == "function" then
+                        pcall(_G.hooksecurefunc, region, method, Conceal)
+                    end
+                end
+                state.hooked = true
+            end
+        end
+    end
+end
+
 local function GetCompactRaidManagerControls(frame)
     local displayFrame = frame and (frame.displayFrame or frame.DisplayFrame)
     local bottomButtons = frame and frame.BottomButtons
@@ -1133,6 +1194,108 @@ function PVESkin:InitializeCompactRaidFrameManager()
     return self:ApplyCompactRaidFrameManager()
 end
 
+function PVESkin:ApplyChallengesKeystoneWindowChrome(frame)
+    local ids = IDs.Challenges
+    SuppressChallengeDecorations(frame)
+    NSkin:SkinStandardWindowChrome({
+        frame = frame,
+        appearanceWindowID = ids.Scope,
+        elementID = ids.Window,
+        headerControlsID = ids.HeaderControls,
+        title = frame.TitleContainer and frame.TitleContainer.TitleText
+            or frame.Title,
+        closeButton = frame.CloseButton,
+    })
+    NSkin:RegisterSkinningElement(ids.Window, {
+        label = "Mythic keystone window",
+        kind = "WINDOW",
+        module = "GroupFinder",
+        appearanceWindowID = ids.Scope,
+        window = frame,
+        target = frame,
+        priority = 0,
+        draggable = false,
+    })
+    return true
+end
+
+function PVESkin:ApplyChallengesKeystoneTexts(frame)
+    local ids = IDs.Challenges
+    local instructions = frame.Instructions or frame.Instcructions
+    local timeLimit = frame.TimeLimit
+        or (instructions and instructions.TimeLimit)
+    local applied = false
+    for index, definition in ipairs({
+        { ids.Instructions, "Keystone instructions", instructions },
+        { ids.DungeonName, "Keystone dungeon name", frame.DungeonName },
+        { ids.TimeLimit, "Keystone time limit", timeLimit },
+        { ids.PowerLevel, "Keystone power level", frame.PowerLevel },
+    }) do
+        local target = definition[3]
+        if target then
+            local element = NSkin:RegisterTextElement({
+                id = definition[1],
+                module = "GroupFinder",
+                appearanceWindowID = ids.Scope,
+                label = definition[2],
+                window = frame,
+                target = target,
+                priority = 20 + index,
+                highlightRegions = { target },
+                isEditable = function()
+                    return frame:IsVisible() and target:IsVisible()
+                end,
+            })
+            if element then NSkin:RefreshTypedElementAppearance(element) end
+            applied = element ~= nil or applied
+        end
+    end
+    return applied
+end
+
+function PVESkin:ApplyChallengesKeystoneStartButton(frame)
+    local button = frame.StartButton
+    if not button then return false end
+    local ids = IDs.Challenges
+    local element = NSkin:RegisterTypedElement("BUTTON", {
+        id = ids.StartButton,
+        module = "GroupFinder",
+        appearanceWindowID = ids.Scope,
+        label = "Start keystone button",
+        window = frame,
+        target = button,
+        priority = 30,
+        highlightRegions = { button },
+        isEditable = function()
+            return frame:IsVisible() and button:IsVisible()
+        end,
+    })
+    if element then NSkin:RefreshTypedElementAppearance(element) end
+    return element ~= nil
+end
+
+function PVESkin:ApplyChallengesKeystoneFrame()
+    local frame = _G.ChallengesKeystoneFrame
+    if not frame then return false end
+    local applied = self:ApplyChallengesKeystoneWindowChrome(frame)
+    applied = self:ApplyChallengesKeystoneTexts(frame) or applied
+    applied = self:ApplyChallengesKeystoneStartButton(frame) or applied
+    return applied
+end
+
+function PVESkin:InitializeChallengesKeystoneFrame()
+    local frame = _G.ChallengesKeystoneFrame
+    if not frame then return false end
+    if not challengesShowHooked and frame.HookScript then
+        frame:HookScript("OnShow", function()
+            PVESkin:ApplyChallengesKeystoneFrame()
+        end)
+        challengesShowHooked = true
+    end
+    challengesInitialized = true
+    return self:ApplyChallengesKeystoneFrame()
+end
+
 function PVESkin:QueueApply()
     if applyPending then return end
     applyPending = true
@@ -1180,19 +1343,23 @@ function PVESkin:Initialize()
 end
 
 function PVESkin:RefreshAppearance()
-    if not initialized then return end
-    self:ApplyWindowChrome()
-    self:ApplyRoleCheckboxes()
-    self:ApplyTypeDropdown()
-    self:ApplyFindGroupButton()
-    self:ApplySpecificScrollBar()
-    self:ApplyRaidFinderControls()
-    self:ApplyPremadeGroupControls()
-    self:ApplyPVPControls()
-    self:ApplyDungeonSelectionCheckboxes()
-    self:ApplyBottomTabs()
+    if initialized then
+        self:ApplyWindowChrome()
+        self:ApplyRoleCheckboxes()
+        self:ApplyTypeDropdown()
+        self:ApplyFindGroupButton()
+        self:ApplySpecificScrollBar()
+        self:ApplyRaidFinderControls()
+        self:ApplyPremadeGroupControls()
+        self:ApplyPVPControls()
+        self:ApplyDungeonSelectionCheckboxes()
+        self:ApplyBottomTabs()
+    end
     if compactRaidInitialized then
         self:ApplyCompactRaidFrameManager()
+    end
+    if challengesInitialized then
+        self:ApplyChallengesKeystoneFrame()
     end
 end
 
@@ -1216,4 +1383,13 @@ NSkin:RegisterWindowSkin({
     module = "GroupFinder",
     addon = "Blizzard_PVPUI",
     apply = function() return PVESkin:ApplyPVPControls() end,
+})
+
+NSkin:RegisterWindowSkin({
+    key = "GroupFinder.ChallengesKeystone",
+    module = "GroupFinder",
+    addon = "Blizzard_ChallengesUI",
+    apply = function()
+        return PVESkin:InitializeChallengesKeystoneFrame()
+    end,
 })

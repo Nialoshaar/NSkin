@@ -15,6 +15,32 @@ local IDs = {
     Dropdown = "Delves.DifficultyPicker.Dropdown",
     DropdownScrollBar = "Delves.DifficultyPicker.Dropdown.ScrollBar",
     Rewards = "Delves.DifficultyPicker.Rewards",
+    CompanionWindow = "Delves.CompanionConfiguration.Window",
+    CompanionHeaderControls =
+        "Delves.CompanionConfiguration.HeaderControls",
+    CompanionName = "Delves.CompanionConfiguration.CompanionName",
+    CompanionDescription =
+        "Delves.CompanionConfiguration.CompanionDescription",
+    CompanionCombatRoleLabel =
+        "Delves.CompanionConfiguration.CombatRoleLabel",
+    CompanionFlavorLabel = "Delves.CompanionConfiguration.FlavorLabel",
+    CompanionCombatTrinketLabel =
+        "Delves.CompanionConfiguration.CombatTrinketLabel",
+    CompanionUtilityTrinketLabel =
+        "Delves.CompanionConfiguration.UtilityTrinketLabel",
+    CompanionAbilitiesButton =
+        "Delves.CompanionConfiguration.AbilitiesButton",
+    AbilityListWindow = "Delves.CompanionAbilityList.Window",
+    AbilityListHeaderControls =
+        "Delves.CompanionAbilityList.HeaderControls",
+    AbilityRoleDropdown = "Delves.CompanionAbilityList.RoleDropdown",
+    AbilityItems = "Delves.CompanionAbilityList.Abilities",
+    AbilityPagination = {
+        Group = "Delves.CompanionAbilityList.Pagination",
+        Previous = "Delves.CompanionAbilityList.Pagination.Previous",
+        Next = "Delves.CompanionAbilityList.Pagination.Next",
+        Text = "Delves.CompanionAbilityList.Pagination.Text",
+    },
 }
 
 local DROPDOWN_MENUS = {
@@ -28,6 +54,14 @@ local rewardScrollBoxHooked = false
 local dropdownMenuHooked = false
 local dropdownScrollBarRegistered = false
 local rewardsRegistered = false
+local companionInitialized = false
+local companionShowHooked = false
+local companionRefreshHooked = false
+local abilityListInitialized = false
+local abilityListShowHooked = false
+local abilityListRefreshHooked = false
+local abilityItemsRegistered = false
+local abilityPaginationController
 
 NSkin:RegisterAppearanceScope(IDs.Scope, {
     label = "Delves",
@@ -44,6 +78,50 @@ local function CompactRegions(...)
         if region then regions[#regions + 1] = region end
     end
     return regions
+end
+
+local function SuppressRegions(owner, key, regions)
+    if not owner then return end
+    local data = NSkin:GetSkinData(owner, "delvesDecorations")
+    data[key] = data[key] or { states = {} }
+    local group = data[key]
+    for _, region in ipairs(regions or {}) do
+        local state = group.states[region]
+        if not state then
+            state = {
+                alpha = region.GetAlpha and region:GetAlpha() or 1,
+                shown = region.IsShown and region:IsShown() or nil,
+            }
+            group.states[region] = state
+        end
+        state.active = true
+        local function Conceal()
+            if not state.active or state.applying then return end
+            state.applying = true
+            if region.SetAlpha then region:SetAlpha(0) end
+            state.applying = nil
+        end
+        Conceal()
+        if not state.hooked and _G.hooksecurefunc then
+            for _, method in ipairs({ "SetAlpha", "SetShown", "Show" }) do
+                if type(region[method]) == "function" then
+                    pcall(_G.hooksecurefunc, region, method, Conceal)
+                end
+            end
+            state.hooked = true
+        end
+    end
+end
+
+local function SuppressEdgeRegions(owner, key, edgeOwner, ...)
+    if not edgeOwner then return end
+    SuppressRegions(owner, key, CompactRegions(
+        edgeOwner.RightEdge,
+        edgeOwner.LeftEdge,
+        edgeOwner.TopEdge,
+        edgeOwner.BottomEdge,
+        ...
+    ))
 end
 
 local function GetRewardsContainer(frame)
@@ -111,6 +189,7 @@ local function GetDropdownMenuScrollBar(dropdown)
 end
 
 function DelvesSkin:ApplyWindowChrome(frame)
+    SuppressEdgeRegions(frame, "DifficultyPickerBorder", frame.Border)
     if frame.Border then NSkin:ConcealWindowArtwork(frame.Border) end
     NSkin:SkinStandardWindowChrome({
         frame = frame,
@@ -352,10 +431,391 @@ end
 
 function DelvesSkin:RefreshAppearance()
     if initialized then self:Apply() end
+    if companionInitialized then self:ApplyCompanionConfiguration() end
+    if abilityListInitialized then self:ApplyCompanionAbilityList() end
 end
 
 NSkin:RegisterWindowSkin({
+    key = "Delves.DifficultyPicker",
     module = "Delves",
     addon = "Blizzard_DelvesDifficultyPicker",
     apply = function() return DelvesSkin:Initialize() end,
+})
+
+local function SuppressCompanionBackground(frame)
+    local background = frame and frame.Background
+    if not background then return end
+    if background.SetAlpha then background:SetAlpha(0) end
+    if background.SetTexture then background:SetTexture(nil) end
+    if background.Hide then background:Hide() end
+end
+
+function DelvesSkin:ApplyCompanionWindowChrome(frame)
+    SuppressCompanionBackground(frame)
+    local border = frame.Border
+    SuppressEdgeRegions(frame, "CompanionConfigurationBorder", border,
+        border and border.BottomRight,
+        border and border.BottomLeft,
+        border and border.TopLeftCorner)
+    if frame.Border then NSkin:ConcealWindowArtwork(frame.Border) end
+    NSkin:SkinStandardWindowChrome({
+        frame = frame,
+        appearanceWindowID = IDs.Scope,
+        elementID = IDs.CompanionWindow,
+        headerControlsID = IDs.CompanionHeaderControls,
+        closeButton = frame.CloseButton,
+    })
+    NSkin:RegisterSkinningElement(IDs.CompanionWindow, {
+        label = "Delve companion configuration window",
+        kind = "WINDOW",
+        module = "Delves",
+        appearanceWindowID = IDs.Scope,
+        window = frame,
+        target = frame,
+        priority = 0,
+        draggable = false,
+    })
+    return true
+end
+
+function DelvesSkin:ApplyCompanionTexts(frame)
+    local info = frame.CompanionInfoFrame
+    local slots = frame.CompanionSlots
+    local role = slots and slots.CompanionCombatRoleSlot
+    local flavor = slots and slots.CompanionFlavorSlot
+    local combat = slots and slots.CompanionCombatTrinketSlot
+    local utility = slots and slots.CompanionUtilityTrinketSlot
+    local applied = false
+    for index, definition in ipairs({
+        {
+            IDs.CompanionName, "Delve companion name",
+            info and info.CompanionName,
+        },
+        {
+            IDs.CompanionDescription, "Delve companion description",
+            info and (info.CompanionDescription or info.Description),
+        },
+        {
+            IDs.CompanionCombatRoleLabel, "Companion combat role label",
+            role and role.Label
+                or _G.DelvesCompanionConfigurationFrameCompanionCombatRoleSlotLabel,
+        },
+        {
+            IDs.CompanionFlavorLabel, "Companion flavor label",
+            flavor and flavor.Label
+                or _G.DelvesCompanionConfigurationFrameCompanionFlavorSlotLabel,
+        },
+        {
+            IDs.CompanionCombatTrinketLabel,
+            "Companion combat trinket label",
+            combat and combat.Label,
+        },
+        {
+            IDs.CompanionUtilityTrinketLabel,
+            "Companion utility trinket label",
+            utility and utility.Label,
+        },
+    }) do
+        local target = definition[3]
+        if target then
+            local element = NSkin:RegisterTextElement({
+                id = definition[1],
+                module = "Delves",
+                appearanceWindowID = IDs.Scope,
+                label = definition[2],
+                window = frame,
+                target = target,
+                priority = 80 + index,
+                highlightRegions = { target },
+                isEditable = function()
+                    return IsVisible(frame) and IsVisible(target)
+                end,
+            })
+            if element then NSkin:RefreshTypedElementAppearance(element) end
+            applied = element ~= nil or applied
+        end
+    end
+    return applied
+end
+
+function DelvesSkin:ApplyCompanionAbilitiesButton(frame)
+    local button = frame.ConpanionConfigShowAbilitiesButton
+        or frame.CompanionConfigShowAbilitiesButton
+    if not button then return false end
+    local element = NSkin:RegisterTypedElement("BUTTON", {
+        id = IDs.CompanionAbilitiesButton,
+        module = "Delves",
+        appearanceWindowID = IDs.Scope,
+        label = "Show companion abilities button",
+        window = frame,
+        target = button,
+        priority = 90,
+        isEditable = function()
+            return IsVisible(frame) and IsVisible(button)
+        end,
+    })
+    if element then NSkin:RefreshTypedElementAppearance(element) end
+    return element ~= nil
+end
+
+function DelvesSkin:ApplyCompanionContent(frame)
+    local applied = self:ApplyCompanionTexts(frame)
+    applied = self:ApplyCompanionAbilitiesButton(frame) or applied
+    return applied
+end
+
+function DelvesSkin:ApplyCompanionConfiguration()
+    local frame = _G.DelvesCompanionConfigurationFrame
+    if not frame then return false end
+    local applied = self:ApplyCompanionWindowChrome(frame)
+    applied = self:ApplyCompanionContent(frame) or applied
+    return applied
+end
+
+function DelvesSkin:InitializeCompanionConfiguration()
+    local frame = _G.DelvesCompanionConfigurationFrame
+    if not frame then return false end
+    if not companionShowHooked and frame.HookScript then
+        frame:HookScript("OnShow", function()
+            DelvesSkin:ApplyCompanionConfiguration()
+        end)
+        companionShowHooked = true
+    end
+    if not companionRefreshHooked and _G.hooksecurefunc
+        and type(frame.Refresh) == "function"
+    then
+        _G.hooksecurefunc(frame, "Refresh", function()
+            DelvesSkin:ApplyCompanionContent(frame)
+        end)
+        companionRefreshHooked = true
+    end
+    companionInitialized = true
+    return self:ApplyCompanionConfiguration()
+end
+
+NSkin:RegisterWindowSkin({
+    key = "Delves.CompanionConfiguration",
+    module = "Delves",
+    addon = "Blizzard_DelvesCompanionConfiguration",
+    apply = function()
+        return DelvesSkin:InitializeCompanionConfiguration()
+    end,
+})
+
+local function GetVisibleAbilityButtons(frame)
+    local buttons = {}
+    for _, button in ipairs(frame and frame.buttons or {}) do
+        if IsVisible(button) then buttons[#buttons + 1] = button end
+    end
+    return buttons
+end
+
+local function GetAbilityDescriptors(frame)
+    local descriptors = {}
+    for _, button in ipairs(GetVisibleAbilityButtons(frame)) do
+        local texture = button.Icon or button.icon or button.IconTexture
+        if texture then
+            descriptors[#descriptors + 1] = {
+                target = button,
+                texture = texture,
+                borderOwner = button,
+                nativeDecorationRegions = CompactRegions(button.IconBorder),
+                hoverRegion = button.GetHighlightTexture
+                    and button:GetHighlightTexture()
+                    or button.HighlightTexture,
+                getHovered = function(target)
+                    return target and target.IsMouseOver
+                        and target:IsMouseOver() or false
+                end,
+            }
+        end
+    end
+    return descriptors
+end
+
+local function SkinAbilityTexts(frame)
+    local appearanceID = NSkin:GetElementAppearanceID(
+        IDs.AbilityItems, "TEXT")
+    local style = NSkin:GetAppearanceStyle(
+        "text", IDs.Scope, appearanceID)
+    local applied = false
+    for _, button in ipairs(GetVisibleAbilityButtons(frame)) do
+        local target = button.Text or button.Name or button.name
+        if target then
+            applied = NSkin:SkinText(target, style) == true or applied
+        end
+    end
+    return applied
+end
+
+function DelvesSkin:ApplyCompanionAbilityListWindowChrome(frame)
+    SuppressEdgeRegions(frame, "CompanionAbilityListNineSlice",
+        frame.NineSlice)
+    SuppressRegions(frame, "CompanionAbilityListBackground",
+        CompactRegions(frame.CompanionAbilityListBackground))
+    NSkin:SkinStandardWindowChrome({
+        frame = frame,
+        appearanceWindowID = IDs.Scope,
+        elementID = IDs.AbilityListWindow,
+        headerControlsID = IDs.AbilityListHeaderControls,
+        title = frame.TitleContainer and frame.TitleContainer.TitleText
+            or frame.Title,
+        closeButton = frame.CloseButton,
+    })
+    NSkin:RegisterSkinningElement(IDs.AbilityListWindow, {
+        label = "Delve companion ability list window",
+        kind = "WINDOW",
+        module = "Delves",
+        appearanceWindowID = IDs.Scope,
+        window = frame,
+        target = frame,
+        priority = 0,
+        draggable = false,
+    })
+    return true
+end
+
+function DelvesSkin:ApplyCompanionAbilityRoleDropdown(frame)
+    local dropdown = frame.DelvesCompanionRoleDropdown
+    if not dropdown then return false end
+    local element = NSkin:RegisterDropdown({
+        id = IDs.AbilityRoleDropdown,
+        module = "Delves",
+        appearanceWindowID = IDs.Scope,
+        label = "Delve companion role dropdown",
+        window = frame,
+        target = dropdown,
+        menus = { "MENU_DELVES_ABILITY_LIST" },
+        priority = 20,
+        highlightRegions = { dropdown },
+        isEditable = function()
+            return IsVisible(frame) and IsVisible(dropdown)
+        end,
+    })
+    if element then NSkin:RefreshTypedElementAppearance(element) end
+    return element ~= nil
+end
+
+function DelvesSkin:ApplyCompanionAbilities(frame)
+    local parent = frame.ButtonsParent
+    if not parent then return false end
+    if not abilityItemsRegistered then
+        abilityItemsRegistered = NSkin:RegisterIconGroup({
+            id = IDs.AbilityItems,
+            module = "Delves",
+            appearanceWindowID = IDs.Scope,
+            label = "Delve companion abilities",
+            window = frame,
+            target = parent,
+            priority = 30,
+            children = function()
+                return GetAbilityDescriptors(frame)
+            end,
+            refreshContent = function()
+                return SkinAbilityTexts(frame)
+            end,
+            appearanceStyles = { "text" },
+            appearanceTypeIDs = { "TEXT" },
+            editorOptions = {
+                { id = "shared.iconAppearance", label = "Icons",
+                    presentation = "INLINE", category = "CUSTOMIZE" },
+                { id = "shared.textAppearance", label = "Text",
+                    category = "CUSTOMIZE" },
+            },
+            highlightRegions = function()
+                return GetVisibleAbilityButtons(frame)
+            end,
+            pixelBorderTargets = function()
+                return GetVisibleAbilityButtons(frame)
+            end,
+            isEditable = function()
+                return IsVisible(frame)
+                    and #GetVisibleAbilityButtons(frame) > 0
+            end,
+        }) ~= nil
+    else
+        NSkin:RefreshIconGroup(IDs.AbilityItems)
+    end
+    SkinAbilityTexts(frame)
+    if abilityItemsRegistered then
+        NSkin:NotifySkinningElementBoundsChanged(IDs.AbilityItems)
+    end
+    return abilityItemsRegistered
+end
+
+function DelvesSkin:ApplyCompanionAbilityPagination(frame)
+    local controls = frame.DelvesCompanionAbilityListPagingControls
+    if not controls or not controls.PageText
+        or not controls.PrevPageButton or not controls.NextPageButton
+    then return false end
+    if not abilityPaginationController then
+        abilityPaginationController = NSkin:RegisterPaginationGroup({
+            module = "Delves",
+            appearanceWindowID = IDs.Scope,
+            window = frame,
+            ids = {
+                group = IDs.AbilityPagination.Group,
+                previous = IDs.AbilityPagination.Previous,
+                next = IDs.AbilityPagination.Next,
+                text = IDs.AbilityPagination.Text,
+            },
+            controls = {
+                group = controls,
+                previous = controls.PrevPageButton,
+                next = controls.NextPageButton,
+                text = controls.PageText,
+            },
+            groupLabel = "Delve companion ability pagination",
+            groupPriority = 40,
+            visibilityFrame = frame,
+        })
+    else
+        abilityPaginationController:Refresh()
+    end
+    return abilityPaginationController ~= nil
+end
+
+function DelvesSkin:ApplyCompanionAbilityListContent(frame)
+    local applied = self:ApplyCompanionAbilityRoleDropdown(frame)
+    applied = self:ApplyCompanionAbilities(frame) or applied
+    applied = self:ApplyCompanionAbilityPagination(frame) or applied
+    return applied
+end
+
+function DelvesSkin:ApplyCompanionAbilityList()
+    local frame = _G.DelvesCompanionAbilityListFrame
+    if not frame then return false end
+    local applied = self:ApplyCompanionAbilityListWindowChrome(frame)
+    applied = self:ApplyCompanionAbilityListContent(frame) or applied
+    return applied
+end
+
+function DelvesSkin:InitializeCompanionAbilityList()
+    local frame = _G.DelvesCompanionAbilityListFrame
+    if not frame then return false end
+    if not abilityListShowHooked and frame.HookScript then
+        frame:HookScript("OnShow", function()
+            DelvesSkin:ApplyCompanionAbilityList()
+        end)
+        abilityListShowHooked = true
+    end
+    if not abilityListRefreshHooked and _G.hooksecurefunc
+        and type(frame.Refresh) == "function"
+    then
+        _G.hooksecurefunc(frame, "Refresh", function()
+            DelvesSkin:ApplyCompanionAbilityListContent(frame)
+        end)
+        abilityListRefreshHooked = true
+    end
+    abilityListInitialized = true
+    return self:ApplyCompanionAbilityList()
+end
+
+NSkin:RegisterWindowSkin({
+    key = "Delves.CompanionAbilityList",
+    module = "Delves",
+    addon = "Blizzard_DelvesCompanionConfiguration",
+    apply = function()
+        return DelvesSkin:InitializeCompanionAbilityList()
+    end,
 })
