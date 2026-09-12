@@ -43,6 +43,22 @@ local IDs = {
         TypeDropdown = "GroupFinder.PVP.QuickMatch.TypeDropdown",
         QueueButton = "GroupFinder.PVP.QuickMatch.QueueButton",
     },
+    CompactRaidManager = {
+        Scope = "GroupFinder.CompactRaidFrameManager",
+        Window = "GroupFinder.CompactRaidFrameManager.Window",
+        HeaderControls =
+            "GroupFinder.CompactRaidFrameManager.HeaderControls",
+        ModeDropdown =
+            "GroupFinder.CompactRaidFrameManager.ModeDropdown",
+        RestrictPingsDropdown =
+            "GroupFinder.CompactRaidFrameManager.RestrictPingsDropdown",
+        LeavePartyButton =
+            "GroupFinder.CompactRaidFrameManager.LeavePartyButton",
+        LeaveInstanceGroupButton =
+            "GroupFinder.CompactRaidFrameManager.LeaveInstanceGroupButton",
+        MarkerTabs =
+            "GroupFinder.CompactRaidFrameManager.MarkerTabs",
+    },
     Roles = {
         Tank = "GroupFinder.DungeonFinder.Role.Tank",
         Healer = "GroupFinder.DungeonFinder.Role.Healer",
@@ -70,6 +86,10 @@ local pvpRoleCheckboxes = setmetatable({}, { __mode = "k" })
 local pvpRoleCheckboxBaselines = setmetatable({}, { __mode = "k" })
 local pvpRoleGroupAnchor
 local pvpRoleGroupRegistered = false
+local compactRaidInitialized = false
+local compactRaidShowHooked = false
+local compactRaidTabsHooked = false
+local compactRaidTabsRegistered = false
 
 NSkin:RegisterAppearanceScope(IDs.Scope, {
     label = "Dungeons & Raids",
@@ -84,6 +104,10 @@ NSkin:RegisterAppearanceScope(IDs.PremadeGroups.Scope, {
 })
 NSkin:RegisterAppearanceScope(IDs.PVP.Scope, {
     label = "Player vs. Player",
+    parent = IDs.Scope,
+})
+NSkin:RegisterAppearanceScope(IDs.CompactRaidManager.Scope, {
+    label = "Compact Raid Manager",
     parent = IDs.Scope,
 })
 
@@ -921,6 +945,194 @@ function PVESkin:ApplyWindowChrome()
     return true
 end
 
+local function GetCompactRaidManagerControls(frame)
+    local displayFrame = frame and (frame.displayFrame or frame.DisplayFrame)
+    local bottomButtons = frame and frame.BottomButtons
+    local raidMarkers = displayFrame
+        and (displayFrame.raidMarkers or displayFrame.RaidMarkers)
+    return displayFrame, bottomButtons, raidMarkers
+end
+
+function PVESkin:ApplyCompactRaidManagerWindow()
+    local frame = _G.CompactRaidFrameManager
+    if not frame then return false end
+
+    if frame.Background then
+        frame.Background:SetAlpha(0)
+        frame.Background:Hide()
+    end
+    local ids = IDs.CompactRaidManager
+    NSkin:SkinStandardWindowChrome({
+        frame = frame,
+        appearanceWindowID = ids.Scope,
+        elementID = ids.Window,
+        headerControlsID = ids.HeaderControls,
+    })
+    NSkin:RegisterSkinningElement(ids.Window, {
+        label = "Compact Raid Frame Manager window",
+        kind = "WINDOW",
+        module = "GroupFinder",
+        appearanceWindowID = ids.Scope,
+        window = frame,
+        target = frame,
+        priority = 0,
+        draggable = false,
+        isEditable = function()
+            return frame:IsVisible()
+        end,
+    })
+    return true
+end
+
+function PVESkin:ApplyCompactRaidManagerDropdowns()
+    local frame = _G.CompactRaidFrameManager
+    local displayFrame = GetCompactRaidManagerControls(frame)
+    if not frame or not displayFrame then return false end
+    local ids = IDs.CompactRaidManager
+    local applied = false
+    for index, definition in ipairs({
+        { ids.ModeDropdown, "Raid manager mode dropdown",
+            displayFrame.ModeControlDropdown
+                or _G.CompactRaidFrameManagerDisplayFrameModeControlDropdown,
+            "MENU_RAID_FRAME_CONVERT_PARTY" },
+        { ids.RestrictPingsDropdown, "Raid manager restrict pings dropdown",
+            displayFrame.RestrictPingsDropdown
+                or _G.CompactRaidFrameManagerDisplayFrameRestrictPingsDropdown,
+            "MENU_RAID_FRAME_RESTRICT_PINGS" },
+    }) do
+        local id, label, dropdown, menu = unpack(definition)
+        if dropdown then
+            applied = NSkin:RegisterDropdown({
+                id = id,
+                module = "GroupFinder",
+                appearanceWindowID = ids.Scope,
+                label = label,
+                window = frame,
+                target = dropdown,
+                menus = { menu },
+                priority = 20 + index,
+                highlightRegions = { dropdown },
+                isEditable = function()
+                    return frame:IsVisible() and dropdown:IsVisible()
+                end,
+            }) ~= nil or applied
+        end
+    end
+    return applied
+end
+
+function PVESkin:ApplyCompactRaidManagerButtons()
+    local frame = _G.CompactRaidFrameManager
+    local _, bottomButtons = GetCompactRaidManagerControls(frame)
+    if not frame then return false end
+    local ids = IDs.CompactRaidManager
+    local applied = false
+    for index, definition in ipairs({
+        { ids.LeavePartyButton, "Leave party button",
+            _G.CompactRaidFrameManagerLeavePartyButton
+                or _G.CompactRaidFrameManagerBottomButtonsLeavePartyButton
+                or (bottomButtons and bottomButtons.LeavePartyButton) },
+        { ids.LeaveInstanceGroupButton, "Leave instance group button",
+            _G.CompactRaidFrameManagerLeaveInstanceGroupButton
+                or _G.CompactRaidFrameManagerBottomButtonsLeaveInstanceGroupButton
+                or (bottomButtons and bottomButtons.LeaveInstanceGroupButton) },
+    }) do
+        local id, label, button = unpack(definition)
+        if button then
+            applied = NSkin:RegisterTypedElement("BUTTON", {
+                id = id,
+                module = "GroupFinder",
+                appearanceWindowID = ids.Scope,
+                label = label,
+                window = frame,
+                target = button,
+                priority = 30 + index,
+                highlightRegions = { button },
+                isEditable = function()
+                    return frame:IsVisible() and button:IsVisible()
+                end,
+            }) ~= nil or applied
+        end
+    end
+    return applied
+end
+
+function PVESkin:ApplyCompactRaidManagerTabs()
+    local frame = _G.CompactRaidFrameManager
+    local _, _, raidMarkers = GetCompactRaidManagerControls(frame)
+    if not frame or not raidMarkers then return false end
+    local tabs = {
+        raidMarkers.raidMarkerUnitTab or raidMarkers.RaidMarkerUnitTab,
+        raidMarkers.raidMarkerGroundTab or raidMarkers.RaidMarkerGroundTab,
+    }
+    if not tabs[1] or not tabs[2] then return false end
+
+    local ids = IDs.CompactRaidManager
+    local style = NSkin:GetAppearanceStyle(
+        "tab", ids.Scope, ids.MarkerTabs)
+    local border = NSkin:GetAppearanceBorderColor(
+        "tab", style, ids.Scope, ids.MarkerTabs)
+    for _, tab in ipairs(tabs) do
+        NSkin:SkinTab(tab, raidMarkers.activeTab == tab, style, border)
+    end
+    if not compactRaidTabsRegistered then
+        compactRaidTabsRegistered = NSkin:RegisterTabGroup(
+            ids.MarkerTabs, {
+                label = "Raid marker top tabs",
+                kind = "TAB_GROUP",
+                module = "GroupFinder",
+                appearanceWindowID = ids.Scope,
+                window = frame,
+                tabs = tabs,
+                priority = 40,
+                orientation = "HORIZONTAL",
+                edge = "TOP",
+                getSelected = function(tab)
+                    return raidMarkers.activeTab == tab
+                end,
+                isEditable = function()
+                    return frame:IsVisible() and raidMarkers:IsVisible()
+                end,
+            }) == true
+    end
+    if compactRaidTabsRegistered then
+        NSkin:ApplyTabGroupLayout(ids.MarkerTabs)
+    end
+    return compactRaidTabsRegistered
+end
+
+function PVESkin:ApplyCompactRaidFrameManager()
+    local frame = _G.CompactRaidFrameManager
+    if not frame then return false end
+    local applied = self:ApplyCompactRaidManagerWindow()
+    applied = self:ApplyCompactRaidManagerDropdowns() or applied
+    applied = self:ApplyCompactRaidManagerButtons() or applied
+    applied = self:ApplyCompactRaidManagerTabs() or applied
+    return applied
+end
+
+function PVESkin:InitializeCompactRaidFrameManager()
+    local frame = _G.CompactRaidFrameManager
+    if not frame then return false end
+    local _, _, raidMarkers = GetCompactRaidManagerControls(frame)
+    if not compactRaidShowHooked and frame.HookScript then
+        frame:HookScript("OnShow", function()
+            PVESkin:ApplyCompactRaidFrameManager()
+        end)
+        compactRaidShowHooked = true
+    end
+    if not compactRaidTabsHooked and raidMarkers
+        and type(raidMarkers.SetTab) == "function" and _G.hooksecurefunc
+    then
+        pcall(_G.hooksecurefunc, raidMarkers, "SetTab", function()
+            PVESkin:ApplyCompactRaidManagerTabs()
+        end)
+        compactRaidTabsHooked = true
+    end
+    compactRaidInitialized = true
+    return self:ApplyCompactRaidFrameManager()
+end
+
 function PVESkin:QueueApply()
     if applyPending then return end
     applyPending = true
@@ -979,12 +1191,24 @@ function PVESkin:RefreshAppearance()
     self:ApplyPVPControls()
     self:ApplyDungeonSelectionCheckboxes()
     self:ApplyBottomTabs()
+    if compactRaidInitialized then
+        self:ApplyCompactRaidFrameManager()
+    end
 end
 
 NSkin:RegisterWindowSkin({
     module = "GroupFinder",
     addon = "Blizzard_GroupFinder",
     apply = function() return PVESkin:Initialize() end,
+})
+
+NSkin:RegisterWindowSkin({
+    key = "GroupFinder.CompactRaidFrameManager",
+    module = "GroupFinder",
+    addon = "Blizzard_CompactRaidFrames",
+    apply = function()
+        return PVESkin:InitializeCompactRaidFrameManager()
+    end,
 })
 
 NSkin:RegisterWindowSkin({
