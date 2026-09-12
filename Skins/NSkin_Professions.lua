@@ -2309,7 +2309,7 @@ local OrdersSkin = {}
 
 local OrdersIDs = {
     Tabs = "Professions.Orders.Browse.Tabs",
-    SearchActions = "Professions.Orders.Browse.SearchActions",
+    FavoriteButton = "Professions.Orders.Browse.SearchActions",
     SearchButton = "Professions.Orders.Browse.SearchButton",
     Search = "Professions.Orders.Browse.RecipeSearch",
     Filter = "Professions.Orders.Browse.RecipeFilter",
@@ -2398,7 +2398,7 @@ function OrdersSkin:ApplySearchActions(frame, page)
     local applied = false
     if favorite and icon then
         local element = NSkin:RegisterTypedElement("BUTTON", {
-            id = OrdersIDs.SearchActions, module = "Professions",
+            id = OrdersIDs.FavoriteButton, module = "Professions",
             appearanceWindowID = IDs.Scope,
             label = "Favorite searches button", window = frame,
             target = favorite, preserveTexture = icon, priority = 310,
