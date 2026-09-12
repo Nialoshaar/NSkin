@@ -40,6 +40,10 @@ NSkin.moduleDefinitions = {
         optionsGroup = "windows", optionsOrder = 75,
     },
     {
+        key = "DeathRecap", label = "Death Recap", defaultEnabled = true,
+        optionsGroup = "windows", optionsOrder = 77,
+    },
+    {
         key = "Merchant", label = "Merchant", defaultEnabled = true,
         optionsGroup = "windows", optionsOrder = 80,
     },

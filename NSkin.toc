@@ -34,6 +34,7 @@ Skins\NSkin_GameMenu.lua
 Skins\NSkin_CooldownManager.lua
 Skins\NSkin_FriendsList.lua
 Skins\NSkin_GroupFinder.lua
+Skins\NSkin_DeathRecap.lua
 Skins\NSkin_GreatVault.lua
 Skins\NSkin_Delves.lua
 Skins\NSkin_Merchant.lua
