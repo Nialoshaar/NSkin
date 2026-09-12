@@ -625,6 +625,11 @@ local CustomerOrdersIDs = {
     RecipeScrollBar = "AuctionHouse.CustomerOrders.Browse.RecipeScrollBar",
     RecipeRows = "AuctionHouse.CustomerOrders.Browse.RecipeRows",
     ColumnHeaders = "AuctionHouse.CustomerOrders.Browse.ColumnHeaders",
+    MyOrdersScrollBar = "AuctionHouse.CustomerOrders.MyOrders.ScrollBar",
+    MyOrdersColumnHeaders = "AuctionHouse.CustomerOrders.MyOrders.ColumnHeaders",
+    MyOrdersRows = "AuctionHouse.CustomerOrders.MyOrders.Rows",
+    MyOrdersRefreshButton = "AuctionHouse.CustomerOrders.MyOrders.RefreshButton",
+    MyOrdersResultsText = "AuctionHouse.CustomerOrders.MyOrders.ResultsText",
     FormRequiredReagents = "AuctionHouse.CustomerOrders.Form.RequiredReagents",
     FormOptionalReagents = "AuctionHouse.CustomerOrders.Form.OptionalReagents",
     FormBackButton = "AuctionHouse.CustomerOrders.Form.BackButton",
@@ -662,6 +667,27 @@ local customerOrdersElements = {}
 local function GetCustomerOrdersFrame()
     local frame = _G.ProfessionsCustomerOrdersFrame
     return frame, frame and frame.BrowseOrders
+end
+
+local function GetCustomerOrdersMyOrdersPage(frame)
+    return frame and frame.MyOrdersPage
+end
+
+local function GetMyOrdersOrderList(page)
+    return page and page.OrderList
+end
+
+local function GetMyOrdersScrollBox(page)
+    local orderList = GetMyOrdersOrderList(page)
+    return orderList and orderList.ScrollBox or page and page.ScrollBox
+end
+
+local function GetVisibleMyOrderRows(page)
+    local rows = {}
+    NSkin:ForEachScrollBoxFrame(GetMyOrdersScrollBox(page), function(row)
+        if IsVisible(row) then rows[#rows + 1] = row end
+    end)
+    return rows
 end
 
 local function RefreshTypedElement(element)
@@ -806,7 +832,14 @@ local function GetFormReagentSlots(form, container, visibleOnly)
 end
 
 local function GetFormReagentTexture(button)
-    return button and (button.Icon or button.icon or button.IconTexture)
+    return button and (button.Icon or button.icon or button.IconTexture
+        or button.iconTexture)
+end
+
+local function GetFormReagentStateTexture(button, method, field)
+    if not button then return nil end
+    if button[field] then return button[field] end
+    if type(button[method]) == "function" then return button[method](button) end
 end
 
 local function GetFormReagentQuality(button)
@@ -828,12 +861,35 @@ local function GetFormReagentQuality(button)
         local info = _G.C_CurrencyInfo.GetCurrencyInfo(reagent.currencyID)
         return info and info.quality
     end
+    if button and type(button.GetItemInfo) == "function" then
+        local ok, _, quality = pcall(button.GetItemInfo, button)
+        if ok then return quality end
+    end
 end
 
 local function GetFormReagentDecorations(button)
     local regions, seen = {}, {}
     AddCustomerOrderRegion(regions, seen, button and button.IconBorder)
     AddCustomerOrderRegion(regions, seen, button and button.SlotBackground)
+    AddCustomerOrderRegion(regions, seen, button and button.IconOverlay)
+    AddCustomerOrderRegion(regions, seen, button and button.IconOverlay2)
+    AddCustomerOrderRegion(regions, seen, button and button.CropFrame)
+    if button and not button.showLargeAddIcon then
+        AddCustomerOrderRegion(regions, seen, GetFormReagentStateTexture(
+            button, "GetNormalTexture", "NormalTexture"))
+        AddCustomerOrderRegion(regions, seen, GetFormReagentStateTexture(
+            button, "GetPushedTexture", "PushedTexture"))
+    end
+    return regions
+end
+
+local function GetFormReagentHoverRegions(button)
+    local regions, seen = {}, {}
+    AddCustomerOrderRegion(regions, seen,
+        button and button.HighlightTexture)
+    local overlay = button and button.InputOverlay
+    AddCustomerOrderRegion(regions, seen,
+        overlay and overlay.AddIconHighlight)
     return regions
 end
 
@@ -850,7 +906,9 @@ local function GetFormReagentDescriptors(form, container)
                 nativeDecorationRegions = function(currentButton)
                     return GetFormReagentDecorations(currentButton)
                 end,
-                hoverRegion = button.HighlightTexture,
+                hoverRegions = function(currentButton)
+                    return GetFormReagentHoverRegions(currentButton)
+                end,
                 getHovered = IsHovered,
             }
         end
@@ -1337,6 +1395,183 @@ function CustomerOrdersSkin:ApplyColumnHeaders(frame, browse)
     return customerOrdersElements[id] == true
 end
 
+function CustomerOrdersSkin:ApplyMyOrdersRows(frame, page)
+    local scrollBox = GetMyOrdersScrollBox(page)
+    if not scrollBox then return false end
+    local id = CustomerOrdersIDs.MyOrdersRows
+    local function Refresh()
+        local style = NSkin:GetAppearanceStyle("row", IDs.Scope, id)
+        local border = NSkin:GetAppearanceBorderColor(
+            "row", style, IDs.Scope, id)
+        local applied = false
+        NSkin:ForEachScrollBoxFrame(scrollBox, function(row)
+            applied = NSkin:SkinRow(row, {
+                style = style,
+                border = border,
+                hoverRegion = row.HighlightTexture,
+                getHovered = IsHovered,
+            }) ~= nil or applied
+        end)
+        return applied
+    end
+    if not customerOrdersElements[id] then
+        customerOrdersElements[id] =
+            NSkin:RegisterSkinningElement(id, {
+                module = "AuctionHouse", appearanceWindowID = IDs.Scope,
+                label = "My Orders rows", kind = "ROW",
+                window = frame, target = scrollBox,
+                priority = 101, draggable = false,
+                highlightRegions = function()
+                    return GetVisibleMyOrderRows(page)
+                end,
+                pixelBorderTargets = function()
+                    return GetVisibleMyOrderRows(page)
+                end,
+                editorOptions = {
+                    { id = "shared.rowAppearance", label = "Rows",
+                        category = "CUSTOMIZE" },
+                },
+                refreshAppearance = Refresh,
+                refreshLayout = Refresh,
+                isEditable = function()
+                    return IsVisible(frame) and IsVisible(page)
+                        and #GetVisibleMyOrderRows(page) > 0
+                end,
+            }) == true
+    end
+    Refresh()
+    if customerOrdersElements[id] then
+        NSkin:NotifySkinningElementBoundsChanged(id)
+    end
+    return customerOrdersElements[id] == true
+end
+
+function CustomerOrdersSkin:ApplyMyOrdersColumnHeaders(frame, page)
+    local orderList = GetMyOrdersOrderList(page)
+    local container = orderList and orderList.HeaderContainer
+    if not container then return false end
+    local id = CustomerOrdersIDs.MyOrdersColumnHeaders
+    local function Refresh()
+        local style = NSkin:GetAppearanceStyle(
+            "columnHeader", IDs.Scope, id)
+        local border = NSkin:GetAppearanceBorderColor(
+            "columnHeader", style, IDs.Scope, id)
+        for _, header in ipairs(GetGeneratedHeaders(page, false)) do
+            NSkin:SkinColumnHeader(header, {
+                style = style, border = border,
+                textRegion = header.Text or header.Name,
+                artworkRegions = {
+                    header.Left, header.Middle, header.Right,
+                },
+            })
+        end
+        return true
+    end
+    if not customerOrdersElements[id] then
+        customerOrdersElements[id] = NSkin:RegisterSimpleMovableElement({
+            id = id,
+            module = "AuctionHouse", appearanceWindowID = IDs.Scope,
+            label = "My Orders column headers", kind = "COLUMN_HEADER",
+            window = frame, target = container, priority = 102,
+            highlightRegions = function()
+                return GetGeneratedHeaders(page, true)
+            end,
+            pixelBorderTargets = function()
+                return GetGeneratedHeaders(page, true)
+            end,
+            refreshAppearance = Refresh, refreshLayout = Refresh,
+            isEditable = function()
+                return IsVisible(frame) and IsVisible(page)
+                    and #GetGeneratedHeaders(page, true) > 0
+            end,
+        }) ~= nil
+    end
+    Refresh()
+    if customerOrdersElements[id] then
+        NSkin:NotifySkinningElementBoundsChanged(id)
+    end
+    return customerOrdersElements[id] == true
+end
+
+local function GetMyOrdersRefreshIcon(button)
+    if not button or type(button.CreateTexture) ~= "function" then return nil end
+    local data = NSkin:GetSkinData(button, "customerOrdersRefreshButton")
+    if not data.icon then
+        data.icon = button:CreateTexture(nil, "ARTWORK")
+        data.icon:SetSize(14, 14)
+        data.icon:SetPoint("CENTER")
+        data.icon:SetTexture(
+            "Interface\\AddOns\\NSkin\\Media\\rotate-right.png")
+        if NSkin.ConfigureOwnedPixelTexture then
+            NSkin:ConfigureOwnedPixelTexture(data.icon)
+        end
+    end
+    data.icon:Show()
+    return data.icon
+end
+
+function CustomerOrdersSkin:ApplyMyOrders(frame, page)
+    if not page then return false end
+    local orderList = GetMyOrdersOrderList(page)
+    if orderList then
+        SuppressCustomerOrderDecorations(
+            orderList, "MyOrdersBackground", { orderList.Background })
+    end
+
+    local applied = self:ApplyMyOrdersRows(frame, page)
+    applied = self:ApplyMyOrdersColumnHeaders(frame, page) or applied
+
+    local scrollBar = orderList
+        and (orderList.ScrollBar or orderList.Scrollbar)
+    if scrollBar then
+        local element = NSkin:RegisterScrollBar({
+            id = CustomerOrdersIDs.MyOrdersScrollBar,
+            module = "AuctionHouse", appearanceWindowID = IDs.Scope,
+            label = "My Orders scroll bar", window = frame,
+            target = scrollBar, priority = 103,
+            isEditable = function()
+                return IsVisible(frame) and IsVisible(page)
+                    and IsVisible(scrollBar)
+            end,
+        })
+        applied = RefreshTypedElement(element) ~= nil or applied
+    end
+
+    local refreshButton = page.RefreshButton
+    if refreshButton then
+        local icon = GetMyOrdersRefreshIcon(refreshButton)
+        local element = NSkin:RegisterTypedElement("BUTTON", {
+            id = CustomerOrdersIDs.MyOrdersRefreshButton,
+            module = "AuctionHouse", appearanceWindowID = IDs.Scope,
+            label = "Refresh My Orders", window = frame,
+            target = refreshButton, preserveTexture = icon, priority = 104,
+            highlightRegions = { refreshButton },
+            isEditable = function()
+                return IsVisible(frame) and IsVisible(page)
+                    and IsVisible(refreshButton)
+            end,
+        })
+        applied = RefreshTypedElement(element) ~= nil or applied
+    end
+
+    local resultsText = orderList and orderList.ResultsText
+    if resultsText then
+        local element = NSkin:RegisterTextElement({
+            id = CustomerOrdersIDs.MyOrdersResultsText,
+            module = "AuctionHouse", appearanceWindowID = IDs.Scope,
+            label = "My Orders results text", window = frame,
+            target = resultsText, priority = 105,
+            highlightRegions = { resultsText },
+            isEditable = function()
+                return IsVisible(frame) and IsVisible(page)
+                    and IsVisible(resultsText)
+            end,
+        })
+        applied = RefreshTypedElement(element) ~= nil or applied
+    end
+    return applied
+end
+
 function CustomerOrdersSkin:ApplyFormReagentGroup(frame, form, id, label,
     container, includeContainerLabel)
     if not container then return false end
@@ -1395,13 +1630,13 @@ function CustomerOrdersSkin:ApplyFormReagents(frame, form)
 end
 
 local function RegisterCustomerOrderText(frame, form, id, label, target,
-    priority, numberFormat)
+    priority, highlightTarget)
     if not target then return nil end
     local element = NSkin:RegisterTextElement({
         id = id, module = "AuctionHouse", appearanceWindowID = IDs.Scope,
         label = label, window = frame, target = target,
-        numberFormat = numberFormat, priority = priority, draggable = false,
-        highlightRegions = { target },
+        priority = priority,
+        highlightRegions = { highlightTarget or target },
         isEditable = function()
             return IsCustomerOrderFormElementVisible(frame, form, target)
         end,
@@ -1418,23 +1653,24 @@ function CustomerOrdersSkin:ApplyFormText(frame, form)
     local applied = false
     for index, definition in ipairs({
         { CustomerOrdersIDs.FormPostingFeeGold, "Posting fee gold",
-            posting and posting.GoldDisplay, "GOLD" },
+            posting and posting.GoldDisplay },
         { CustomerOrdersIDs.FormPostingFeeSilver, "Posting fee silver",
             posting and posting.SilverDisplay },
         { CustomerOrdersIDs.FormTotalPriceGold, "Total price gold",
-            total and total.GoldDisplay, "GOLD" },
+            total and total.GoldDisplay },
         { CustomerOrdersIDs.FormTotalPriceSilver, "Total price silver",
             total and total.SilverDisplay },
         { CustomerOrdersIDs.FormPlayerMoneyGold, "Player money gold",
-            playerMoney and playerMoney.GoldDisplay, "GOLD" },
+            playerMoney and playerMoney.GoldDisplay },
         { CustomerOrdersIDs.FormPlayerMoneySilver, "Player money silver",
             playerMoney and playerMoney.SilverDisplay },
         { CustomerOrdersIDs.FormPlayerMoneyCopper, "Player money copper",
             playerMoney and playerMoney.CopperDisplay },
     }) do
+        local display = definition[3]
         applied = RegisterCustomerOrderText(frame, form, definition[1],
-            definition[2], definition[3], 70 + index,
-            definition[4]) ~= nil or applied
+            definition[2], display and display.Text, 70 + index,
+            display) ~= nil or applied
     end
     return applied
 end
@@ -1589,6 +1825,7 @@ end
 function CustomerOrdersSkin:Apply()
     local frame, browse = GetCustomerOrdersFrame()
     if not frame or not browse then return false end
+    local myOrders = GetCustomerOrdersMyOrdersPage(frame)
     local applied = self:ApplyWindowChrome(frame)
     applied = self:ApplyTabs(frame) or applied
     applied = self:ApplySearchControls(frame, browse) or applied
@@ -1597,18 +1834,25 @@ function CustomerOrdersSkin:Apply()
     applied = self:ApplyScrollBars(frame, browse) or applied
     applied = self:ApplyColumnHeaders(frame, browse) or applied
     applied = self:ApplyForm(frame) or applied
+    applied = self:ApplyMyOrders(frame, myOrders) or applied
     return applied
 end
 
 function CustomerOrdersSkin:HookLifecycle(frame, browse)
     if customerOrdersLifecycleHooked then return end
     local form = frame and frame.Form
+    local myOrders = GetCustomerOrdersMyOrdersPage(frame)
     if frame.HookScript then
         frame:HookScript("OnShow", function() CustomerOrdersSkin:Apply() end)
     end
     if form and form.HookScript then
         form:HookScript("OnShow", function()
             CustomerOrdersSkin:ApplyForm(frame)
+        end)
+    end
+    if myOrders and myOrders.HookScript then
+        myOrders:HookScript("OnShow", function()
+            CustomerOrdersSkin:ApplyMyOrders(frame, myOrders)
         end)
     end
     if _G.hooksecurefunc then
@@ -1654,6 +1898,24 @@ function CustomerOrdersSkin:HookLifecycle(frame, browse)
         if form and type(form.UpdateReagentSlots) == "function" then
             pcall(_G.hooksecurefunc, form, "UpdateReagentSlots", function()
                 CustomerOrdersSkin:ApplyFormReagents(frame, form)
+            end)
+        end
+        if myOrders and type(myOrders.InitOrderList) == "function" then
+            pcall(_G.hooksecurefunc, myOrders, "InitOrderList", function()
+                CustomerOrdersSkin:ApplyMyOrders(frame, myOrders)
+            end)
+        end
+        if myOrders and type(myOrders.UpdateOrderList) == "function" then
+            pcall(_G.hooksecurefunc, myOrders, "UpdateOrderList", function()
+                CustomerOrdersSkin:ApplyMyOrders(frame, myOrders)
+            end)
+        end
+        local myOrdersScrollBox = GetMyOrdersScrollBox(myOrders)
+        if myOrdersScrollBox
+            and type(myOrdersScrollBox.Update) == "function"
+        then
+            pcall(_G.hooksecurefunc, myOrdersScrollBox, "Update", function()
+                CustomerOrdersSkin:ApplyMyOrdersRows(frame, myOrders)
             end)
         end
     end

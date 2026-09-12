@@ -2,6 +2,7 @@ local _, NSkin = ...
 
 local POPUP_COMPONENT_STATE = "iconSelectPopupComponent"
 local SHARED_POPUP_SURFACE_STATE = "sharedPopupSurfaceComponent"
+local EQUIPMENT_FLYOUT_STATE = "equipmentFlyoutPopupComponent"
 local SELECTOR_SLOT_TEXTURE = "interface/buttons/ui-emptyslot-disabled"
 local selectorSlotFileID
 local selectorSlotFileIDResolved = false
@@ -134,6 +135,241 @@ function NSkin:SkinPopupSurface(frame, options)
         self:SkinScrollBar(options.scrollBar, options.scrollBarStyle)
     end
     return true
+end
+
+local function GetEquipmentFlyoutIcon(button)
+    if not button then return nil end
+    local icon = button.Icon or button.icon
+        or button.IconTexture or button.iconTexture
+    if icon and icon.SetTexCoord then return icon end
+    if type(_G.GetItemButtonIconTexture) == "function" then
+        icon = _G.GetItemButtonIconTexture(button)
+        if icon and icon.SetTexCoord then return icon end
+    end
+end
+
+local function GetEquipmentFlyoutQuality(button)
+    local itemLocation = button and type(button.GetItemLocation) == "function"
+        and button:GetItemLocation()
+    if not itemLocation or not _G.C_Item
+        or type(_G.C_Item.GetItemQuality) ~= "function" then
+        return nil
+    end
+    return _G.C_Item.GetItemQuality(itemLocation)
+end
+
+local function GetEquipmentFlyoutDecorations(button)
+    if not button then return {} end
+    return {
+        button.IconBorder,
+        button.NormalTexture
+            or (button.GetNormalTexture and button:GetNormalTexture()),
+    }
+end
+
+local function IsEquipmentFlyoutButtonHovered(button)
+    return button and button.IsMouseOver and button:IsMouseOver() or false
+end
+
+local function GetEquipmentFlyoutBackgrounds(flyout)
+    local regions = { flyout and flyout.Highlight }
+    local buttonFrame = flyout and flyout.buttonFrame
+    local count = buttonFrame and tonumber(buttonFrame.numBGs) or 0
+    for index = 1, count do
+        regions[#regions + 1] = buttonFrame["bg" .. index]
+    end
+    return regions
+end
+
+local function IsEquipmentFlyoutDefinitionActive(definition)
+    if type(definition.isActive) ~= "function" then return true end
+    local ok, active = pcall(definition.isActive, definition.root)
+    return ok and active == true
+end
+
+local function GetActiveEquipmentFlyoutDefinition(state)
+    for _, definition in pairs(state.definitions or {}) do
+        if IsEquipmentFlyoutDefinitionActive(definition) then
+            return definition
+        end
+    end
+end
+
+local function GetEquipmentFlyoutIconChildren(definition)
+    local children = {}
+    for _, button in ipairs(definition.root.buttons or {}) do
+        if button and button.IsShown and button:IsShown() then
+            children[#children + 1] = {
+                target = button,
+                textureProvider = GetEquipmentFlyoutIcon,
+                borderOwner = button,
+                qualityProvider = GetEquipmentFlyoutQuality,
+                nativeDecorationRegions = GetEquipmentFlyoutDecorations,
+                hoverRegion = button.HighlightTexture
+                    or (button.GetHighlightTexture
+                        and button:GetHighlightTexture()),
+                getHovered = IsEquipmentFlyoutButtonHovered,
+            }
+        end
+    end
+    return children
+end
+
+local function ApplyEquipmentFlyoutNavigation(definition, navigation)
+    if not navigation then return end
+    local ids = definition.ids
+    for _, buttonDefinition in ipairs({
+        { ids.previousButton, navigation.PrevButton, "<",
+            "Previous equipment page", 82 },
+        { ids.nextButton, navigation.NextButton, ">",
+            "Next equipment page", 83 },
+    }) do
+        local id, button, glyph, label, priority = unpack(buttonDefinition)
+        if id and button then
+            NSkin:RegisterTypedElement("BUTTON", {
+                id = id,
+                module = definition.module,
+                appearanceWindowID = definition.appearanceWindowID,
+                label = label,
+                window = definition.root,
+                target = button,
+                priority = priority,
+                draggable = false,
+                skinOptions = { label = glyph },
+                highlightRegions = { button },
+                isEditable = function()
+                    return IsEquipmentFlyoutDefinitionActive(definition)
+                        and IsVisible(definition.root) and IsVisible(button)
+                end,
+            })
+        end
+    end
+end
+
+function NSkin:RefreshEquipmentFlyoutPopup(root)
+    if not root then return false end
+    local state = self:GetSkinData(root, EQUIPMENT_FLYOUT_STATE, false)
+    local definition = state and GetActiveEquipmentFlyoutDefinition(state)
+    if not definition then return false end
+
+    local ids = definition.ids
+    local buttonFrame = root.buttonFrame
+    if not buttonFrame then return false end
+    local navigation = root.NavigationFrame
+    local windowStyle = self:GetAppearanceStyle(
+        "window", definition.appearanceWindowID, ids.window)
+    self:SkinPopupSurface(buttonFrame, {
+        windowStyle = windowStyle,
+        nativeDecorationRegions = GetEquipmentFlyoutBackgrounds(root),
+    })
+    if navigation then
+        self:SkinPopupSurface(navigation, {
+            windowStyle = windowStyle,
+            nativeDecorationRegions = { navigation.BottomBackground },
+            textStyle = self:GetAppearanceStyle(
+                "text", definition.appearanceWindowID, ids.window),
+        })
+        ApplyEquipmentFlyoutNavigation(definition, navigation)
+    end
+    self:SkinIconGroupChildren({
+        id = ids.icons,
+        appearanceWindowID = definition.appearanceWindowID,
+        target = buttonFrame,
+        children = function()
+            return GetEquipmentFlyoutIconChildren(definition)
+        end,
+    })
+    self:NotifySkinningElementBoundsChanged(ids.window)
+    self:NotifySkinningElementBoundsChanged(ids.icons)
+    return true
+end
+
+function NSkin:RegisterEquipmentFlyoutPopup(definition)
+    if type(definition) ~= "table" or not definition.root
+        or type(definition.module) ~= "string"
+        or type(definition.appearanceWindowID) ~= "string"
+        or not self:GetAppearanceScope(definition.appearanceWindowID)
+        or type(definition.ids) ~= "table"
+        or type(definition.ids.window) ~= "string"
+        or type(definition.ids.icons) ~= "string"
+    then return false end
+
+    local root, ids = definition.root, definition.ids
+    local buttonFrame = root.buttonFrame
+    if not buttonFrame then return false end
+    local state = self:GetSkinData(root, EQUIPMENT_FLYOUT_STATE)
+    state.definitions = state.definitions or {}
+    state.definitions[ids.window] = definition
+
+    if not self:GetSkinningElement(ids.window) then
+        self:RegisterSkinningElement(ids.window, {
+            label = definition.windowLabel or "Equipment flyout",
+            kind = "WINDOW",
+            module = definition.module,
+            appearanceWindowID = definition.appearanceWindowID,
+            window = root,
+            target = buttonFrame,
+            priority = 80,
+            draggable = false,
+            highlightRegions = function()
+                local regions = { buttonFrame }
+                local navigation = root.NavigationFrame
+                if IsVisible(navigation) then regions[#regions + 1] = navigation end
+                return regions
+            end,
+            refreshAppearance = function()
+                return NSkin:RefreshEquipmentFlyoutPopup(root)
+            end,
+            refreshLayout = function()
+                return NSkin:RefreshEquipmentFlyoutPopup(root)
+            end,
+            isEditable = function()
+                return IsEquipmentFlyoutDefinitionActive(definition)
+                    and IsVisible(root) and IsVisible(buttonFrame)
+            end,
+        })
+    end
+
+    self:RegisterIconGroup({
+        id = ids.icons,
+        module = definition.module,
+        appearanceWindowID = definition.appearanceWindowID,
+        label = definition.iconsLabel or "Equipment choices",
+        window = root,
+        target = buttonFrame,
+        priority = 81,
+        draggable = false,
+        children = function()
+            return GetEquipmentFlyoutIconChildren(definition)
+        end,
+        highlightRegions = function()
+            local regions = {}
+            for _, button in ipairs(root.buttons or {}) do
+                if IsVisible(button) then regions[#regions + 1] = button end
+            end
+            return regions
+        end,
+        isEditable = function()
+            return IsEquipmentFlyoutDefinitionActive(definition)
+                and IsVisible(root)
+        end,
+    })
+
+    if not state.lifecycleHooked then
+        if root.HookScript then
+            root:HookScript("OnShow", function()
+                NSkin:RefreshEquipmentFlyoutPopup(root)
+            end)
+        end
+        if _G.hooksecurefunc
+            and type(_G.EquipmentFlyout_UpdateItems) == "function" then
+            _G.hooksecurefunc("EquipmentFlyout_UpdateItems", function()
+                NSkin:RefreshEquipmentFlyoutPopup(root)
+            end)
+        end
+        state.lifecycleHooked = true
+    end
+    return self:RefreshEquipmentFlyoutPopup(root) or true
 end
 
 local function NormalizeTexturePath(path)

@@ -40,6 +40,10 @@ NSkin.moduleDefinitions = {
         optionsGroup = "windows", optionsOrder = 80,
     },
     {
+        key = "Storage", label = "Storage", defaultEnabled = true,
+        optionsGroup = "windows", optionsOrder = 85,
+    },
+    {
         key = "Transmogrification", label = "Transmogrification",
         defaultEnabled = true, optionsGroup = "windows", optionsOrder = 90,
     },

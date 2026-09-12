@@ -2310,6 +2310,7 @@ local OrdersSkin = {}
 local OrdersIDs = {
     Tabs = "Professions.Orders.Browse.Tabs",
     SearchActions = "Professions.Orders.Browse.SearchActions",
+    SearchButton = "Professions.Orders.Browse.SearchButton",
     Search = "Professions.Orders.Browse.RecipeSearch",
     Filter = "Professions.Orders.Browse.RecipeFilter",
     RecipeSections = "Professions.Orders.Browse.RecipeSections",
@@ -2323,7 +2324,6 @@ local OrdersIDs = {
 local ordersLifecycleHooked = false
 local ordersInitialized = false
 local registeredOrdersElements = {}
-local ordersSearchController
 
 local function GetOrdersPage()
     local frame = _G.ProfessionsFrame
@@ -2338,12 +2338,6 @@ local function GetOrderTabs(page)
         browse.GuildOrdersButton,
         browse.NpcOrdersButton,
         browse.PersonalOrdersButton)
-end
-
-local function GetVisibleRegionBounds(regions)
-    local bounds = {}
-    for _, region in ipairs(regions or {}) do AddRegionBounds(bounds, region) end
-    return bounds.left, bounds.right, bounds.bottom, bounds.top
 end
 
 local function GetOrderRows(page, visibleOnly)
@@ -2401,68 +2395,36 @@ function OrdersSkin:ApplySearchActions(frame, page)
     local favorite = browse and browse.FavoritesSearchButton
     local search = browse and browse.SearchButton
     local icon = favorite and favorite.Icon
-    if not favorite or not search or not icon then return false end
-
-    if not registeredOrdersElements[OrdersIDs.SearchActions] then
-        registeredOrdersElements[OrdersIDs.SearchActions] =
-            NSkin:RegisterIconGroup({
-                id = OrdersIDs.SearchActions, module = "Professions",
-                appearanceWindowID = IDs.Scope,
-                label = "Favorite and search actions", window = frame,
-                target = favorite, priority = 310, draggable = true,
-                children = {
-                    {
-                        target = favorite, texture = icon,
-                        borderOwner = favorite,
-                        nativeDecorationRegions = function(button)
-                            return GetProfessionItemButtonDecorations(button)
-                        end,
-                        hoverRegion = favorite.GetHighlightTexture
-                            and favorite:GetHighlightTexture(),
-                        getHovered = IsHovered,
-                    },
-                },
-                appearanceStyles = { "button" },
-                appearanceTypeIDs = { "ACTION_BUTTON" },
-                editorOptions = {
-                    { id = "shared.iconAppearance", label = "Favorite icon",
-                        presentation = "INLINE", category = "CUSTOMIZE" },
-                },
-                refreshContent = function()
-                    local appearanceID = NSkin:GetElementAppearanceID(
-                        OrdersIDs.SearchActions, "ACTION_BUTTON")
-                    local buttonStyle = NSkin:GetAppearanceStyle(
-                        "button", IDs.Scope, appearanceID)
-                    NSkin:SkinActionButton(search, {
-                        style = buttonStyle,
-                        border = NSkin:GetAppearanceBorderColor(
-                            "button", buttonStyle, IDs.Scope, appearanceID),
-                    })
-                    return true
-                end,
-                getHighlightBounds = function()
-                    return GetVisibleRegionBounds({ icon, search })
-                end,
-                highlightBoundsAreNormalized = true,
-                pixelBorderTargets = { favorite, search },
-                composition = {
-                    mode = "COMPOSITE", movementOwner = favorite,
-                    members = {
-                        { kind = "ICON", role = "PRIMARY", target = favorite,
-                            label = "Favorite" },
-                        { kind = "ACTION_BUTTON", role = "SECONDARY",
-                            target = search, label = "Search" },
-                    },
-                },
-                isEditable = function()
-                    return IsVisible(frame) and IsVisible(browse)
-                        and IsVisible(favorite) and IsVisible(search)
-                end,
-            }) ~= nil
-    else
-        NSkin:RefreshIconGroup(OrdersIDs.SearchActions)
+    local applied = false
+    if favorite and icon then
+        local element = NSkin:RegisterTypedElement("BUTTON", {
+            id = OrdersIDs.SearchActions, module = "Professions",
+            appearanceWindowID = IDs.Scope,
+            label = "Favorite searches button", window = frame,
+            target = favorite, preserveTexture = icon, priority = 310,
+            highlightRegions = { favorite },
+            isEditable = function()
+                return IsVisible(frame) and IsVisible(browse)
+                    and IsVisible(favorite)
+            end,
+        })
+        applied = RefreshTypedElement(element) ~= nil or applied
     end
-    return registeredOrdersElements[OrdersIDs.SearchActions] == true
+    if search then
+        local element = NSkin:RegisterActionButton({
+            id = OrdersIDs.SearchButton, module = "Professions",
+            appearanceWindowID = IDs.Scope,
+            label = "Crafting order search button", window = frame,
+            target = search, priority = 311,
+            highlightRegions = { search },
+            isEditable = function()
+                return IsVisible(frame) and IsVisible(browse)
+                    and IsVisible(search)
+            end,
+        })
+        applied = RefreshTypedElement(element) ~= nil or applied
+    end
+    return applied
 end
 
 function OrdersSkin:ApplyRecipeSearch(frame, page)
@@ -2470,29 +2432,36 @@ function OrdersSkin:ApplyRecipeSearch(frame, page)
         and page.BrowseFrame.RecipeList
     local searchBox = recipeList and recipeList.SearchBox
     local dropdown = recipeList and recipeList.FilterDropdown
-    if not searchBox or not dropdown then return false end
-
-    if not ordersSearchController then
-        ordersSearchController = NSkin:RegisterAccessoryGroup({
-            id = OrdersIDs.Search,
-            module = "Professions", appearanceWindowID = IDs.Scope,
-            window = frame, visibilityFrame = page.BrowseFrame,
-            primary = searchBox, accessory = dropdown,
-            ids = { primary = OrdersIDs.Search, accessory = OrdersIDs.Filter },
-            primaryLabel = "Crafting order recipe search",
-            accessoryLabel = "Crafting order recipe filter",
-            accessoryMenus = { "MENU_PROFESSIONS_FILTER" },
-            anchorGrouped = function(primary, accessory)
-                if not primary or not accessory then return false end
-                accessory:ClearAllPoints()
-                accessory:SetPoint("LEFT", primary, "RIGHT", 4, 0)
-                return true
+    local applied = false
+    if searchBox then
+        local element = NSkin:RegisterSearchBox({
+            id = OrdersIDs.Search, module = "Professions",
+            appearanceWindowID = IDs.Scope,
+            label = "Crafting order recipe search", window = frame,
+            target = searchBox, priority = 312,
+            highlightRegions = { searchBox },
+            isEditable = function()
+                return IsVisible(frame) and IsVisible(page.BrowseFrame)
+                    and IsVisible(searchBox)
             end,
         })
-    else
-        ordersSearchController:Refresh()
+        applied = RefreshTypedElement(element) ~= nil or applied
     end
-    return ordersSearchController ~= nil
+    if dropdown then
+        local element = NSkin:RegisterDropdown({
+            id = OrdersIDs.Filter, module = "Professions",
+            appearanceWindowID = IDs.Scope,
+            label = "Crafting order recipe filter", window = frame,
+            target = dropdown, menus = { "MENU_PROFESSIONS_FILTER" },
+            priority = 313, highlightRegions = { dropdown },
+            isEditable = function()
+                return IsVisible(frame) and IsVisible(page.BrowseFrame)
+                    and IsVisible(dropdown)
+            end,
+        })
+        applied = RefreshTypedElement(element) ~= nil or applied
+    end
+    return applied
 end
 
 function OrdersSkin:ApplyRecipeList(frame, page)
