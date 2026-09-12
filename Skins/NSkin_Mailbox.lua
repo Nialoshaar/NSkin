@@ -14,7 +14,7 @@ local IDs = {
         Text = "Mailbox.Inbox.Pagination.Text",
     },
     Tabs = "Mailbox.Tabs",
-    RowPrefix = "Mailbox.Inbox.Row",
+    Rows = "Mailbox.Inbox.Rows",
     OpenMail = {
         Scope = "Mailbox.OpenMail",
         Window = "Mailbox.OpenMail.Window",
@@ -61,6 +61,7 @@ local inboxUpdateHooked = false
 local openMailShowHooked = false
 local sendMailShowHooked = false
 local tabsRegistered = false
+local inboxRowsRegistered = false
 local paginationController
 local hookedTabs = setmetatable({}, { __mode = "k" })
 
@@ -306,105 +307,147 @@ function MailboxSkin:ApplyTabs(frame)
     return true
 end
 
-function MailboxSkin:ApplyRows(frame)
-    local inbox = _G.InboxFrame
-    if not inbox then return false end
-
-    local applied = false
+local function GetInboxRowTargets(visibleOnly)
+    local targets = {}
     for index = 1, 7 do
-        local globalPrefix = "MailItem" .. index
-        local row = _G[globalPrefix]
-        local button = _G[globalPrefix .. "Button"]
-        local sender = _G[globalPrefix .. "Sender"]
-        local subject = _G[globalPrefix .. "Subject"]
-        local expireButton = _G[globalPrefix .. "ExpireTime"]
-        local expireText = expireButton and expireButton.GetFontString
-            and expireButton:GetFontString()
-        local rowID = IDs.RowPrefix .. index
-
-        if row then
-            applied = RefreshElement(NSkin:RegisterRow({
-                id = rowID,
-                module = "Mailbox",
-                appearanceWindowID = IDs.Scope,
-                label = "Inbox mail row " .. index,
-                window = frame,
-                target = row,
-                nativeDecorationRegions = GetTextureRegions(row),
-                priority = 60 + index,
-                isEditable = function()
-                    return IsVisible(frame) and IsVisible(inbox)
-                        and IsVisible(row)
-                end,
-            })) ~= nil or applied
+        local row = _G["MailItem" .. index]
+        if row and (not visibleOnly or IsVisible(row)) then
+            targets[#targets + 1] = row
         end
+    end
+    return targets
+end
 
-        if button and button.Icon then
-            local nativeDecorations = {}
-            for _, region in ipairs({
-                _G[globalPrefix .. "ButtonSlot"],
-                button.IconBorder,
-                _G[globalPrefix .. "ButtonIconBorder"],
-            }) do
-                if region then nativeDecorations[#nativeDecorations + 1] = region end
-            end
-            local element = NSkin:RegisterIcon({
-                id = rowID .. ".Icon",
-                module = "Mailbox",
-                appearanceWindowID = IDs.Scope,
-                label = "Inbox mail row " .. index .. " icon",
-                window = frame,
-                target = button,
-                texture = button.Icon,
-                borderOwner = button,
-                nativeDecorationRegions = nativeDecorations,
-                hoverRegion = GetButtonStateTexture(
-                    button, "GetHighlightTexture", "HighlightTexture"),
-                selectedRegion = GetButtonStateTexture(
-                    button, "GetCheckedTexture", "CheckedTexture"),
-                getHovered = function(target)
-                    return target and target.IsMouseOver
-                        and target:IsMouseOver() or false
-                end,
-                getSelected = function(target)
-                    return target and target.GetChecked
-                        and target:GetChecked() == true or false
-                end,
-                priority = 70 + index,
-                isEditable = function()
-                    return IsVisible(frame) and IsVisible(inbox)
-                        and IsVisible(button)
-                end,
-            })
-            applied = RefreshElement(element) ~= nil or applied
-        end
+local function GetInboxRowStyles()
+    local styles = {
+        row = NSkin:GetAppearanceStyle("row", IDs.Scope, IDs.Rows),
+        icon = NSkin:GetAppearanceStyle("icon", IDs.Scope, IDs.Rows),
+        text = NSkin:GetAppearanceStyle("text", IDs.Scope, IDs.Rows),
+    }
+    styles.rowBorder = NSkin:GetAppearanceBorderColor(
+        "row", styles.row, IDs.Scope, IDs.Rows)
+    styles.iconBorder = NSkin:GetAppearanceBorderColor(
+        "icon", styles.icon, IDs.Scope, IDs.Rows)
+    return styles
+end
 
-        for textIndex, definition in ipairs({
-            { "Sender", "sender", sender },
-            { "Subject", "subject", subject },
-            { "ExpireTime", "expiration time", expireText },
-        }) do
-            local suffix, label, target = unpack(definition)
-            if target then
-                local element = NSkin:RegisterTextElement({
-                    id = rowID .. "." .. suffix,
-                    module = "Mailbox",
-                    appearanceWindowID = IDs.Scope,
-                    label = "Inbox mail row " .. index .. " " .. label,
-                    window = frame,
-                    target = target,
-                    priority = 80 + (index * 3) + textIndex,
-                    highlightRegions = { target },
-                    isEditable = function()
-                        return IsVisible(frame) and IsVisible(inbox)
-                            and IsVisible(target)
-                    end,
-                })
-                applied = RefreshElement(element) ~= nil or applied
-            end
+local function GetInboxIconDecorations(globalPrefix, button)
+    local regions = {}
+    for _, region in ipairs({
+        _G[globalPrefix .. "ButtonSlot"],
+        button and button.IconBorder,
+        _G[globalPrefix .. "ButtonIconBorder"],
+    }) do
+        if region then regions[#regions + 1] = region end
+    end
+    return regions
+end
+
+function MailboxSkin:StyleInboxRow(index, styles)
+    local globalPrefix = "MailItem" .. index
+    local row = _G[globalPrefix]
+    if not row then return false end
+    styles = styles or GetInboxRowStyles()
+    local applied = NSkin:SkinRow(row, {
+        style = styles.row,
+        border = styles.rowBorder,
+        nativeDecorationRegions = GetTextureRegions(row),
+    }) ~= nil
+
+    local button = _G[globalPrefix .. "Button"]
+    if button and button.Icon then
+        applied = NSkin:SkinIcon(button, {
+            style = styles.icon,
+            borderColor = styles.iconBorder,
+            texture = button.Icon,
+            borderOwner = button,
+            nativeDecorationRegions = GetInboxIconDecorations(
+                globalPrefix, button),
+            hoverRegion = GetButtonStateTexture(
+                button, "GetHighlightTexture", "HighlightTexture"),
+            selectedRegion = GetButtonStateTexture(
+                button, "GetCheckedTexture", "CheckedTexture"),
+            getHovered = function(target)
+                return target and target.IsMouseOver
+                    and target:IsMouseOver() or false
+            end,
+            getSelected = function(target)
+                return target and target.GetChecked
+                    and target:GetChecked() == true or false
+            end,
+        }) == true or applied
+    end
+
+    local expireButton = _G[globalPrefix .. "ExpireTime"]
+    local expireText = expireButton and expireButton.GetFontString
+        and expireButton:GetFontString()
+    for _, target in ipairs({
+        _G[globalPrefix .. "Sender"],
+        _G[globalPrefix .. "Subject"],
+        expireText,
+    }) do
+        if target then
+            applied = NSkin:SkinText(target, styles.text) == true or applied
         end
     end
     return applied
+end
+
+function MailboxSkin:ApplyRows(frame)
+    local inbox = _G.InboxFrame
+    if not inbox then return false end
+    local styles = GetInboxRowStyles()
+    local applied = false
+    for index = 1, 7 do
+        applied = self:StyleInboxRow(index, styles) or applied
+    end
+
+    if not inboxRowsRegistered then
+        local function RefreshRows()
+            return MailboxSkin:ApplyRows(frame)
+        end
+        inboxRowsRegistered = NSkin:RegisterSkinningElement(IDs.Rows, {
+            module = "Mailbox",
+            appearanceWindowID = IDs.Scope,
+            label = "Inbox mail rows",
+            kind = "ROW",
+            window = frame,
+            target = inbox,
+            priority = 60,
+            draggable = false,
+            appearanceStyles = { "icon", "text" },
+            appearanceTypeIDs = { "ICON", "TEXT" },
+            highlightRegions = function()
+                return GetInboxRowTargets(true)
+            end,
+            pixelBorderTargets = function()
+                local targets = GetInboxRowTargets(true)
+                for index = 1, 7 do
+                    local button = _G["MailItem" .. index .. "Button"]
+                    if IsVisible(button) then targets[#targets + 1] = button end
+                end
+                return targets
+            end,
+            editorOptions = {
+                { id = "shared.rowAppearance", label = "Rows",
+                    category = "CUSTOMIZE" },
+                { id = "shared.iconAppearance", label = "Row icons",
+                    category = "CUSTOMIZE" },
+                { id = "shared.textAppearance", label = "Row text",
+                    category = "CUSTOMIZE" },
+            },
+            refreshAppearance = RefreshRows,
+            refreshLayout = RefreshRows,
+            isEditable = function()
+                return IsVisible(frame) and IsVisible(inbox)
+                    and #GetInboxRowTargets(true) > 0
+            end,
+        }) == true
+    end
+    if inboxRowsRegistered then
+        NSkin:NotifySkinningElementBoundsChanged(IDs.Rows)
+    end
+    return applied or inboxRowsRegistered
 end
 
 function MailboxSkin:ApplyOpenMailWindowChrome(frame)

@@ -61,27 +61,9 @@ local function GetRowTexts(row)
 end
 
 local function GetRowIcon(row)
-    if not row then return nil end
-    local spellInfo = row.SpellInfo
-    local iconOwner = row.Icon or (spellInfo and spellInfo.Icon)
-        or row.IconFrame or (spellInfo and spellInfo.IconFrame)
-    local texture = iconOwner
-    if iconOwner and iconOwner.GetObjectType
-        and iconOwner:GetObjectType() ~= "Texture"
-    then
-        texture = iconOwner.Icon or iconOwner.IconTexture
-            or iconOwner.Texture
-        if not texture and iconOwner.GetNormalTexture then
-            texture = iconOwner:GetNormalTexture()
-        end
-    end
-    texture = texture or row.IconTexture
-        or (spellInfo and spellInfo.IconTexture)
-    local border = row.IconBorder or (spellInfo and spellInfo.IconBorder)
-        or (iconOwner and iconOwner.IconBorder)
-    local target = iconOwner and iconOwner.GetObjectType
-        and iconOwner:GetObjectType() ~= "Texture" and iconOwner or row
-    return target, texture, border
+    local spellInfo = row and row.SpellInfo
+    if not spellInfo or not spellInfo.Icon then return nil end
+    return spellInfo, spellInfo.Icon, spellInfo.IconBorder
 end
 
 local function SuppressWindowBorders(frame)
@@ -100,6 +82,7 @@ local function SuppressWindowBorders(frame)
             or _G.DeathRecapFrameBoderTopLeft,
         _G.DeathRecapFrameBorderTopRight
             or _G.DeathRecapFrameBoderTopRight,
+        frame.BackgroundInnerGlow,
         frame.Divider or _G.DeathRecapFrameDivider,
     }) do
         if region then
@@ -131,20 +114,6 @@ local function SuppressWindowBorders(frame)
     end
 end
 
-local function LayoutBackgroundInnerGlow(frame, anchor)
-    local glow = frame and frame.BackgroundInnerGlow
-    anchor = anchor or frame
-    if not glow or not anchor or not glow.ClearAllPoints
-        or not glow.SetPoint
-    then return end
-    local baselineID = IDs.Window .. ".BackgroundInnerGlow"
-    NSkin:CaptureComponentBaseline(baselineID, glow, { points = true })
-    glow:ClearAllPoints()
-    glow:SetPoint("TOPLEFT", anchor, "TOPLEFT", 1, -1)
-    glow:SetPoint("BOTTOMRIGHT", anchor, "BOTTOMRIGHT", -1, 1)
-    NSkin:MarkComponentGeometryModified(baselineID, "points", true)
-end
-
 function DeathRecapSkin:StyleRow(row, styles)
     if not row then return false end
     styles = styles or GetStyles()
@@ -169,8 +138,7 @@ function DeathRecapSkin:StyleRow(row, styles)
             style = styles.icon,
             borderColor = styles.iconBorder,
             texture = icon,
-            borderOwner = row,
-            outside = true,
+            borderOwner = iconTarget,
             nativeDecorationRegions = nativeDecorations,
         }) == true or applied
     end
@@ -185,7 +153,7 @@ end
 
 function DeathRecapSkin:ApplyWindowChrome(frame)
     SuppressWindowBorders(frame)
-    local chrome = NSkin:SkinStandardWindowChrome({
+    NSkin:SkinStandardWindowChrome({
         frame = frame,
         appearanceWindowID = IDs.Scope,
         elementID = IDs.Window,
@@ -195,7 +163,6 @@ function DeathRecapSkin:ApplyWindowChrome(frame)
         closeButton = frame.CloseXButton
             or _G.DeathRecapFrameCloseXButton,
     })
-    LayoutBackgroundInnerGlow(frame, chrome and chrome.background)
     NSkin:RegisterSkinningElement(IDs.Window, {
         label = "Death Recap window",
         kind = "WINDOW",
