@@ -2038,6 +2038,12 @@ local EDITOR_PRESETS = {
         { id = "shared.scrollBarAppearance", label = "Scrollbar",
             category = "CUSTOMIZE" },
     },
+    SLIDER = {
+        { id = "shared.movable", label = "Position",
+            presentation = "INLINE", category = "POSITION" },
+        { id = "shared.sliderAppearance", label = "Slider",
+            presentation = "INLINE", category = "CUSTOMIZE" },
+    },
     ICON = {
         { id = "shared.movable", label = "Position",
             presentation = "INLINE", category = "POSITION" },
@@ -2131,6 +2137,8 @@ local SHARED_TYPE_DEFINITIONS = {
     CHECKBOX = { style = "button", skin = "SkinCheckButton",
         editorPreset = "CHECKBOX" },
     DROPDOWN = { style = "button", skin = "SkinDropdown", editorPreset = "MOVABLE" },
+    SLIDER = { style = "slider", skin = "SkinSlider", editorPreset = "SLIDER",
+        preserveAnchorSpan = true },
     NAVIGATION_BAR = { style = "navigationBar", skin = "SkinNavigationBar",
         editorPreset = "MOVABLE" },
     EDIT_BOX = { style = "editBox", skin = "SkinEditBox" },
@@ -2740,6 +2748,17 @@ local SHARED_SKIN_ADAPTERS = {
         options.menus = definition.menus
         skinMethod(self, target, options)
     end,
+    SLIDER = function(self, skinMethod, target, style, _, definition)
+        local options = {}
+        for key, value in pairs(definition.skinOptions or {}) do
+            options[key] = value
+        end
+        options.style = style
+        if options.nativeDecorationRegions == nil then
+            options.nativeDecorationRegions = definition.nativeDecorationRegions
+        end
+        skinMethod(self, target, options)
+    end,
     SEARCH_ACCESSORY = function(self, skinMethod, target, style, borderColor,
         definition)
         local options = {}
@@ -2884,6 +2903,7 @@ local TYPED_SKIN_FIELDS_BY_TYPE = {
     },
     CHECKBOX = { "text", "getChecked", "labelBaselineID" },
     DROPDOWN = { "menus" },
+    SLIDER = { "nativeDecorationRegions" },
     SEARCH_ACCESSORY = { "menus" },
     SECTION_CARD = {
         "collapsible", "expanded", "text", "textRegion", "icon",
@@ -3082,6 +3102,10 @@ end
 
 function NSkin:RegisterDropdown(definition)
     return self:RegisterTypedElement("DROPDOWN", definition)
+end
+
+function NSkin:RegisterSlider(definition)
+    return self:RegisterTypedElement("SLIDER", definition)
 end
 
 function NSkin:RegisterScrollBar(definition)

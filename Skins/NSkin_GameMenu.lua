@@ -10,6 +10,19 @@ local IDs = {
         Scope = "SettingsPanel",
         Window = "SettingsPanel.Window",
         HeaderControls = "SettingsPanel.HeaderControls",
+        TopTabs = "SettingsPanel.TopTabs",
+        DefaultsButton = "SettingsPanel.DefaultsButton",
+        CloseButton = "SettingsPanel.CloseButton",
+        SearchBox = "SettingsPanel.SearchBox",
+        ScrollBar = "SettingsPanel.SettingsList.ScrollBar",
+        Checkboxes = "SettingsPanel.SettingsList.Checkboxes",
+        Text = "SettingsPanel.SettingsList.Text",
+        Dropdowns = "SettingsPanel.SettingsList.Dropdowns",
+        Sliders = "SettingsPanel.SettingsList.Sliders",
+        Buttons = "SettingsPanel.SettingsList.Buttons",
+        KeybindingButtons = "SettingsPanel.SettingsList.KeybindingButtons",
+        CategoryCards = "SettingsPanel.CategoryList.SectionCards",
+        CategoryRows = "SettingsPanel.CategoryList.SectionRows",
     },
     Macro = {
         Scope = "MacroFrame",
@@ -59,6 +72,7 @@ local applyPending = false
 local settingsApplyPending = false
 local lifecycleHooked = false
 local settingsLifecycleHooked = false
+local settingsTabsHooked = false
 local macroLifecycleHooked = false
 local macroPopupLifecycleHooked = false
 local settingsRootTexturesConcealed = false
@@ -68,6 +82,8 @@ local buttonIDs = setmetatable({}, { __mode = "k" })
 local nextMacroSelectorIconID = 0
 local macroSelectorIconIDs = setmetatable({}, { __mode = "k" })
 local hookedMacroSelectorScrollBoxes = setmetatable({}, { __mode = "k" })
+local hookedSettingsScrollBoxes = setmetatable({}, { __mode = "k" })
+local registeredSettingsGroups = {}
 
 NSkin:RegisterAppearanceScope(IDs.Scope, {
     label = "Game Menu",
@@ -85,6 +101,29 @@ NSkin:RegisterAppearanceScope(IDs.Macro.Popup.Scope, {
 
 local function IsVisible(frame)
     return frame and frame.IsVisible and frame:IsVisible() or false
+end
+
+local function GetSettingsLists(frame)
+    local settingsList = frame and frame.Container
+        and frame.Container.SettingsList
+    local categoryList = frame and frame.CategoryList
+    return settingsList, categoryList,
+        settingsList and settingsList.ScrollBox,
+        categoryList and categoryList.ScrollBox
+end
+
+local function IsSettingsCategorySelected(target)
+    local atlas = target and target.Texture and target.Texture.GetAtlas
+        and target.Texture:GetAtlas()
+    return atlas == "Options_List_Active"
+end
+
+local function IsHovered(target)
+    return target and target.IsMouseOver and target:IsMouseOver() or false
+end
+
+local function IsSettingsTabSelected(tab)
+    return tab and tab.IsSelected and tab:IsSelected() or false
 end
 
 local MACRO_SELECTOR_SLOT_TEXTURE =
@@ -309,6 +348,429 @@ function GameMenuSkin:Apply()
     return true
 end
 
+local function GetSettingsControlTargets(frame, kind)
+    local _, _, scrollBox = GetSettingsLists(frame)
+    local targets = {}
+    NSkin:ForEachScrollBoxFrame(scrollBox, function(target)
+        if kind == "CHECKBOX" and target.Checkbox then
+            targets[#targets + 1] = target.Checkbox
+        elseif kind == "TEXT" and target.Text then
+            targets[#targets + 1] = target.Text
+        elseif kind == "DROPDOWN" and target.Control
+            and target.Control.Dropdown
+        then
+            targets[#targets + 1] = target.Control.Dropdown
+            if target.Control.DecrementButton then
+                targets[#targets + 1] = target.Control.DecrementButton
+            end
+            if target.Control.IncrementButton then
+                targets[#targets + 1] = target.Control.IncrementButton
+            end
+        elseif kind == "SLIDER" and target.SliderWithSteppers
+            and target.SliderWithSteppers.Slider
+        then
+            targets[#targets + 1] = target.SliderWithSteppers.Slider
+        elseif kind == "SETTINGS_BUTTON" and target.Button then
+            targets[#targets + 1] = target.Button
+        elseif kind == "ACTION_BUTTON" then
+            if target.Button1 then targets[#targets + 1] = target.Button1 end
+            if target.Button2 then targets[#targets + 1] = target.Button2 end
+        end
+    end)
+    return targets
+end
+
+local function GetSettingsCategoryTargets(frame, cards)
+    local _, _, _, scrollBox = GetSettingsLists(frame)
+    local targets = {}
+    NSkin:ForEachScrollBoxFrame(scrollBox, function(target)
+        local isCard = target.Label and target.Background and not target.Toggle
+        local isRow = target.Label and target.Toggle
+        if (cards and isCard) or (not cards and isRow) then
+            targets[#targets + 1] = target
+        end
+    end)
+    return targets
+end
+
+function GameMenuSkin:StyleSettingsControl(frame, target, kind)
+    local ids = IDs.Settings
+    if kind == "CHECKBOX" and target.Checkbox then
+        local style = NSkin:GetAppearanceStyle(
+            "button", ids.Scope, ids.Checkboxes)
+        return NSkin:SkinCheckButton(target.Checkbox, {
+            style = style,
+            border = NSkin:GetAppearanceBorderColor(
+                "button", style, ids.Scope, ids.Checkboxes),
+        }) == true
+    elseif kind == "TEXT" and target.Text then
+        return NSkin:SkinText(target.Text, NSkin:GetAppearanceStyle(
+            "text", ids.Scope, ids.Text)) == true
+    elseif kind == "DROPDOWN" and target.Control
+        and target.Control.Dropdown
+    then
+        local style = NSkin:GetAppearanceStyle(
+            "button", ids.Scope, ids.Dropdowns)
+        NSkin:SkinDropdown(target.Control.Dropdown, {
+            style = style,
+            border = NSkin:GetAppearanceBorderColor(
+                "button", style, ids.Scope, ids.Dropdowns),
+            skinSteppers = true,
+            decrementButton = target.Control.DecrementButton,
+            incrementButton = target.Control.IncrementButton,
+        })
+        return true
+    elseif kind == "SLIDER" and target.SliderWithSteppers
+        and target.SliderWithSteppers.Slider
+    then
+        return NSkin:SkinSlider(target.SliderWithSteppers.Slider, {
+            style = NSkin:GetAppearanceStyle(
+                "slider", ids.Scope, ids.Sliders),
+        }) == true
+    elseif kind == "SETTINGS_BUTTON" and target.Button then
+        local style = NSkin:GetAppearanceStyle(
+            "button", ids.Scope, ids.Buttons)
+        NSkin:SkinActionButton(target.Button, {
+            style = style,
+            border = NSkin:GetAppearanceBorderColor(
+                "button", style, ids.Scope, ids.Buttons),
+        })
+        return true
+    elseif kind == "ACTION_BUTTON" then
+        local style = NSkin:GetAppearanceStyle(
+            "button", ids.Scope, ids.KeybindingButtons)
+        local border = NSkin:GetAppearanceBorderColor(
+            "button", style, ids.Scope, ids.KeybindingButtons)
+        local applied = false
+        for _, button in ipairs({ target.Button1, target.Button2 }) do
+            if button then
+                NSkin:SkinActionButton(button, {
+                    style = style,
+                    border = border,
+                })
+                applied = true
+            end
+        end
+        return applied
+    end
+    return false
+end
+
+function GameMenuSkin:ApplySettingsControlGroup(frame, kind)
+    local _, _, scrollBox = GetSettingsLists(frame)
+    local applied = false
+    NSkin:ForEachScrollBoxFrame(scrollBox, function(target)
+        applied = self:StyleSettingsControl(frame, target, kind) or applied
+    end)
+    return applied
+end
+
+function GameMenuSkin:StyleSettingsCategory(frame, target, cards)
+    local ids = IDs.Settings
+    if cards and target.Label and target.Background and not target.Toggle then
+        local style = NSkin:GetAppearanceStyle(
+            "sectionCard", ids.Scope, ids.CategoryCards)
+        return NSkin:SkinSectionCard(target, {
+            style = style,
+            border = NSkin:GetAppearanceBorderColor(
+                "sectionCard", style, ids.Scope, ids.CategoryCards),
+            collapsible = false,
+            text = target.Label,
+            preserveTextLayout = true,
+            nativeDecorationRegions = { target.Background },
+        }) ~= nil
+    elseif not cards and target.Label and target.Toggle then
+        local style = NSkin:GetAppearanceStyle(
+            "sectionRow", ids.Scope, ids.CategoryRows)
+        return NSkin:SkinSectionRow(target, {
+            style = style,
+            border = NSkin:GetAppearanceBorderColor(
+                "sectionRow", style, ids.Scope, ids.CategoryRows),
+            contentRegions = { target.Label },
+            contentStyle = NSkin:GetAppearanceStyle(
+                "text", ids.Scope, ids.CategoryRows),
+            nativeDecorationRegions = { target.Texture },
+            collapseButton = target.Toggle,
+            getHovered = IsHovered,
+            getSelected = IsSettingsCategorySelected,
+        }) ~= nil
+    end
+    return false
+end
+
+function GameMenuSkin:ApplySettingsCategoryGroup(frame, cards)
+    local _, _, _, scrollBox = GetSettingsLists(frame)
+    local applied = false
+    NSkin:ForEachScrollBoxFrame(scrollBox, function(target)
+        applied = self:StyleSettingsCategory(frame, target, cards) or applied
+    end)
+    return applied
+end
+
+local function RegisterSettingsGeneratedGroup(frame, definition)
+    local id = definition.id
+    if not registeredSettingsGroups[id] then
+        registeredSettingsGroups[id] = NSkin:RegisterSkinningElement(id, {
+            label = definition.label,
+            kind = definition.kind,
+            module = "GameMenu",
+            appearanceWindowID = IDs.Settings.Scope,
+            window = frame,
+            target = definition.owner,
+            priority = definition.priority,
+            draggable = false,
+            appearanceStyles = definition.appearanceStyles,
+            appearanceTypeIDs = definition.appearanceTypeIDs,
+            highlightRegions = definition.targets,
+            pixelBorderTargets = definition.pixelBorders and definition.targets
+                or nil,
+            refreshAppearance = definition.refresh,
+            refreshLayout = definition.refresh,
+            isEditable = function()
+                return IsVisible(frame) and #definition.targets() > 0
+            end,
+        }) == true
+    end
+    local applied = definition.refresh()
+    if registeredSettingsGroups[id] then
+        NSkin:NotifySkinningElementBoundsChanged(id)
+    end
+    return applied or registeredSettingsGroups[id]
+end
+
+function GameMenuSkin:RegisterSettingsGeneratedGroups(frame)
+    local ids = IDs.Settings
+    local _, _, settingsScrollBox, categoryScrollBox = GetSettingsLists(frame)
+    if not settingsScrollBox or not categoryScrollBox then return false end
+    local applied = false
+    for _, definition in ipairs({
+        { id = ids.Checkboxes, label = "Settings checkboxes",
+            kind = "CHECKBOX", owner = settingsScrollBox, priority = 60,
+            pixelBorders = true,
+            targets = function()
+                return GetSettingsControlTargets(frame, "CHECKBOX")
+            end,
+            refresh = function()
+                return GameMenuSkin:ApplySettingsControlGroup(frame, "CHECKBOX")
+            end },
+        { id = ids.Text, label = "Settings labels", kind = "TEXT",
+            owner = settingsScrollBox, priority = 61,
+            targets = function()
+                return GetSettingsControlTargets(frame, "TEXT")
+            end,
+            refresh = function()
+                return GameMenuSkin:ApplySettingsControlGroup(frame, "TEXT")
+            end },
+        { id = ids.Dropdowns, label = "Settings dropdowns",
+            kind = "DROPDOWN", owner = settingsScrollBox, priority = 62,
+            pixelBorders = true,
+            targets = function()
+                return GetSettingsControlTargets(frame, "DROPDOWN")
+            end,
+            refresh = function()
+                return GameMenuSkin:ApplySettingsControlGroup(frame, "DROPDOWN")
+            end },
+        { id = ids.KeybindingButtons, label = "Settings keybinding buttons",
+            kind = "ACTION_BUTTON", owner = settingsScrollBox, priority = 64,
+            pixelBorders = true,
+            targets = function()
+                return GetSettingsControlTargets(frame, "ACTION_BUTTON")
+            end,
+            refresh = function()
+                return GameMenuSkin:ApplySettingsControlGroup(
+                    frame, "ACTION_BUTTON")
+            end },
+        { id = ids.Sliders, label = "Settings sliders",
+            kind = "SLIDER", owner = settingsScrollBox, priority = 63,
+            targets = function()
+                return GetSettingsControlTargets(frame, "SLIDER")
+            end,
+            refresh = function()
+                return GameMenuSkin:ApplySettingsControlGroup(frame, "SLIDER")
+            end },
+        { id = ids.Buttons, label = "Settings buttons",
+            kind = "ACTION_BUTTON", owner = settingsScrollBox, priority = 64,
+            pixelBorders = true,
+            targets = function()
+                return GetSettingsControlTargets(frame, "SETTINGS_BUTTON")
+            end,
+            refresh = function()
+                return GameMenuSkin:ApplySettingsControlGroup(
+                    frame, "SETTINGS_BUTTON")
+            end },
+        { id = ids.CategoryCards, label = "Settings category cards",
+            kind = "SECTION_CARD", owner = categoryScrollBox, priority = 66,
+            pixelBorders = true,
+            targets = function()
+                return GetSettingsCategoryTargets(frame, true)
+            end,
+            refresh = function()
+                return GameMenuSkin:ApplySettingsCategoryGroup(frame, true)
+            end },
+        { id = ids.CategoryRows, label = "Settings category rows",
+            kind = "SECTION_ROW", owner = categoryScrollBox, priority = 67,
+            pixelBorders = true,
+            appearanceStyles = { "text" },
+            appearanceTypeIDs = { "TEXT" },
+            targets = function()
+                return GetSettingsCategoryTargets(frame, false)
+            end,
+            refresh = function()
+                return GameMenuSkin:ApplySettingsCategoryGroup(frame, false)
+            end },
+    }) do
+        applied = RegisterSettingsGeneratedGroup(frame, definition) or applied
+    end
+    return applied
+end
+
+function GameMenuSkin:StyleInitializedSettingsControl(frame, target)
+    for _, kind in ipairs({
+        "CHECKBOX", "TEXT", "DROPDOWN", "SLIDER", "SETTINGS_BUTTON",
+        "ACTION_BUTTON",
+    }) do
+        if self:StyleSettingsControl(frame, target, kind) then
+            local id = kind == "CHECKBOX" and IDs.Settings.Checkboxes
+                or kind == "TEXT" and IDs.Settings.Text
+                or kind == "DROPDOWN" and IDs.Settings.Dropdowns
+                or kind == "SLIDER" and IDs.Settings.Sliders
+                or kind == "SETTINGS_BUTTON" and IDs.Settings.Buttons
+                or IDs.Settings.KeybindingButtons
+            NSkin:NotifySkinningElementBoundsChanged(id)
+        end
+    end
+end
+
+function GameMenuSkin:StyleInitializedSettingsCategory(frame, target)
+    for _, cards in ipairs({ true, false }) do
+        if self:StyleSettingsCategory(frame, target, cards) then
+            NSkin:NotifySkinningElementBoundsChanged(cards
+                and IDs.Settings.CategoryCards or IDs.Settings.CategoryRows)
+        end
+    end
+end
+
+local function HookSettingsScrollBox(scrollBox, owner, callback)
+    if not scrollBox or hookedSettingsScrollBoxes[scrollBox] then return end
+    local events = _G.ScrollBoxListMixin and _G.ScrollBoxListMixin.Event
+    if scrollBox.RegisterCallback and events and events.OnInitializedFrame then
+        scrollBox:RegisterCallback(events.OnInitializedFrame,
+            function(_, target) callback(target) end, owner)
+        hookedSettingsScrollBoxes[scrollBox] = true
+    end
+end
+
+function GameMenuSkin:ApplySettingsTopTabs(frame)
+    local tabs = { frame.GameTab, frame.AddOnsTab }
+    if not tabs[1] or not tabs[2] then return false end
+    local style = NSkin:GetAppearanceStyle(
+        "tab", IDs.Settings.Scope, IDs.Settings.TopTabs)
+    local border = NSkin:GetAppearanceBorderColor(
+        "tab", style, IDs.Settings.Scope, IDs.Settings.TopTabs)
+    for i = 1, #tabs do
+        NSkin:SkinTab(tabs[i], IsSettingsTabSelected(tabs[i]), style, border)
+    end
+    local event = _G.ButtonGroupBaseMixin and _G.ButtonGroupBaseMixin.Event
+        and _G.ButtonGroupBaseMixin.Event.Selected
+    if not settingsTabsHooked and frame.tabsGroup
+        and frame.tabsGroup.RegisterCallback and event
+    then
+        frame.tabsGroup:RegisterCallback(event, function()
+            GameMenuSkin:ApplySettingsTopTabs(frame)
+        end, self)
+        settingsTabsHooked = true
+    end
+    return true
+end
+
+function GameMenuSkin:ApplySettingsPanelControls(frame)
+    local ids = IDs.Settings
+    local settingsList, _, settingsScrollBox, categoryScrollBox =
+        GetSettingsLists(frame)
+    local applied = false
+
+    if frame.SearchBox then
+        applied = NSkin:RegisterSearchBox({
+            id = ids.SearchBox,
+            module = "GameMenu",
+            appearanceWindowID = ids.Scope,
+            label = "Settings search box",
+            window = frame,
+            target = frame.SearchBox,
+            priority = 49,
+            highlightRegions = { frame.SearchBox },
+            isEditable = function()
+                return IsVisible(frame) and IsVisible(frame.SearchBox)
+            end,
+        }) ~= nil or applied
+    end
+
+    if settingsList and settingsList.ScrollBar then
+        applied = NSkin:RegisterScrollBar({
+            id = ids.ScrollBar,
+            module = "GameMenu",
+            appearanceWindowID = ids.Scope,
+            label = "Settings list scroll bar",
+            window = frame,
+            target = settingsList.ScrollBar,
+            priority = 50,
+            highlightRegions = { settingsList.ScrollBar },
+            isEditable = function()
+                return IsVisible(frame) and IsVisible(settingsList.ScrollBar)
+            end,
+        }) ~= nil or applied
+    end
+
+    for _, definition in ipairs({
+        { ids.DefaultsButton, "Settings defaults button",
+            settingsList and settingsList.Header
+                and settingsList.Header.DefaultsButton },
+        { ids.CloseButton, "Settings close button", frame.CloseButton },
+    }) do
+        local id, label, button = unpack(definition)
+        if button then
+            applied = NSkin:RegisterActionButton({
+                id = id,
+                module = "GameMenu",
+                appearanceWindowID = ids.Scope,
+                label = label,
+                window = frame,
+                target = button,
+                priority = 51,
+                highlightRegions = { button },
+                isEditable = function()
+                    return IsVisible(frame) and IsVisible(button)
+                end,
+            }) ~= nil or applied
+        end
+    end
+
+    if frame.GameTab and frame.AddOnsTab then
+        applied = self:ApplySettingsTopTabs(frame) or applied
+        applied = NSkin:RegisterTabGroup(ids.TopTabs, {
+            label = "Settings top tabs",
+            module = "GameMenu",
+            appearanceWindowID = ids.Scope,
+            window = frame,
+            tabs = { frame.GameTab, frame.AddOnsTab },
+            priority = 52,
+            orientation = "HORIZONTAL",
+            edge = "TOP",
+            getSelected = IsSettingsTabSelected,
+        }) or applied
+        NSkin:ApplyTabGroupLayout(ids.TopTabs)
+    end
+
+    applied = self:RegisterSettingsGeneratedGroups(frame) or applied
+    HookSettingsScrollBox(settingsScrollBox, self, function(target)
+        GameMenuSkin:StyleInitializedSettingsControl(frame, target)
+    end)
+    HookSettingsScrollBox(categoryScrollBox, self, function(target)
+        GameMenuSkin:StyleInitializedSettingsCategory(frame, target)
+    end)
+    return applied
+end
+
 function GameMenuSkin:ApplySettingsPanel()
     local frame = _G.SettingsPanel
     if not frame then return false end
@@ -354,6 +816,7 @@ function GameMenuSkin:ApplySettingsPanel()
         priority = 0,
         draggable = false,
     })
+    self:ApplySettingsPanelControls(frame)
     return true
 end
 

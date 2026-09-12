@@ -293,6 +293,82 @@ function NSkin:SkinCheckButton(checkButton, options)
     return true
 end
 
+local function RefreshDropdownStepper(button)
+    local data = NSkin:GetSkinData(button, COMPONENT_STATE, false)
+    local arrow = data and data.dropdownStepperArrow
+    if not arrow then return end
+    local enabled = not button.IsEnabled or button:IsEnabled()
+    local color = enabled and data.dropdownStepperEnabledColor
+        or data.dropdownStepperDisabledColor
+    color = color or (enabled and { 1, 1, 1, 1 }
+        or { 0.45, 0.45, 0.45, 1 })
+    arrow:SetVertexColor(unpack(color))
+    arrow:SetShown(not button.IsShown or button:IsShown())
+end
+
+local function SkinDropdownStepper(button, rotation, background, border,
+    disabledColor)
+    if not button then return end
+    NSkin:SkinFlatButton(button, "", background, border)
+    NSkin:SetPixelBorderSize(NSkin:GetPixelBorder(
+        button, "NSkinFlatBackgroundBorder"), 1)
+    local data = NSkin:GetSkinData(button, COMPONENT_STATE)
+    if not data.dropdownStepperArrow then
+        local arrow = button:CreateTexture(nil, "OVERLAY")
+        arrow:SetSize(14, 14)
+        arrow:SetPoint("CENTER")
+        arrow:SetTexture(NSkin.mediaPath .. "angle-small-down.png")
+        arrow:SetRotation(rotation)
+        NSkin:ConfigureOwnedPixelTexture(arrow)
+        data.dropdownStepperArrow = arrow
+    end
+    data.dropdownStepperEnabledColor = { 1, 1, 1, 1 }
+    data.dropdownStepperDisabledColor = disabledColor
+    if not data.dropdownStepperStateHooked and button.HookScript then
+        button:HookScript("OnEnable", RefreshDropdownStepper)
+        button:HookScript("OnDisable", RefreshDropdownStepper)
+        button:HookScript("OnShow", RefreshDropdownStepper)
+        button:HookScript("OnHide", RefreshDropdownStepper)
+        data.dropdownStepperStateHooked = true
+    end
+    RefreshDropdownStepper(button)
+end
+
+local function RefreshDropdownState(dropdown)
+    local data = NSkin:GetSkinData(dropdown, COMPONENT_STATE, false)
+    if not data or data.refreshingDropdownState then return end
+    data.refreshingDropdownState = true
+    local enabled = not dropdown.IsEnabled or dropdown:IsEnabled()
+    local color = enabled and data.dropdownTextColor
+        or data.dropdownDisabledTextColor
+    if data.dropdownDisplayText and color then
+        NSkin:SetFontStringColor(data.dropdownDisplayText, unpack(color))
+    end
+    local arrowColor = enabled and data.dropdownArrowColor
+        or data.dropdownDisabledTextColor
+    if data.dropdownArrow and arrowColor then
+        data.dropdownArrow:SetVertexColor(unpack(arrowColor))
+    end
+    for _, button in ipairs(data.dropdownStepperButtons or {}) do
+        RefreshDropdownStepper(button)
+    end
+    data.refreshingDropdownState = nil
+end
+
+local function HookDropdownTextColor(dropdown, text)
+    local data = NSkin:GetSkinData(dropdown, COMPONENT_STATE)
+    if not text or data.dropdownTextColorHooked == text
+        or not _G.hooksecurefunc or type(text.SetTextColor) ~= "function"
+    then return end
+    data.dropdownTextColorHooked = text
+    _G.hooksecurefunc(text, "SetTextColor", function()
+        local state = NSkin:GetSkinData(dropdown, COMPONENT_STATE, false)
+        if state and not state.refreshingDropdownState then
+            RefreshDropdownState(dropdown)
+        end
+    end)
+end
+
 function NSkin:SkinDropdown(dropdown, options)
     if not dropdown then return end
     options = options or {}
@@ -308,19 +384,20 @@ function NSkin:SkinDropdown(dropdown, options)
     if dropdown.Background then dropdown.Background:SetAlpha(0) end
     if dropdown.Arrow then dropdown.Arrow:SetAlpha(0) end
     if dropdown.NineSlice then dropdown.NineSlice:Hide() end
+
+    local data = self:GetSkinData(dropdown, COMPONENT_STATE)
     if dropdown.Text then
-        self:SetFontStringColor(dropdown.Text, unpack(style.text))
         dropdown.Text:SetAlpha(options.preserveText == false and 0 or 1)
         self:ApplyResolvedTypography(dropdown.Text, self:GetStyle("text"))
     end
-    local data = self:GetSkinData(dropdown, COMPONENT_STATE)
     if options.preserveText == false then
-        local label = self:SetFlatButtonLabel(
+        data.dropdownDisplayText = self:SetFlatButtonLabel(
             dropdown, options.label or "", options.textSize)
-        if label then self:SetFontStringColor(label, unpack(style.text)) end
-    elseif data.label then
-        data.label:Hide()
+    else
+        data.dropdownDisplayText = dropdown.Text
+        if data.label then data.label:Hide() end
     end
+
     local arrow = data.dropdownArrow
     if not arrow then
         arrow = dropdown:CreateTexture(nil, "OVERLAY")
@@ -330,8 +407,45 @@ function NSkin:SkinDropdown(dropdown, options)
         self:ConfigureOwnedPixelTexture(arrow)
         data.dropdownArrow = arrow
     end
-    arrow:SetVertexColor(unpack(self:GetSharedBorderColor()))
     arrow:Show()
+
+    data.dropdownTextColor = self:GetResolvedAppearanceColor(style, "text")
+        or style.text or { 1, 1, 1, 1 }
+    data.dropdownDisabledTextColor = self:GetResolvedAppearanceColor(
+        style, "disabledText") or style.disabledText
+        or { 0.45, 0.45, 0.45, 1 }
+    data.dropdownArrowColor = { 1, 1, 1, 1 }
+    HookDropdownTextColor(dropdown, data.dropdownDisplayText)
+
+    data.dropdownStepperButtons = {}
+    if options.skinSteppers == true then
+        local background = options.background or style.background
+        local borderColor = options.border
+            or self:GetComponentBorderColor("button", style)
+        if options.decrementButton then
+            SkinDropdownStepper(options.decrementButton, -math.pi / 2,
+                background, borderColor, data.dropdownDisabledTextColor)
+            data.dropdownStepperButtons[#data.dropdownStepperButtons + 1] =
+                options.decrementButton
+        end
+        if options.incrementButton then
+            SkinDropdownStepper(options.incrementButton, math.pi / 2,
+                background, borderColor, data.dropdownDisabledTextColor)
+            data.dropdownStepperButtons[#data.dropdownStepperButtons + 1] =
+                options.incrementButton
+        end
+    end
+
+    if not data.dropdownStateHooked and dropdown.HookScript then
+        for _, script in ipairs({
+            "OnEnter", "OnLeave", "OnMouseDown", "OnMouseUp",
+            "OnEnable", "OnDisable", "OnShow",
+        }) do
+            dropdown:HookScript(script, RefreshDropdownState)
+        end
+        data.dropdownStateHooked = true
+    end
+    RefreshDropdownState(dropdown)
 
     data.dropdownMenuStyle = {
         -- Popup menus deliberately use one canonical palette instead of
@@ -347,6 +461,453 @@ function NSkin:SkinDropdown(dropdown, options)
         local state = NSkin:GetSkinData(dropdown, COMPONENT_STATE, false)
         return state and state.dropdownMenuStyle
     end, options.preserveMenuAnchor)
+end
+
+local SLIDER_COMPONENT_STATE = "sliderComponent"
+
+local function RestoreSliderDecoration(state)
+    local region = state and state.region
+    if not region then return end
+    state.applying = true
+    if region.SetAlpha and state.alpha ~= nil then region:SetAlpha(state.alpha) end
+    if state.shown ~= nil and region.SetShown then region:SetShown(state.shown) end
+    state.applying = nil
+end
+
+local function ConcealSliderDecoration(data, state)
+    local region = state and state.region
+    if not data.active or not region or state.applying then return end
+    state.applying = true
+    if region.SetAlpha then region:SetAlpha(0)
+    elseif region.Hide then region:Hide() end
+    state.applying = nil
+end
+
+local function ApplySliderDecorations(data, declared)
+    local active = {}
+    for _, region in ipairs(declared) do
+        if region then active[region] = true end
+    end
+    data.nativeDecorationStates = data.nativeDecorationStates or {}
+    for region, state in pairs(data.nativeDecorationStates) do
+        if state.active and not active[region] then
+            state.active = nil
+            RestoreSliderDecoration(state)
+        end
+    end
+    for region in pairs(active) do
+        local state = data.nativeDecorationStates[region]
+        if not state then
+            state = {
+                region = region,
+                alpha = region.GetAlpha and region:GetAlpha() or 1,
+                shown = region.IsShown and region:IsShown() or nil,
+            }
+            data.nativeDecorationStates[region] = state
+        end
+        state.active = true
+        ConcealSliderDecoration(data, state)
+        if not state.hooked and _G.hooksecurefunc then
+            local function MaintainDecoration()
+                ConcealSliderDecoration(data, state)
+            end
+            for _, method in ipairs({ "SetAlpha", "SetShown", "Show" }) do
+                if type(region[method]) == "function" then
+                    pcall(_G.hooksecurefunc, region, method,
+                        MaintainDecoration)
+                end
+            end
+            state.hooked = true
+        end
+    end
+end
+
+local function ResolveSliderRatio(slider)
+    local minimum, maximum = slider:GetMinMaxValues()
+    local range = maximum - minimum
+    if range <= 0 then return 0 end
+    return math.max(0, math.min(1,
+        ((tonumber(slider:GetValue()) or minimum) - minimum) / range))
+end
+
+local function RefreshSliderStepper(button)
+    local data = NSkin:GetSkinData(button, SLIDER_COMPONENT_STATE, false)
+    local arrow = data and data.sliderArrow
+    if not arrow then return end
+    local enabled = not button.IsEnabled or button:IsEnabled()
+    local color = enabled and data.enabledColor or data.disabledColor
+    color = color or (enabled and { 1, 1, 1, 1 }
+        or { 0.40, 0.40, 0.40, 1 })
+    arrow:SetVertexColor(unpack(color))
+    arrow:SetShown(not button.IsShown or button:IsShown())
+end
+
+local function SkinSliderStepper(button, rotation, enabledColor, disabledColor)
+    if not button or not button.CreateTexture then return nil end
+    local data = NSkin:GetSkinData(button, SLIDER_COMPONENT_STATE)
+    if not data.sliderArrow then
+        local arrow = button:CreateTexture(nil, "OVERLAY")
+        arrow:SetSize(14, 14)
+        arrow:SetPoint("CENTER")
+        arrow:SetTexture(NSkin.mediaPath .. "angle-small-down.png")
+        arrow:SetRotation(rotation)
+        NSkin:ConfigureOwnedPixelTexture(arrow)
+        data.sliderArrow = arrow
+    end
+    data.enabledColor = enabledColor
+    data.disabledColor = disabledColor
+    if not data.sliderArrowHooked and button.HookScript then
+        button:HookScript("OnEnable", RefreshSliderStepper)
+        button:HookScript("OnDisable", RefreshSliderStepper)
+        button:HookScript("OnShow", RefreshSliderStepper)
+        button:HookScript("OnHide", RefreshSliderStepper)
+        data.sliderArrowHooked = true
+    end
+    RefreshSliderStepper(button)
+    return data.sliderArrow
+end
+
+local function ParseSliderNumber(value)
+    if type(value) == "number" then return value end
+    local normalized = tostring(value or ""):gsub(",", ".")
+    return tonumber(normalized:match("[-+]?%d+%.?%d*"))
+end
+
+local function GetSliderValueFormatter(parent, valueSource)
+    if not parent or not valueSource or type(parent.formatters) ~= "table"
+        or type(parent.Labels) ~= "table"
+    then return nil end
+    for labelID, label in pairs(parent.Labels) do
+        if label == valueSource and type(parent.formatters[labelID]) == "function" then
+            return parent.formatters[labelID]
+        end
+    end
+end
+
+local function GetSliderDisplayText(slider, data)
+    local source = data.valueSource
+    local text = source and source.GetText and source:GetText()
+    if text and text ~= "" then return text end
+    local value = slider:GetValue()
+    return value == math.floor(value) and tostring(math.floor(value))
+        or tostring(value)
+end
+
+local function ResolveSliderInputValue(slider, data, input)
+    local requested = ParseSliderNumber(input)
+    if not requested then return slider:GetValue() end
+    local minimum, maximum = slider:GetMinMaxValues()
+    local formatter = GetSliderValueFormatter(data.sliderParent, data.valueSource)
+    local resolved = requested
+    if formatter then
+        local lowValue = ParseSliderNumber(formatter(minimum))
+        local highValue = ParseSliderNumber(formatter(maximum))
+        if lowValue and highValue and lowValue ~= highValue then
+            local low, high = minimum, maximum
+            local ascending = highValue > lowValue
+            for _ = 1, 32 do
+                local middle = (low + high) / 2
+                local displayed = ParseSliderNumber(formatter(middle))
+                if not displayed then break end
+                if (ascending and displayed < requested)
+                    or (not ascending and displayed > requested)
+                then
+                    low = middle
+                else
+                    high = middle
+                end
+            end
+            resolved = (low + high) / 2
+        end
+    end
+    resolved = math.max(minimum, math.min(maximum, resolved))
+    local step = slider.GetValueStep and slider:GetValueStep()
+    if step and step > 0 then
+        resolved = minimum + math.floor(
+            ((resolved - minimum) / step) + 0.5) * step
+        resolved = math.max(minimum, math.min(maximum, resolved))
+    end
+    return resolved
+end
+
+local function CommitSliderValueBox(editBox)
+    local slider = editBox and editBox.nskinSlider
+    local data = slider and NSkin:GetSkinData(
+        slider, SLIDER_COMPONENT_STATE, false)
+    if not data then return end
+    slider:SetValue(ResolveSliderInputValue(slider, data, editBox:GetText()))
+    editBox:ClearFocus()
+    editBox:SetText(GetSliderDisplayText(slider, data))
+end
+
+local function CancelSliderValueBox(editBox)
+    local slider = editBox and editBox.nskinSlider
+    local data = slider and NSkin:GetSkinData(
+        slider, SLIDER_COMPONENT_STATE, false)
+    editBox:ClearFocus()
+    if data then editBox:SetText(GetSliderDisplayText(slider, data)) end
+end
+
+local function RefreshSliderPresentation(slider)
+    local data = NSkin:GetSkinData(slider, SLIDER_COMPONENT_STATE, false)
+    if not data or not data.active or not data.style then return end
+    local style = data.style
+    local horizontal = not slider.GetOrientation
+        or slider:GetOrientation() ~= "VERTICAL"
+    local trackHeight = math.max(1, tonumber(style.trackHeight) or 4)
+    local trackWidth = math.max(1, tonumber(style.trackWidth) or trackHeight)
+    local ratio = ResolveSliderRatio(slider)
+    local length = horizontal and slider:GetWidth() or slider:GetHeight()
+    local fillLength = math.max(0.001, length * ratio)
+    local enabled = not slider.IsEnabled or slider:IsEnabled()
+    local alpha = enabled and 1 or (tonumber(style.disabledAlpha) or 1)
+    local trackColor = enabled and data.trackColor or data.disabledColor
+    local fillColor = enabled and data.fillColor or data.disabledColor
+    local thumbColor = enabled and data.thumbColor or data.disabledColor
+
+    data.track:ClearAllPoints()
+    data.fill:ClearAllPoints()
+    for i = 1, #data.fillGlows do data.fillGlows[i]:ClearAllPoints() end
+    if horizontal then
+        data.track:SetPoint("LEFT", slider, "LEFT")
+        data.track:SetPoint("RIGHT", slider, "RIGHT")
+        data.track:SetHeight(trackHeight)
+        data.fill:SetPoint("LEFT", slider, "LEFT")
+        data.fill:SetWidth(fillLength)
+        data.fill:SetHeight(trackHeight)
+        for i = 1, #data.fillGlows do
+            data.fillGlows[i]:SetPoint("LEFT", slider, "LEFT")
+            data.fillGlows[i]:SetWidth(fillLength)
+            data.fillGlows[i]:SetHeight(data.glowSizes[i])
+        end
+    else
+        data.track:SetPoint("BOTTOM", slider, "BOTTOM")
+        data.track:SetPoint("TOP", slider, "TOP")
+        data.track:SetWidth(trackWidth)
+        data.fill:SetPoint("BOTTOM", slider, "BOTTOM")
+        data.fill:SetHeight(fillLength)
+        data.fill:SetWidth(trackWidth)
+        for i = 1, #data.fillGlows do
+            data.fillGlows[i]:SetPoint("BOTTOM", slider, "BOTTOM")
+            data.fillGlows[i]:SetHeight(fillLength)
+            data.fillGlows[i]:SetWidth(data.glowSizes[i])
+        end
+    end
+    NSkin:SetOwnedTextureColor(data.track, unpack(trackColor))
+    NSkin:SetOwnedTextureColor(data.fill, unpack(fillColor))
+    for i = 1, #data.fillGlows do
+        NSkin:SetOwnedTextureColor(data.fillGlows[i],
+            fillColor[1], fillColor[2], fillColor[3],
+            enabled and data.glowAlphas[i] or 0)
+    end
+    if data.thumb then data.thumb:SetColorTexture(unpack(thumbColor)) end
+    data.track:SetAlpha(alpha)
+    data.fill:SetAlpha(alpha)
+    for i = 1, #data.fillGlows do data.fillGlows[i]:SetAlpha(alpha) end
+    if data.thumb then data.thumb:SetAlpha(alpha) end
+    if data.valueBox then
+        data.valueBox:SetEnabled(enabled)
+        local valueText = enabled and data.valueTextColor or data.disabledColor
+        data.valueBox:SetTextColor(unpack(valueText))
+        if not data.valueBox:HasFocus() then
+            data.valueBox:SetText(GetSliderDisplayText(slider, data))
+        end
+    end
+    for _, button in ipairs(data.stepperButtons or {}) do
+        RefreshSliderStepper(button)
+    end
+end
+
+local function RestoreSliderThumb(slider, data)
+    local baseline = data.thumbBaseline
+    if not baseline then return end
+    if baseline.atlas and slider:GetThumbTexture().SetAtlas then
+        slider:GetThumbTexture():SetAtlas(baseline.atlas, true)
+    elseif baseline.texture then
+        slider:SetThumbTexture(baseline.texture)
+    end
+    local thumb = slider:GetThumbTexture()
+    if not thumb then return end
+    if baseline.width and baseline.height then
+        thumb:SetSize(baseline.width, baseline.height)
+    end
+    if baseline.color then thumb:SetVertexColor(unpack(baseline.color)) end
+    if baseline.alpha ~= nil then thumb:SetAlpha(baseline.alpha) end
+    if baseline.shown ~= nil then thumb:SetShown(baseline.shown) end
+end
+
+function NSkin:SkinSlider(slider, options)
+    if not slider or not slider.GetObjectType
+        or slider:GetObjectType() ~= "Slider"
+        or not slider.GetMinMaxValues or not slider.GetValue
+        or (slider.IsForbidden and slider:IsForbidden())
+    then return false end
+    options = options or {}
+    local data = self:GetSkinData(slider, SLIDER_COMPONENT_STATE)
+    if options.reset == true then
+        data.active = nil
+        for _, state in pairs(data.nativeDecorationStates or {}) do
+            state.active = nil
+            RestoreSliderDecoration(state)
+        end
+        for _, region in ipairs(data.ownedRegions or {}) do region:Hide() end
+        for _, button in ipairs(data.stepperButtons or {}) do
+            local buttonData = NSkin:GetSkinData(
+                button, SLIDER_COMPONENT_STATE, false)
+            if buttonData and buttonData.sliderArrow then
+                buttonData.sliderArrow:Hide()
+            end
+        end
+        if data.valueBox then data.valueBox:Hide() end
+        RestoreSliderThumb(slider, data)
+        return true
+    end
+
+    local style = options.style or self:GetStyle("slider")
+    if not style then return false end
+    data.active = true
+    data.style = style
+    local parent = slider.GetParent and slider:GetParent()
+    local back = parent and parent.Back
+    local forward = parent and parent.Forward
+    local valueSource = parent and parent.RightText
+    local decorations = { slider.Left, slider.Right, slider.Middle }
+    if valueSource then decorations[#decorations + 1] = valueSource end
+    for _, button in ipairs({ back, forward }) do
+        if button and button.GetRegions then
+            local buttonData = self:GetSkinData(
+                button, SLIDER_COMPONENT_STATE, false)
+            local ownedArrow = buttonData and buttonData.sliderArrow
+            for _, region in ipairs({ button:GetRegions() }) do
+                if region ~= ownedArrow and region.GetObjectType
+                    and region:GetObjectType() == "Texture"
+                then
+                    decorations[#decorations + 1] = region
+                end
+            end
+        end
+    end
+    for _, region in ipairs(options.nativeDecorationRegions or {}) do
+        decorations[#decorations + 1] = region
+    end
+    ApplySliderDecorations(data, decorations)
+
+    if not data.track then
+        data.track = slider:CreateTexture(nil, "BACKGROUND")
+        data.fill = slider:CreateTexture(nil, "ARTWORK")
+        data.fillGlows = {}
+        data.glowSizes = { 12, 8, 4 }
+        for i = 1, 3 do
+            local glow = slider:CreateTexture(nil, "ARTWORK", nil, -2 + i)
+            glow:SetBlendMode("ADD")
+            data.fillGlows[i] = glow
+        end
+        data.ownedRegions = { data.track, data.fill,
+            data.fillGlows[1], data.fillGlows[2], data.fillGlows[3] }
+        for _, region in ipairs(data.ownedRegions) do
+            self:ConfigureOwnedPixelTexture(region)
+        end
+    end
+
+    local trackColor = self:GetResolvedAppearanceColor(style, "track")
+        or style.track
+    local fillColor = self:GetResolvedAppearanceColor(style, "fill")
+        or style.fill
+    local thumbColor = self:GetResolvedAppearanceColor(style, "thumb")
+        or style.thumb
+    local disabledColor = self:GetResolvedAppearanceColor(style, "disabled")
+        or style.disabled or { 0.40, 0.40, 0.40, 1 }
+    local valueBackground = self:GetResolvedAppearanceColor(
+        style, "valueBackground") or style.valueBackground
+        or { 0, 0, 0, 0.75 }
+    local valueBorder = self:GetResolvedAppearanceColor(style, "valueBorder")
+        or style.valueBorder or { 0.45, 0.45, 0.45, 1 }
+    local valueText = self:GetResolvedAppearanceColor(style, "valueText")
+        or style.valueText or { 1, 1, 1, 1 }
+    data.trackColor = trackColor
+    data.fillColor = fillColor
+    data.thumbColor = thumbColor
+    data.disabledColor = disabledColor
+    data.valueTextColor = valueText
+    data.valueSource = valueSource
+    data.sliderParent = parent
+    local glowAlpha = math.max(0, math.min(1,
+        tonumber(style.glowAlpha) or 0.34))
+    local glowAlphas = { glowAlpha * 0.3, glowAlpha * 0.55, glowAlpha }
+    data.glowAlphas = glowAlphas
+    for i = 1, #data.fillGlows do
+        data.fillGlows[i]:Show()
+    end
+    data.track:Show()
+    data.fill:Show()
+
+    local nativeThumb = slider:GetThumbTexture()
+    if nativeThumb and not data.thumbBaseline then
+        data.thumbBaseline = {
+            atlas = nativeThumb.GetAtlas and nativeThumb:GetAtlas(),
+            texture = nativeThumb.GetTexture and nativeThumb:GetTexture(),
+            width = nativeThumb:GetWidth(), height = nativeThumb:GetHeight(),
+            color = { nativeThumb:GetVertexColor() },
+            alpha = nativeThumb:GetAlpha(), shown = nativeThumb:IsShown(),
+        }
+    end
+    slider:SetThumbTexture("Interface\\Buttons\\WHITE8X8")
+    local thumb = slider:GetThumbTexture()
+    if thumb then
+        thumb:SetSize(math.max(1, tonumber(style.thumbWidth) or 3),
+            math.max(1, tonumber(style.thumbHeight) or 14))
+        thumb:SetColorTexture(unpack(thumbColor))
+        thumb:Show()
+        data.thumb = thumb
+    end
+
+    local white = { 1, 1, 1, 1 }
+    data.stepperButtons = {}
+    if back then
+        SkinSliderStepper(back, -math.pi / 2, white, disabledColor)
+        data.stepperButtons[#data.stepperButtons + 1] = back
+    end
+    if forward then
+        SkinSliderStepper(forward, math.pi / 2, white, disabledColor)
+        data.stepperButtons[#data.stepperButtons + 1] = forward
+    end
+
+
+    if valueSource and parent and parent.CreateFontString then
+        if not data.valueBox then
+            local valueBox = CreateFrame("EditBox", nil, parent)
+            valueBox:SetSize(42, 22)
+            valueBox:SetPoint("LEFT", slider, "RIGHT", 20, 0)
+            valueBox:SetAutoFocus(false)
+            valueBox:SetJustifyH("CENTER")
+            valueBox:SetFontObject(GameFontHighlightSmall)
+            valueBox:SetTextInsets(4, 4, 0, 0)
+            valueBox:SetScript("OnEditFocusGained", function(box)
+                box:HighlightText()
+            end)
+            valueBox:SetScript("OnEnterPressed", CommitSliderValueBox)
+            valueBox:SetScript("OnEscapePressed", CancelSliderValueBox)
+            valueBox:SetScript("OnEditFocusLost", CancelSliderValueBox)
+            valueBox.nskinSlider = slider
+            data.valueBox = valueBox
+        end
+        self:CreateFlatBackground(data.valueBox, "NSkinSliderValue",
+            valueBackground, valueBorder)
+        self:SetPixelBorderSize(self:GetPixelBorder(
+            data.valueBox, "NSkinSliderValueBorder"), 1)
+        data.valueBox:Show()
+    end
+
+    if not data.hooked and slider.HookScript then
+        for _, script in ipairs({
+            "OnValueChanged", "OnSizeChanged", "OnShow", "OnEnable", "OnDisable",
+        }) do
+            slider:HookScript(script, RefreshSliderPresentation)
+        end
+        data.hooked = true
+    end
+    RefreshSliderPresentation(slider)
+    return true
 end
 
 local function RefreshEditBoxState(editBox)

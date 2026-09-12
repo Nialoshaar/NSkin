@@ -966,44 +966,68 @@ local function SuppressChallengeDecorations(frame)
     local data = NSkin:GetSkinData(frame, "challengeDecorations")
     data.states = data.states or {}
     local regions = {}
-    local function AddRegion(region)
-        if region then regions[#regions + 1] = region end
-    end
-    AddRegion(frame.InstructionsBackground or frame.InstructionBackground)
-    AddRegion(frame.RuneBG)
-    for region in pairs(frame.baseStates or {}) do
-        if region.GetObjectType and region:GetObjectType() == "Texture" then
-            AddRegion(region)
+    for _, region in ipairs({ frame:GetRegions() }) do
+        if region.GetObjectType and region:GetObjectType() == "Texture"
+            and region.GetAtlas and region:GetAtlas() == "ChallengeMode-KeystoneFrame"
+        then
+            regions[#regions + 1] = region
+            break
         end
     end
+    if frame.KeystoneFrame then
+        regions[#regions + 1] = frame.KeystoneFrame
+    end
+
     for _, region in ipairs(regions) do
-        if region then
-            local state = data.states[region]
-            if not state then
-                state = {
-                    alpha = region.GetAlpha and region:GetAlpha() or 1,
-                    shown = region.IsShown and region:IsShown() or nil,
-                }
-                data.states[region] = state
-            end
-            state.active = true
-            local function Conceal()
-                if not state.active or state.applying then return end
-                state.applying = true
-                if region.SetAlpha then region:SetAlpha(0) end
-                state.applying = nil
-            end
-            Conceal()
-            if not state.hooked and _G.hooksecurefunc then
-                for _, method in ipairs({ "SetAlpha", "SetShown", "Show" }) do
-                    if type(region[method]) == "function" then
-                        pcall(_G.hooksecurefunc, region, method, Conceal)
-                    end
+        local state = data.states[region]
+        if not state then
+            state = {
+                alpha = region.GetAlpha and region:GetAlpha() or 1,
+                shown = region.IsShown and region:IsShown() or nil,
+            }
+            data.states[region] = state
+        end
+        state.active = true
+        local function Conceal()
+            if not state.active or state.applying then return end
+            state.applying = true
+            if region.SetAlpha then region:SetAlpha(0) end
+            state.applying = nil
+        end
+        Conceal()
+        if not state.hooked and _G.hooksecurefunc then
+            for _, method in ipairs({ "SetAlpha", "SetShown", "Show" }) do
+                if type(region[method]) == "function" then
+                    pcall(_G.hooksecurefunc, region, method, Conceal)
                 end
-                state.hooked = true
             end
+            state.hooked = true
         end
     end
+end
+
+local EMPTY_KEYSTONE_BACKGROUND_ALPHA = 0.9
+
+local function UpdateChallengeBackgroundOpacity(frame, background)
+    if not frame then return end
+    local data = NSkin:GetSkinData(frame, "challengeDecorations")
+    if background then data.windowBackground = background end
+    background = data.windowBackground
+    if not background then return end
+
+    local ids = IDs.Challenges
+    local style = NSkin:GetAppearanceStyle("window", ids.Scope, ids.Window)
+    local color = style and NSkin:GetResolvedAppearanceColor(style, "background")
+    if not color then return end
+
+    local hasSlottedKeystone = _G.C_ChallengeMode
+        and type(_G.C_ChallengeMode.HasSlottedKeystone) == "function"
+        and _G.C_ChallengeMode.HasSlottedKeystone()
+    local alpha = color[4] or 1
+    if not hasSlottedKeystone then
+        alpha = math.max(alpha, EMPTY_KEYSTONE_BACKGROUND_ALPHA)
+    end
+    NSkin:SetOwnedTextureColor(background, color[1], color[2], color[3], alpha)
 end
 
 local function GetCompactRaidManagerControls(frame)
@@ -1197,7 +1221,7 @@ end
 function PVESkin:ApplyChallengesKeystoneWindowChrome(frame)
     local ids = IDs.Challenges
     SuppressChallengeDecorations(frame)
-    NSkin:SkinStandardWindowChrome({
+    local chrome = NSkin:SkinStandardWindowChrome({
         frame = frame,
         appearanceWindowID = ids.Scope,
         elementID = ids.Window,
@@ -1206,6 +1230,7 @@ function PVESkin:ApplyChallengesKeystoneWindowChrome(frame)
             or frame.Title,
         closeButton = frame.CloseButton,
     })
+    UpdateChallengeBackgroundOpacity(frame, chrome and chrome.background)
     NSkin:RegisterSkinningElement(ids.Window, {
         label = "Mythic keystone window",
         kind = "WINDOW",
@@ -1286,6 +1311,17 @@ end
 function PVESkin:InitializeChallengesKeystoneFrame()
     local frame = _G.ChallengesKeystoneFrame
     if not frame then return false end
+    local decorationData = NSkin:GetSkinData(frame, "challengeDecorations")
+    if not decorationData.backgroundStateHooked and _G.hooksecurefunc then
+        for _, method in ipairs({ "Reset", "OnKeystoneSlotted" }) do
+            if type(frame[method]) == "function" then
+                pcall(_G.hooksecurefunc, frame, method, function()
+                    UpdateChallengeBackgroundOpacity(frame)
+                end)
+            end
+        end
+        decorationData.backgroundStateHooked = true
+    end
     if not challengesShowHooked and frame.HookScript then
         frame:HookScript("OnShow", function()
             PVESkin:ApplyChallengesKeystoneFrame()

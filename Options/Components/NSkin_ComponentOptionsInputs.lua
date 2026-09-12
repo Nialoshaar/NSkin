@@ -68,6 +68,86 @@ NSkin:RegisterOptionGroup("shared.checkboxAppearance", {
         })
     end,
 })
+NSkin:RegisterOptionGroup("shared.sliderAppearance", {
+    controls = {
+        { type = "COLOR_PAIR", order = 1,
+            left = { type = "COLOR", key = "track", modeKey = "trackMode",
+                label = "Track" },
+            right = { type = "COLOR", key = "fill", modeKey = "fillMode",
+                label = "Fill" } },
+        { type = "COLOR", key = "thumb", modeKey = "thumbMode",
+            label = "Thumb", order = 2 },
+        { type = "COLOR", key = "disabled", modeKey = "disabledMode",
+            label = "Disabled", order = 2.5 },
+        { type = "COLOR_PAIR", order = 2.6,
+            left = { type = "COLOR", key = "valueBackground",
+                modeKey = "valueBackgroundMode", label = "Value background" },
+            right = { type = "COLOR", key = "valueBorder",
+                modeKey = "valueBorderMode", label = "Value border" } },
+        { type = "COLOR", key = "valueText", modeKey = "valueTextMode",
+            label = "Value text", order = 2.7 },
+        { type = "SLIDER_PAIR", order = 3, centerReset = true,
+            resetTooltip = "Reset track and thumb geometry",
+            left = { key = "trackHeight", label = "Track height",
+                min = 1, max = 12, step = 1, decimals = 0, suffix = " px" },
+            right = { key = "thumbHeight", label = "Thumb height",
+                min = 4, max = 30, step = 1, decimals = 0, suffix = " px" } },
+        { type = "SLIDER_PAIR", order = 4, centerReset = true,
+            resetTooltip = "Reset thumb width and glow opacity",
+            left = { key = "thumbWidth", label = "Thumb width",
+                min = 1, max = 12, step = 1, decimals = 0, suffix = " px" },
+            right = { key = "glowAlpha", label = "Glow opacity",
+                min = 0, max = 1, step = 0.01, decimals = 2 } },
+        { type = "RESET", label = "Reset Slider" },
+    },
+    get = function(context)
+        local style = NSkin:GetAppearanceStyle(
+            "slider", GetAppearanceWindowID(context), context.id)
+        return {
+            track = CopyColor(style.track), trackMode = style.trackMode,
+            fill = CopyColor(style.fill), fillMode = style.fillMode,
+            thumb = CopyColor(style.thumb), thumbMode = style.thumbMode,
+            disabled = CopyColor(style.disabled),
+            disabledMode = style.disabledMode,
+            valueBackground = CopyColor(style.valueBackground),
+            valueBackgroundMode = style.valueBackgroundMode,
+            valueBorder = CopyColor(style.valueBorder),
+            valueBorderMode = style.valueBorderMode,
+            valueText = CopyColor(style.valueText),
+            valueTextMode = style.valueTextMode,
+            trackHeight = style.trackHeight, thumbWidth = style.thumbWidth,
+            thumbHeight = style.thumbHeight, glowAlpha = style.glowAlpha,
+        }
+    end,
+    set = function(context, values)
+        local changed
+        for _, key in ipairs({ "track", "trackMode", "fill", "fillMode",
+            "thumb", "thumbMode", "disabled", "disabledMode",
+            "valueBackground", "valueBackgroundMode", "valueBorder",
+            "valueBorderMode", "valueText", "valueTextMode",
+            "trackHeight", "thumbWidth",
+            "thumbHeight", "glowAlpha" })
+        do
+            if values[key] ~= nil then
+                changed = SetElementValue(
+                    context, "slider." .. key, values[key]) or changed
+            end
+        end
+        return changed == true
+    end,
+    reset = function(context)
+        return ResetElementPaths(context, {
+            "slider.track", "slider.trackMode", "slider.fill",
+            "slider.fillMode", "slider.thumb", "slider.thumbMode",
+            "slider.disabled", "slider.disabledMode",
+            "slider.valueBackground", "slider.valueBackgroundMode",
+            "slider.valueBorder", "slider.valueBorderMode",
+            "slider.valueText", "slider.valueTextMode",
+            "slider.trackHeight", "slider.thumbWidth",
+            "slider.thumbHeight", "slider.glowAlpha",
+        })
+    end,
+})
 RegisterColorAppearanceGroup("appearance.search", "searchBox", {
     { type = "COLOR", key = "backgroundColor", label = "Search background" },
     { type = "SLIDER", key = "backgroundOpacity", label = "Background opacity",

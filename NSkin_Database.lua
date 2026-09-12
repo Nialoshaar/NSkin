@@ -83,6 +83,7 @@ NSkin.baseAppearance = {
         background = { 0.04, 0.04, 0.04, 0.90 },
         border = { 0.45, 0.45, 0.45, 1 },
         text = { 1, 1, 1, 1 },
+        disabledText = { 0.45, 0.45, 0.45, 1 },
         hoverAlpha = 0.10,
     },
 
@@ -104,6 +105,28 @@ NSkin.baseAppearance = {
         thumbMode = "ACCENT",
         arrow = { 0, 0.55, 0.82, 1 },
         arrowMode = "ACCENT",
+    },
+
+    slider = {
+        track = { 0.35, 0.35, 0.35, 1 },
+        trackMode = "CUSTOM",
+        fill = { 0, 0.55, 0.82, 1 },
+        fillMode = "ACCENT",
+        thumb = { 0, 0.55, 0.82, 1 },
+        thumbMode = "ACCENT",
+        disabled = { 0.40, 0.40, 0.40, 1 },
+        disabledMode = "CUSTOM",
+        valueBackground = { 0, 0, 0, 0.75 },
+        valueBackgroundMode = "CUSTOM",
+        valueBorder = { 0.45, 0.45, 0.45, 1 },
+        valueBorderMode = "CUSTOM",
+        valueText = { 1, 1, 1, 1 },
+        valueTextMode = "CUSTOM",
+        trackHeight = 4,
+        thumbWidth = 3,
+        thumbHeight = 14,
+        glowAlpha = 0.34,
+        disabledAlpha = 1,
     },
 
     navigationBar = {
