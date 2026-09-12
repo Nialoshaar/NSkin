@@ -44,6 +44,10 @@ NSkin.moduleDefinitions = {
         optionsGroup = "windows", optionsOrder = 85,
     },
     {
+        key = "Mailbox", label = "Mailbox", defaultEnabled = true,
+        optionsGroup = "windows", optionsOrder = 87,
+    },
+    {
         key = "Transmogrification", label = "Transmogrification",
         defaultEnabled = true, optionsGroup = "windows", optionsOrder = 90,
     },
