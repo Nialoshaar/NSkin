@@ -40,6 +40,8 @@ NSkin:RegisterOptionGroup("appearance.sectionCard", {
                 max = 20, step = 1, suffix = " px", resetValue = 0 } },
         { type = "SLIDER", key = "iconSpacing", label = "Icon spacing",
             min = -20, max = 40, step = 1, suffix = " px" },
+        { type = "CHECKBOX", key = "showHighlight",
+            label = "Enable highlight" },
         { type = "SLIDER", key = "hoverAlpha", label = "Hover opacity",
             min = 0, max = 0.5, step = 0.01, decimals = 2 },
         { type = "COLOR", key = "glyph", label = "Expand/collapse glyph" },
@@ -63,6 +65,7 @@ NSkin:RegisterOptionGroup("appearance.sectionCard", {
             textSize = textSize, outline = outline,
             height = style.height, textOffsetX = style.textOffsetX,
             textOffsetY = style.textOffsetY, iconSpacing = style.iconSpacing,
+            showHighlight = style.showHighlight ~= false,
             hoverAlpha = style.hoverAlpha, glyph = CopyColor(style.glyph),
             glyphSize = style.glyphSize, glyphOffsetX = style.glyphOffsetX,
             glyphOffsetY = style.glyphOffsetY,
@@ -88,7 +91,8 @@ NSkin:RegisterOptionGroup("appearance.sectionCard", {
             end
         end
         for _, key in ipairs({ "height",
-            "textOffsetX", "textOffsetY", "iconSpacing", "hoverAlpha",
+            "textOffsetX", "textOffsetY", "iconSpacing", "showHighlight",
+            "hoverAlpha",
             "glyphSize", "glyphOffsetX", "glyphOffsetY" }) do
             changed = SetScalar("sectionCard." .. key, style[key], values[key])
                 or changed
@@ -100,7 +104,7 @@ NSkin:RegisterOptionGroup("appearance.sectionCard", {
         for _, key in ipairs({ "background", "border", "text", "font",
             "fontMode", "textSize", "sizeMode", "outline", "outlineMode",
             "height", "textOffsetX", "textOffsetY",
-            "iconSpacing", "hoverAlpha", "glyph", "glyphSize",
+            "iconSpacing", "showHighlight", "hoverAlpha", "glyph", "glyphSize",
             "glyphOffsetX", "glyphOffsetY" }) do
             paths[#paths + 1] = "sectionCard." .. key
         end
@@ -543,8 +547,10 @@ local sectionCardAppearanceControls = {
     { type = "SLIDER", key = "iconSpacing", label = "Icon spacing",
         min = -20, max = 40, step = 1, decimals = 0, suffix = " px",
         order = 15 },
+    { type = "CHECKBOX", key = "showHighlight", label = "Enable highlight",
+        order = 16 },
     { type = "SLIDER", key = "hoverAlpha", label = "Hover opacity",
-        min = 0, max = 0.5, step = 0.01, decimals = 2, order = 16 },
+        min = 0, max = 0.5, step = 0.01, decimals = 2, order = 17 },
     { type = "SECTION", label = "Expand / Collapse Glyph", order = 20 },
     { type = "COLOR", key = "glyph", modeKey = "glyphMode",
         label = "Color", order = 21 },
@@ -572,7 +578,8 @@ local sectionCardResetPaths = {
 }
 for _, key in ipairs({ "text", "textMode", "background", "backgroundMode",
     "border", "borderMode", "borderSize", "borderPadding", "height",
-    "textOffsetX", "textOffsetY", "iconSpacing", "hoverAlpha", "glyph",
+    "textOffsetX", "textOffsetY", "iconSpacing", "showHighlight",
+    "hoverAlpha", "glyph",
     "glyphMode", "glyphSize", "glyphOffsetX", "glyphOffsetY" }) do
     sectionCardResetPaths[key] = "sectionCard." .. key
 end
@@ -590,6 +597,7 @@ NSkin:RegisterOptionGroup("shared.sectionCardAppearance", {
             text = CopyColor(style.text), textMode = style.textMode,
             height = style.height, textOffsetX = style.textOffsetX,
             textOffsetY = style.textOffsetY, iconSpacing = style.iconSpacing,
+            showHighlight = style.showHighlight ~= false,
             hoverAlpha = style.hoverAlpha, glyph = CopyColor(style.glyph),
             glyphMode = style.glyphMode, glyphSize = style.glyphSize,
             glyphOffsetX = style.glyphOffsetX,
@@ -606,7 +614,8 @@ NSkin:RegisterOptionGroup("shared.sectionCardAppearance", {
         for _, key in ipairs({ "text", "textMode", "background",
             "backgroundMode", "border", "borderMode", "borderSize",
             "borderPadding", "height", "textOffsetX", "textOffsetY",
-            "iconSpacing", "hoverAlpha", "glyph", "glyphMode", "glyphSize",
+            "iconSpacing", "showHighlight", "hoverAlpha", "glyph",
+            "glyphMode", "glyphSize",
             "glyphOffsetX", "glyphOffsetY" }) do
             if values[key] ~= nil then
                 changed = SetElementValue(context,

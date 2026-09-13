@@ -497,8 +497,8 @@ local function RefreshSectionRowCollapseGlow(state)
     local button = state and state.collapseButton
     local glow = state and state.collapseGlow
     if not glow then return end
-    local hovered = state.active and button and button.IsMouseOver
-        and button:IsMouseOver() or false
+    local hovered = state.active and button
+        and state.collapseHovered == true or false
     glow:SetShown(hovered)
 end
 
@@ -507,6 +507,7 @@ local function ApplySectionRowCollapseButton(target, state, button, hoverAlpha)
         state.collapseGlow:Hide()
     end
     state.collapseButton = button
+    state.collapseHovered = false
     if not button or not button.CreateTexture then
         state.collapseGlow = nil
         return
@@ -515,12 +516,15 @@ local function ApplySectionRowCollapseButton(target, state, button, hoverAlpha)
     if not state.collapseHooks or state.collapseHooks.button ~= button then
         if button.HookScript then
             button:HookScript("OnEnter", function()
+                state.collapseHovered = true
                 RefreshSectionRowCollapseGlow(state)
             end)
             button:HookScript("OnLeave", function()
+                state.collapseHovered = false
                 RefreshSectionRowCollapseGlow(state)
             end)
             button:HookScript("OnShow", function()
+                state.collapseHovered = false
                 RefreshSectionRowCollapseGlow(state)
             end)
         end
@@ -534,8 +538,13 @@ RefreshSectionRowPresentation = function(target)
     if not state or not state.active then return end
     local selected = ResolveContentState(
         state.getSelected, state.selectedRegion, target)
-    local hovered = ResolveContentState(
-        state.getHovered, state.hoverRegion, target)
+    local hovered
+    if state.hoverEventsManaged then
+        hovered = state.pointerHovered == true
+    else
+        hovered = ResolveContentState(
+            state.getHovered, state.hoverRegion, target)
+    end
     if state.selectedOverlay then state.selectedOverlay:SetShown(selected) end
     if state.hoverOverlay then state.hoverOverlay:SetShown(hovered) end
     RefreshSectionRowContentAppearance(target)
@@ -575,6 +584,8 @@ function NSkin:SkinSectionRow(target, options)
     state.selectedRegion = ResolveContentValue(options.selectedRegion, target)
     state.getHovered = options.getHovered
     state.getSelected = options.getSelected
+    state.hoverEventsManaged = type(options.getHovered) == "function"
+    state.pointerHovered = false
     state.contentStyle = options.contentStyle
     local visualRegion = ResolveContentValue(options.visualRegion, target)
     if not (visualRegion and visualRegion.GetObjectType) then
@@ -638,9 +649,26 @@ function NSkin:SkinSectionRow(target, options)
         ResolveContentValue(options.collapseButton, target), style.hoverAlpha)
 
     if not state.hooked and target.HookScript then
-        for _, script in ipairs({ "OnEnter", "OnLeave", "OnShow" }) do
-            target:HookScript(script, RefreshSectionRowPresentation)
-        end
+        target:HookScript("OnEnter", function(row)
+            local rowState = NSkin:GetSkinData(
+                row, SECTION_ROW_STATE, false)
+            if rowState and rowState.hoverEventsManaged then
+                rowState.pointerHovered = true
+            end
+            RefreshSectionRowPresentation(row)
+        end)
+        target:HookScript("OnLeave", function(row)
+            local rowState = NSkin:GetSkinData(
+                row, SECTION_ROW_STATE, false)
+            if rowState then rowState.pointerHovered = false end
+            RefreshSectionRowPresentation(row)
+        end)
+        target:HookScript("OnShow", function(row)
+            local rowState = NSkin:GetSkinData(
+                row, SECTION_ROW_STATE, false)
+            if rowState then rowState.pointerHovered = false end
+            RefreshSectionRowPresentation(row)
+        end)
         state.hooked = true
     end
     if not state.methodHooksInstalled and _G.hooksecurefunc then
@@ -938,9 +966,18 @@ local function RefreshSectionCardPresentation(target)
     if state.textRegion then
         EnforceSectionCardTextAppearance(state.textRegion)
     end
-    if state.interactionManaged and state.glow then
-        state.glow:SetShown(ResolveContentState(
-            state.getHovered, state.hoverRegion, target))
+    if state.glow then
+        local hovered = false
+        if state.showHighlight then
+            if state.interactionManaged then
+                hovered = ResolveContentState(
+                    state.getHovered, state.hoverRegion, target)
+            else
+                hovered = target.IsMouseOver
+                    and target:IsMouseOver() == true or false
+            end
+        end
+        state.glow:SetShown(hovered)
     end
     RefreshSectionCardGlyph(target)
 end
@@ -1038,6 +1075,7 @@ function NSkin:SkinSectionCard(target, options)
     state.options = options
     state.collapsible = options.collapsible == true
     state.getHovered = options.getHovered
+    state.showHighlight = style.showHighlight ~= false
     state.hoverRegion = ResolveSectionCardValue(options.hoverRegion, target)
     state.interactionManaged = options.getHovered ~= nil
         or options.hoverRegion ~= nil
@@ -1079,7 +1117,7 @@ function NSkin:SkinSectionCard(target, options)
     self:SetPixelBorderPadding(border, style.borderPadding or 0)
     self:SetPixelBorderShown(border,
         style.showBorder ~= false and (tonumber(style.borderSize) or 0) > 0)
-    local glow = self:CreateFlatButtonGlow(target, style.hoverAlpha)
+    local glow = self:CreateFlatButtonGlow(target, style.hoverAlpha, true)
     AnchorSectionCardSurface(glow, visualRegion, 1)
     state.glow = glow
     ApplySectionCardHoverRegion(target, state,

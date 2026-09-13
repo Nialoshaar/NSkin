@@ -60,6 +60,10 @@ NSkin.moduleDefinitions = {
         optionsGroup = "windows", optionsOrder = 88,
     },
     {
+        key = "Calendar", label = "Calendar", defaultEnabled = true,
+        optionsGroup = "windows", optionsOrder = 89,
+    },
+    {
         key = "Transmogrification", label = "Transmogrification",
         defaultEnabled = true, optionsGroup = "windows", optionsOrder = 90,
     },

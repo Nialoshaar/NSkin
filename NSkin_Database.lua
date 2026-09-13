@@ -240,6 +240,7 @@ NSkin.baseAppearance = {
         textOffsetX = 10,
         textOffsetY = 0,
         iconSpacing = 6,
+        showHighlight = true,
         hoverAlpha = 0.10,
         glyph = { 1, 1, 1, 1 },
         glyphMode = "CUSTOM",
