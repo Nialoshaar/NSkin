@@ -632,14 +632,412 @@ function NPCInteractionSkin:InitializeQuest()
     return self:ApplyQuest()
 end
 
-function NPCInteractionSkin:RefreshAppearance()
-    if gossipInitialized then self:ApplyGossip() end
-    if questInitialized then self:ApplyQuest() end
-end
-
 NSkin:RegisterWindowSkin({
     key = "NPCInteraction.Quest",
     module = "NPCInteraction",
     addon = "Blizzard_UIPanels_Game",
     apply = function() return NPCInteractionSkin:InitializeQuest() end,
+})
+
+local TrainerIDs = {
+    Scope = "ClassTrainer",
+    Window = "ClassTrainer.Window",
+    HeaderControls = "ClassTrainer.HeaderControls",
+    ProgressBar = "ClassTrainer.ProgressBar",
+    Filter = "ClassTrainer.Filter",
+    ScrollBar = "ClassTrainer.ScrollBar",
+    TrainButton = "ClassTrainer.TrainButton",
+    MoneyGold = "ClassTrainer.MoneyGold",
+    MoneySilver = "ClassTrainer.MoneySilver",
+    MoneyCopper = "ClassTrainer.MoneyCopper",
+    SkillStep = "ClassTrainer.SkillStep",
+    Rows = "ClassTrainer.Rows",
+}
+
+local trainerInitialized = false
+local trainerShowHooked = false
+local trainerScrollBoxHooked = false
+local trainerRowsRegistered = false
+
+NSkin:RegisterAppearanceScope(TrainerIDs.Scope, {
+    label = "Class Trainer",
+})
+
+local function GetTrainerScrollBox(frame)
+    return frame and frame.ScrollBox
+end
+
+local function GetTrainerProgressBar()
+    local background = _G.ClassTrainerStatusBarBackground
+    if background and background.GetObjectType
+        and background:GetObjectType() == "StatusBar"
+    then
+        return background, nil
+    end
+    local parent = background and background.GetParent
+        and background:GetParent()
+    if parent and parent.GetObjectType
+        and parent:GetObjectType() == "StatusBar"
+    then
+        return parent, background
+    end
+    local bar = _G.ClassTrainerStatusBar
+    if bar and bar.GetObjectType and bar:GetObjectType() == "StatusBar" then
+        return bar, background
+    end
+end
+
+local function GetTrainerRowRegion(row, field, suffix)
+    if not row then return nil end
+    local lowerField = string.lower(string.sub(field, 1, 1))
+        .. string.sub(field, 2)
+    local target = row[field] or row[lowerField]
+    if target then return target end
+    local name = row.GetName and row:GetName()
+    return name and _G[name .. suffix] or nil
+end
+
+local function GetTrainerRowIcon(row)
+    return GetTrainerRowRegion(row, "Icon", "Icon")
+        or GetTrainerRowRegion(row, "IconTexture", "IconTexture")
+end
+
+local function GetTrainerRowTexts(row)
+    return {
+        GetTrainerRowRegion(row, "Name", "Name"),
+        GetTrainerRowRegion(row, "SubText", "SubText"),
+    }
+end
+
+local function GetVisibleTrainerRows(frame)
+    local rows = {}
+    NSkin:ForEachScrollBoxFrame(GetTrainerScrollBox(frame), function(row)
+        if IsVisible(row) then rows[#rows + 1] = row end
+    end)
+    return rows
+end
+
+local function GetTrainerRowStyles()
+    local styles = {
+        row = NSkin:GetAppearanceStyle(
+            "row", TrainerIDs.Scope, TrainerIDs.Rows),
+        icon = NSkin:GetAppearanceStyle(
+            "icon", TrainerIDs.Scope, TrainerIDs.Rows),
+        text = NSkin:GetAppearanceStyle(
+            "text", TrainerIDs.Scope, TrainerIDs.Rows),
+    }
+    styles.rowBorder = NSkin:GetAppearanceBorderColor(
+        "row", styles.row, TrainerIDs.Scope, TrainerIDs.Rows)
+    styles.iconBorder = NSkin:GetAppearanceBorderColor(
+        "icon", styles.icon, TrainerIDs.Scope, TrainerIDs.Rows)
+    return styles
+end
+
+function NPCInteractionSkin:ApplyTrainerWindowChrome(frame)
+    NSkin:SkinStandardWindowChrome({
+        frame = frame,
+        appearanceWindowID = TrainerIDs.Scope,
+        elementID = TrainerIDs.Window,
+        headerControlsID = TrainerIDs.HeaderControls,
+        title = frame.TitleContainer and frame.TitleContainer.TitleText
+            or _G.ClassTrainerFrameTitleText,
+        closeButton = frame.CloseButton or _G.ClassTrainerFrameCloseButton,
+    })
+    NSkin:RegisterSkinningElement(TrainerIDs.Window, {
+        label = "Class Trainer window",
+        kind = "WINDOW",
+        module = "NPCInteraction",
+        appearanceWindowID = TrainerIDs.Scope,
+        window = frame,
+        target = frame,
+        priority = 0,
+        draggable = false,
+    })
+    return true
+end
+
+function NPCInteractionSkin:ApplyTrainerProgressBar(frame)
+    local bar = GetTrainerProgressBar()
+    if not bar then return false end
+    local skinOptions = {
+        stripArtwork = true,
+        useAppearanceTexture = true,
+        background = true,
+    }
+    NSkin:SkinProgressBar(bar, skinOptions)
+    local element = NSkin:RegisterProgressBarElement({
+        id = TrainerIDs.ProgressBar,
+        module = "NPCInteraction",
+        appearanceWindowID = TrainerIDs.Scope,
+        label = "Trainer skill progress bar",
+        window = frame,
+        target = bar,
+        priority = 20,
+        draggable = false,
+        skinOptions = skinOptions,
+        highlightRegions = { bar },
+        isEditable = function()
+            return IsVisible(frame) and IsVisible(bar)
+        end,
+    })
+    return element ~= nil
+end
+
+function NPCInteractionSkin:ApplyTrainerControls(frame)
+    local applied = false
+    local filter = frame.FilterDropdown
+        or _G.ClassTrainerFrameFilterDropdown
+        or _G.ClassTrainerFrameFilterDropDown
+    if filter then
+        applied = RefreshElement(NSkin:RegisterDropdown({
+            id = TrainerIDs.Filter,
+            module = "NPCInteraction",
+            appearanceWindowID = TrainerIDs.Scope,
+            label = "Trainer filter",
+            window = frame,
+            target = filter,
+            priority = 30,
+            highlightRegions = { filter },
+            isEditable = function()
+                return IsVisible(frame) and IsVisible(filter)
+            end,
+        })) ~= nil or applied
+    end
+
+    local scrollBar = frame.ScrollBar
+    if scrollBar then
+        applied = RefreshElement(NSkin:RegisterScrollBar({
+            id = TrainerIDs.ScrollBar,
+            module = "NPCInteraction",
+            appearanceWindowID = TrainerIDs.Scope,
+            label = "Trainer scroll bar",
+            window = frame,
+            target = scrollBar,
+            priority = 40,
+            highlightRegions = { scrollBar },
+            isEditable = function()
+                return IsVisible(frame) and IsVisible(scrollBar)
+            end,
+        })) ~= nil or applied
+    end
+
+    local trainButton = _G.ClassTrainerTrainButton or frame.TrainButton
+    if trainButton then
+        applied = RefreshElement(NSkin:RegisterTypedElement("BUTTON", {
+            id = TrainerIDs.TrainButton,
+            module = "NPCInteraction",
+            appearanceWindowID = TrainerIDs.Scope,
+            label = "Train button",
+            window = frame,
+            target = trainButton,
+            priority = 50,
+            isEditable = function()
+                return IsVisible(frame) and IsVisible(trainButton)
+            end,
+        })) ~= nil or applied
+    end
+
+    for _, definition in ipairs({
+        { TrainerIDs.MoneyGold, "Trainer gold text",
+            _G.ClassTrainerFrameMoneyFrameGoldButtonText },
+        { TrainerIDs.MoneySilver, "Trainer silver text",
+            _G.ClassTrainerFrameMoneyFrameSilverButtonText },
+        { TrainerIDs.MoneyCopper, "Trainer copper text",
+            _G.ClassTrainerFrameMoneyFrameCopperButtonText },
+    }) do
+        local id, label, target = unpack(definition)
+        if target then
+            applied = RefreshElement(NSkin:RegisterTextElement({
+                id = id,
+                module = "NPCInteraction",
+                appearanceWindowID = TrainerIDs.Scope,
+                label = label,
+                window = frame,
+                target = target,
+                priority = 60,
+                isEditable = function()
+                    return IsVisible(frame) and IsVisible(target)
+                end,
+            })) ~= nil or applied
+        end
+    end
+
+    local skillStep = frame.SkillStepButton
+        or _G.ClassTrainerFrameSkillStepButton
+    if skillStep then
+        applied = RefreshElement(NSkin:RegisterRow({
+            id = TrainerIDs.SkillStep,
+            module = "NPCInteraction",
+            appearanceWindowID = TrainerIDs.Scope,
+            label = "Selected trainer skill row",
+            window = frame,
+            target = skillStep,
+            priority = 70,
+            hoverRegion = GetButtonTexture(
+                skillStep, "GetHighlightTexture", "HighlightTexture"),
+            getHovered = IsHovered,
+            isEditable = function()
+                return IsVisible(frame) and IsVisible(skillStep)
+            end,
+        })) ~= nil or applied
+    end
+    return applied
+end
+
+function NPCInteractionSkin:StyleTrainerRow(row, styles)
+    if not row then return false end
+    styles = styles or GetTrainerRowStyles()
+    local applied = NSkin:SkinRow(row, {
+        style = styles.row,
+        border = styles.rowBorder,
+        hoverRegion = GetButtonTexture(
+            row, "GetHighlightTexture", "HighlightTexture"),
+        selectedRegion = GetButtonTexture(
+            row, "GetCheckedTexture", "SelectedTexture")
+            or row.selectedTex,
+        getHovered = IsHovered,
+        getSelected = function(target)
+            if target and target.GetChecked then
+                return target:GetChecked() == true
+            end
+            return target and (target.selected == true
+                or target.isSelected == true) or false
+        end,
+    }) ~= nil
+
+    local icon = GetTrainerRowIcon(row)
+    if icon then
+        local nativeDecorations = {}
+        local iconBorder = row.IconBorder or row.iconBorder
+        if iconBorder then nativeDecorations[1] = iconBorder end
+        applied = NSkin:SkinIcon(row, {
+            style = styles.icon,
+            borderColor = styles.iconBorder,
+            texture = icon,
+            borderOwner = row,
+            nativeDecorationRegions = nativeDecorations,
+        }) == true or applied
+    end
+    for _, text in pairs(GetTrainerRowTexts(row)) do
+        if text then
+            applied = NSkin:SkinText(text, styles.text) == true or applied
+        end
+    end
+    return applied
+end
+
+function NPCInteractionSkin:ApplyTrainerRows(frame)
+    local scrollBox = GetTrainerScrollBox(frame)
+    if not scrollBox then return false end
+    local styles = GetTrainerRowStyles()
+    local applied = false
+    NSkin:ForEachScrollBoxFrame(scrollBox, function(row)
+        applied = self:StyleTrainerRow(row, styles) or applied
+    end)
+
+    if not trainerRowsRegistered then
+        local function RefreshRows()
+            return NPCInteractionSkin:ApplyTrainerRows(frame)
+        end
+        trainerRowsRegistered = NSkin:RegisterSkinningElement(
+            TrainerIDs.Rows, {
+                module = "NPCInteraction",
+                appearanceWindowID = TrainerIDs.Scope,
+                label = "Trainer skill rows",
+                kind = "ROW",
+                window = frame,
+                target = scrollBox,
+                priority = 80,
+                draggable = false,
+                appearanceStyles = { "icon", "text" },
+                appearanceTypeIDs = { "ICON", "TEXT" },
+                highlightRegions = function()
+                    return GetVisibleTrainerRows(frame)
+                end,
+                pixelBorderTargets = function()
+                    return GetVisibleTrainerRows(frame)
+                end,
+                editorOptions = {
+                    { id = "shared.rowAppearance", label = "Rows",
+                        category = "CUSTOMIZE" },
+                    { id = "shared.iconAppearance", label = "Row icons",
+                        category = "CUSTOMIZE" },
+                    { id = "shared.textAppearance", label = "Row text",
+                        category = "CUSTOMIZE" },
+                },
+                refreshAppearance = RefreshRows,
+                refreshLayout = RefreshRows,
+                isEditable = function()
+                    return IsVisible(frame)
+                        and #GetVisibleTrainerRows(frame) > 0
+                end,
+            }) == true
+    end
+    if trainerRowsRegistered then
+        NSkin:NotifySkinningElementBoundsChanged(TrainerIDs.Rows)
+    end
+    return applied or trainerRowsRegistered
+end
+
+function NPCInteractionSkin:HookTrainerScrollBox(frame)
+    local scrollBox = GetTrainerScrollBox(frame)
+    if not scrollBox or trainerScrollBoxHooked then return false end
+    local events = _G.ScrollBoxListMixin and _G.ScrollBoxListMixin.Event
+    if scrollBox.RegisterCallback and events
+        and events.OnInitializedFrame
+    then
+        scrollBox:RegisterCallback(events.OnInitializedFrame,
+            function(_, row)
+                NPCInteractionSkin:StyleTrainerRow(row)
+                if trainerRowsRegistered then
+                    NSkin:NotifySkinningElementBoundsChanged(TrainerIDs.Rows)
+                end
+            end, self)
+        trainerScrollBoxHooked = true
+    elseif _G.hooksecurefunc and type(scrollBox.Update) == "function" then
+        _G.hooksecurefunc(scrollBox, "Update", function()
+            NPCInteractionSkin:ApplyTrainerRows(frame)
+        end)
+        trainerScrollBoxHooked = true
+    end
+    return trainerScrollBoxHooked
+end
+
+function NPCInteractionSkin:ApplyClassTrainer()
+    local frame = _G.ClassTrainerFrame
+    if not frame then return false end
+    local applied = self:ApplyTrainerWindowChrome(frame)
+    applied = self:ApplyTrainerProgressBar(frame) or applied
+    applied = self:ApplyTrainerControls(frame) or applied
+    applied = self:ApplyTrainerRows(frame) or applied
+    return applied
+end
+
+function NPCInteractionSkin:InitializeClassTrainer()
+    local frame = _G.ClassTrainerFrame
+    if not frame then return false end
+    if not trainerShowHooked and frame.HookScript then
+        frame:HookScript("OnShow", function()
+            NPCInteractionSkin:ApplyClassTrainer()
+        end)
+        trainerShowHooked = true
+    end
+    self:HookTrainerScrollBox(frame)
+    trainerInitialized = true
+    return self:ApplyClassTrainer()
+end
+
+function NPCInteractionSkin:RefreshAppearance()
+    if gossipInitialized then self:ApplyGossip() end
+    if questInitialized then self:ApplyQuest() end
+    if trainerInitialized then self:ApplyClassTrainer() end
+end
+
+NSkin:RegisterWindowSkin({
+    key = "NPCInteraction.ClassTrainer",
+    module = "NPCInteraction",
+    addon = "Blizzard_TrainerUI",
+    apply = function()
+        return NPCInteractionSkin:InitializeClassTrainer()
+    end,
 })
