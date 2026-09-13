@@ -35,11 +35,13 @@ Skins\NSkin_CooldownManager.lua
 Skins\NSkin_FriendsList.lua
 Skins\NSkin_GroupFinder.lua
 Skins\NSkin_DeathRecap.lua
+Skins\NSkin_ScriptErrors.lua
 Skins\NSkin_GreatVault.lua
 Skins\NSkin_Delves.lua
 Skins\NSkin_Merchant.lua
 Skins\NSkin_Mailbox.lua
 Skins\NSkin_NPCInteraction.lua
+Skins\NSkin_Trade.lua
 Skins\NSkin_Calendar.lua
 Skins\NSkin_TimeManager.lua
 Skins\NSkin_Storage.lua

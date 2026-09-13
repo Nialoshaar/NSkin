@@ -44,6 +44,10 @@ NSkin.moduleDefinitions = {
         optionsGroup = "windows", optionsOrder = 77,
     },
     {
+        key = "ScriptErrors", label = "Script Errors", defaultEnabled = true,
+        optionsGroup = "windows", optionsOrder = 78,
+    },
+    {
         key = "Merchant", label = "Merchant", defaultEnabled = true,
         optionsGroup = "windows", optionsOrder = 80,
     },
@@ -58,6 +62,10 @@ NSkin.moduleDefinitions = {
     {
         key = "NPCInteraction", label = "NPC Interaction", defaultEnabled = true,
         optionsGroup = "windows", optionsOrder = 88,
+    },
+    {
+        key = "Trade", label = "Trade", defaultEnabled = true,
+        optionsGroup = "windows", optionsOrder = 88.5,
     },
     {
         key = "Calendar", label = "Calendar", defaultEnabled = true,

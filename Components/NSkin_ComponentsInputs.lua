@@ -196,7 +196,7 @@ function NSkin:SkinActionButton(button, options)
     self:SkinFlatButton(button, label,
         options.background or style.background,
         options.border or self:GetComponentBorderColor("button", style),
-        options.textSize)
+        options.textSize, nil, nil, options.preserveTexture)
     local border = self:GetPixelBorder(button, "NSkinFlatBackgroundBorder")
     self:SetPixelBorderSize(border, 1)
     SuppressActionButtonNativeText(button)
