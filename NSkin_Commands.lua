@@ -34,6 +34,14 @@ commands.mapdebug = function()
     )
 end
 
+commands.lfgpop = function()
+    if type(NSkin.ToggleLFGQueuePopPreview) == "function" then
+        NSkin:ToggleLFGQueuePopPreview()
+    else
+        NSkin:Print("LFG queue pop preview is unavailable.")
+    end
+end
+
 commands.skinning = function()
     if type(NSkin.ToggleSkinningMode) == "function" then
         NSkin:ToggleSkinningMode()
@@ -94,7 +102,7 @@ local function HandleSlashCommand(message)
 
     NSkin:Print("commands: /nskin, /nskin edit, /nskin skinning, "
         .. "/nskin resettabs, /nskin debug refresh, /nskin journaldebug, "
-        .. "/nskin mapdebug")
+        .. "/nskin mapdebug, /nskin lfgpop")
 end
 
 SLASH_NSKIN1 = "/nskin"

@@ -99,7 +99,7 @@ function NSkin:ConcealWindowArtwork(frame, preserveArtwork)
 end
 
 function NSkin:SkinWindow(frame, backgroundAnchor, style, borderColor,
-    backgroundOwner, preserveArtwork)
+    backgroundOwner, preserveArtwork, borderOwner)
     if not frame then return nil end
 
     local data = self:GetSkinData(frame, COMPONENT_STATE)
@@ -113,6 +113,7 @@ function NSkin:SkinWindow(frame, backgroundAnchor, style, borderColor,
     style = style or self:GetStyle("window")
     local anchor = backgroundAnchor or frame
     backgroundOwner = backgroundOwner or frame
+    borderOwner = borderOwner or frame
     local background = data.windowBackground
     if background and data.windowBackgroundOwner ~= backgroundOwner then
         background:Hide()
@@ -133,8 +134,13 @@ function NSkin:SkinWindow(frame, backgroundAnchor, style, borderColor,
         backgroundColor[1], backgroundColor[2], backgroundColor[3], backgroundColor[4],
     }
 
+    if data.windowBorderOwner and data.windowBorderOwner ~= borderOwner then
+        self:SetPixelBorderShown(self:GetPixelBorder(
+            data.windowBorderOwner, "NSkinWindowBorder"), false)
+    end
+    data.windowBorderOwner = borderOwner
     local border = self:CreatePixelBorder(
-        frame, "NSkinWindowBorder", style.borderSize,
+        borderOwner, "NSkinWindowBorder", style.borderSize,
         borderColor or self:GetWindowBorderColor(), false, anchor
     )
     self:SetPixelBorderSize(border, style.borderSize)
@@ -295,10 +301,12 @@ function NSkin:SkinStandardCloseButton(window, closeButton, options)
     width = width or (originalSize and originalSize[1])
     height = height or (originalSize and originalSize[2])
 
-    closeButton:ClearAllPoints()
-    closeButton:SetPoint("TOPRIGHT", window, "TOPRIGHT", 0, 0)
-    if width and height and closeButton.SetSize then
-        closeButton:SetSize(width, height)
+    if options.preserveGeometry ~= true then
+        closeButton:ClearAllPoints()
+        closeButton:SetPoint("TOPRIGHT", window, "TOPRIGHT", 0, 0)
+        if width and height and closeButton.SetSize then
+            closeButton:SetSize(width, height)
+        end
     end
 
     self:SkinWindowHeaderButton(closeButton, { glyph = "close" }, {
@@ -454,7 +462,8 @@ function NSkin:SkinStandardWindowChrome(definition)
     end
     local background, border = self:SkinWindow(
         frame, definition.backgroundAnchor, style, borderColor,
-        definition.backgroundOwner, definition.preserveArtwork)
+        definition.backgroundOwner, definition.preserveArtwork,
+        definition.borderOwner)
     local header = self:SkinWindowHeader(frame, style.header)
 
     local title = definition.title
@@ -488,6 +497,7 @@ function NSkin:SkinStandardWindowChrome(definition)
             borderSize = style.borderSize,
             width = buttonWidth,
             height = buttonHeight,
+            preserveGeometry = definition.preserveCloseButtonGeometry,
         })
         for _, controlDefinition in ipairs(definition.headerControls or {}) do
             for _, resolved in ipairs(

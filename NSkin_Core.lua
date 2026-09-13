@@ -48,6 +48,10 @@ NSkin.moduleDefinitions = {
         optionsGroup = "windows", optionsOrder = 78,
     },
     {
+        key = "Popup", label = "Popups", defaultEnabled = true,
+        optionsGroup = "windows", optionsOrder = 79,
+    },
+    {
         key = "Merchant", label = "Merchant", defaultEnabled = true,
         optionsGroup = "windows", optionsOrder = 80,
     },
