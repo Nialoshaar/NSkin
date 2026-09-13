@@ -657,6 +657,7 @@ local TrainerIDs = {
 local trainerInitialized = false
 local trainerShowHooked = false
 local trainerScrollBoxHooked = false
+local trainerSkillStepRegistered = false
 local trainerRowsRegistered = false
 
 NSkin:RegisterAppearanceScope(TrainerIDs.Scope, {
@@ -734,6 +735,27 @@ local function GetTrainerRowStyles()
 end
 
 function NPCInteractionSkin:ApplyTrainerWindowChrome(frame)
+    local bottomInset = _G.ClassTrainerFrameBottomInset
+        or frame.BottomInset
+    local bottomInsetNineSlice = bottomInset and bottomInset.NineSlice
+    local scrollBox = GetTrainerScrollBox(frame)
+    local scrollBoxShadows = scrollBox and scrollBox.Shadows
+    SuppressDecorations(frame, {
+        _G.ClassTrainerFrameBG or frame.BG,
+        scrollBoxShadows,
+        scrollBoxShadows and scrollBoxShadows.Upper,
+        scrollBoxShadows and scrollBoxShadows.Lower,
+        bottomInset and bottomInset.Bg,
+        bottomInsetNineSlice and bottomInsetNineSlice.TopEdge,
+        bottomInsetNineSlice and bottomInsetNineSlice.BottomEdge,
+        bottomInsetNineSlice and bottomInsetNineSlice.LeftEdge,
+        bottomInsetNineSlice and bottomInsetNineSlice.RightEdge,
+        bottomInsetNineSlice and bottomInsetNineSlice.TopLeftCorner,
+        bottomInsetNineSlice and bottomInsetNineSlice.TopRightCorner,
+        bottomInsetNineSlice and bottomInsetNineSlice.BottomLeftCorner,
+        bottomInsetNineSlice and bottomInsetNineSlice.BottomRightCorner,
+        _G.ClassTrainerFrameMoneyBg or frame.MoneyBg,
+    })
     NSkin:SkinStandardWindowChrome({
         frame = frame,
         appearanceWindowID = TrainerIDs.Scope,
@@ -796,6 +818,7 @@ function NPCInteractionSkin:ApplyTrainerControls(frame)
             label = "Trainer filter",
             window = frame,
             target = filter,
+            menus = { "MENU_TRAINER_FILTER" },
             priority = 30,
             highlightRegions = { filter },
             isEditable = function()
@@ -862,34 +885,114 @@ function NPCInteractionSkin:ApplyTrainerControls(frame)
         end
     end
 
-    local skillStep = frame.SkillStepButton
-        or _G.ClassTrainerFrameSkillStepButton
-    if skillStep then
-        applied = RefreshElement(NSkin:RegisterRow({
-            id = TrainerIDs.SkillStep,
-            module = "NPCInteraction",
-            appearanceWindowID = TrainerIDs.Scope,
-            label = "Selected trainer skill row",
-            window = frame,
-            target = skillStep,
-            priority = 70,
-            hoverRegion = GetButtonTexture(
-                skillStep, "GetHighlightTexture", "HighlightTexture"),
-            getHovered = IsHovered,
-            isEditable = function()
-                return IsVisible(frame) and IsVisible(skillStep)
-            end,
-        })) ~= nil or applied
+    return applied
+end
+
+function NPCInteractionSkin:StyleTrainerSkillStep(skillStep)
+    if not skillStep then return false end
+    local styles = {
+        row = NSkin:GetAppearanceStyle(
+            "row", TrainerIDs.Scope, TrainerIDs.SkillStep),
+        icon = NSkin:GetAppearanceStyle(
+            "icon", TrainerIDs.Scope, TrainerIDs.SkillStep),
+        text = NSkin:GetAppearanceStyle(
+            "text", TrainerIDs.Scope, TrainerIDs.SkillStep),
+    }
+    styles.rowBorder = NSkin:GetAppearanceBorderColor(
+        "row", styles.row, TrainerIDs.Scope, TrainerIDs.SkillStep)
+    styles.iconBorder = NSkin:GetAppearanceBorderColor(
+        "icon", styles.icon, TrainerIDs.Scope, TrainerIDs.SkillStep)
+
+    local nativeDecorations = {}
+    for _, region in pairs({
+        GetButtonTexture(skillStep, "GetNormalTexture", "NormalTexture"),
+        skillStep.selectedTex
+            or _G.ClassTrainerFrameSkillStepButtonSelectedTex,
+    }) do
+        if region then nativeDecorations[#nativeDecorations + 1] = region end
+    end
+    local applied = NSkin:SkinRow(skillStep, {
+        style = styles.row,
+        border = styles.rowBorder,
+        nativeDecorationRegions = nativeDecorations,
+        hoverRegion = GetButtonTexture(
+            skillStep, "GetHighlightTexture", "HighlightTexture"),
+        getHovered = IsHovered,
+    }) ~= nil
+
+    local icon = GetTrainerRowIcon(skillStep)
+        or _G.ClassTrainerFrameSkillStepButtonIcon
+    if icon then
+        applied = NSkin:SkinIcon(skillStep, {
+            style = styles.icon,
+            borderColor = styles.iconBorder,
+            texture = icon,
+            borderOwner = skillStep,
+        }) == true or applied
+    end
+    for _, text in pairs(GetTrainerRowTexts(skillStep)) do
+        if text then
+            applied = NSkin:SkinText(text, styles.text) == true or applied
+        end
     end
     return applied
+end
+
+function NPCInteractionSkin:ApplyTrainerSkillStep(frame)
+    local skillStep = frame.SkillStepButton
+        or frame.skillStepButton
+        or _G.ClassTrainerFrameSkillStepButton
+    if not skillStep then return false end
+    local applied = self:StyleTrainerSkillStep(skillStep)
+    if not trainerSkillStepRegistered then
+        local function RefreshSkillStep()
+            return NPCInteractionSkin:StyleTrainerSkillStep(skillStep)
+        end
+        trainerSkillStepRegistered = NSkin:RegisterSkinningElement(
+            TrainerIDs.SkillStep, {
+                module = "NPCInteraction",
+                appearanceWindowID = TrainerIDs.Scope,
+                label = "Selected trainer skill row",
+                kind = "ROW",
+                window = frame,
+                target = skillStep,
+                priority = 70,
+                draggable = false,
+                appearanceStyles = { "icon", "text" },
+                appearanceTypeIDs = { "ICON", "TEXT" },
+                highlightRegions = { skillStep },
+                pixelBorderTargets = { skillStep },
+                editorOptions = {
+                    { id = "shared.rowAppearance", label = "Row",
+                        category = "CUSTOMIZE" },
+                    { id = "shared.iconAppearance", label = "Row icon",
+                        category = "CUSTOMIZE" },
+                    { id = "shared.textAppearance", label = "Row text",
+                        category = "CUSTOMIZE" },
+                },
+                refreshAppearance = RefreshSkillStep,
+                refreshLayout = RefreshSkillStep,
+                isEditable = function()
+                    return IsVisible(frame) and IsVisible(skillStep)
+                end,
+            }) == true
+    end
+    if trainerSkillStepRegistered then
+        NSkin:NotifySkinningElementBoundsChanged(TrainerIDs.SkillStep)
+    end
+    return applied or trainerSkillStepRegistered
 end
 
 function NPCInteractionSkin:StyleTrainerRow(row, styles)
     if not row then return false end
     styles = styles or GetTrainerRowStyles()
+    local normalTexture = GetButtonTexture(
+        row, "GetNormalTexture", "NormalTexture")
     local applied = NSkin:SkinRow(row, {
         style = styles.row,
         border = styles.rowBorder,
+        nativeDecorationRegions = normalTexture
+            and { normalTexture } or nil,
         hoverRegion = GetButtonTexture(
             row, "GetHighlightTexture", "HighlightTexture"),
         selectedRegion = GetButtonTexture(
@@ -1009,6 +1112,7 @@ function NPCInteractionSkin:ApplyClassTrainer()
     local applied = self:ApplyTrainerWindowChrome(frame)
     applied = self:ApplyTrainerProgressBar(frame) or applied
     applied = self:ApplyTrainerControls(frame) or applied
+    applied = self:ApplyTrainerSkillStep(frame) or applied
     applied = self:ApplyTrainerRows(frame) or applied
     return applied
 end
