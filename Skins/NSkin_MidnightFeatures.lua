@@ -164,6 +164,7 @@ end
 
 function MidnightFeaturesSkin:ApplyGenericTraitWindow(frame)
     SuppressRegion(frame.Background)
+    SuppressRegion(frame.BorderOverlay)
     NSkin:SkinStandardWindowChrome({
         frame = frame,
         appearanceWindowID = IDs.GenericTrait.Scope,
