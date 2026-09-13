@@ -64,6 +64,10 @@ NSkin.moduleDefinitions = {
         optionsGroup = "windows", optionsOrder = 89,
     },
     {
+        key = "TimeManager", label = "Time Manager", defaultEnabled = true,
+        optionsGroup = "windows", optionsOrder = 89.5,
+    },
+    {
         key = "Transmogrification", label = "Transmogrification",
         defaultEnabled = true, optionsGroup = "windows", optionsOrder = 90,
     },
