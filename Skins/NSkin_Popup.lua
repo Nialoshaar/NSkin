@@ -4,6 +4,16 @@ local PopupSkin = NSkin:NewModule("Popup")
 
 local IDs = {
     Scope = "Popup",
+    RolePoll = {
+        Scope = "Popup.RolePoll",
+        Window = "Popup.RolePoll.Window",
+        Title = "Popup.RolePoll.Title",
+        CloseButton = "Popup.RolePoll.CloseButton",
+        Tank = "Popup.RolePoll.Tank",
+        Healer = "Popup.RolePoll.Healer",
+        DPS = "Popup.RolePoll.DPS",
+        Accept = "Popup.RolePoll.Accept",
+    },
     ReadyCheck = {
         Scope = "Popup.ReadyCheck",
         Window = "Popup.ReadyCheck.Window",
@@ -50,9 +60,14 @@ local lootScrollBoxHooked = false
 local lootRowsRegistered = {}
 local lootQualityTextRegistered = false
 local readyCheckInitialized = false
+local rolePollInitialized = false
 
 NSkin:RegisterAppearanceScope(IDs.Scope, {
     label = "Popups",
+})
+NSkin:RegisterAppearanceScope(IDs.RolePoll.Scope, {
+    label = "Role Poll",
+    parent = IDs.Scope,
 })
 NSkin:RegisterAppearanceScope(IDs.ReadyCheck.Scope, {
     label = "Ready Check",
@@ -490,6 +505,7 @@ function PopupSkin:RefreshAppearance()
     if initialized then self:Apply() end
     if lootInitialized then self:ApplyLoot() end
     if readyCheckInitialized then self:ApplyReadyCheck() end
+    if rolePollInitialized then self:ApplyRolePoll() end
 end
 
 local function CanSkinReadyCheckTarget(target)
@@ -605,6 +621,150 @@ function PopupSkin:ApplyReadyCheck()
     end
     readyCheckInitialized = applied and buttonsApplied
     return readyCheckInitialized
+end
+
+local function GetRolePollTitle(frame)
+    local data = NSkin:GetSkinData(frame, "rolePoll")
+    if data.title then return data.title end
+    -- RolePoll.xml has one direct ARTWORK FontString, with localized text and
+    -- no parentKey. Do not inspect child controls or depend on region order.
+    for _, region in ipairs({ frame:GetRegions() }) do
+        if CanSkinReadyCheckTarget(region)
+            and region:GetObjectType() == "FontString"
+            and region:GetText() == _G.SELECT_YOUR_ROLE
+        then
+            data.title = region
+            return region
+        end
+    end
+end
+
+function PopupSkin:ApplyRolePollRole(frame, id, label, button)
+    if not CanSkinReadyCheckTarget(button) then return false end
+    local checkButton = button.checkButton
+    local texture = button:GetNormalTexture()
+    if not CanSkinReadyCheckTarget(checkButton)
+        or not CanSkinReadyCheckTarget(texture)
+    then return false end
+    local element = NSkin:GetSkinningElement(id)
+    if not element then
+        -- Each persistent role has its own composition and appearance ID.
+        -- The outer button retains click forwarding; no NSkin input surface.
+        element = NSkin:RegisterIconGroup({
+            id = id,
+            module = "Popup",
+            appearanceWindowID = IDs.RolePoll.Scope,
+            label = label,
+            window = frame,
+            target = button,
+            priority = 20,
+            draggable = false,
+            children = function()
+                if not CanSkinReadyCheckTarget(button) then return {} end
+                return {{ target = button, texture = button:GetNormalTexture(),
+                    borderOwner = button }}
+            end,
+            appearanceStyles = { "button" },
+            appearanceTypeIDs = { "CHECKBOX" },
+            refreshContent = function()
+                if not CanSkinReadyCheckTarget(checkButton) then return end
+                NSkin:SkinTypedElement("CHECKBOX", {
+                    id = id,
+                    appearanceWindowID = IDs.RolePoll.Scope,
+                    target = checkButton,
+                })
+            end,
+            editorOptions = {
+                { id = "shared.iconAppearance", label = "Role icon",
+                    presentation = "INLINE", category = "CUSTOMIZE" },
+                { id = "shared.checkboxAppearance", label = "Role selector",
+                    category = "CUSTOMIZE" },
+            },
+            composition = {
+                mode = "COMPOSITE",
+                movementOwner = button,
+                members = {
+                    { kind = "ICON", role = "PRIMARY", target = button,
+                        label = "Role icon" },
+                    { kind = "CHECKBOX", role = "SECONDARY", target = checkButton,
+                        label = "Role selector" },
+                },
+            },
+            highlightRegions = { button, checkButton },
+            pixelBorderTargets = { button, checkButton },
+            isEditable = function()
+                return IsVisible(frame) and IsVisible(button)
+            end,
+        })
+    else
+        NSkin:RefreshIconGroup(element)
+    end
+    if not element then return false end
+    local data = NSkin:GetSkinData(button, "rolePoll")
+    if not data.atlasHooked and _G.hooksecurefunc then
+        -- Blizzard replaces the role atlas when enabling/disabling a role.
+        -- Refresh only this role after that native presentation update.
+        _G.hooksecurefunc(button, "SetNormalAtlas", function()
+            if CanSkinReadyCheckTarget(button) then
+                NSkin:RefreshIconGroup(id)
+            end
+        end)
+        data.atlasHooked = true
+    end
+    return true
+end
+
+function PopupSkin:ApplyRolePoll()
+    local frame = _G.RolePollPopup
+    if not CanSkinReadyCheckTarget(frame) then return false end
+    local title = GetRolePollTitle(frame)
+    local closeButton = _G.RolePollPopupCloseButton
+    local acceptButton = frame.acceptButton
+    if not title or not CanSkinReadyCheckTarget(frame.Border)
+        or not CanSkinReadyCheckTarget(closeButton)
+        or not CanSkinReadyCheckTarget(acceptButton)
+    then return false end
+    if not NSkin:SkinStandardWindowChrome({
+        frame = frame,
+        artworkFrame = frame.Border,
+        appearanceWindowID = IDs.RolePoll.Scope,
+        elementID = IDs.RolePoll.Window,
+        title = false,
+        closeButton = closeButton,
+        headerControlsID = IDs.RolePoll.CloseButton,
+        headerControlsLabel = "Role Poll close button",
+        preserveCloseButtonGeometry = true,
+    }) then return false end
+    local applied = NSkin:RegisterSkinningElement(IDs.RolePoll.Window, {
+        label = "Role Poll window", kind = "WINDOW", module = "Popup",
+        appearanceWindowID = IDs.RolePoll.Scope,
+        window = frame, target = frame, priority = 0, draggable = false,
+    }) == true
+    applied = RefreshElement(NSkin:RegisterTextElement({
+        id = IDs.RolePoll.Title, label = "Select your role", module = "Popup",
+        appearanceWindowID = IDs.RolePoll.Scope,
+        window = frame, target = title, priority = 10,
+        highlightRegions = { title },
+        isEditable = function() return IsVisible(frame) and IsVisible(title) end,
+    })) ~= nil and applied
+    for _, definition in ipairs({
+        { IDs.RolePoll.Tank, "Tank role", _G.RolePollPopupRoleButtonTank },
+        { IDs.RolePoll.Healer, "Healer role", _G.RolePollPopupRoleButtonHealer },
+        { IDs.RolePoll.DPS, "Damage role", _G.RolePollPopupRoleButtonDPS },
+    }) do
+        applied = self:ApplyRolePollRole(frame, unpack(definition)) and applied
+    end
+    applied = RefreshElement(NSkin:RegisterActionButton({
+        id = IDs.RolePoll.Accept, label = "Accept role", module = "Popup",
+        appearanceWindowID = IDs.RolePoll.Scope,
+        window = frame, target = acceptButton, priority = 30,
+        highlightRegions = { acceptButton },
+        isEditable = function()
+            return IsVisible(frame) and IsVisible(acceptButton)
+        end,
+    })) ~= nil and applied
+    rolePollInitialized = applied
+    return applied
 end
 
 local function GetLootFrame()
@@ -945,6 +1105,15 @@ NSkin:RegisterWindowSkin({
     addon = "Blizzard_FrameXML",
     apply = function()
         return PopupSkin:ApplyReadyCheck()
+    end,
+})
+
+NSkin:RegisterWindowSkin({
+    key = IDs.RolePoll.Window,
+    module = "Popup",
+    addon = "Blizzard_FrameXML",
+    apply = function()
+        return PopupSkin:ApplyRolePoll()
     end,
 })
 
