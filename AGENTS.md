@@ -13,8 +13,9 @@ Before making substantial changes to any of the following, read `ARCHITECTURE.md
 - reset/original-state handling
 - appearance inheritance
 - lifecycle/refresh architecture
-- pooled/generated controls
+- pooled/generated or repeated controls
 - popup/menu infrastructure
+- interaction/security-sensitive controls
 - performance-sensitive code
 
 Treat `ARCHITECTURE.md` as the project-wide architectural source of truth.
@@ -31,7 +32,9 @@ Task-specific instructions may add temporary requirements. Do not silently contr
 - Preserve stable canonical IDs across refactors.
 - Capture original Blizzard state before first mutation and never recapture NSkin-mutated values as baseline.
 - Reset only NSkin-owned properties.
-- Preserve Blizzard visibility, interaction, enabled/disabled state, protected/security behavior, and functional state overlays.
+- Preserve Blizzard visibility, interaction ownership, enabled/disabled state, protected/security behavior, functional state overlays, and default layout unless the task explicitly requires changing them.
+- Do not let NSkin-owned visual surfaces block Blizzard clicks, tooltips, or hit regions.
+- If a runtime target is forbidden/protected/inaccessible, skip it; never attempt to bypass Blizzard protection.
 - Suppress only audited native decorative regions.
 - Avoid broad discovery when the Blizzard structure can be explicitly understood.
 - Avoid broad refreshes for local changes.
@@ -47,7 +50,7 @@ Examples:
 - `ICON`: Button/Frame is the logical target; the actual Texture is the presentation target.
 - `CHECKBOX + TEXT`: use canonical CHECKBOX + canonical TEXT through composition, not a bespoke visual component.
 - spinner `EDIT_BOX`: `[-] [value] [+]` is one logical edit-box variation.
-- generated equivalent runtime targets may share one logical editor registration while retaining canonical shared component behavior; do not model them as `CONTAINER` unless they are semantically distinct child elements.
+- For repeated, generated, pooled, or recycled controls, follow the identity/grouping rules in `ARCHITECTURE.md`; do not infer registration strategy from frame count alone.
 - semantic container relationships belong in the relevant window adapter; generic container behavior belongs in the shared composition/editor layer.
 
 When adding a new abstraction, ask whether it is reusable across multiple windows or multiple instances of the same component type. If yes, it likely belongs in shared infrastructure. If it only describes the meaning of one Blizzard window, keep it in that window adapter.
@@ -88,6 +91,8 @@ For major shared-component/editor refactors, additionally review for:
 - selection policy being baked into structural semantics
 - broad refreshes or polling
 - suppression of functional Blizzard state
+- accidental changes to Blizzard interaction ownership or default geometry
+- forbidden/protected runtime targets being mutated
 
 ## Task execution
 
@@ -101,7 +106,8 @@ Before coding:
    - a composition/editor change,
    - or a true architectural refactor.
 4. Prefer the smallest change that preserves the shared architecture.
-5. If the task prompt conflicts with `ARCHITECTURE.md`, do not silently choose one; identify the conflict and treat it as an architectural change only if the task explicitly requires that.
+5. For repeated/generated controls, interaction-sensitive controls, or layout changes, verify the relevant architectural rule in `ARCHITECTURE.md` before implementing.
+6. If the task prompt conflicts with `ARCHITECTURE.md`, do not silently choose one; identify the conflict and treat it as an architectural change only if the task explicitly requires that.
 
 At the end, report:
 

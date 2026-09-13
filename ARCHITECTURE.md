@@ -110,6 +110,21 @@ Likewise, CHECKBOX, ICON, EDIT_BOX, ROW, and other shared types should each have
 
 A new option added to a shared component should normally become available everywhere that component is used without modifying individual window files.
 
+`BUTTON` and `ACTION_BUTTON` are visually related but semantically distinct:
+
+```text
+BUTTON
+= secondary, utility, navigation, cancel, close, or non-commit action
+
+ACTION_BUTTON
+= primary operation/commit action for the current panel or workflow
+```
+
+Examples of `ACTION_BUTTON` include actions such as Create, Craft, Apply, Upgrade,
+Accept, Send, Enter, Place Order, or Train when that control performs the panel's
+primary operation. Do not classify a primary commit action as `BUTTON` merely
+because it currently shares the same visual primitive.
+
 ---
 
 # 4. Shared Options vs Window Adapters
@@ -456,6 +471,14 @@ Movement suppression for Container children is an editor/composition-context rul
 
 Preserve Blizzard's existing anchor relationships whenever they already express the desired logical relationship.
 
+The default NSkin presentation should preserve Blizzard's resolved geometry:
+positions, sizes, relative anchors, and layout relationships remain Blizzard-owned
+unless a specific NSkin layout option explicitly takes ownership of them.
+
+Do not reproduce Blizzard placement with guessed or compensating offsets when the
+original Blizzard anchors can simply be left intact. Replacing chrome, borders, or
+background artwork is not by itself a reason to move Blizzard-owned content.
+
 Do not build or apply custom anchors unnecessarily.
 
 For example, Blizzard's standard checkbox template anchors its label to the checkbox. NSkin should preserve that relationship rather than introduce a new general anchor graph merely to group them.
@@ -541,6 +564,24 @@ Avoid broad runtime discovery unless there is a strong architectural reason.
 
 Discovery must not become a substitute for understanding Blizzard structure.
 
+When Blizzard itself exposes a known repeated family through a stable template,
+parent array, explicit provider, or equivalent semantic collection, a window
+adapter may use one family helper to remove registration boilerplate.
+
+A family helper does not determine logical identity by itself:
+
+```text
+persistent semantic members
+→ one family helper may generate many stable canonical registrations
+
+interchangeable pooled/recycled instances
+→ one logical canonical registration may represent many runtime targets
+```
+
+Do not collapse persistent controls into one editor element merely because they
+share a Blizzard template. Conversely, do not create persistent canonical IDs for
+recycled frames merely because several physical frame instances exist.
+
 For generated/pooled controls:
 
 - enumerate the relevant active pool/provider
@@ -574,18 +615,31 @@ Do not use:
 when an exact lifecycle hook exists.
 
 A single logical editor registration may represent multiple equivalent runtime
-instances of the same canonical component contract.
+instances of the same canonical component contract when those runtime instances
+are interchangeable carriers of the same semantic element.
 
-Example:
+Typical examples include recycled ScrollBox rows or generated homogeneous entries:
 
 ```text
-Profession Equipment
-→ one logical ICON editor element
-→ multiple runtime ICON targets
+Loot item rows
+Trainer rows
+Death Recap rows
+Mailbox rows
+→ one logical registration per semantic row family
+→ multiple active/recycled runtime targets
 ```
 
-This is grouped multiplicity of one logical registration, not a new visual
-component type and not automatically a `CONTAINER`.
+Do not assign canonical identity to the physical recycled frame or to a viewport
+position such as `Row3` unless that position itself is genuinely the semantic
+control being customized.
+
+This differs from stable repeated controls such as fixed equipment slots. When
+Blizzard exposes persistent semantic members through a stable array/template
+family and NSkin intends them to be independently movable/customizable, a family
+helper should generate stable individual canonical IDs for those members.
+
+Grouped multiplicity is not a new visual component type and is not automatically
+a `CONTAINER`.
 
 ---
 
@@ -633,6 +687,8 @@ Important invariants:
 - crop changes presentation geometry without stretching
 - zoom changes texcoords only
 - changing icon presentation must not resize/move the parent Button unless explicitly intended
+- visual skinning must not replace, cover, or steal mouse input from the Blizzard interaction target
+- if Blizzard uses a Button/Frame hit rect or click script as the interaction owner, preserve that owner rather than duplicating its click behavior on an NSkin surface
 - audited native decoration suppression must be targeted
 - functional Blizzard overlays/state must be preserved
 - direct `SkinIcon()` callers remain supported
@@ -658,6 +714,17 @@ Cells inside a ROW remain canonical components such as:
 
 - TEXT
 - ICON
+
+The row-level visual surface must not take interaction ownership away from
+Blizzard child controls. If Blizzard intentionally makes a child button's hit
+rectangle cover the row, keep that child as the click/tooltip interaction owner
+and ensure NSkin-owned row surfaces do not intercept mouse input.
+
+Multiple child regions of the same canonical type do not have to share one
+individual appearance namespace when their semantics differ. For example, an
+item-name `TEXT` and a quality-label `TEXT` may use separate logical registrations
+if users need to customize them independently. They still use the same canonical
+shared `TEXT` implementation; do not invent bespoke visual types.
 
 ROW state may need to reassert child text presentation when Blizzard hover/selection logic restores native colors.
 
@@ -920,7 +987,14 @@ Do not change:
 
 unless the feature specifically requires it.
 
-Skinning should remain presentation-focused.
+A safe-looking shared Blizzard template does not guarantee that every runtime
+instance is writable. For secure-sensitive or transactional UI, runtime
+accessibility is authoritative. If a target or child is forbidden/inaccessible,
+skip the mutation and never attempt to bypass Blizzard protection.
+
+Skinning should remain presentation-focused. NSkin-owned visual surfaces must not
+become accidental mouse blockers or replacement interaction layers unless the
+feature explicitly requires NSkin to own interaction.
 
 Use targeted hooks rather than replacing Blizzard lifecycle logic.
 
@@ -1064,6 +1138,11 @@ For any major shared-component/editor refactor, check for:
 - broad refreshes
 - timers or `OnUpdate`
 - native Blizzard functional state being suppressed
+- persistent controls incorrectly collapsed into grouped runtime multiplicity
+- recycled runtime frames incorrectly given persistent per-frame IDs
+- NSkin visual surfaces intercepting Blizzard-owned clicks/tooltips
+- arbitrary geometry offsets replacing intact Blizzard anchor relationships
+- same-type semantic fields unintentionally forced into one individual appearance namespace
 
 ---
 
