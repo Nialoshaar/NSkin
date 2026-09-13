@@ -49,21 +49,53 @@ function NSkin:ConcealWindowArtwork(frame, preserveArtwork)
     if not frame then return end
     preserveArtwork = type(preserveArtwork) == "table"
         and preserveArtwork or nil
-    local function Conceal(key)
-        if not preserveArtwork or preserveArtwork[key] ~= true then
-            ConcealWindowRegion(frame[key])
+    local function Conceal(owner, key, preserveKey)
+        preserveKey = preserveKey or key
+        if owner and (not preserveArtwork
+            or preserveArtwork[preserveKey] ~= true)
+        then
+            ConcealWindowRegion(owner[key])
         end
     end
-    Conceal("NineSlice")
-    Conceal("Bg")
-    Conceal("TopTileStreaks")
-    Conceal("TitleBg")
-    Conceal("PortraitContainer")
-    Conceal("portrait")
-    Conceal("portraitFrame")
-    Conceal("topBorderBar")
-    Conceal("topLeftCorner")
-    Conceal("TopRightCorner")
+    for _, key in ipairs({
+        "NineSlice",
+        "Bg",
+        "TopTileStreaks",
+        "TitleBg",
+        "PortraitContainer",
+        "portrait",
+        "portraitFrame",
+        "topBorderBar",
+        "topLeftCorner",
+        "LeftEdge", "TopEdge", "RightEdge", "BottomEdge",
+        "TopLeft", "TopRight", "BottomLeft", "BottomRight",
+        "TopLeftCorner", "TopRightCorner",
+        "BottomLeftCorner", "BottomRightCorner",
+    }) do
+        Conceal(frame, key)
+    end
+
+    -- InsetFrameTemplate decorations are conventional window artwork, but
+    -- the inset itself may own functional children. Conceal only its named
+    -- background and border regions. The global-name fallback supports older
+    -- Blizzard windows that expose "$parentInset" without a parentKey.
+    local frameName = frame.GetName and frame:GetName()
+    local inset = frame.Inset or frame.InsetFrame
+        or (frameName and _G[frameName .. "Inset"])
+    if inset and (not preserveArtwork or preserveArtwork.Inset ~= true) then
+        Conceal(inset, "Bg", "InsetBg")
+        local nineSlice = inset.NineSlice
+        Conceal(inset, "NineSlice", "InsetNineSlice")
+        for _, key in ipairs({
+            "LeftEdge", "TopEdge", "RightEdge", "BottomEdge",
+            "TopLeft", "TopRight", "BottomLeft", "BottomRight",
+            "TopLeftCorner", "TopRightCorner",
+            "BottomLeftCorner", "BottomRightCorner",
+        }) do
+            Conceal(inset, key, "Inset" .. key)
+            Conceal(nineSlice, key, "Inset" .. key)
+        end
+    end
 end
 
 function NSkin:SkinWindow(frame, backgroundAnchor, style, borderColor,

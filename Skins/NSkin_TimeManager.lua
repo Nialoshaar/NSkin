@@ -21,7 +21,8 @@ local IDs = {
         Scope = "TimeManager.StopwatchFrame",
         Window = "TimeManager.StopwatchFrame.Window",
         HeaderControls = "TimeManager.StopwatchFrame.HeaderControls",
-        Tab = "TimeManager.StopwatchFrame.Tab",
+        Title = "TimeManager.StopwatchFrame.Tab",
+        TitlePlacement = "TimeManager.StopwatchFrame.Title:HeaderPlacement",
         Time = "TimeManager.StopwatchFrame.Time",
         ResetButton = "TimeManager.StopwatchFrame.ResetButton",
         PlayPauseButton = "TimeManager.StopwatchFrame.PlayPauseButton",
@@ -32,8 +33,8 @@ local initialized = false
 local showHooked = false
 local stopwatchRegistered = false
 local stopwatchFrameShowHooked = false
-local stopwatchTabRegistered = false
 local stopwatchTimeRegistered = false
+local stopwatchPlayStateHooked = false
 
 NSkin:RegisterAppearanceScope(IDs.Scope, {
     label = "Time Manager",
@@ -111,6 +112,22 @@ local function GetStopwatchArtwork(frame)
     if not data.nativeRegions then
         data.nativeRegions = {}
         for _, region in ipairs({ frame:GetRegions() }) do
+            if region.GetObjectType
+                and region:GetObjectType() == "Texture"
+            then
+                data.nativeRegions[#data.nativeRegions + 1] = region
+            end
+        end
+    end
+    return data.nativeRegions
+end
+
+local function GetStopwatchTabArtwork(tab)
+    if not tab then return {} end
+    local data = NSkin:GetSkinData(tab, "stopwatchTabDecorations")
+    if not data.nativeRegions then
+        data.nativeRegions = {}
+        for _, region in ipairs({ tab:GetRegions() }) do
             if region.GetObjectType
                 and region:GetObjectType() == "Texture"
             then
@@ -375,16 +392,55 @@ end
 function TimeManagerSkin:ApplyStopwatchWindowChrome(frame)
     SuppressRegions(frame, GetStopwatchArtwork(frame))
     local tab = _G.StopwatchTabFrame
+    local title = _G.StopwatchTitle
     local closeButton = _G.StopwatchCloseButton
         or (tab and tab.CloseButton)
+    SuppressRegions(tab, GetStopwatchTabArtwork(tab))
+
+    local titleElement
+    if title then
+        titleElement = NSkin:RegisterTextElement({
+            id = IDs.StopwatchFrame.Title,
+            module = "TimeManager",
+            appearanceWindowID = IDs.StopwatchFrame.Scope,
+            label = "Stopwatch title",
+            window = frame,
+            target = title,
+            priority = 20,
+            highlightRegions = { title },
+            isEditable = function()
+                return IsVisible(frame) and IsVisible(title)
+            end,
+        })
+        NSkin:CaptureComponentBaseline(
+            IDs.StopwatchFrame.TitlePlacement, title, {
+                points = true,
+                canCapture = function(target)
+                    return target.GetNumPoints and target:GetNumPoints() > 0
+                end,
+            })
+    end
+
     NSkin:SkinStandardWindowChrome({
         frame = frame,
         appearanceWindowID = IDs.StopwatchFrame.Scope,
         elementID = IDs.StopwatchFrame.Window,
         headerControlsID = IDs.StopwatchFrame.HeaderControls,
-        title = false,
+        title = title,
         closeButton = closeButton,
     })
+    if title and tab then
+        title:ClearAllPoints()
+        title:SetPoint("CENTER", tab, "CENTER", 0, 0)
+        title:SetAlpha(1)
+        title:Show()
+        NSkin:MarkComponentGeometryModified(
+            IDs.StopwatchFrame.TitlePlacement, "points", true)
+    end
+    if titleElement then
+        NSkin:RefreshTypedElementAppearance(titleElement)
+        NSkin:NotifySkinningElementBoundsChanged(IDs.StopwatchFrame.Title)
+    end
     NSkin:RegisterSkinningElement(IDs.StopwatchFrame.Window, {
         label = "Stopwatch window",
         kind = "WINDOW",
@@ -396,40 +452,6 @@ function TimeManagerSkin:ApplyStopwatchWindowChrome(frame)
         draggable = false,
     })
     return true
-end
-
-function TimeManagerSkin:ApplyStopwatchTab(frame)
-    local tab = _G.StopwatchTabFrame
-    local title = _G.StopwatchTitle
-    if not tab then return false end
-    -- The Blizzard title is a direct FontString rather than a parentKey.
-    -- Expose it through the canonical tab text slot without changing ownership.
-    tab.Text = title
-    if not stopwatchTabRegistered then
-        stopwatchTabRegistered = NSkin:RegisterTabGroup(
-            IDs.StopwatchFrame.Tab, {
-                label = "Stopwatch title tab",
-                kind = "TAB_GROUP",
-                module = "TimeManager",
-                appearanceWindowID = IDs.StopwatchFrame.Scope,
-                window = frame,
-                owner = frame,
-                tabs = { tab },
-                priority = 20,
-                orientation = "HORIZONTAL",
-                edge = "TOP",
-                getSelected = function()
-                    return true
-                end,
-                isEditable = function()
-                    return IsVisible(frame) and IsVisible(tab)
-                end,
-            }) == true
-    end
-    if stopwatchTabRegistered then
-        NSkin:ApplyTabGroupLayout(IDs.StopwatchFrame.Tab)
-    end
-    return stopwatchTabRegistered
 end
 
 function TimeManagerSkin:ApplyStopwatchTime(frame)
@@ -474,19 +496,66 @@ function TimeManagerSkin:ApplyStopwatchTime(frame)
     return applied or stopwatchTimeRegistered
 end
 
+local function GetStopwatchButtonIcon(button, textureFile)
+    local data = NSkin:GetSkinData(button, "stopwatchButtonIcon")
+    if not data.icon then
+        data.icon = button:CreateTexture(nil, "ARTWORK", nil, 2)
+        data.icon:SetSize(12, 12)
+        data.icon:SetPoint("CENTER")
+        if NSkin.ConfigureOwnedPixelTexture then
+            NSkin:ConfigureOwnedPixelTexture(data.icon)
+        end
+    end
+    data.icon:SetTexture(NSkin.mediaPath .. textureFile)
+    data.icon:SetVertexColor(1, 1, 1, 1)
+    data.icon:SetAlpha(1)
+    data.icon:Show()
+    return data.icon
+end
+
+local function RefreshStopwatchPlayPauseIcon(button)
+    if not button then return end
+    SuppressRegions(button, CompactRegions(
+        button.GetNormalTexture and button:GetNormalTexture()))
+    GetStopwatchButtonIcon(button,
+        button.playing and "pause.png" or "play-button.png")
+end
+
+local function SuppressStopwatchButtonTextures(button)
+    SuppressRegions(button, CompactRegions(
+        button.GetNormalTexture and button:GetNormalTexture(),
+        button.GetPushedTexture and button:GetPushedTexture(),
+        button.GetDisabledTexture and button:GetDisabledTexture(),
+        button.GetHighlightTexture and button:GetHighlightTexture()))
+end
+
 function TimeManagerSkin:ApplyStopwatchButtons(frame)
     local applied = false
     for index, definition in ipairs({
         { IDs.StopwatchFrame.ResetButton, "Reset stopwatch button",
-            _G.StopwatchResetButton },
+            _G.StopwatchResetButton, "rotate-right.png" },
         { IDs.StopwatchFrame.PlayPauseButton,
             "Play or pause stopwatch button",
-            _G.StopwatchPlayPauseButton },
+            _G.StopwatchPlayPauseButton,
+            function(button)
+                return button.playing and "pause.png" or "play-button.png"
+            end },
     }) do
-        local id, label, button = unpack(definition)
+        local id, label, button, textureProvider = unpack(definition)
         if button then
-            local icon = button.GetNormalTexture
-                and button:GetNormalTexture()
+            SuppressStopwatchButtonTextures(button)
+            local textureFile = type(textureProvider) == "function"
+                and textureProvider(button) or textureProvider
+            local icon = GetStopwatchButtonIcon(button, textureFile)
+            if button == _G.StopwatchPlayPauseButton
+                and not stopwatchPlayStateHooked and _G.hooksecurefunc
+                and type(button.SetNormalTexture) == "function"
+            then
+                _G.hooksecurefunc(button, "SetNormalTexture", function()
+                    RefreshStopwatchPlayPauseIcon(button)
+                end)
+                stopwatchPlayStateHooked = true
+            end
             applied = RefreshElement(NSkin:RegisterTypedElement("BUTTON", {
                 id = id,
                 module = "TimeManager",
@@ -510,7 +579,6 @@ function TimeManagerSkin:ApplyStopwatchFrame()
     local frame = _G.StopwatchFrame
     if not frame then return false end
     local applied = self:ApplyStopwatchWindowChrome(frame)
-    applied = self:ApplyStopwatchTab(frame) or applied
     applied = self:ApplyStopwatchTime(frame) or applied
     applied = self:ApplyStopwatchButtons(frame) or applied
     return applied

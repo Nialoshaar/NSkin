@@ -742,6 +742,10 @@ Window adapters may still provide exceptional menu anchors or state where requir
 
 Standard window chrome should use shared window/chrome components.
 
+Standard chrome owns conventional inset presentation cleanup. It may suppress
+named inset backgrounds, NineSlice containers, edges, and corners, but must not
+hide the inset frame itself or its functional children.
+
 Exceptional internal artwork suppression must remain explicit and audited.
 
 Do not recursively hide all textures in a window.
