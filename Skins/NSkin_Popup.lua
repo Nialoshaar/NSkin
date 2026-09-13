@@ -4,6 +4,14 @@ local PopupSkin = NSkin:NewModule("Popup")
 
 local IDs = {
     Scope = "Popup",
+    ReadyCheck = {
+        Scope = "Popup.ReadyCheck",
+        Window = "Popup.ReadyCheck.Window",
+        Title = "Popup.ReadyCheck.Title",
+        Message = "Popup.ReadyCheck.Message",
+        Ready = "Popup.ReadyCheck.Ready",
+        NotReady = "Popup.ReadyCheck.NotReady",
+    },
     LFG = {
         Scope = "Popup.LFGDungeonReady",
         Window = "Popup.LFGDungeonReady.Window",
@@ -41,9 +49,14 @@ local lootShowHooked = false
 local lootScrollBoxHooked = false
 local lootRowsRegistered = {}
 local lootQualityTextRegistered = false
+local readyCheckInitialized = false
 
 NSkin:RegisterAppearanceScope(IDs.Scope, {
     label = "Popups",
+})
+NSkin:RegisterAppearanceScope(IDs.ReadyCheck.Scope, {
+    label = "Ready Check",
+    parent = IDs.Scope,
 })
 NSkin:RegisterAppearanceScope(IDs.LFG.Scope, {
     label = "LFG Dungeon Ready",
@@ -476,6 +489,122 @@ end
 function PopupSkin:RefreshAppearance()
     if initialized then self:Apply() end
     if lootInitialized then self:ApplyLoot() end
+    if readyCheckInitialized then self:ApplyReadyCheck() end
+end
+
+local function CanSkinReadyCheckTarget(target)
+    return target
+        and not (target.IsForbidden and target:IsForbidden())
+        and not (target.IsProtected and target:IsProtected())
+end
+
+function PopupSkin:ApplyReadyCheckButtons(frame)
+    local applied = true
+    for _, definition in ipairs({
+        { IDs.ReadyCheck.Ready, "ACTION_BUTTON", "Ready button",
+            _G.ReadyCheckFrameYesButton },
+        { IDs.ReadyCheck.NotReady, "BUTTON", "Not Ready button",
+            _G.ReadyCheckFrameNoButton },
+    }) do
+        local id, kind, label, target = unpack(definition)
+        if CanSkinReadyCheckTarget(target) then
+            local function ApplyButton()
+                if not CanSkinReadyCheckTarget(target) then return false end
+                local element = NSkin:RegisterTypedElement(kind, {
+                    id = id,
+                    module = "Popup",
+                    appearanceWindowID = IDs.ReadyCheck.Scope,
+                    label = label,
+                    window = frame,
+                    target = target,
+                    priority = kind == "ACTION_BUTTON" and 13 or 14,
+                    skinOptions = { label = target:GetText() },
+                    highlightRegions = { target },
+                    isEditable = function()
+                        return IsVisible(frame) and IsVisible(target)
+                    end,
+                })
+                return RefreshElement(element) ~= nil
+            end
+            local data = NSkin:GetSkinData(target, "readyCheckButton")
+            if not data.showHooked and target.HookScript then
+                target:HookScript("OnShow", ApplyButton)
+                data.showHooked = true
+            end
+            applied = ApplyButton() and applied
+        else
+            applied = false
+        end
+    end
+    return applied
+end
+
+function PopupSkin:ApplyReadyCheck()
+    local frame = _G.ReadyCheckListenerFrame
+    if not CanSkinReadyCheckTarget(frame) then return false end
+    -- Register the actions independently of title/chrome initialization, and
+    -- refresh each button through its own show lifecycle.
+    local buttonsApplied = self:ApplyReadyCheckButtons(frame)
+    local titleContainer = frame.TitleContainer
+    local portraitContainer = frame.PortraitContainer
+    if not CanSkinReadyCheckTarget(titleContainer)
+        or not CanSkinReadyCheckTarget(portraitContainer)
+    then return false end
+
+    local definitions = {
+        { IDs.ReadyCheck.Title, "TEXT", "Ready Check title",
+            titleContainer.TitleText },
+        { IDs.ReadyCheck.Message, "TEXT", "Ready Check message",
+            _G.ReadyCheckFrameText },
+    }
+    for _, definition in ipairs(definitions) do
+        if not CanSkinReadyCheckTarget(definition[4]) then return false end
+    end
+    for _, decoration in pairs({ frame.Bg, frame.NineSlice }) do
+        if not CanSkinReadyCheckTarget(decoration) then return false end
+    end
+
+    -- The listener owns the visible popup; its outer ReadyCheckFrame remains
+    -- Blizzard's unmodified 323x100 layout/visibility owner. Shared chrome hides
+    -- the portrait holder; the independent TEXT registration owns the title.
+    local chrome = NSkin:SkinStandardWindowChrome({
+        frame = frame,
+        appearanceWindowID = IDs.ReadyCheck.Scope,
+        elementID = IDs.ReadyCheck.Window,
+        title = false,
+        skinCloseButton = false,
+    })
+    if not chrome then return false end
+    local applied = NSkin:RegisterSkinningElement(IDs.ReadyCheck.Window, {
+        label = "Ready Check window",
+        kind = "WINDOW",
+        module = "Popup",
+        appearanceWindowID = IDs.ReadyCheck.Scope,
+        window = frame,
+        target = frame,
+        priority = 0,
+        draggable = false,
+    }) == true
+    for index, definition in ipairs(definitions) do
+        local target = definition[4]
+        local options = {
+            id = definition[1],
+            module = "Popup",
+            appearanceWindowID = IDs.ReadyCheck.Scope,
+            label = definition[3],
+            window = frame,
+            target = target,
+            priority = 10 + index,
+            highlightRegions = { target },
+            isEditable = function()
+                return IsVisible(frame) and IsVisible(target)
+            end,
+        }
+        local element = NSkin:RegisterTypedElement(definition[2], options)
+        applied = RefreshElement(element) ~= nil and applied
+    end
+    readyCheckInitialized = applied and buttonsApplied
+    return readyCheckInitialized
 end
 
 local function GetLootFrame()
@@ -807,6 +936,15 @@ NSkin:RegisterWindowSkin({
     addon = "Blizzard_GroupFinder",
     apply = function()
         return PopupSkin:Initialize()
+    end,
+})
+
+NSkin:RegisterWindowSkin({
+    key = IDs.ReadyCheck.Window,
+    module = "Popup",
+    addon = "Blizzard_FrameXML",
+    apply = function()
+        return PopupSkin:ApplyReadyCheck()
     end,
 })
 
