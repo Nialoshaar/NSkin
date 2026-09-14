@@ -84,7 +84,7 @@ function NSkin:SetFlatButtonLabel(button, label, size, offsetX, offsetY)
 end
 
 function NSkin:SkinFlatButton(button, label, backgroundColor, borderColor,
-    labelSize, labelOffsetX, labelOffsetY, preserveTexture)
+    labelSize, labelOffsetX, labelOffsetY, preserveTexture, preserveLabelGeometry)
     if not button or not button.CreateTexture or not button.CreateFontString then return end
 
     local style = self:GetStyle("button")
@@ -98,7 +98,9 @@ function NSkin:SkinFlatButton(button, label, backgroundColor, borderColor,
 
     self:CreateFlatBackground(button, nil, backgroundColor, borderColor)
     self:CreateFlatButtonGlow(button, style.hoverAlpha)
-    local text = self:SetFlatButtonLabel(button, label, labelSize, labelOffsetX, labelOffsetY)
+    local data = self:GetSkinData(button, COMPONENT_STATE)
+    local text = preserveLabelGeometry and data.label
+        or self:SetFlatButtonLabel(button, label, labelSize, labelOffsetX, labelOffsetY)
     if text then self:SetFontStringColor(text, unpack(style.text)) end
 end
 
@@ -176,7 +178,8 @@ function NSkin:SkinActionButton(button, options)
     data.actionDisabledTextAlpha = options.disabledTextAlpha
         or style.disabledTextAlpha or 0.45
     local label = button.GetText and button:GetText() or ""
-    local nativeText = button.GetFontString and button:GetFontString()
+    local nativeText = options.textRegion
+        or (button.GetFontString and button:GetFontString())
     if nativeText and nativeText.GetObjectType
         and nativeText:GetObjectType() == "FontString"
     then
@@ -196,7 +199,8 @@ function NSkin:SkinActionButton(button, options)
     self:SkinFlatButton(button, label,
         options.background or style.background,
         options.border or self:GetComponentBorderColor("button", style),
-        options.textSize, nil, nil, options.preserveTexture)
+        options.textSize, nil, nil, options.preserveTexture,
+        options.preserveTextGeometry == true)
     local border = self:GetPixelBorder(button, "NSkinFlatBackgroundBorder")
     self:SetPixelBorderSize(border, 1)
     SuppressActionButtonNativeText(button)
