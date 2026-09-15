@@ -73,7 +73,9 @@ end
 
 local function GetProductScrollBox(frame)
     local container = GetProductContainer(frame)
-    return container and container.ScrollBox
+    local scrollContainer = container
+        and container.ProductsScrollBoxContainer
+    return scrollContainer and scrollContainer.ScrollBox
 end
 
 local function IsSectionHeader(target)
@@ -439,8 +441,8 @@ function ShopSkin:ApplyProductList(frame)
     local container = GetProductContainer(frame)
     if not container then return false end
     local applied = false
-    local scrollBar = container.ScrollBar
-        or container.ScrollBox and container.ScrollBox.ScrollBar
+    local scrollContainer = container.ProductsScrollBoxContainer
+    local scrollBar = scrollContainer and scrollContainer.ScrollBar
     if scrollBar then
         local element = NSkin:RegisterScrollBar({
             id = IDs.ScrollBar,
