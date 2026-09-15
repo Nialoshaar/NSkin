@@ -967,8 +967,9 @@ local function RefreshSectionCardPresentation(target)
         EnforceSectionCardTextAppearance(state.textRegion)
     end
     if state.glow then
-        local hovered = false
+        local highlighted = false
         if state.showHighlight then
+            local hovered
             if state.interactionManaged then
                 hovered = ResolveContentState(
                     state.getHovered, state.hoverRegion, target)
@@ -976,8 +977,11 @@ local function RefreshSectionCardPresentation(target)
                 hovered = target.IsMouseOver
                     and target:IsMouseOver() == true or false
             end
+            local selected = ResolveContentState(
+                state.getSelected, state.selectedRegion, target)
+            highlighted = hovered or selected
         end
-        state.glow:SetShown(hovered)
+        state.glow:SetShown(highlighted)
     end
     RefreshSectionCardGlyph(target)
 end
@@ -1075,10 +1079,14 @@ function NSkin:SkinSectionCard(target, options)
     state.options = options
     state.collapsible = options.collapsible == true
     state.getHovered = options.getHovered
+    state.getSelected = options.getSelected
     state.showHighlight = style.showHighlight ~= false
     state.hoverRegion = ResolveSectionCardValue(options.hoverRegion, target)
+    state.selectedRegion = ResolveSectionCardValue(
+        options.selectedRegion, target)
     state.interactionManaged = options.getHovered ~= nil
-        or options.hoverRegion ~= nil
+        or options.hoverRegion ~= nil or options.getSelected ~= nil
+        or options.selectedRegion ~= nil
     local visualRegion = ResolveSectionCardValue(options.visualRegion, target)
     if not (visualRegion and visualRegion.GetObjectType) then
         visualRegion = target
@@ -1104,11 +1112,23 @@ function NSkin:SkinSectionCard(target, options)
         or self:GetResolvedAppearanceColor(style, "background")
     local borderColor = options.border
         or self:GetComponentBorderColor("sectionCard", style)
-    local background = self:CreateFlatBackground(
-        target, SECTION_CARD_BACKGROUND, backgroundColor, borderColor)
-    AnchorSectionCardSurface(background, visualRegion, 1)
+    local showBackground = options.showBackground ~= false
+    local background = self:GetFlatBackground(target, SECTION_CARD_BACKGROUND)
+    if showBackground then
+        background = self:CreateFlatBackground(
+            target, SECTION_CARD_BACKGROUND, backgroundColor, borderColor)
+        AnchorSectionCardSurface(background, visualRegion, 1)
+        background:Show()
+    elseif background then
+        background:Hide()
+    end
     local border = self:GetPixelBorder(
         target, SECTION_CARD_BACKGROUND .. "Border")
+    if not border then
+        border = self:CreatePixelBorder(
+            target, SECTION_CARD_BACKGROUND .. "Border",
+            style.borderSize or 1, borderColor, false, visualRegion)
+    end
     state.background = background
     state.border = border
     if border then border.anchor = visualRegion end
@@ -1187,6 +1207,15 @@ function NSkin:SkinSectionCard(target, options)
             target:HookScript(script, RefreshSectionCardPresentation)
         end
         state.presentationHooksInstalled = true
+    end
+    if not state.selectionHooksInstalled and _G.hooksecurefunc then
+        for _, method in ipairs({ "SetSelected", "SetChecked" }) do
+            if type(target[method]) == "function" then
+                pcall(_G.hooksecurefunc, target, method,
+                    RefreshSectionCardPresentation)
+            end
+        end
+        state.selectionHooksInstalled = true
     end
     if not state.titleColorHookInstalled and _G.hooksecurefunc
         and type(target.CheckHighlightTitle) == "function"

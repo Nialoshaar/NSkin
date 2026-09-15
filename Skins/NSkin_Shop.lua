@@ -9,14 +9,11 @@ local IDs = {
     Navigation = "CatalogShop.Header.Navigation",
     Search = "CatalogShop.Header.Search",
     ScrollBar = "CatalogShop.ProductList.ScrollBar",
-    SectionHeaders = "CatalogShop.ProductList.SectionHeaders",
     Cards = "CatalogShop.ProductList.Cards",
     CardNames = "CatalogShop.ProductList.CardNames",
     CardPrices = "CatalogShop.ProductList.CardPrices",
     CardSaleText = "CatalogShop.ProductList.CardSaleText",
     CardIcons = "CatalogShop.ProductList.CardIcons",
-    NoSearchResults = "CatalogShop.ProductList.NoSearchResults",
-    FormButtons = "CatalogShop.Preview.FormButtons",
 }
 
 local initialized = false
@@ -30,16 +27,47 @@ NSkin:RegisterAppearanceScope(IDs.Scope, {
     label = "Catalog Shop",
 })
 
+local function CanSkinShopObject(target)
+    if not target then return false end
+    if target.IsForbidden then
+        local ok, forbidden = pcall(target.IsForbidden, target)
+        if not ok or forbidden then return false end
+    end
+    return true
+end
+
 local function IsVisible(target)
-    return target and target.IsVisible and target:IsVisible() or false
+    if not CanSkinShopObject(target)
+        or type(target.IsVisible) ~= "function"
+    then
+        return false
+    end
+    local ok, visible = pcall(target.IsVisible, target)
+    return ok and visible == true
+end
+
+local function IsShown(target)
+    if not CanSkinShopObject(target)
+        or type(target.IsShown) ~= "function"
+    then
+        return false
+    end
+    local ok, shown = pcall(target.IsShown, target)
+    return ok and shown == true
 end
 
 local function IsHovered(target)
-    return target and target.IsMouseOver and target:IsMouseOver() or false
+    if not CanSkinShopObject(target)
+        or type(target.IsMouseOver) ~= "function"
+    then
+        return false
+    end
+    local ok, hovered = pcall(target.IsMouseOver, target)
+    return ok and hovered == true
 end
 
 local function SuppressRegion(region)
-    if not region then return end
+    if not CanSkinShopObject(region) then return false end
     local state = suppressedRegions[region]
     if not state then
         state = { active = true }
@@ -47,9 +75,15 @@ local function SuppressRegion(region)
     end
     state.active = true
     local function Conceal()
-        if not state.active or state.applying then return end
+        if not state.active or state.applying
+            or not CanSkinShopObject(region)
+        then
+            return
+        end
         state.applying = true
-        if region.SetAlpha then region:SetAlpha(0) end
+        if type(region.SetAlpha) == "function" then
+            pcall(region.SetAlpha, region, 0)
+        end
         state.applying = nil
     end
     Conceal()
@@ -61,42 +95,52 @@ local function SuppressRegion(region)
         end
         state.hooked = true
     end
-end
-
-local function GetHeader(frame)
-    return frame and frame.HeaderFrame
+    return true
 end
 
 local function GetProductContainer(frame)
-    return frame and frame.ProductContainerFrame
+    if not CanSkinShopObject(frame) then return nil end
+    local container = frame.ProductContainerFrame
+    return CanSkinShopObject(container) and container or nil
+end
+
+local function GetProductsScrollContainer(frame)
+    local container = GetProductContainer(frame)
+    if not container then return nil end
+    local scrollContainer = container.ProductsScrollBoxContainer
+    return CanSkinShopObject(scrollContainer) and scrollContainer or nil
 end
 
 local function GetProductScrollBox(frame)
-    local container = GetProductContainer(frame)
-    local scrollContainer = container
-        and container.ProductsScrollBoxContainer
-    return scrollContainer and scrollContainer.ScrollBox
-end
-
-local function IsSectionHeader(target)
-    return target and target.headerText ~= nil
+    local scrollContainer = GetProductsScrollContainer(frame)
+    if not scrollContainer then return nil end
+    local scrollBox = scrollContainer.ScrollBox
+    return CanSkinShopObject(scrollBox) and scrollBox or nil
 end
 
 local function IsProductCard(target)
-    return target and target.BackgroundContainer
-        and target.ForegroundContainer
+    -- ScrollBox entries must be rejected before any child field is read.
+    if not CanSkinShopObject(target) then return false end
+    local background = target.BackgroundContainer
+    local foreground = target.ForegroundContainer
+    return CanSkinShopObject(background)
+        and CanSkinShopObject(foreground)
 end
 
-local function ForEachProductEntry(frame, callback)
-    return NSkin:ForEachScrollBoxFrame(
-        GetProductScrollBox(frame), callback)
+local function ForEachProductCard(frame, callback)
+    local scrollBox = GetProductScrollBox(frame)
+    if not scrollBox or type(callback) ~= "function" then return false end
+    return NSkin:ForEachScrollBoxFrame(scrollBox, function(target)
+        if not CanSkinShopObject(target) then return end
+        if IsProductCard(target) then callback(target) end
+    end)
 end
 
-local function GetVisibleEntries(frame, predicate)
+local function GetProductCards(frame, visibleOnly)
     local targets = {}
-    ForEachProductEntry(frame, function(target)
-        if predicate(target) and IsVisible(target) then
-            targets[#targets + 1] = target
+    ForEachProductCard(frame, function(card)
+        if not visibleOnly or IsVisible(card) then
+            targets[#targets + 1] = card
         end
     end)
     return targets
@@ -104,12 +148,14 @@ end
 
 local function GetCardTextTargets(frame, fields)
     local targets = {}
-    ForEachProductEntry(frame, function(card)
-        if not IsProductCard(card) then return end
+    ForEachProductCard(frame, function(card)
         local foreground = card.ForegroundContainer
+        if not CanSkinShopObject(foreground) then return end
         for _, field in ipairs(fields) do
-            local target = foreground and foreground[field]
-            if target and target.GetFont then
+            local target = foreground[field]
+            if CanSkinShopObject(target)
+                and type(target.GetFont) == "function"
+            then
                 targets[#targets + 1] = target
             end
         end
@@ -119,33 +165,32 @@ end
 
 local function GetCardIconDescriptors(frame)
     local descriptors = {}
-    ForEachProductEntry(frame, function(card)
-        if not IsProductCard(card) then return end
+    ForEachProductCard(frame, function(card)
         local foreground = card.ForegroundContainer
-        local rectIcon = foreground and foreground.RectIcon
-        local circleIcon = foreground and foreground.CircleIcon
-        local productIcon = foreground and foreground.ProductIcon
-        local texture = IsVisible(rectIcon) and rectIcon
-            or IsVisible(circleIcon) and circleIcon
-            or IsVisible(productIcon) and productIcon
-        if texture then
-            descriptors[#descriptors + 1] = {
-                target = card,
-                texture = texture,
-                borderOwner = card,
-                hoverRegion = foreground.HoverTexture,
-            }
+        if not CanSkinShopObject(foreground) then return end
+        for _, field in ipairs({ "RectIcon", "CircleIcon", "ProductIcon" }) do
+            local texture = foreground[field]
+            if CanSkinShopObject(texture) and IsVisible(texture) then
+                descriptors[#descriptors + 1] = {
+                    target = card,
+                    texture = texture,
+                    borderOwner = card,
+                }
+                break
+            end
         end
     end)
     return descriptors
 end
 
 local function GetVisibleTargets(provider)
-    local visible = {}
+    local targets = {}
     for _, target in ipairs(provider()) do
-        if IsVisible(target) then visible[#visible + 1] = target end
+        if CanSkinShopObject(target) and IsVisible(target) then
+            targets[#targets + 1] = target
+        end
     end
-    return visible
+    return targets
 end
 
 local function RegisterGroup(frame, definition)
@@ -192,8 +237,9 @@ local function QueueApply()
 end
 
 function ShopSkin:ApplyWindow(frame)
+    if not CanSkinShopObject(frame) then return false end
     local backgrounds = frame.BackgroundContainer
-    local header = GetHeader(frame)
+    local header = frame.HeaderFrame
     SuppressRegion(frame.NineSlice)
     SuppressRegion(frame.TopTitleStreaks)
     SuppressRegion(_G.CatalogShopFrameBg)
@@ -203,13 +249,16 @@ function ShopSkin:ApplyWindow(frame)
     SuppressRegion(header and header.Background)
     SuppressRegion(header and header.DisabledBackground)
 
+    local closeButton = CanSkinShopObject(frame.CloseButton)
+        and frame.CloseButton or nil
     NSkin:SkinStandardWindowChrome({
         frame = frame,
         appearanceWindowID = IDs.Scope,
         elementID = IDs.Window,
         headerControlsID = IDs.HeaderControls,
-        title = frame.TitleContainer and frame.TitleContainer.TitleText,
-        closeButton = frame.CloseButton,
+        title = frame.TitleContainer
+            and frame.TitleContainer.TitleText,
+        closeButton = closeButton,
     })
     NSkin:RegisterSkinningElement(IDs.Window, {
         label = "Catalog Shop window",
@@ -220,16 +269,20 @@ function ShopSkin:ApplyWindow(frame)
         target = frame,
         priority = 0,
         draggable = false,
+        isEditable = function()
+            return IsVisible(frame)
+        end,
     })
     return true
 end
 
 function ShopSkin:ApplyHeader(frame)
-    local header = GetHeader(frame)
-    if not header then return false end
+    if not CanSkinShopObject(frame) then return false end
+    local header = frame.HeaderFrame
+    if not CanSkinShopObject(header) then return false end
     local applied = false
     local navigation = header.CatalogShopNavBar
-    if navigation then
+    if CanSkinShopObject(navigation) then
         applied = NSkin:RegisterNavigationBar(IDs.Navigation, {
             module = "Shop",
             appearanceWindowID = IDs.Scope,
@@ -244,7 +297,7 @@ function ShopSkin:ApplyHeader(frame)
         }) ~= nil or applied
     end
     local searchBox = header.SearchBox
-    if searchBox then
+    if CanSkinShopObject(searchBox) then
         local element = NSkin:RegisterSearchBox({
             id = IDs.Search,
             module = "Shop",
@@ -264,71 +317,47 @@ function ShopSkin:ApplyHeader(frame)
     return applied
 end
 
-function ShopSkin:StyleSectionHeader(header)
-    if not IsSectionHeader(header) then return false end
-    SuppressRegion(header.sectionHeaderRule)
-    local text = header.headerText
-    if text then
-        NSkin:SkinText(text, NSkin:GetAppearanceStyle(
-            "text", IDs.Scope, IDs.SectionHeaders))
-    end
-    return text ~= nil
-end
-
-function ShopSkin:ApplySectionHeaders(frame)
-    local function Targets()
-        local targets = {}
-        ForEachProductEntry(frame, function(header)
-            if IsSectionHeader(header) and header.headerText then
-                targets[#targets + 1] = header.headerText
-            end
-        end)
-        return targets
-    end
-    return RegisterGroup(frame, {
-        id = IDs.SectionHeaders,
-        label = "Catalog Shop section headers",
-        kind = "SECTION_HEADER",
-        priority = 40,
-        targets = Targets,
-        appearanceStyles = { "text" },
-        appearanceTypeIDs = { "TEXT" },
-        refresh = function()
-            local applied = false
-            ForEachProductEntry(frame, function(header)
-                applied = self:StyleSectionHeader(header) or applied
-            end)
-            return applied
-        end,
-    })
-end
-
 function ShopSkin:StyleProductCard(card)
     if not IsProductCard(card) then return false end
-    local background = card.BackgroundContainer
     local foreground = card.ForegroundContainer
+    if not CanSkinShopObject(foreground) then return false end
+
+    local selectedContainer = card.SelectedContainer
+    local selectedRegion
+    if CanSkinShopObject(selectedContainer) then
+        local candidate = selectedContainer.FrameBackground
+        if CanSkinShopObject(candidate) then selectedRegion = candidate end
+    end
+    local hoverRegion = foreground.HoverTexture
+    if not CanSkinShopObject(hoverRegion) then hoverRegion = nil end
+
     local style = NSkin:GetAppearanceStyle(
         "sectionCard", IDs.Scope, IDs.Cards)
     local border = NSkin:GetAppearanceBorderColor(
         "sectionCard", style, IDs.Scope, IDs.Cards)
-    NSkin:SkinSectionCard(card, {
+    local decorations = {}
+    if selectedRegion then decorations[1] = selectedRegion end
+    local state = NSkin:SkinSectionCard(card, {
         style = style,
         border = border,
         height = 0,
+        showBackground = false,
         preserveTextLayout = true,
-        visualRegion = background or card,
-        nativeDecorationRegions = {
-            background and background.Background,
-        },
-        hoverRegion = foreground and foreground.HoverTexture,
+        visualRegion = card,
+        nativeDecorationRegions = decorations,
+        hoverRegion = hoverRegion,
+        selectedRegion = selectedRegion,
         getHovered = IsHovered,
+        getSelected = function()
+            return IsShown(selectedRegion)
+        end,
     })
-    return true
+    return state ~= nil
 end
 
 function ShopSkin:ApplyProductCards(frame)
     local function Targets()
-        return GetVisibleEntries(frame, IsProductCard)
+        return GetProductCards(frame, true)
     end
     return RegisterGroup(frame, {
         id = IDs.Cards,
@@ -339,7 +368,7 @@ function ShopSkin:ApplyProductCards(frame)
         pixelBorders = true,
         refresh = function()
             local applied = false
-            ForEachProductEntry(frame, function(card)
+            ForEachProductCard(frame, function(card)
                 applied = self:StyleProductCard(card) or applied
             end)
             return applied
@@ -347,11 +376,13 @@ function ShopSkin:ApplyProductCards(frame)
     })
 end
 
-local function SkinTextFamily(frame, id, provider)
+local function SkinTextFamily(id, provider)
     local style = NSkin:GetAppearanceStyle("text", IDs.Scope, id)
     local applied = false
     for _, target in ipairs(provider()) do
-        applied = NSkin:SkinText(target, style) or applied
+        if CanSkinShopObject(target) then
+            applied = NSkin:SkinText(target, style) or applied
+        end
     end
     return applied
 end
@@ -381,22 +412,20 @@ function ShopSkin:ApplyCardText(frame)
     local applied = false
     for _, definition in ipairs(definitions) do
         local id = definition.id
-        local label = definition.label
         local fields = definition.fields
-        local priority = definition.priority
         local function Targets()
             return GetCardTextTargets(frame, fields)
         end
         applied = RegisterGroup(frame, {
             id = id,
-            label = label,
+            label = definition.label,
             kind = "TEXT",
-            priority = priority,
+            priority = definition.priority,
             targets = Targets,
             appearanceStyles = { "text" },
             appearanceTypeIDs = { "TEXT" },
             refresh = function()
-                return SkinTextFamily(frame, id, Targets)
+                return SkinTextFamily(id, Targets)
             end,
         }) or applied
     end
@@ -404,10 +433,17 @@ function ShopSkin:ApplyCardText(frame)
 end
 
 function ShopSkin:ApplyCardIcons(frame)
+    local function Descriptors()
+        return GetCardIconDescriptors(frame)
+    end
     local function Targets()
         local targets = {}
-        for _, descriptor in ipairs(GetCardIconDescriptors(frame)) do
-            targets[#targets + 1] = descriptor.target
+        for _, descriptor in ipairs(Descriptors()) do
+            if CanSkinShopObject(descriptor.target)
+                and CanSkinShopObject(descriptor.texture)
+            then
+                targets[#targets + 1] = descriptor.target
+            end
         end
         return targets
     end
@@ -424,13 +460,18 @@ function ShopSkin:ApplyCardIcons(frame)
             local border = NSkin:GetAppearanceBorderColor(
                 "icon", style, IDs.Scope, IDs.CardIcons)
             local applied = false
-            for _, descriptor in ipairs(GetCardIconDescriptors(frame)) do
-                applied = NSkin:SkinIcon(descriptor.target, {
-                    texture = descriptor.texture,
-                    borderOwner = descriptor.borderOwner,
-                    style = style,
-                    border = border,
-                }) or applied
+            for _, descriptor in ipairs(Descriptors()) do
+                if CanSkinShopObject(descriptor.target)
+                    and CanSkinShopObject(descriptor.texture)
+                    and CanSkinShopObject(descriptor.borderOwner)
+                then
+                    applied = NSkin:SkinIcon(descriptor.target, {
+                        texture = descriptor.texture,
+                        borderOwner = descriptor.borderOwner,
+                        style = style,
+                        border = border,
+                    }) or applied
+                end
             end
             return applied
         end,
@@ -438,12 +479,11 @@ function ShopSkin:ApplyCardIcons(frame)
 end
 
 function ShopSkin:ApplyProductList(frame)
-    local container = GetProductContainer(frame)
-    if not container then return false end
+    local scrollContainer = GetProductsScrollContainer(frame)
+    if not scrollContainer then return false end
     local applied = false
-    local scrollContainer = container.ProductsScrollBoxContainer
-    local scrollBar = scrollContainer and scrollContainer.ScrollBar
-    if scrollBar then
+    local scrollBar = scrollContainer.ScrollBar
+    if CanSkinShopObject(scrollBar) then
         local element = NSkin:RegisterScrollBar({
             id = IDs.ScrollBar,
             module = "Shop",
@@ -460,91 +500,10 @@ function ShopSkin:ApplyProductList(frame)
         if element then NSkin:RefreshTypedElementAppearance(element) end
         applied = element ~= nil or applied
     end
-    local noResults = container.NoSearchResults
-    if noResults then
-        local element = NSkin:RegisterTextElement({
-            id = IDs.NoSearchResults,
-            module = "Shop",
-            appearanceWindowID = IDs.Scope,
-            label = "Catalog Shop no search results text",
-            window = frame,
-            target = noResults,
-            priority = 31,
-            highlightRegions = { noResults },
-            isEditable = function()
-                return IsVisible(frame) and IsVisible(noResults)
-            end,
-        })
-        if element then NSkin:RefreshTypedElementAppearance(element) end
-        applied = element ~= nil or applied
-    end
-    applied = self:ApplySectionHeaders(frame) or applied
     applied = self:ApplyProductCards(frame) or applied
     applied = self:ApplyCardText(frame) or applied
     applied = self:ApplyCardIcons(frame) or applied
     return applied
-end
-
-function ShopSkin:ApplyFormButtons(frame)
-    local modelContainer = frame.ModelSceneContainerFrame
-    local buttons = modelContainer and {
-        modelContainer.NormalFormButton,
-        modelContainer.AlternateFormButton,
-    } or {}
-    local function Descriptors()
-        local descriptors = {}
-        for _, button in pairs(buttons) do
-            local texture = button and (button.Icon or button.icon)
-            if texture then
-                descriptors[#descriptors + 1] = {
-                    target = button,
-                    texture = texture,
-                    selectedRegion = button.GetCheckedTexture
-                        and button:GetCheckedTexture(),
-                }
-            end
-        end
-        return descriptors
-    end
-    local function Targets()
-        local targets = {}
-        for _, descriptor in ipairs(Descriptors()) do
-            targets[#targets + 1] = descriptor.target
-        end
-        return targets
-    end
-    return RegisterGroup(frame, {
-        id = IDs.FormButtons,
-        label = "Catalog Shop preview form buttons",
-        kind = "CHECKBOX",
-        priority = 70,
-        targets = Targets,
-        pixelBorders = true,
-        appearanceStyles = { "icon" },
-        appearanceTypeIDs = { "ICON" },
-        refresh = function()
-            local style = NSkin:GetAppearanceStyle(
-                "icon", IDs.Scope, IDs.FormButtons)
-            local border = NSkin:GetAppearanceBorderColor(
-                "icon", style, IDs.Scope, IDs.FormButtons)
-            local applied = false
-            for _, descriptor in ipairs(Descriptors()) do
-                local button = descriptor.target
-                applied = NSkin:SkinIcon(button, {
-                    texture = descriptor.texture,
-                    borderOwner = button,
-                    style = style,
-                    border = border,
-                    selectedRegion = descriptor.selectedRegion,
-                    getHovered = IsHovered,
-                    getSelected = function(target)
-                        return target.GetChecked and target:GetChecked() or false
-                    end,
-                }) or applied
-            end
-            return applied
-        end,
-    })
 end
 
 function ShopSkin:HookProductScrollBox(frame)
@@ -556,12 +515,11 @@ function ShopSkin:HookProductScrollBox(frame)
     then
         scrollBox:RegisterCallback(events.OnInitializedFrame,
             function(_, target)
-                if IsSectionHeader(target) then
-                    self:StyleSectionHeader(target)
-                elseif IsProductCard(target) then
+                if not CanSkinShopObject(target) then return end
+                if IsProductCard(target) then
                     self:StyleProductCard(target)
+                    QueueApply()
                 end
-                QueueApply()
             end, self)
         scrollBoxHooked = true
     elseif _G.hooksecurefunc and type(scrollBox.Update) == "function" then
@@ -573,17 +531,16 @@ end
 
 function ShopSkin:Apply()
     local frame = _G.CatalogShopFrame
-    if not frame then return false end
+    if not CanSkinShopObject(frame) then return false end
     local applied = self:ApplyWindow(frame)
     applied = self:ApplyHeader(frame) or applied
     applied = self:ApplyProductList(frame) or applied
-    applied = self:ApplyFormButtons(frame) or applied
     return applied
 end
 
 function ShopSkin:Initialize()
     local frame = _G.CatalogShopFrame
-    if not frame then return false end
+    if not CanSkinShopObject(frame) then return false end
     if not lifecycleHooked then
         if frame.HookScript then frame:HookScript("OnShow", QueueApply) end
         if _G.hooksecurefunc then
@@ -598,7 +555,7 @@ function ShopSkin:Initialize()
     self:HookProductScrollBox(frame)
     initialized = true
     local applied = self:Apply()
-    if frame:IsShown() then QueueApply() end
+    if IsVisible(frame) then QueueApply() end
     return applied
 end
 
