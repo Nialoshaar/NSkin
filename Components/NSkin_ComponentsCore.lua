@@ -2701,7 +2701,8 @@ local SHARED_SKIN_ADAPTERS = {
             "getExpanded", "isExpanded", "height", "stripArtwork",
             "nativeDecorationRegions", "artworkRegions", "preserveTextures",
             "background", "visualRegion", "preserveTextLayout",
-            "hoverRegion", "getHovered", "reset",
+            "hoverRegion", "selectedRegion", "getHovered", "getSelected",
+            "showBackground", "presentationOwner", "reset",
         }) do
             if options[key] == nil then options[key] = definition[key] end
         end
@@ -2910,7 +2911,8 @@ local TYPED_SKIN_FIELDS_BY_TYPE = {
         "getExpanded", "isExpanded", "height", "stripArtwork",
         "nativeDecorationRegions", "artworkRegions", "preserveTextures",
         "background", "visualRegion", "preserveTextLayout", "hoverRegion",
-        "getHovered", "reset",
+        "selectedRegion", "getHovered", "getSelected", "showBackground",
+        "presentationOwner", "reset",
     },
     EDIT_BOX = { "decrementButton", "incrementButton" },
     ICON = {
