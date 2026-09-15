@@ -41,16 +41,44 @@ local IDs = {
             SelectionDescription = "PlayerChoice.Grid.SelectionDescription",
         },
     },
+    CovenantMission = {
+        Scope = "CovenantMission",
+        Window = "CovenantMission.Window",
+        CloseButton = "CovenantMission.CloseButton",
+        Title = "CovenantMission.Title",
+    },
+    AdventureMapQuestChoice = {
+        Scope = "AdventureMapQuestChoice",
+        Window = "AdventureMapQuestChoice.Window",
+        CloseButton = "AdventureMapQuestChoice.CloseButton",
+        QuestTitle = "AdventureMapQuestChoice.Title",
+        Description = "AdventureMapQuestChoice.Description",
+        ObjectivesHeader = "AdventureMapQuestChoice.ObjectivesHeader",
+        ObjectivesText = "AdventureMapQuestChoice.Objectives",
+        ScrollBar = "AdventureMapQuestChoice.ScrollBar",
+        RewardsHeader = "AdventureMapQuestChoice.RewardsHeader",
+        RewardIcons = "AdventureMapQuestChoice.RewardIcons",
+        RewardNames = "AdventureMapQuestChoice.RewardNames",
+        RewardCounts = "AdventureMapQuestChoice.RewardCounts",
+        AcceptButton = "AdventureMapQuestChoice.Accept",
+        DeclineButton = "AdventureMapQuestChoice.Decline",
+    },
 }
 
 local initialized = false
 local genericTraitInitialized = false
 local playerChoiceInitialized = false
+local covenantMissionInitialized = false
+local adventureMapQuestChoiceInitialized = false
 local applyPending = false
 local playerChoiceApplyPending = false
+local covenantMissionApplyPending = false
+local adventureMapQuestChoiceApplyPending = false
 local lifecycleHooked = false
 local genericTraitLifecycleHooked = false
 local playerChoiceLifecycleHooked = false
+local covenantMissionLifecycleHooked = false
+local adventureMapQuestChoiceLifecycleHooked = false
 local genericTraitIconsRegistered = false
 local playerChoicePaginationController
 local registryCallbackRegistered = false
@@ -58,7 +86,11 @@ local concealedArtwork = setmetatable({}, { __mode = "k" })
 local hookedOverlays = setmetatable({}, { __mode = "k" })
 local suppressedRegions = setmetatable({}, { __mode = "k" })
 local registeredPlayerChoiceGroups = {}
+local registeredAdventureMapQuestChoiceGroups = {}
 local hookedPlayerChoicePools = setmetatable({}, { __mode = "k" })
+local hookedAdventureMapRewardPools = setmetatable({}, { __mode = "k" })
+local hookedCovenantMissionLifecycleTargets =
+    setmetatable({}, { __mode = "k" })
 
 NSkin:RegisterAppearanceScope(IDs.Scope, {
     label = "Midnight Features",
@@ -69,6 +101,14 @@ NSkin:RegisterAppearanceScope(IDs.GenericTrait.Scope, {
 })
 NSkin:RegisterAppearanceScope(IDs.PlayerChoice.Scope, {
     label = "Player Choice",
+    parent = IDs.Scope,
+})
+NSkin:RegisterAppearanceScope(IDs.CovenantMission.Scope, {
+    label = "Covenant Mission",
+    parent = IDs.Scope,
+})
+NSkin:RegisterAppearanceScope(IDs.AdventureMapQuestChoice.Scope, {
+    label = "Adventure Map Quest Choice",
     parent = IDs.Scope,
 })
 
@@ -172,6 +212,24 @@ local function QueuePlayerChoiceApply()
     C_Timer.After(0, function()
         playerChoiceApplyPending = false
         MidnightFeaturesSkin:ApplyPlayerChoice()
+    end)
+end
+
+local function QueueCovenantMissionApply()
+    if covenantMissionApplyPending then return end
+    covenantMissionApplyPending = true
+    C_Timer.After(0, function()
+        covenantMissionApplyPending = false
+        MidnightFeaturesSkin:ApplyCovenantMission()
+    end)
+end
+
+local function QueueAdventureMapQuestChoiceApply()
+    if adventureMapQuestChoiceApplyPending then return end
+    adventureMapQuestChoiceApplyPending = true
+    C_Timer.After(0, function()
+        adventureMapQuestChoiceApplyPending = false
+        MidnightFeaturesSkin:ApplyAdventureMapQuestChoice()
     end)
 end
 
@@ -293,6 +351,8 @@ local function GetPlayerChoiceHeaderTexts(frame)
     local targets, seen = {}, {}
     for _, option in ipairs(GetPlayerChoiceOptions(frame, false)) do
         local header = option.Header or option.OptionHeader
+        local contents = header and header.Contents
+        AddFontRegions(targets, seen, contents and contents.Text)
         AddFontRegions(targets, seen,
             header and (header.Text or header.Title) or header)
         AddFontRegions(targets, seen, option.HeaderText)
@@ -334,6 +394,16 @@ end
 local function GetPlayerChoiceActionButtons(frame)
     local buttons, seen = {}, {}
     for _, option in ipairs(GetPlayerChoiceOptions(frame, false)) do
+        local optionButtons = option.OptionButtonsContainer
+        local buttonFramePool = optionButtons and optionButtons.buttonFramePool
+        if buttonFramePool
+            and type(buttonFramePool.EnumerateActive) == "function"
+        then
+            for buttonFrame in buttonFramePool:EnumerateActive() do
+                AddUnique(buttons, seen,
+                    buttonFrame and buttonFrame.Button)
+            end
+        end
         for _, values in ipairs({ option.Buttons, option.OptionButtons,
             option.buttons }) do
             AddArrayValues(buttons, seen, values)
@@ -344,7 +414,7 @@ local function GetPlayerChoiceActionButtons(frame)
         end
         for _, container in ipairs({ option.ButtonContainer,
             option.ButtonsContainer, option.ButtonFrame, option.Buttons,
-            option.OptionButtons }) do
+            option.OptionButtons, option.OptionButtonsContainer }) do
             AddChildren(buttons, seen, container, IsButton)
         end
         if IsButton(option.Button) then AddUnique(buttons, seen, option.Button) end
@@ -652,37 +722,47 @@ local function SkinPlayerChoiceIconFamily(id, provider)
     return applied
 end
 
-local function SuppressPlayerChoiceArtwork(frame)
+local function SuppressPlayerChoiceFrameArtwork(frame)
     local header = frame.Header
+    local title = frame.Title
     local background = frame.Background
+    local closeButton = frame.CloseButton
     for _, region in ipairs({
-        frame.Background, frame.Border, frame.BorderOverlay, frame.NineSlice,
         header and header.Texture,
+        title and title.Left,
+        title and title.Middle,
+        title and title.Right,
         background and background.BackgroundTile,
+        closeButton and closeButton.Border,
+        frame.BorderOverlay,
+        frame.NineSlice,
     }) do
         SuppressRegion(region)
     end
+end
+
+local function SuppressPlayerChoiceOptionArtwork(option)
+    if not option then return end
+    local header = option.Header or option.OptionHeader
+    SuppressRegion(option.Background)
+    SuppressRegion(option.ArtworkBorder)
+    SuppressRegion(header and header.Ribbon)
+end
+
+local function SuppressPlayerChoiceArtwork(frame)
+    SuppressPlayerChoiceFrameArtwork(frame)
     for _, option in ipairs(GetPlayerChoiceOptions(frame, false)) do
-        local header = option.Header or option.OptionHeader
-        local headerBackground = header and header.Background
-        for _, region in ipairs({
-            option.Background, option.ArtworkBorder, option.BorderOverlay,
-            option.NineSlice, headerBackground,
-            headerBackground and headerBackground.BackgroundTile,
-            header and header.BackgroundTile,
-            header and header.Ribbon, header and header.NineSlice,
-        }) do
-            SuppressRegion(region)
-        end
+        SuppressPlayerChoiceOptionArtwork(option)
     end
 end
 
-local function RegisterPlayerChoiceText(frame, id, label, target, priority)
+local function RegisterPlayerChoiceText(frame, id, label, target, priority,
+    appearanceWindowID)
     if not target then return false end
     local element = NSkin:RegisterTextElement({
         id = id,
         module = "MidnightFeatures",
-        appearanceWindowID = IDs.PlayerChoice.Scope,
+        appearanceWindowID = appearanceWindowID or IDs.PlayerChoice.Scope,
         label = label,
         window = frame,
         target = target,
@@ -995,20 +1075,462 @@ function MidnightFeaturesSkin:ApplyPlayerChoice()
     end
     HookPlayerChoicePoolCollection(frame.optionPools)
     for _, option in ipairs(GetPlayerChoiceOptions(frame, false)) do
+        local optionButtons = option.OptionButtonsContainer
         for _, pool in ipairs({ option.buttonPool, option.ButtonPool,
             option.optionButtonPool, option.rewardPool, option.RewardPool,
             option.itemRewardPool, option.currencyRewardPool,
-            option.reputationRewardPool }) do
+            option.reputationRewardPool,
+            optionButtons and optionButtons.buttonFramePool }) do
             HookPlayerChoicePool(pool)
         end
     end
     return applied
 end
 
+function MidnightFeaturesSkin:ApplyCovenantMission()
+    local frame = _G.CovenantMissionFrame
+    if not frame then return false end
+    SuppressRegion(frame.Border)
+    local title = frame.TitleText
+        or frame.Header and (frame.Header.Title or frame.Header.Text)
+        or frame.Title and frame.Title.GetFont and frame.Title
+    local style = NSkin:GetAppearanceStyle("window",
+        IDs.CovenantMission.Scope, IDs.CovenantMission.Window)
+    local borderColor = NSkin:GetAppearanceBorderColor("window", style,
+        IDs.CovenantMission.Scope, IDs.CovenantMission.Window)
+    local mapTab = frame.MapTab
+    local borderAnchor = mapTab and mapTab.ScrollContainer
+    if borderAnchor then
+        local oldBorder = NSkin:GetPixelBorder(frame, "NSkinWindowBorder")
+        if oldBorder then NSkin:SetPixelBorderShown(oldBorder, false) end
+        local oldMapBorder = NSkin:GetPixelBorder(
+            frame, "NSkinCovenantMissionMapBorder")
+        if oldMapBorder then
+            NSkin:SetPixelBorderShown(oldMapBorder, false)
+        end
+
+        local chromeState = NSkin:GetSkinData(
+            frame, "covenantMissionChrome")
+        local chrome = chromeState.overlay
+        if not chrome then
+            chrome = CreateFrame("Frame", nil, frame)
+            chrome:SetAllPoints(frame)
+            chrome:EnableMouse(false)
+            chromeState.overlay = chrome
+        end
+        local contentLevel = frame:GetFrameLevel()
+        if mapTab and mapTab.GetFrameLevel then
+            contentLevel = math.max(contentLevel, mapTab:GetFrameLevel())
+        end
+        if borderAnchor.GetFrameLevel then
+            contentLevel = math.max(
+                contentLevel, borderAnchor:GetFrameLevel())
+        end
+        chrome:SetFrameLevel(contentLevel + 10)
+        chrome:Show()
+
+        local border = NSkin:CreatePixelBorder(chrome,
+            "NSkinCovenantMissionMapBorder", style.borderSize,
+            borderColor, false, borderAnchor)
+        NSkin:SetPixelBorderSize(border, style.borderSize)
+        NSkin:SetPixelBorderPadding(border, style.borderPadding or 0)
+        NSkin:SetPixelBorderColor(border, unpack(borderColor))
+        NSkin:SetPixelBorderShown(border, true)
+    end
+
+    -- CovenantMissionFrame's MapTab is a full-window content canvas. Keep
+    -- any previously-created shared window surfaces out of that canvas.
+    local componentState = NSkin:GetSkinData(frame, "components", false)
+    if componentState then
+        if componentState.windowBackground then
+            componentState.windowBackground:Hide()
+        end
+        if componentState.windowHeaderBackground then
+            componentState.windowHeaderBackground:Hide()
+        end
+    end
+
+    local closeButton = frame.CloseButton
+    if closeButton then
+        local closeStyle = NSkin:GetAppearanceStyle("windowHeaderButton",
+            IDs.CovenantMission.Scope, IDs.CovenantMission.CloseButton)
+        local closeBorder = NSkin:GetAppearanceBorderColor(
+            "windowHeaderButton", closeStyle,
+            IDs.CovenantMission.Scope, IDs.CovenantMission.CloseButton)
+        NSkin:SkinWindowHeaderButton(closeButton, { glyph = "close" }, {
+            style = closeStyle,
+            border = closeBorder,
+        })
+        local closePixelBorder = NSkin:GetPixelBorder(
+            closeButton, "NSkinFlatBackgroundBorder")
+        NSkin:SetPixelBorderSize(closePixelBorder, style.borderSize)
+        NSkin:SetPixelBorderPadding(closePixelBorder, 0)
+        NSkin:RegisterWindowHeaderControls({
+            id = IDs.CovenantMission.CloseButton,
+            window = frame,
+            closeButton = closeButton,
+            borderSize = style.borderSize,
+        })
+        if not NSkin:GetSkinningElement(IDs.CovenantMission.CloseButton) then
+            NSkin:RegisterSkinningElement(IDs.CovenantMission.CloseButton, {
+                label = "Covenant mission close button",
+                kind = "WINDOW_HEADER_CONTROLS",
+                module = "MidnightFeatures",
+                appearanceWindowID = IDs.CovenantMission.Scope,
+                window = frame,
+                target = closeButton,
+                priority = 95,
+                draggable = false,
+                highlightRegions = function()
+                    return NSkin:GetWindowHeaderControlRegions(frame,
+                        IDs.CovenantMission.CloseButton)
+                end,
+                isEditable = function()
+                    return IsVisible(frame) and IsVisible(closeButton)
+                end,
+                refreshAppearance = function()
+                    return MidnightFeaturesSkin:ApplyCovenantMission()
+                end,
+                refreshLayout = function()
+                    return MidnightFeaturesSkin:ApplyCovenantMission()
+                end,
+            })
+        else
+            NSkin:NotifySkinningElementBoundsChanged(
+                IDs.CovenantMission.CloseButton)
+        end
+    end
+    NSkin:RegisterSkinningElement(IDs.CovenantMission.Window, {
+        label = "Covenant mission window",
+        kind = "WINDOW",
+        module = "MidnightFeatures",
+        appearanceWindowID = IDs.CovenantMission.Scope,
+        window = frame,
+        target = frame,
+        priority = 0,
+        draggable = false,
+        refreshAppearance = function()
+            return MidnightFeaturesSkin:ApplyCovenantMission()
+        end,
+        refreshLayout = function()
+            return MidnightFeaturesSkin:ApplyCovenantMission()
+        end,
+    })
+    if title then
+        RegisterPlayerChoiceText(frame, IDs.CovenantMission.Title,
+            "Covenant mission title", title, 20,
+            IDs.CovenantMission.Scope)
+    end
+    return true
+end
+
+local function GetAdventureMapQuestChoiceRewards(dialog, visibleOnly)
+    local rewards = {}
+    local pool = dialog and dialog.rewardPool
+    if pool and type(pool.EnumerateActive) == "function" then
+        for reward in pool:EnumerateActive() do
+            if not visibleOnly or IsVisible(reward) then
+                rewards[#rewards + 1] = reward
+            end
+        end
+    end
+    return rewards
+end
+
+local function RegisterAdventureMapQuestChoiceGroup(dialog, definition)
+    local id = definition.id
+    local function VisibleTargets()
+        return GetVisibleTargets(definition.targets)
+    end
+    if not registeredAdventureMapQuestChoiceGroups[id] then
+        registeredAdventureMapQuestChoiceGroups[id] =
+            NSkin:RegisterSkinningElement(id, {
+                label = definition.label,
+                kind = definition.kind,
+                module = "MidnightFeatures",
+                appearanceWindowID = IDs.AdventureMapQuestChoice.Scope,
+                window = dialog,
+                target = definition.owner or dialog,
+                priority = definition.priority,
+                draggable = false,
+                appearanceStyles = definition.appearanceStyles,
+                appearanceTypeIDs = definition.appearanceTypeIDs,
+                highlightRegions = VisibleTargets,
+                pixelBorderTargets = definition.pixelBorders
+                    and VisibleTargets or nil,
+                refreshAppearance = definition.refresh,
+                refreshLayout = definition.refresh,
+                isEditable = function()
+                    return IsVisible(dialog) and #VisibleTargets() > 0
+                end,
+            }) == true
+    end
+    local applied = definition.refresh()
+    if registeredAdventureMapQuestChoiceGroups[id] then
+        NSkin:NotifySkinningElementBoundsChanged(id)
+    end
+    return applied or registeredAdventureMapQuestChoiceGroups[id]
+end
+
+local function SkinAdventureMapTextFamily(id, provider)
+    local style = NSkin:GetAppearanceStyle(
+        "text", IDs.AdventureMapQuestChoice.Scope, id)
+    local applied = false
+    for _, target in ipairs(provider()) do
+        applied = NSkin:SkinText(target, style) or applied
+    end
+    return applied
+end
+
+local function SuppressAdventureMapQuestChoiceArtwork(dialog)
+    SuppressRegion(dialog.Background)
+    SuppressRegion(dialog.Rewards)
+    for _, reward in ipairs(GetAdventureMapQuestChoiceRewards(dialog, false)) do
+        SuppressRegion(reward.ItemNameBG)
+    end
+end
+
+function MidnightFeaturesSkin:ApplyAdventureMapQuestChoiceWindow(dialog)
+    SuppressAdventureMapQuestChoiceArtwork(dialog)
+    NSkin:SkinStandardWindowChrome({
+        frame = dialog,
+        appearanceWindowID = IDs.AdventureMapQuestChoice.Scope,
+        elementID = IDs.AdventureMapQuestChoice.Window,
+        headerControlsID = IDs.AdventureMapQuestChoice.CloseButton,
+        title = false,
+        closeButton = dialog.CloseButton,
+    })
+    NSkin:RegisterSkinningElement(IDs.AdventureMapQuestChoice.Window, {
+        label = "Adventure Map quest choice window",
+        kind = "WINDOW",
+        module = "MidnightFeatures",
+        appearanceWindowID = IDs.AdventureMapQuestChoice.Scope,
+        window = dialog,
+        target = dialog,
+        priority = 0,
+        draggable = false,
+    })
+    return true
+end
+
+function MidnightFeaturesSkin:ApplyAdventureMapQuestChoiceText(dialog)
+    local details = dialog.Details
+    local child = details and details.Child
+    local definitions = {
+        { IDs.AdventureMapQuestChoice.QuestTitle,
+            "Adventure Map quest title", child and child.TitleHeader,
+            "TEXT" },
+        { IDs.AdventureMapQuestChoice.Description,
+            "Adventure Map quest description", child and child.DescriptionText,
+            "TEXT" },
+        { IDs.AdventureMapQuestChoice.ObjectivesHeader,
+            "Adventure Map quest objectives header",
+            child and child.ObjectivesHeader, "SECTION_HEADER" },
+        { IDs.AdventureMapQuestChoice.ObjectivesText,
+            "Adventure Map quest objectives", child and child.ObjectivesText,
+            "TEXT" },
+        { IDs.AdventureMapQuestChoice.RewardsHeader,
+            "Adventure Map quest rewards header", dialog.RewardsHeader,
+            "SECTION_HEADER" },
+    }
+    local applied = false
+    for index, definition in ipairs(definitions) do
+        local id, label, target, kind = unpack(definition)
+        if target then
+            if kind == "TEXT" then
+                applied = RegisterPlayerChoiceText(dialog, id, label,
+                    target, 20 + index,
+                    IDs.AdventureMapQuestChoice.Scope) or applied
+            else
+                local function Targets() return { target } end
+                applied = RegisterAdventureMapQuestChoiceGroup(dialog, {
+                    id = id,
+                    label = label,
+                    kind = kind,
+                    priority = 20 + index,
+                    targets = Targets,
+                    appearanceStyles = { "text" },
+                    appearanceTypeIDs = { "TEXT" },
+                    refresh = function()
+                        return SkinAdventureMapTextFamily(id, Targets)
+                    end,
+                }) or applied
+            end
+        end
+    end
+    return applied
+end
+
+function MidnightFeaturesSkin:ApplyAdventureMapQuestChoiceRewards(dialog)
+    local function RewardIcons()
+        local targets = {}
+        for _, reward in ipairs(
+            GetAdventureMapQuestChoiceRewards(dialog, false))
+        do
+            if reward.Icon then targets[#targets + 1] = reward end
+        end
+        return targets
+    end
+    local function RefreshRewardIcons()
+        local style = NSkin:GetAppearanceStyle("icon",
+            IDs.AdventureMapQuestChoice.Scope,
+            IDs.AdventureMapQuestChoice.RewardIcons)
+        local border = NSkin:GetAppearanceBorderColor("icon", style,
+            IDs.AdventureMapQuestChoice.Scope,
+            IDs.AdventureMapQuestChoice.RewardIcons)
+        local applied = false
+        for _, reward in ipairs(
+            GetAdventureMapQuestChoiceRewards(dialog, false))
+        do
+            if reward.Icon then
+                NSkin:SkinIcon(reward, {
+                    texture = reward.Icon,
+                    style = style,
+                    border = border,
+                    borderOwner = reward,
+                })
+                SuppressRegion(reward.ItemNameBG)
+                applied = true
+            end
+        end
+        return applied
+    end
+    local function RewardNames()
+        local targets = {}
+        for _, reward in ipairs(
+            GetAdventureMapQuestChoiceRewards(dialog, false))
+        do
+            if reward.Name then targets[#targets + 1] = reward.Name end
+        end
+        return targets
+    end
+    local function RewardCounts()
+        local targets = {}
+        for _, reward in ipairs(
+            GetAdventureMapQuestChoiceRewards(dialog, false))
+        do
+            if reward.Count then targets[#targets + 1] = reward.Count end
+        end
+        return targets
+    end
+    local applied = RegisterAdventureMapQuestChoiceGroup(dialog, {
+        id = IDs.AdventureMapQuestChoice.RewardIcons,
+        label = "Adventure Map quest reward icons",
+        kind = "ICON",
+        priority = 40,
+        targets = RewardIcons,
+        pixelBorders = true,
+        refresh = RefreshRewardIcons,
+    })
+    for _, definition in ipairs({
+        { IDs.AdventureMapQuestChoice.RewardNames,
+            "Adventure Map quest reward names", RewardNames, 41 },
+        { IDs.AdventureMapQuestChoice.RewardCounts,
+            "Adventure Map quest reward counts", RewardCounts, 42 },
+    }) do
+        local id, label, provider, priority = unpack(definition)
+        applied = RegisterAdventureMapQuestChoiceGroup(dialog, {
+            id = id,
+            label = label,
+            kind = "TEXT",
+            priority = priority,
+            targets = provider,
+            appearanceStyles = { "text" },
+            appearanceTypeIDs = { "TEXT" },
+            refresh = function()
+                return SkinAdventureMapTextFamily(id, provider)
+            end,
+        }) or applied
+    end
+    return applied
+end
+
+function MidnightFeaturesSkin:ApplyAdventureMapQuestChoiceControls(dialog)
+    local applied = false
+    local scrollBar = dialog.Details and dialog.Details.ScrollBar
+    if scrollBar then
+        local element = NSkin:RegisterScrollBar({
+            id = IDs.AdventureMapQuestChoice.ScrollBar,
+            module = "MidnightFeatures",
+            appearanceWindowID = IDs.AdventureMapQuestChoice.Scope,
+            label = "Adventure Map quest details scroll bar",
+            window = dialog,
+            target = scrollBar,
+            priority = 50,
+            highlightRegions = { scrollBar },
+            isEditable = function()
+                return IsVisible(dialog) and IsVisible(scrollBar)
+            end,
+        })
+        if element then NSkin:RefreshTypedElementAppearance(element) end
+        applied = element ~= nil or applied
+    end
+    if dialog.AcceptButton then
+        applied = NSkin:RegisterActionButton({
+            id = IDs.AdventureMapQuestChoice.AcceptButton,
+            module = "MidnightFeatures",
+            appearanceWindowID = IDs.AdventureMapQuestChoice.Scope,
+            label = "Adventure Map accept quest button",
+            window = dialog,
+            target = dialog.AcceptButton,
+            priority = 51,
+            highlightRegions = { dialog.AcceptButton },
+            isEditable = function()
+                return IsVisible(dialog) and IsVisible(dialog.AcceptButton)
+            end,
+        }) ~= nil or applied
+    end
+    if dialog.DeclineButton then
+        local element = NSkin:RegisterTypedElement("BUTTON", {
+            id = IDs.AdventureMapQuestChoice.DeclineButton,
+            module = "MidnightFeatures",
+            appearanceWindowID = IDs.AdventureMapQuestChoice.Scope,
+            label = "Adventure Map decline quest button",
+            window = dialog,
+            target = dialog.DeclineButton,
+            priority = 52,
+            highlightRegions = { dialog.DeclineButton },
+            isEditable = function()
+                return IsVisible(dialog) and IsVisible(dialog.DeclineButton)
+            end,
+        })
+        if element then NSkin:RefreshTypedElementAppearance(element) end
+        applied = element ~= nil or applied
+    end
+    return applied
+end
+
+function MidnightFeaturesSkin:ApplyAdventureMapQuestChoice()
+    local dialog = _G.AdventureMapQuestChoiceDialog
+    if not dialog then return false end
+    local applied = self:ApplyAdventureMapQuestChoiceWindow(dialog)
+    applied = self:ApplyAdventureMapQuestChoiceText(dialog) or applied
+    applied = self:ApplyAdventureMapQuestChoiceRewards(dialog) or applied
+    applied = self:ApplyAdventureMapQuestChoiceControls(dialog) or applied
+    return applied
+end
+
+local function HookAdventureMapRewardPool(pool)
+    if not pool or hookedAdventureMapRewardPools[pool]
+        or not _G.hooksecurefunc
+    then
+        return
+    end
+    for _, method in ipairs({ "Acquire", "Release", "ReleaseAll" }) do
+        if type(pool[method]) == "function" then
+            _G.hooksecurefunc(pool, method,
+                QueueAdventureMapQuestChoiceApply)
+        end
+    end
+    hookedAdventureMapRewardPools[pool] = true
+end
+
 function MidnightFeaturesSkin:Apply()
     local applied = self:ApplyOmniumFolioChrome()
     applied = self:ApplyGenericTrait() or applied
     applied = self:ApplyPlayerChoice() or applied
+    applied = self:ApplyCovenantMission() or applied
+    applied = self:ApplyAdventureMapQuestChoice() or applied
     return applied
 end
 
@@ -1093,6 +1615,29 @@ function MidnightFeaturesSkin:InitializePlayerChoice()
                     _G.hooksecurefunc(frame, method, QueuePlayerChoiceApply)
                 end
             end
+            local frameMixin = _G.PlayerChoiceFrameMixin
+            if frameMixin and type(frameMixin.SetupFrame) == "function" then
+                _G.hooksecurefunc(frameMixin, "SetupFrame", function(owner)
+                    SuppressPlayerChoiceFrameArtwork(owner)
+                end)
+            end
+            local optionMixin = _G.PlayerChoiceNormalOptionTemplateMixin
+            if optionMixin then
+                if type(optionMixin.SetupHeader) == "function" then
+                    _G.hooksecurefunc(optionMixin, "SetupHeader",
+                        function(option)
+                            SuppressRegion(option.Header
+                                and option.Header.Ribbon)
+                            QueuePlayerChoiceApply()
+                        end)
+                end
+                if type(optionMixin.SetupFrame) == "function" then
+                    _G.hooksecurefunc(optionMixin, "SetupFrame",
+                        function(option)
+                            SuppressPlayerChoiceOptionArtwork(option)
+                        end)
+                end
+            end
         end
         playerChoiceLifecycleHooked = true
     end
@@ -1102,10 +1647,98 @@ function MidnightFeaturesSkin:InitializePlayerChoice()
     return applied
 end
 
+function MidnightFeaturesSkin:InitializeCovenantMission()
+    if not covenantMissionLifecycleHooked and _G.hooksecurefunc then
+        for _, mixin in ipairs({
+            _G.CovenantMissionFrameMixin,
+            _G.CovenantMissionFrameMapTabMixin,
+            _G.CovenantMissionMapTabMixin,
+        }) do
+            if mixin then
+                for _, method in ipairs({
+                    "OnShow", "Refresh", "Update", "UpdateMap",
+                    "OnMapChanged",
+                }) do
+                    if type(mixin[method]) == "function" then
+                        _G.hooksecurefunc(mixin, method,
+                            QueueCovenantMissionApply)
+                    end
+                end
+            end
+        end
+        covenantMissionLifecycleHooked = true
+    end
+
+    local frame = _G.CovenantMissionFrame
+    if not frame then return false end
+
+    local function HookLifecycleTarget(target)
+        if not target or hookedCovenantMissionLifecycleTargets[target] then
+            return
+        end
+        if target.HookScript then
+            target:HookScript("OnShow", QueueCovenantMissionApply)
+        end
+        if _G.hooksecurefunc then
+            for _, method in ipairs({
+                "Refresh", "Update", "OnShow", "UpdateMap", "OnMapChanged",
+            }) do
+                if type(target[method]) == "function" then
+                    _G.hooksecurefunc(target, method,
+                        QueueCovenantMissionApply)
+                end
+            end
+        end
+        hookedCovenantMissionLifecycleTargets[target] = true
+    end
+
+    HookLifecycleTarget(frame)
+    local mapTab = frame.MapTab
+    HookLifecycleTarget(mapTab)
+    HookLifecycleTarget(mapTab and mapTab.ScrollContainer)
+    covenantMissionInitialized = true
+    local applied = self:ApplyCovenantMission()
+    if frame:IsShown() or IsVisible(mapTab) then
+        QueueCovenantMissionApply()
+    end
+    return applied
+end
+
+function MidnightFeaturesSkin:InitializeAdventureMapQuestChoice()
+    local dialog = _G.AdventureMapQuestChoiceDialog
+    if not dialog then return false end
+    if not adventureMapQuestChoiceLifecycleHooked then
+        if dialog.HookScript then
+            dialog:HookScript("OnShow", QueueAdventureMapQuestChoiceApply)
+        end
+        if _G.hooksecurefunc then
+            for _, method in ipairs({
+                "ShowWithQuest", "Refresh", "RefreshRewards",
+                "RefreshDetails",
+            }) do
+                if type(dialog[method]) == "function" then
+                    _G.hooksecurefunc(dialog, method,
+                        QueueAdventureMapQuestChoiceApply)
+                end
+            end
+        end
+        adventureMapQuestChoiceLifecycleHooked = true
+    end
+    HookAdventureMapRewardPool(dialog.rewardPool)
+    adventureMapQuestChoiceInitialized = true
+    local applied = self:ApplyAdventureMapQuestChoice()
+    if dialog:IsShown() then QueueAdventureMapQuestChoiceApply() end
+    return applied
+end
+
 function MidnightFeaturesSkin:RefreshAppearance()
     if initialized then self:ApplyOmniumFolioChrome() end
     if genericTraitInitialized then self:ApplyGenericTrait() end
     if playerChoiceInitialized then self:ApplyPlayerChoice() end
+    if covenantMissionInitialized then self:ApplyCovenantMission() end
+    if adventureMapQuestChoiceInitialized then
+        self:ApplyAdventureMapQuestChoice()
+    end
 end
 
 NSkin:RegisterWindowSkin({
@@ -1120,6 +1753,24 @@ NSkin:RegisterWindowSkin({
     addon = "Blizzard_GenericTraitUI",
     apply = function()
         return MidnightFeaturesSkin:InitializeGenericTrait()
+    end,
+})
+
+NSkin:RegisterWindowSkin({
+    key = "MidnightFeatures.CovenantMission",
+    module = "MidnightFeatures",
+    addon = "Blizzard_GarrisonUI",
+    apply = function()
+        return MidnightFeaturesSkin:InitializeCovenantMission()
+    end,
+})
+
+NSkin:RegisterWindowSkin({
+    key = "MidnightFeatures.AdventureMapQuestChoice",
+    module = "MidnightFeatures",
+    addon = "Blizzard_AdventureMap",
+    apply = function()
+        return MidnightFeaturesSkin:InitializeAdventureMapQuestChoice()
     end,
 })
 
