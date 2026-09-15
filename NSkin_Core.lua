@@ -120,6 +120,10 @@ NSkin.moduleDefinitions = {
         defaultEnabled = true, optionsGroup = "windows", optionsOrder = 180,
     },
     {
+        key = "Shop", label = "Catalog Shop",
+        defaultEnabled = true, optionsGroup = "windows", optionsOrder = 185,
+    },
+    {
         key = "AuctionHouse", label = "Auction House",
         defaultEnabled = true, optionsGroup = "windows", optionsOrder = 190,
     },
