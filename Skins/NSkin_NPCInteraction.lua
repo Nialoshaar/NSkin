@@ -639,6 +639,219 @@ NSkin:RegisterWindowSkin({
     apply = function() return NPCInteractionSkin:InitializeQuest() end,
 })
 
+local QuestModelSceneIDs = {
+    Scope = "NPCInteraction.QuestModelScene",
+    Window = "NPCInteraction.QuestModelScene.Window",
+    Name = "NPCInteraction.QuestModelScene.Name",
+    Description = "NPCInteraction.QuestModelScene.Description",
+    ScrollBar = "NPCInteraction.QuestModelScene.ScrollBar",
+}
+
+local questModelSceneInitialized = false
+local questModelSceneShowHooked = false
+local questModelSceneDisplayHooked = false
+local questModelSceneMixinHooked = false
+
+NSkin:RegisterAppearanceScope(QuestModelSceneIDs.Scope, {
+    label = "Quest Model Scene",
+    parent = QuestIDs.Scope,
+})
+
+function NPCInteractionSkin:ApplyQuestModelSceneWindow(scene)
+    local textFrame = scene.ModelTextFrame
+    local modelBackground = scene.ModelBackground
+    local textBackground = textFrame and textFrame.TextBackground
+    SuppressDecorations(scene, {
+        scene.Border,
+        scene.TopBarBg,
+        scene.ModelNameDivider,
+        scene.ModelNameBackground,
+        textBackground,
+    })
+
+    local style = NSkin:GetAppearanceStyle("window",
+        QuestModelSceneIDs.Scope, QuestModelSceneIDs.Window)
+    local borderColor = NSkin:GetAppearanceBorderColor("window", style,
+        QuestModelSceneIDs.Scope, QuestModelSceneIDs.Window)
+    local backgroundColor = NSkin:GetResolvedAppearanceColor(
+        style, "background")
+    if modelBackground and textBackground then
+        local chromeState = NSkin:GetSkinData(
+            scene, "questModelSceneChrome")
+        local bounds = chromeState.bounds
+        if not bounds then
+            bounds = CreateFrame("Frame", nil, scene)
+            bounds:EnableMouse(false)
+            chromeState.bounds = bounds
+        end
+        bounds:ClearAllPoints()
+        bounds:SetPoint("TOPLEFT", modelBackground, "TOPLEFT", -9, 27)
+        bounds:SetPoint("BOTTOMRIGHT", textBackground,
+            "BOTTOMRIGHT", 10, -6)
+        bounds:Show()
+
+        local outerBackground = chromeState.background
+        if not outerBackground then
+            outerBackground = scene:CreateTexture(
+                nil, "BACKGROUND", nil, -8)
+            chromeState.background = outerBackground
+        end
+        outerBackground:ClearAllPoints()
+        outerBackground:SetAllPoints(bounds)
+        outerBackground:SetColorTexture(unpack(backgroundColor))
+        outerBackground:Show()
+
+        local descriptionBackground = chromeState.textBackground
+        if not descriptionBackground then
+            descriptionBackground = scene:CreateTexture(
+                nil, "BACKGROUND", nil, -7)
+            chromeState.textBackground = descriptionBackground
+        end
+        descriptionBackground:ClearAllPoints()
+        descriptionBackground:SetAllPoints(textBackground)
+        descriptionBackground:SetColorTexture(unpack(backgroundColor))
+        descriptionBackground:Show()
+
+        local oldBorder = NSkin:GetPixelBorder(
+            scene, "NSkinQuestModelSceneBorder")
+        if oldBorder then NSkin:SetPixelBorderShown(oldBorder, false) end
+        local border = NSkin:CreatePixelBorder(scene,
+            "NSkinQuestModelSceneBoundsBorder", style.borderSize,
+            borderColor, false, bounds)
+        NSkin:SetPixelBorderSize(border, style.borderSize)
+        NSkin:SetPixelBorderPadding(border, 0)
+        NSkin:SetPixelBorderColor(border, unpack(borderColor))
+        NSkin:SetPixelBorderShown(border, true)
+    end
+
+    if textFrame then
+        local oldTextBackground = NSkin:GetFlatBackground(
+            textFrame, "NSkinQuestModelSceneTextBackground")
+        if oldTextBackground then oldTextBackground:Hide() end
+        local oldTextBorder = NSkin:GetPixelBorder(
+            textFrame, "NSkinQuestModelSceneTextBackgroundBorder")
+        if oldTextBorder then NSkin:SetPixelBorderShown(oldTextBorder, false) end
+    end
+
+    NSkin:RegisterSkinningElement(QuestModelSceneIDs.Window, {
+        label = "Quest model scene window",
+        kind = "WINDOW",
+        module = "NPCInteraction",
+        appearanceWindowID = QuestModelSceneIDs.Scope,
+        window = scene,
+        target = scene,
+        priority = 0,
+        draggable = false,
+        refreshAppearance = function()
+            return NPCInteractionSkin:ApplyQuestModelSceneWindow(scene)
+        end,
+        refreshLayout = function()
+            return NPCInteractionSkin:ApplyQuestModelSceneWindow(scene)
+        end,
+        isEditable = function()
+            return IsVisible(scene)
+        end,
+    })
+    return true
+end
+
+function NPCInteractionSkin:ApplyQuestModelSceneContent(scene)
+    local applied = false
+    for _, definition in ipairs({
+        { QuestModelSceneIDs.Name, "Quest model NPC name",
+            _G.QuestNPCModelNameText, 20 },
+        { QuestModelSceneIDs.Description, "Quest model description",
+            _G.QuestNPCModelText, 21 },
+    }) do
+        local id, label, target, priority = unpack(definition)
+        if target then
+            local element = NSkin:RegisterTextElement({
+                id = id,
+                module = "NPCInteraction",
+                appearanceWindowID = QuestModelSceneIDs.Scope,
+                label = label,
+                window = scene,
+                target = target,
+                priority = priority,
+                highlightRegions = { target },
+                isEditable = function()
+                    return IsVisible(scene) and IsVisible(target)
+                end,
+            })
+            applied = RefreshElement(element) ~= nil or applied
+        end
+    end
+
+    local scrollFrame = _G.QuestNPCModelTextScrollFrame
+    local scrollBar = scrollFrame and scrollFrame.ScrollBar
+    if scrollBar then
+        local element = NSkin:RegisterScrollBar({
+            id = QuestModelSceneIDs.ScrollBar,
+            module = "NPCInteraction",
+            appearanceWindowID = QuestModelSceneIDs.Scope,
+            label = "Quest model description scroll bar",
+            window = scene,
+            target = scrollBar,
+            priority = 30,
+            highlightRegions = { scrollBar },
+            isEditable = function()
+                return IsVisible(scene) and IsVisible(scrollBar)
+            end,
+        })
+        applied = RefreshElement(element) ~= nil or applied
+    end
+    return applied
+end
+
+function NPCInteractionSkin:ApplyQuestModelScene()
+    local scene = _G.QuestModelScene
+    if not scene then return false end
+    local applied = self:ApplyQuestModelSceneWindow(scene)
+    applied = self:ApplyQuestModelSceneContent(scene) or applied
+    return applied
+end
+
+function NPCInteractionSkin:InitializeQuestModelScene()
+    local scene = _G.QuestModelScene
+    if not scene then return false end
+    if not questModelSceneShowHooked and scene.HookScript then
+        scene:HookScript("OnShow", function()
+            NPCInteractionSkin:ApplyQuestModelScene()
+        end)
+        questModelSceneShowHooked = true
+    end
+    if not questModelSceneDisplayHooked and _G.hooksecurefunc
+        and type(_G.QuestFrame_ShowQuestPortrait) == "function"
+    then
+        _G.hooksecurefunc("QuestFrame_ShowQuestPortrait", function()
+            NPCInteractionSkin:ApplyQuestModelScene()
+        end)
+        questModelSceneDisplayHooked = true
+    end
+    local mixin = _G.QuestFrameModelSceneMixin
+    if not questModelSceneMixinHooked and mixin and _G.hooksecurefunc
+        and type(mixin.OnShow) == "function"
+    then
+        _G.hooksecurefunc(mixin, "OnShow", function(owner)
+            if owner == _G.QuestModelScene then
+                NPCInteractionSkin:ApplyQuestModelScene()
+            end
+        end)
+        questModelSceneMixinHooked = true
+    end
+    questModelSceneInitialized = true
+    return self:ApplyQuestModelScene()
+end
+
+NSkin:RegisterWindowSkin({
+    key = "NPCInteraction.QuestModelScene",
+    module = "NPCInteraction",
+    addon = "Blizzard_UIPanels_Game",
+    apply = function()
+        return NPCInteractionSkin:InitializeQuestModelScene()
+    end,
+})
+
 local TrainerIDs = {
     Scope = "ClassTrainer",
     Window = "ClassTrainer.Window",
@@ -1134,6 +1347,7 @@ end
 function NPCInteractionSkin:RefreshAppearance()
     if gossipInitialized then self:ApplyGossip() end
     if questInitialized then self:ApplyQuest() end
+    if questModelSceneInitialized then self:ApplyQuestModelScene() end
     if trainerInitialized then self:ApplyClassTrainer() end
 end
 
