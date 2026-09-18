@@ -131,6 +131,10 @@ NSkin.moduleDefinitions = {
         key = "Professions", label = "Professions",
         defaultEnabled = true, optionsGroup = "windows", optionsOrder = 200,
     },
+    {
+        key = "Stable", label = "Stable",
+        defaultEnabled = true, optionsGroup = "windows", optionsOrder = 210,
+    },
 }
 
 NSkin.moduleDefinitionByKey = {}
