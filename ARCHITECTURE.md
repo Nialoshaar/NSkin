@@ -719,6 +719,11 @@ fields. It owns row-level visual state such as:
 - hover
 - selected state
 
+`showBackground = false` leaves ROW's border, hover, selected state, and
+columns active while omitting its flat background.
+`surfaceInset` controls the inset of the owned background and state overlays;
+it defaults to 1, while 0 aligns those surfaces with the row border.
+
 Cells inside a ROW remain canonical components such as:
 
 - TEXT
@@ -946,6 +951,12 @@ definition.text
 target.Text
 target.text
 ```
+
+Shared CHECKBOX skinning keeps Blizzard's hit rectangle intact and centers a
+pixel-snapped visual square (14 by default, configurable with `visualSize`).
+The owned background, border, checked mark, and hover surface follow that
+square; an attached label may anchor to its right edge while its original
+points remain available for reset.
 
 Do not broadly scan arbitrary FontStrings.
 

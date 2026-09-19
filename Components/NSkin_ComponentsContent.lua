@@ -567,20 +567,32 @@ function NSkin:SkinRow(target, options)
         style, "background")
     local borderColor = options.border
         or self:GetComponentBorderColor("row", style)
-    local background = self:CreateFlatBackground(
-        target, ROW_BACKGROUND, backgroundColor, borderColor)
-    -- Table templates commonly place their cell FontStrings on BACKGROUND.
-    -- Keep the owned surface below those Blizzard-owned contents.
-    if background and background.SetDrawLayer then
-        background:SetDrawLayer("BACKGROUND", -8)
+    local surfaceInset = tonumber(options.surfaceInset)
+    if surfaceInset == nil then surfaceInset = 1 end
+    local background = self:GetFlatBackground(target, ROW_BACKGROUND)
+    if options.showBackground ~= false then
+        background = self:CreateFlatBackground(
+            target, ROW_BACKGROUND, backgroundColor, borderColor)
+        -- Table templates commonly place their cell FontStrings on BACKGROUND.
+        -- Keep the owned surface below those Blizzard-owned contents.
+        if background and background.SetDrawLayer then
+            background:SetDrawLayer("BACKGROUND", -8)
+        end
+        AnchorContentSurface(background, visualRegion, surfaceInset)
+        if background then background:Show() end
+    elseif background then
+        background:Hide()
     end
-    AnchorContentSurface(background, visualRegion, 1)
     local border = self:GetPixelBorder(target, ROW_BACKGROUND .. "Border")
+        or self:CreatePixelBorder(target, ROW_BACKGROUND .. "Border",
+            style.borderSize or 1, borderColor, false, visualRegion)
     state.background = background
     state.border = border
     if border then border.anchor = visualRegion end
+    self:SetPixelBorderColor(border, unpack(borderColor))
     self:SetPixelBorderSize(border, style.borderSize or 1)
     self:SetPixelBorderPadding(border, style.borderPadding or 0)
+    self:SetPixelBorderShown(border, true)
 
     if not state.selectedOverlay then
         state.selectedOverlay = target:CreateTexture(nil, "ARTWORK", nil, 6)
@@ -590,18 +602,18 @@ function NSkin:SkinRow(target, options)
         state.hoverOverlay = target:CreateTexture(nil, "OVERLAY", nil, -1)
         self:ConfigureOwnedPixelTexture(state.hoverOverlay)
     end
-    AnchorContentSurface(state.selectedOverlay, visualRegion, 1)
-    AnchorContentSurface(state.hoverOverlay, visualRegion, 1)
+    AnchorContentSurface(state.selectedOverlay, visualRegion, surfaceInset)
+    AnchorContentSurface(state.hoverOverlay, visualRegion, surfaceInset)
     self:SetOwnedTextureColor(state.selectedOverlay, unpack(
         self:GetResolvedAppearanceColor(style, "selectedBackground")))
     self:SetOwnedTextureColor(
         state.hoverOverlay, 1, 1, 1, tonumber(style.hoverAlpha) or 0.10)
 
     local preserved = {
-        [background] = true,
         [state.selectedOverlay] = true,
         [state.hoverOverlay] = true,
     }
+    if background then preserved[background] = true end
     PreserveContentRegions(preserved, options.preserveTextures)
     ApplyRowNativeDecorations(target, state,
         options.nativeDecorationRegions or options.artworkRegions, preserved)

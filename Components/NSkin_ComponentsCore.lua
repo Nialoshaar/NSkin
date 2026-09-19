@@ -2682,7 +2682,9 @@ local SHARED_SKIN_ADAPTERS = {
         for _, key in ipairs({
             "nativeDecorationRegions", "artworkRegions", "preserveTextures", "hoverRegion",
             "selectedRegion", "getHovered", "getSelected", "visualRegion",
-            "contentRegions", "contentStyle", "columns", "height", "reset",
+            "contentRegions", "contentStyle", "columns", "showBackground",
+            "surfaceInset",
+            "height", "reset",
         }) do
             if options[key] == nil then options[key] = definition[key] end
         end
@@ -2761,6 +2763,9 @@ local SHARED_SKIN_ADAPTERS = {
         end
         if options.getChecked == nil then
             options.getChecked = definition.getChecked
+        end
+        if options.visualSize == nil then
+            options.visualSize = definition.visualSize
         end
         skinMethod(self, target, options)
     end,
@@ -2920,7 +2925,9 @@ local TYPED_SKIN_FIELDS_BY_TYPE = {
     ROW = {
         "nativeDecorationRegions", "artworkRegions", "preserveTextures", "hoverRegion",
         "selectedRegion", "getHovered", "getSelected", "visualRegion",
-        "contentRegions", "contentStyle", "columns", "height", "reset",
+        "contentRegions", "contentStyle", "columns", "showBackground",
+        "surfaceInset",
+        "height", "reset",
     },
     SECTION_ROW = {
         "nativeDecorationRegions", "artworkRegions", "preserveTextures",
@@ -2928,7 +2935,7 @@ local TYPED_SKIN_FIELDS_BY_TYPE = {
         "visualRegion", "textRegion", "contentRegions", "contentStyle",
         "collapseButton", "reset",
     },
-    CHECKBOX = { "text", "getChecked", "labelBaselineID" },
+    CHECKBOX = { "text", "getChecked", "labelBaselineID", "visualSize" },
     DROPDOWN = { "menus" },
     SLIDER = { "nativeDecorationRegions" },
     SEARCH_ACCESSORY = { "menus" },

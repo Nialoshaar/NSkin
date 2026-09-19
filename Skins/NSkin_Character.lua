@@ -10,6 +10,11 @@ local IDs = {
     PaperDoll = {
         LevelText = "Character.PaperDoll.LevelText",
         EquipmentSlotPrefix = "Character.PaperDoll.Equipment.",
+        EquipmentGroups = {
+            Left = "Character.PaperDoll.Equipment.Left",
+            Right = "Character.PaperDoll.Equipment.Right",
+            Bottom = "Character.PaperDoll.Equipment.Bottom",
+        },
         SideTabs = "Character.PaperDoll.SideTabs",
         CameraControls = "Character.PaperDoll.CameraControls",
         Stats = {
@@ -207,24 +212,36 @@ end
 
 
 local PAPER_DOLL_SLOTS = {
-    { name = "CharacterHeadSlot", key = "Head", label = "Head" },
-    { name = "CharacterNeckSlot", key = "Neck", label = "Neck" },
-    { name = "CharacterShoulderSlot", key = "Shoulder", label = "Shoulder" },
-    { name = "CharacterBackSlot", key = "Back", label = "Back" },
-    { name = "CharacterChestSlot", key = "Chest", label = "Chest" },
-    { name = "CharacterShirtSlot", key = "Shirt", label = "Shirt" },
-    { name = "CharacterTabardSlot", key = "Tabard", label = "Tabard" },
-    { name = "CharacterWristSlot", key = "Wrist", label = "Wrist" },
-    { name = "CharacterHandsSlot", key = "Hands", label = "Hands" },
-    { name = "CharacterWaistSlot", key = "Waist", label = "Waist" },
-    { name = "CharacterLegsSlot", key = "Legs", label = "Legs" },
-    { name = "CharacterFeetSlot", key = "Feet", label = "Feet" },
-    { name = "CharacterFinger0Slot", key = "Finger1", label = "Finger 1" },
-    { name = "CharacterFinger1Slot", key = "Finger2", label = "Finger 2" },
-    { name = "CharacterTrinket0Slot", key = "Trinket1", label = "Trinket 1" },
-    { name = "CharacterTrinket1Slot", key = "Trinket2", label = "Trinket 2" },
-    { name = "CharacterMainHandSlot", key = "MainHand", label = "Main Hand" },
-    { name = "CharacterSecondaryHandSlot", key = "OffHand", label = "Off Hand" },
+    { name = "CharacterHeadSlot", key = "Head", label = "Head", group = "Left" },
+    { name = "CharacterNeckSlot", key = "Neck", label = "Neck", group = "Left" },
+    { name = "CharacterShoulderSlot", key = "Shoulder", label = "Shoulder", group = "Left" },
+    { name = "CharacterBackSlot", key = "Back", label = "Back", group = "Left" },
+    { name = "CharacterChestSlot", key = "Chest", label = "Chest", group = "Left" },
+    { name = "CharacterShirtSlot", key = "Shirt", label = "Shirt", group = "Left" },
+    { name = "CharacterTabardSlot", key = "Tabard", label = "Tabard", group = "Left" },
+    { name = "CharacterWristSlot", key = "Wrist", label = "Wrist", group = "Left" },
+    { name = "CharacterHandsSlot", key = "Hands", label = "Hands", group = "Right" },
+    { name = "CharacterWaistSlot", key = "Waist", label = "Waist", group = "Right" },
+    { name = "CharacterLegsSlot", key = "Legs", label = "Legs", group = "Right" },
+    { name = "CharacterFeetSlot", key = "Feet", label = "Feet", group = "Right" },
+    { name = "CharacterFinger0Slot", key = "Finger1", label = "Finger 1", group = "Right" },
+    { name = "CharacterFinger1Slot", key = "Finger2", label = "Finger 2", group = "Right" },
+    { name = "CharacterTrinket0Slot", key = "Trinket1", label = "Trinket 1", group = "Right" },
+    { name = "CharacterTrinket1Slot", key = "Trinket2", label = "Trinket 2", group = "Right" },
+    { name = "CharacterMainHandSlot", key = "MainHand", label = "Main Hand", group = "Bottom" },
+    { name = "CharacterSecondaryHandSlot", key = "OffHand", label = "Off Hand", group = "Bottom" },
+}
+
+local PAPER_DOLL_GROUP_LABELS = {
+    Left = "Left equipment",
+    Right = "Right equipment",
+    Bottom = "Bottom equipment",
+}
+
+local PAPER_DOLL_GROUP_APPEARANCE_SOURCE = {
+    Left = "Head",
+    Right = "Hands",
+    Bottom = "MainHand",
 }
 
 local PAPER_DOLL_INNER_BORDER_NAMES = {
@@ -248,6 +265,7 @@ local function GetPaperDollSlots(visibleOnly)
                 frame = slot,
                 key = descriptor.key,
                 label = descriptor.label,
+                group = descriptor.group,
             }
         end
     end
@@ -649,6 +667,7 @@ local function SkinCharacterSectionCards(scrollBox, elementID, registered)
             NSkin:SkinSectionCard(frame, {
                 style = style,
                 border = border,
+                showBackground = false,
                 collapsible = true,
                 getExpanded = IsCharacterSectionCardExpanded,
                 textRegion = frame.Name,
@@ -790,39 +809,90 @@ function CharacterSkin:ApplyPaperDollStats(frame)
     ConcealTexture(pane.ClassBackground)
 
     local applied = false
-    applied = RegisterCharacterSectionHeader(
-        frame, IDs.PaperDoll.Stats.ItemLevelHeader,
-        "Item level header", pane.ItemLevelCategory, 64) or applied
+
+    local itemLevelHeader = pane.ItemLevelCategory
+    local itemLevelFrame = pane.ItemLevelFrame
+    local itemLevelTitle = itemLevelHeader and itemLevelHeader.Title
+    local itemLevelValue = itemLevelFrame and itemLevelFrame.Value
+    if itemLevelHeader and itemLevelFrame and itemLevelTitle and itemLevelValue then
+        local function RefreshItemLevel()
+            ConcealTexture(itemLevelHeader.Background)
+            ConcealTexture(itemLevelFrame.Background)
+            local style = NSkin:GetAppearanceStyle(
+                "text", IDs.Scope, IDs.PaperDoll.Stats.ItemLevelHeader)
+            local changed = NSkin:SkinText(itemLevelTitle, style) == true
+            changed = NSkin:SkinText(itemLevelValue, style) == true or changed
+            NSkin:NotifySkinningElementBoundsChanged(
+                IDs.PaperDoll.Stats.ItemLevelHeader)
+            return changed
+        end
+
+        applied = NSkin:RegisterSkinningElement(
+            IDs.PaperDoll.Stats.ItemLevelHeader, {
+                module = "Character",
+                appearanceWindowID = IDs.Scope,
+                label = "Item level",
+                kind = "TEXT",
+                window = frame,
+                target = itemLevelHeader,
+                priority = 64,
+                draggable = false,
+                appearanceStyles = { "text" },
+                appearanceTypeIDs = { "TEXT" },
+                editorOptions = {
+                    { id = "shared.textAppearance", label = "Text",
+                        category = "CUSTOMIZE" },
+                },
+                composition = {
+                    mode = "COMPOSITE",
+                    movementOwner = itemLevelHeader,
+                    members = {
+                        { kind = "TEXT", role = "PRIMARY",
+                            target = itemLevelTitle, label = "Label" },
+                        { kind = "TEXT", role = "SECONDARY",
+                            target = itemLevelValue, label = "Value" },
+                    },
+                },
+                highlightRegions = { itemLevelHeader, itemLevelFrame },
+                refreshAppearance = RefreshItemLevel,
+                refreshLayout = RefreshItemLevel,
+                isEditable = function()
+                    return frame:IsVisible() and pane:IsVisible()
+                        and itemLevelHeader:IsVisible()
+                        and itemLevelFrame:IsVisible()
+                end,
+            }) == true or applied
+
+        -- Preserve the old canonical value ID as a structural child so existing
+        -- references remain valid, while Skinning Mode exposes only the parent
+        -- Item Level composite.
+        NSkin:RegisterSkinningElement(IDs.PaperDoll.Stats.ItemLevelValue, {
+            module = "Character",
+            appearanceWindowID = IDs.Scope,
+            label = "Item level value",
+            kind = "TEXT",
+            window = frame,
+            target = itemLevelValue,
+            priority = 67,
+            draggable = false,
+            compositionParentID = IDs.PaperDoll.Stats.ItemLevelHeader,
+            highlightRegions = { itemLevelFrame },
+            refreshAppearance = RefreshItemLevel,
+            refreshLayout = RefreshItemLevel,
+            isEditable = function()
+                return frame:IsVisible() and pane:IsVisible()
+                    and itemLevelFrame:IsVisible()
+            end,
+        })
+        RefreshItemLevel()
+    end
+
     applied = RegisterCharacterSectionHeader(
         frame, IDs.PaperDoll.Stats.AttributesHeader,
         "Attributes header", pane.AttributesCategory, 65) or applied
     applied = RegisterCharacterSectionHeader(
         frame, IDs.PaperDoll.Stats.EnhancementsHeader,
         "Enhancements header", pane.EnhancementsCategory, 66) or applied
-
-    local itemLevelFrame = pane.ItemLevelFrame
-    if itemLevelFrame then
-        ConcealTexture(itemLevelFrame.Background)
-        local value = itemLevelFrame.Value
-        if value then
-            local element = NSkin:RegisterTextElement({
-                id = IDs.PaperDoll.Stats.ItemLevelValue,
-                module = "Character",
-                appearanceWindowID = IDs.Scope,
-                label = "Item level value",
-                window = frame,
-                target = value,
-                priority = 67,
-                highlightRegions = { itemLevelFrame },
-                isEditable = function()
-                    return frame:IsVisible() and pane:IsVisible()
-                        and itemLevelFrame:IsVisible()
-                end,
-            })
-            if element then NSkin:RefreshTypedElementAppearance(element) end
-            applied = element ~= nil or applied
-        end
-    end
 
     local function RefreshRows()
         local style = NSkin:GetAppearanceStyle(
@@ -834,7 +904,9 @@ function CharacterSkin:ApplyPaperDollStats(frame)
             changed = NSkin:SkinRow(row, {
                 style = style,
                 border = border,
+                surfaceInset = 0,
                 nativeDecorationRegions = { row.Background },
+                getHovered = IsRowHovered,
                 columns = {
                     { kind = "TEXT", target = row.Label },
                     { kind = "TEXT", target = row.Value },
@@ -948,7 +1020,9 @@ function CharacterSkin:ApplyPaperDollSkin(frame)
         applied = levelText ~= nil or applied
     end
 
-    -- Persistent equipment slots get stable individual ICON registrations.
+    -- Keep stable per-slot ICON registrations for lifecycle/reset ownership,
+    -- but expose them as three editor/appearance anchor groups matching the
+    -- Blizzard paper-doll layout: left, right, and bottom.
     for _, descriptor in ipairs(GetPaperDollSlots(false)) do
         local slot = descriptor.frame
         local icon = GetPaperDollSlotTexture(slot)
@@ -960,6 +1034,10 @@ function CharacterSkin:ApplyPaperDollSkin(frame)
                 label = descriptor.label .. " equipment slot",
                 window = frame,
                 target = slot,
+                anchorGroupID = IDs.PaperDoll.EquipmentGroups[descriptor.group],
+                anchorGroupLabel = PAPER_DOLL_GROUP_LABELS[descriptor.group],
+                anchorGroupAppearanceSource = IDs.PaperDoll.EquipmentSlotPrefix
+                    .. PAPER_DOLL_GROUP_APPEARANCE_SOURCE[descriptor.group],
                 texture = icon,
                 borderOwner = slot,
                 qualityProvider = GetPaperDollSlotQuality,
@@ -1032,6 +1110,7 @@ function CharacterSkin:ApplyTitleRows(frame, titles)
                 applied = NSkin:SkinRow(row, {
                     style = style,
                     border = border,
+                    surfaceInset = 0,
                     nativeDecorationRegions = GetRowDecorationRegions(row),
                     hoverRegion = row.GetHighlightTexture
                         and row:GetHighlightTexture() or nil,
@@ -1316,6 +1395,7 @@ function CharacterSkin:ApplyReputationRows(frame)
             local rowState = NSkin:SkinRow(row, {
                 style = rowStyle,
                 border = rowBorder,
+                showBackground = false,
                 nativeDecorationRegions = GetReputationRowNativeDecorations(row),
                 getHovered = IsRowHovered,
                 getSelected = IsReputationRowSelected,
@@ -1569,6 +1649,7 @@ function CharacterSkin:ApplyCurrencyRows(frame)
             local rowState = NSkin:SkinRow(row, {
                 style = rowStyle,
                 border = rowBorder,
+                showBackground = false,
                 nativeDecorationRegions = GetCurrencyRowNativeDecorations(row),
                 getHovered = IsRowHovered,
                 getSelected = includeCollapse and nil or IsCurrencyRowSelected,
@@ -1856,6 +1937,7 @@ function CharacterSkin:ApplyCurrencyOptions()
         appearanceWindowID = IDs.CurrencyOptions.Scope,
         label = "Show unused currencies", window = popup,
         target = unused, text = GetCheckboxText(unused), priority = 70,
+        skinOptions = { visualSize = 14 },
         highlightRegions = { unused },
         isEditable = function()
             return popup:IsVisible() and unused:IsVisible()
@@ -1866,6 +1948,7 @@ function CharacterSkin:ApplyCurrencyOptions()
         appearanceWindowID = IDs.CurrencyOptions.Scope,
         label = "Show currency on backpack", window = popup,
         target = backpack, text = GetCheckboxText(backpack), priority = 71,
+        skinOptions = { visualSize = 14 },
         highlightRegions = { backpack },
         isEditable = function()
             return popup:IsVisible() and backpack:IsVisible()
@@ -1908,6 +1991,7 @@ local function RegisterCurrencyTransferRow(definition)
         local rowState = NSkin:SkinRow(row, {
             style = rowStyle,
             border = rowBorder,
+            showBackground = false,
             columns = definition.columns,
             elementID = definition.id,
             appearanceWindowID = IDs.CurrencyTransfer.Scope,
@@ -2236,6 +2320,7 @@ function CharacterSkin:ApplyCurrencyTransferLogRows()
             local state = NSkin:SkinRow(row, {
                 style = rowStyle,
                 border = rowBorder,
+                showBackground = false,
                 nativeDecorationRegions = GetTransferLogNativeDecorations(row),
                 getHovered = IsRowHovered,
                 columns = columns,

@@ -248,19 +248,43 @@ function NSkin:SkinCheckButton(checkButton, options)
         self:HideTextureRegions(checkButton)
         data.checkButtonArtworkSuppressed = true
     end
-    self:CreateFlatBackground(checkButton, nil,
+    local visual = self:CreateFlatBackground(checkButton, nil,
         options.background or style.background,
         options.border or self:GetComponentBorderColor("button", style))
-    self:CreateFlatButtonGlow(checkButton, style.hoverAlpha)
+    if not visual then return false end
+    local visualSize = self:SnapToPhysicalPixel(checkButton,
+        math.max(1, tonumber(options.visualSize) or 14))
+    local visualOffset = self:SnapToPhysicalPixel(checkButton, 0)
+    visual:ClearAllPoints()
+    visual:SetSize(visualSize, visualSize)
+    visual:SetPoint("CENTER", checkButton, "CENTER",
+        visualOffset, visualOffset)
+    local border = self:GetPixelBorder(checkButton,
+        "NSkinFlatBackgroundBorder")
+    if border then
+        border.anchor = visual
+        self:ResnapPixelBorder(border)
+    end
+    local glow = self:CreateFlatButtonGlow(checkButton, style.hoverAlpha)
+    if glow then
+        local inset = self:GetPhysicalPixelSize(checkButton)
+        glow:ClearAllPoints()
+        glow:SetPoint("TOPLEFT", visual, "TOPLEFT", inset, -inset)
+        glow:SetPoint("BOTTOMRIGHT", visual, "BOTTOMRIGHT", -inset, inset)
+    end
 
     local checked = data.checkButtonCheckedTexture
     if not checked then
         checked = checkButton:CreateTexture(nil, "ARTWORK")
-        checked:SetPoint("TOPLEFT", checkButton, "TOPLEFT", 4, -4)
-        checked:SetPoint("BOTTOMRIGHT", checkButton, "BOTTOMRIGHT", -4, 4)
         self:ConfigureOwnedPixelTexture(checked)
         data.checkButtonCheckedTexture = checked
     end
+    local checkedInset = self:SnapToPhysicalPixel(checkButton, 3)
+    checked:ClearAllPoints()
+    checked:SetPoint("TOPLEFT", visual, "TOPLEFT",
+        checkedInset, -checkedInset)
+    checked:SetPoint("BOTTOMRIGHT", visual, "BOTTOMRIGHT",
+        -checkedInset, checkedInset)
     self:SetOwnedTextureColor(checked, unpack(
         options.checked or self:GetSharedBorderColor()))
     if checkButton.SetCheckedTexture then
@@ -283,14 +307,17 @@ function NSkin:SkinCheckButton(checkButton, options)
         then
             local currentPoint, currentRelativeTo, currentRelativePoint,
                 currentX, currentY = label:GetPoint(1)
-            local desiredY = tonumber(point[5]) or 0
+            local labelGap = self:SnapToPhysicalPixel(checkButton, 5)
+            local desiredY = self:SnapToPhysicalPixel(checkButton,
+                tonumber(point[5]) or 0)
             if label:GetNumPoints() ~= 1 or currentPoint ~= "LEFT"
-                or currentRelativeTo ~= checkButton
+                or currentRelativeTo ~= visual
                 or currentRelativePoint ~= "RIGHT"
-                or tonumber(currentX) ~= 5 or tonumber(currentY) ~= desiredY
+                or tonumber(currentX) ~= labelGap
+                or tonumber(currentY) ~= desiredY
             then
                 label:ClearAllPoints()
-                label:SetPoint("LEFT", checkButton, "RIGHT", 5, desiredY)
+                label:SetPoint("LEFT", visual, "RIGHT", labelGap, desiredY)
                 self:MarkComponentGeometryModified(
                     options.labelBaselineID, "points", true)
             end
