@@ -662,7 +662,7 @@ local function SkinCharacterSectionCards(scrollBox, elementID, registered)
 end
 
 local function ApplyAuxiliaryWindowChrome(frame, scopeID, windowID,
-    headerControlsID, label, title)
+    headerControlsID, label, title, closeButton)
     if not frame then return false end
 
     NSkin:SkinStandardWindowChrome({
@@ -671,6 +671,7 @@ local function ApplyAuxiliaryWindowChrome(frame, scopeID, windowID,
         elementID = windowID,
         headerControlsID = headerControlsID,
         title = title,
+        closeButton = closeButton,
     })
     NSkin:RegisterSkinningElement(windowID, {
         label = label,
@@ -1654,10 +1655,10 @@ function CharacterSkin:ApplyCurrencyDropdown(frame)
         ConcealTexture(scrollBox.Shadows or scrollBox.shadows)
     end
 
-    local applied = NSkin:RegisterDropdown({
+    local dropdownElement = NSkin:RegisterDropdown({
         id = IDs.CurrencyDropdown, module = "Character",
         appearanceWindowID = IDs.Scope,
-        label = "Currency filter dropdown", window = frame,
+        label = "Currency filter and transfer log", window = frame,
         target = dropdown, menus = { "MENU_CURRENCY_FRAME_FILTER" },
         priority = 85,
         highlightRegions = { dropdown },
@@ -1666,6 +1667,7 @@ function CharacterSkin:ApplyCurrencyDropdown(frame)
                 and dropdown:IsVisible()
         end,
     })
+    local applied = dropdownElement ~= nil
 
     if transferLogButton then
         local normalTexture = transferLogButton.GetNormalTexture
@@ -1678,43 +1680,102 @@ function CharacterSkin:ApplyCurrencyDropdown(frame)
             and transferLogButton:GetHighlightTexture()
             or transferLogButton.HighlightTexture
 
-        -- Treat the toggle like the Character side tabs: the Blizzard button
-        -- remains the interaction owner, NSkin owns the flat surface, and the
-        -- native artwork is reused only as the icon presentation.
+        -- Keep Blizzard's 22x22 button unchanged as the interaction/anchor owner.
+        -- A larger mouse-transparent visual frame provides enough room for the
+        -- custom scroll icon and its border without shifting Blizzard layout.
+        -- The icon itself stays smaller than the border anchor so edge detail is
+        -- not covered by the 1px border (especially the scroll top/bottom curls).
+        local visual = transferLogButton.NSkinTransferLogVisual
+        if not visual and _G.CreateFrame then
+            visual = _G.CreateFrame("Frame", nil, transferLogButton)
+            visual:EnableMouse(false)
+            visual:SetSize(32, 32)
+            visual:SetPoint("CENTER", transferLogButton, "CENTER", 0, 0)
+            if visual.SetFrameLevel and transferLogButton.GetFrameLevel then
+                visual:SetFrameLevel(transferLogButton:GetFrameLevel() + 1)
+            end
+            transferLogButton.NSkinTransferLogVisual = visual
+        end
+
         local presentation = transferLogButton.NSkinTransferLogIcon
-        if not presentation and transferLogButton.CreateTexture then
-            presentation = transferLogButton:CreateTexture(
-                nil, "ARTWORK", nil, 7)
-            presentation:SetSize(16, 16)
-            presentation:SetPoint("CENTER", transferLogButton, "CENTER", 0, 0)
-            presentation:SetAtlas("transfer-log-button-up", false)
+        if visual and not presentation and visual.CreateTexture then
+            presentation = visual:CreateTexture(nil, "ARTWORK", nil, 7)
+            presentation:SetSize(20, 20)
+            presentation:SetPoint("CENTER", visual, "CENTER", 0, 0)
+            presentation:SetTexture(NSkin.mediaPath .. "ancient-scroll.png")
             NSkin:ConfigureOwnedPixelTexture(presentation)
             transferLogButton.NSkinTransferLogIcon = presentation
         end
 
-        if presentation then
-            applied = NSkin:RegisterIcon({
-                id = IDs.CurrencyTransferLogButton, module = "Character",
-                appearanceWindowID = IDs.Scope,
-                label = "Currency transfer log button", window = frame,
-                target = transferLogButton,
-                texture = presentation,
-                borderOwner = transferLogButton,
-                nativeDecorationRegions = {
-                    normalTexture, pushedTexture, highlightTexture,
-                },
-                priority = 86,
-                skinOptions = {
+        if presentation and visual then
+            visual:ClearAllPoints()
+            visual:SetPoint("CENTER", transferLogButton, "CENTER", 0, 0)
+            visual:SetSize(32, 32)
+            visual:Show()
+
+            presentation:ClearAllPoints()
+            presentation:SetPoint("CENTER", visual, "CENTER", 0, 0)
+            presentation:SetSize(20, 20)
+            presentation:SetTexture(NSkin.mediaPath .. "ancient-scroll.png")
+            presentation:Show()
+
+            local function RefreshTransferLogIcon()
+                local iconStyle = NSkin:GetAppearanceStyle(
+                    "icon", IDs.Scope, IDs.CurrencyDropdown)
+                NSkin:SkinIcon(transferLogButton, {
+                    texture = presentation,
+                    borderOwner = visual,
+                    style = iconStyle,
+                    width = 20,
+                    height = 20,
+                    crop = 1,
+                    zoom = 0,
                     showBorder = true,
+                    borderSize = 1,
+                    borderPadding = 4,
                     borderMode = "fixed",
-                    preserveAtlasTexCoords = true,
-                },
-                highlightRegions = { transferLogButton },
-                isEditable = function()
-                    return frame:IsVisible() and currency:IsVisible()
-                        and transferLogButton:IsVisible()
-                end,
-            }) ~= nil or applied
+                    preserveTexCoords = true,
+                    nativeDecorationRegions = {
+                        normalTexture, pushedTexture, highlightTexture,
+                    },
+                })
+                return true
+            end
+
+            RefreshTransferLogIcon()
+
+            -- The dropdown and transfer-log icon are one logical editor control.
+            -- DROPDOWN remains the primary/movement owner; ICON contributes its
+            -- canonical appearance options as the secondary composite member.
+            if dropdownElement then
+                dropdownElement.composition = {
+                    mode = "COMPOSITE",
+                    movementOwner = dropdown,
+                    members = {
+                        { kind = "DROPDOWN", role = "PRIMARY",
+                            target = dropdown, label = "Filter" },
+                        { kind = "ICON", role = "SECONDARY",
+                            target = visual, label = "Transfer Log" },
+                    },
+                }
+                dropdownElement.highlightRegions = { dropdown, visual }
+                local originalRefreshAppearance = dropdownElement.refreshAppearance
+                local originalRefreshLayout = dropdownElement.refreshLayout
+                dropdownElement.refreshAppearance = function(owner, element)
+                    local refreshed = originalRefreshAppearance
+                        and originalRefreshAppearance(owner, element)
+                    RefreshTransferLogIcon()
+                    return refreshed ~= false
+                end
+                dropdownElement.refreshLayout = function(owner, element)
+                    local refreshed = originalRefreshLayout
+                        and originalRefreshLayout(owner, element)
+                    RefreshTransferLogIcon()
+                    NSkin:NotifySkinningElementBoundsChanged(element.id)
+                    return refreshed ~= false
+                end
+                NSkin:InitializeElementComposition(dropdownElement)
+            end
         end
     end
 
@@ -1779,10 +1840,13 @@ function CharacterSkin:ApplyCurrencyOptions()
     if not popup then return false end
 
     NSkin:ConcealWindowArtwork(popup.Border)
+    local popupCloseButton = popup.CloseButton
+        or popup["$parent.CloseButton"]
+        or _G.TokenFramePopupCloseButton
     local applied = ApplyAuxiliaryWindowChrome(
         popup, IDs.CurrencyOptions.Scope, IDs.CurrencyOptions.Window,
         IDs.CurrencyOptions.HeaderControls, "Currency Options window",
-        popup.Title)
+        popup.Title, popupCloseButton)
 
     local unused = popup.InactiveCheckbox
     local backpack = popup.BackpackCheckbox
@@ -1909,10 +1973,13 @@ local function ApplyTransferDirectionArrow(sourceSelector)
     local arrow = sourceSelector.NSkinTransferDirectionArrow
     if not arrow then
         arrow = sourceSelector:CreateTexture(nil, "OVERLAY", nil, 7)
-        -- Reuse the exact Blizzard arrow used by Currency Transfer Log rows.
-        -- This keeps the direction and visual language identical in both views.
-        arrow:SetAtlas("arrow-short", true)
+        arrow:SetSize(22, 22)
+        arrow:SetTexture(NSkin.mediaPath .. "angle-small-down.png")
+        -- The media asset points down by default; WoW texture rotation uses
+        -- positive pi/2 here for the source-to-destination direction.
+        arrow:SetRotation(math.pi / 2)
         arrow:SetPoint("CENTER", sourceSelector, "CENTER", 0, 0)
+        NSkin:ConfigureOwnedPixelTexture(arrow)
         sourceSelector.NSkinTransferDirectionArrow = arrow
     end
     local textStyle = NSkin:GetAppearanceStyle(
@@ -1921,6 +1988,30 @@ local function ApplyTransferDirectionArrow(sourceSelector)
         or textStyle.color or { 1, 1, 1, 1 }
     arrow:SetVertexColor(unpack(color))
     arrow:Show()
+end
+
+local function ApplyTransferLogDirectionArrow(row)
+    local nativeArrow = row and row.Arrow
+    if not nativeArrow then return end
+
+    local arrow = row.NSkinTransferDirectionArrow
+    if not arrow and row.CreateTexture then
+        arrow = row:CreateTexture(nil, "ARTWORK", nil, 1)
+        arrow:SetAllPoints(nativeArrow)
+        arrow:SetTexture(NSkin.mediaPath .. "angle-small-down.png")
+        arrow:SetRotation(math.pi / 2)
+        NSkin:ConfigureOwnedPixelTexture(arrow)
+        row.NSkinTransferDirectionArrow = arrow
+    end
+
+    ConcealTexture(nativeArrow)
+    if arrow then
+        arrow:SetAllPoints(nativeArrow)
+        arrow:SetTexture(NSkin.mediaPath .. "angle-small-down.png")
+        arrow:SetRotation(math.pi / 2)
+        arrow:SetVertexColor(1, 1, 1, 1)
+        arrow:Show()
+    end
 end
 
 function CharacterSkin:ApplyCurrencyTransfer()
@@ -2130,6 +2221,7 @@ function CharacterSkin:ApplyCurrencyTransferLogRows()
 
         NSkin:ForEachScrollBoxFrame(scrollBox, function(row)
             if not IsCurrencyTransferLogRow(row) then return end
+            ApplyTransferLogDirectionArrow(row)
             local columns = {
                 { kind = "TEXT", target = row.SourceName },
                 { kind = "TEXT", target = row.DestinationName },
