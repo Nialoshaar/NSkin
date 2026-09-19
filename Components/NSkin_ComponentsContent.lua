@@ -1849,6 +1849,7 @@ local function ApplyIconTexCoords(target)
     if not data or not data.active or data.applyingTexCoords
         or not texture or not texture.SetTexCoord
     then return end
+    if data.preserveTexCoords then return end
     if data.preserveAtlasTexCoords and texture.GetAtlas
         and texture:GetAtlas()
     then return end
@@ -2012,6 +2013,7 @@ function NSkin:SkinIcon(target, options)
     data.active = true
     data.texture = texture
     data.textureBaselineID = textureData.baselineID
+    data.preserveTexCoords = options.preserveTexCoords == true
     data.preserveAtlasTexCoords = options.preserveAtlasTexCoords == true
     data.shape = shape
     data.zoom = tonumber(options.zoom)
@@ -2068,6 +2070,15 @@ function NSkin:SkinIcon(target, options)
         })
     end
 
+    if data.preserveTexCoords then
+        local texCoordBaseline = self:GetComponentBaseline(
+            textureData.baselineID)
+        if texCoordBaseline and texCoordBaseline.modified.texCoords then
+            self:RestoreComponentBaseline(textureData.baselineID, {
+                texCoords = true,
+            })
+        end
+    end
     ApplyIconTexCoords(target)
     ApplyIconNativeDecorations(data, target, texture,
         options.nativeDecorationRegions or options.nativeBorderRegions)

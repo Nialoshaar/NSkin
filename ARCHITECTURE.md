@@ -693,6 +693,8 @@ Important invariants:
 - functional Blizzard overlays/state must be preserved
 - direct `SkinIcon()` callers remain supported
 - grouped/generated icon collections still use canonical ICON behavior
+- icons that use Blizzard sprite-sheet coordinates may opt into
+  `preserveTexCoords` while still using shared ICON geometry and lifecycle
 
 Clickable, empty, quality-bearing, disabled, popup-opening, or special-purpose icons should not become bespoke visual types merely because their behavior differs.
 

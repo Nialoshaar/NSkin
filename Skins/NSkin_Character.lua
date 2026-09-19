@@ -58,6 +58,8 @@ local IDs = {
     ReputationDropdown = "Character.Reputation.FilterDropdown",
     ReputationScrollBar = "Character.Reputation.ScrollBar",
     ReputationSectionCards = "Character.Reputation.SectionCards",
+    ReputationSubHeaderRows = "Character.Reputation.SubHeaderRows",
+    ReputationRows = "Character.Reputation.Rows",
     ReputationDetails = {
         Scope = "Character.ReputationDetails",
         Window = "Character.ReputationDetails.Window",
@@ -70,8 +72,11 @@ local IDs = {
         ViewRenownButton = "Character.ReputationDetails.ViewRenownButton",
     },
     CurrencyDropdown = "Character.Currency.FilterDropdown",
+    CurrencyTransferLogButton = "Character.Currency.TransferLogButton",
     CurrencyScrollBar = "Character.Currency.ScrollBar",
     CurrencySectionCards = "Character.Currency.SectionCards",
+    CurrencySubHeaderRows = "Character.Currency.SubHeaderRows",
+    CurrencyRows = "Character.Currency.Rows",
     CurrencyOptions = {
         Scope = "Character.CurrencyOptions",
         Window = "Character.CurrencyOptions.Window",
@@ -84,9 +89,10 @@ local IDs = {
         Scope = "Character.CurrencyTransfer",
         Window = "Character.CurrencyTransfer.Window",
         HeaderControls = "Character.CurrencyTransfer.HeaderControls",
-        SourceDropdown = "Character.CurrencyTransfer.SourceDropdown",
-        AmountInput = "Character.CurrencyTransfer.AmountInput",
-        MaxButton = "Character.CurrencyTransfer.MaxButton",
+        SourceRow = "Character.CurrencyTransfer.SourceRow",
+        AmountRow = "Character.CurrencyTransfer.AmountRow",
+        SourceBalanceRow = "Character.CurrencyTransfer.SourceBalanceRow",
+        PlayerBalanceRow = "Character.CurrencyTransfer.PlayerBalanceRow",
         ConfirmButton = "Character.CurrencyTransfer.ConfirmButton",
         CancelButton = "Character.CurrencyTransfer.CancelButton",
     },
@@ -94,6 +100,8 @@ local IDs = {
         Scope = "Character.CurrencyTransferLog",
         Window = "Character.CurrencyTransferLog.Window",
         HeaderControls = "Character.CurrencyTransferLog.HeaderControls",
+        EmptyMessage = "Character.CurrencyTransferLog.EmptyMessage",
+        Rows = "Character.CurrencyTransferLog.Rows",
         ScrollBar = "Character.CurrencyTransferLog.ScrollBar",
     },
     ItemSocketing = {
@@ -112,8 +120,13 @@ local tabsRegistered = false
 local applyPending = false
 local reputationSectionCardsHooked = false
 local reputationSectionCardsRegistered = false
+local reputationSubHeaderRowsRegistered = false
+local reputationRowsRegistered = false
 local currencySectionCardsHooked = false
 local currencySectionCardsRegistered = false
+local currencySubHeaderRowsRegistered = false
+local currencyRowsRegistered = false
+local currencyTransferLogRowsRegistered = false
 local hookedTabs = setmetatable({}, { __mode = "k" })
 local hookedShowOwners = setmetatable({}, { __mode = "k" })
 local concealedDetailArtwork = setmetatable({}, { __mode = "k" })
@@ -248,6 +261,13 @@ local function GetPaperDollSlotTexture(slot)
         or (name and _G[name .. "IconTexture"])
 end
 
+local function GetPaperDollSlotQuality(slot)
+    if not slot or type(_G.GetInventoryItemQuality) ~= "function"
+        or type(slot.GetID) ~= "function"
+    then return nil end
+    return _G.GetInventoryItemQuality("player", slot:GetID())
+end
+
 local function GetPaperDollSlotDecorations(slot, icon)
     local decorations = {}
     local seen = {}
@@ -329,6 +349,235 @@ end
 
 local function IsRowHovered(row)
     return row and row.IsMouseOver and row:IsMouseOver() or false
+end
+
+local function GetReputationElementData(row)
+    if not row then return nil end
+    if type(row.GetElementData) == "function" then
+        local ok, data = pcall(row.GetElementData, row)
+        if ok and data then return data end
+    end
+    return row.elementData
+end
+
+local function IsReputationSubHeaderRow(row)
+    local data = GetReputationElementData(row)
+    return data and data.isHeader == true and data.isChild == true
+        and row.Content and row.Content.Name and row.Content.ReputationBar
+end
+
+local function IsReputationEntryRow(row)
+    local data = GetReputationElementData(row)
+    return data and data.isHeader ~= true
+        and row.Content and row.Content.Name and row.Content.ReputationBar
+end
+
+local function IsReputationRowSelected(row)
+    if not row or type(row.IsSelected) ~= "function" then return false end
+    local ok, selected = pcall(row.IsSelected, row)
+    return ok and selected == true or false
+end
+
+local function GetReputationRowNativeDecorations(row)
+    local regions = {}
+    local content = row and row.Content
+    local highlight = content and content.BackgroundHighlight
+    if highlight then regions[#regions + 1] = highlight end
+    return regions
+end
+
+local function GetReputationIconColumns(row, includeCollapse)
+    local columns = {}
+    local content = row and row.Content
+    if not content then return columns end
+
+    local accountWide = content.AccountWideIcon
+    if accountWide and accountWide.Icon then
+        columns[#columns + 1] = {
+            kind = "ICON",
+            target = accountWide,
+            texture = accountWide.Icon,
+            borderOwner = accountWide,
+            skinOptions = {
+                showBorder = false,
+                preserveAtlasTexCoords = true,
+            },
+        }
+    end
+
+    if includeCollapse and row.ToggleCollapseButton then
+        local collapse = row.ToggleCollapseButton
+        local data = GetReputationElementData(row)
+        columns[#columns + 1] = {
+            kind = "BUTTON",
+            target = collapse,
+            skinOptions = {
+                label = data and data.isCollapsed and "+" or "-",
+                textSize = 12,
+            },
+        }
+    end
+
+    local paragon = content.ParagonIcon
+    if paragon and paragon.Icon then
+        columns[#columns + 1] = {
+            kind = "ICON",
+            target = paragon,
+            texture = paragon.Icon,
+            borderOwner = paragon,
+            skinOptions = {
+                showBorder = false,
+                preserveAtlasTexCoords = true,
+            },
+        }
+    end
+    return columns
+end
+
+local function SkinReputationProgressBar(bar, elementID)
+    if not bar then return false end
+    local style = NSkin:GetAppearanceStyle(
+        "progressBar", IDs.Scope, elementID)
+    if not style then return false end
+    local border = NSkin:GetAppearanceBorderColor(
+        "progressBar", style, IDs.Scope, elementID)
+    return NSkin:SkinProgressBar(bar, {
+        style = style,
+        background = true,
+        backgroundColor = style.background,
+        borderColor = border,
+        useAppearanceTexture = true,
+        artworkRegions = { bar.LeftTexture, bar.RightTexture },
+        centerText = true,
+        textRegions = { bar.BarText },
+    }) == true
+end
+
+
+local function GetCurrencyElementData(row)
+    if not row then return nil end
+    if type(row.GetElementData) == "function" then
+        local ok, data = pcall(row.GetElementData, row)
+        if ok and data then return data end
+    end
+    return row.elementData
+end
+
+local function IsCurrencySubHeaderRow(row)
+    local data = GetCurrencyElementData(row)
+    return data and data.isHeader == true
+        and tonumber(data.currencyListDepth or 0) > 0
+        and row.Text and row.ToggleCollapseButton
+end
+
+local function IsCurrencyEntryRow(row)
+    local data = GetCurrencyElementData(row)
+    return data and data.isHeader ~= true
+        and row.Content and row.Content.Name and row.Content.Count
+        and row.Content.CurrencyIcon
+end
+
+local function IsCurrencyRowSelected(row)
+    if not row or type(row.IsSelected) ~= "function" then return false end
+    local ok, selected = pcall(row.IsSelected, row)
+    return ok and selected == true or false
+end
+
+local function GetCurrencyRowNativeDecorations(row)
+    local content = row and row.Content
+    local highlight = content and content.BackgroundHighlight
+    return highlight and { highlight } or {}
+end
+
+local function GetCurrencyRowColumns(row, includeCollapse)
+    local columns = {}
+    if includeCollapse then
+        local collapse = row and row.ToggleCollapseButton
+        local data = GetCurrencyElementData(row)
+        if collapse then
+            columns[#columns + 1] = {
+                kind = "BUTTON",
+                target = collapse,
+                skinOptions = {
+                    label = data and data.isHeaderExpanded and "-" or "+",
+                    textSize = 12,
+                },
+            }
+        end
+        if row and row.Text then
+            columns[#columns + 1] = {
+                kind = "TEXT",
+                target = row.Text,
+            }
+        end
+        return columns
+    end
+
+    local content = row and row.Content
+    if not content then return columns end
+
+    local accountWide = content.AccountWideIcon
+    if accountWide and accountWide.Icon then
+        columns[#columns + 1] = {
+            kind = "ICON",
+            target = accountWide,
+            texture = accountWide.Icon,
+            borderOwner = accountWide,
+            skinOptions = {
+                showBorder = false,
+                preserveAtlasTexCoords = true,
+            },
+        }
+    end
+
+    columns[#columns + 1] = {
+        kind = "TEXT",
+        target = content.Name,
+    }
+    columns[#columns + 1] = {
+        kind = "TEXT",
+        target = content.Count,
+    }
+    columns[#columns + 1] = {
+        kind = "ICON",
+        target = content.CurrencyIcon,
+        texture = content.CurrencyIcon,
+        borderOwner = content,
+    }
+
+    -- WatchedCurrencyCheck is a semantic state indicator rather than a
+    -- separately editable icon, so leave it Blizzard-owned.
+    return columns
+end
+
+local function IsCurrencyTransferLogRow(row)
+    return row and row.SourceName and row.DestinationName
+        and row.CurrencyQuantity and row.CurrencyIcon
+end
+
+local function GetTransferLogNativeDecorations(row)
+    return row and row.BackgroundHighlight
+        and { row.BackgroundHighlight } or {}
+end
+
+local function RegisterFlatButton(id, scopeID, label, window, button, priority)
+    if not button then return nil end
+    return NSkin:RegisterTypedElement("BUTTON", {
+        id = id,
+        module = "Character",
+        appearanceWindowID = scopeID,
+        label = label,
+        window = window,
+        target = button,
+        priority = priority,
+        skinOptions = {
+            label = button.GetText and button:GetText() or "",
+        },
+        highlightRegions = { button },
+        isEditable = function()
+            return window:IsVisible() and button:IsVisible()
+        end,
+    })
 end
 
 local function GetRowDecorationRegions(row)
@@ -439,6 +688,10 @@ end
 
 function CharacterSkin:ApplyWindowChrome(frame)
     if not frame then return false end
+
+    -- CharacterFrame adds its own panel atlas on top of ButtonFrameTemplate.
+    -- It is decorative chrome and must not remain visible behind skinned tabs.
+    ConcealTexture(frame.Background)
 
     NSkin:SkinStandardWindowChrome({
         frame = frame,
@@ -708,6 +961,7 @@ function CharacterSkin:ApplyPaperDollSkin(frame)
                 target = slot,
                 texture = icon,
                 borderOwner = slot,
+                qualityProvider = GetPaperDollSlotQuality,
                 nativeDecorationRegions =
                     GetPaperDollSlotDecorations(slot, icon),
                 priority = 60,
@@ -1029,10 +1283,126 @@ function CharacterSkin:ApplyEquipmentManagerPopup()
     })
 end
 
+function CharacterSkin:ApplyReputationRows(frame)
+    local reputation = _G.ReputationFrame
+    local scrollBox = reputation and reputation.ScrollBox
+    if not frame or not reputation or not scrollBox then return false end
+
+    local function RefreshFamily(elementID, predicate, includeCollapse)
+        local resolvedRowStyle = NSkin:GetAppearanceStyle(
+            "row", IDs.Scope, elementID)
+        local rowStyle = {}
+        for key, value in pairs(resolvedRowStyle or {}) do
+            rowStyle[key] = value
+        end
+        -- Reputation entries are list records rather than boxed cards. Keep
+        -- their default presentation borderless while retaining ROW-owned
+        -- background/hover/selection behavior.
+        rowStyle.borderSize = 0
+        local rowBorder = NSkin:GetAppearanceBorderColor(
+            "row", rowStyle, IDs.Scope, elementID)
+        local applied = false
+
+        NSkin:ForEachScrollBoxFrame(scrollBox, function(row)
+            if not predicate(row) then return end
+            local content = row.Content
+            local columns = GetReputationIconColumns(row, includeCollapse)
+            columns[#columns + 1] = {
+                kind = "TEXT",
+                target = content.Name,
+            }
+
+            local rowState = NSkin:SkinRow(row, {
+                style = rowStyle,
+                border = rowBorder,
+                nativeDecorationRegions = GetReputationRowNativeDecorations(row),
+                getHovered = IsRowHovered,
+                getSelected = IsReputationRowSelected,
+                columns = columns,
+                elementID = elementID,
+                appearanceWindowID = IDs.Scope,
+            })
+            if rowState and rowState.border then
+                NSkin:SetPixelBorderShown(rowState.border, false)
+            end
+            applied = rowState ~= nil or applied
+
+            applied = SkinReputationProgressBar(
+                content.ReputationBar, elementID) or applied
+        end)
+
+        NSkin:NotifySkinningElementBoundsChanged(elementID)
+        return applied
+    end
+
+    local function RegisterFamily(elementID, label, predicate, includeCollapse,
+        priority)
+        local registeredFlag = elementID == IDs.ReputationSubHeaderRows
+            and reputationSubHeaderRowsRegistered or reputationRowsRegistered
+        if not registeredFlag then
+            local registered = NSkin:RegisterSkinningElement(elementID, {
+                module = "Character",
+                appearanceWindowID = IDs.Scope,
+                label = label,
+                kind = "ROW",
+                window = frame,
+                target = scrollBox,
+                priority = priority,
+                draggable = false,
+                appearanceStyles = { "row", "text", "icon", "progressBar" },
+                appearanceTypeIDs = { "ROW", "TEXT", "ICON", "PROGRESS_BAR" },
+                editorOptions = {
+                    { id = "shared.rowAppearance", label = "Row",
+                        category = "CUSTOMIZE" },
+                    { id = "shared.textAppearance", label = "Text",
+                        category = "CUSTOMIZE" },
+                    { id = "shared.iconAppearance", label = "Icons",
+                        category = "CUSTOMIZE" },
+                },
+                highlightRegions = function()
+                    return GetVisibleScrollBoxRows(scrollBox, predicate)
+                end,
+                pixelBorderTargets = function()
+                    return GetVisibleScrollBoxRows(scrollBox, predicate)
+                end,
+                refreshAppearance = function()
+                    return RefreshFamily(elementID, predicate, includeCollapse)
+                end,
+                refreshLayout = function()
+                    return RefreshFamily(elementID, predicate, includeCollapse)
+                end,
+                isEditable = function()
+                    return frame:IsVisible() and reputation:IsVisible()
+                        and #GetVisibleScrollBoxRows(scrollBox, predicate) > 0
+                end,
+            }) == true
+            if elementID == IDs.ReputationSubHeaderRows then
+                reputationSubHeaderRowsRegistered = registered
+            else
+                reputationRowsRegistered = registered
+            end
+        end
+        return RefreshFamily(elementID, predicate, includeCollapse)
+    end
+
+    local applied = RegisterFamily(
+        IDs.ReputationSubHeaderRows, "Reputation subheader rows",
+        IsReputationSubHeaderRow, true, 87)
+    applied = RegisterFamily(
+        IDs.ReputationRows, "Reputation faction rows",
+        IsReputationEntryRow, false, 88) or applied
+    return applied
+end
+
 function CharacterSkin:ApplyReputationDropdown(frame)
     local reputation = _G.ReputationFrame
     local scrollBox = reputation and reputation.ScrollBox
     local dropdown = reputation and reputation.filterDropdown
+    -- WowScrollBoxList contributes its own edge/shadow backdrop. It is
+    -- decorative chrome and otherwise remains visible behind the skinned rows.
+    if scrollBox then
+        ConcealTexture(scrollBox.Shadows or scrollBox.shadows)
+    end
     local applied = NSkin:RegisterDropdown({
         id = IDs.ReputationDropdown, module = "Character",
         appearanceWindowID = IDs.Scope,
@@ -1058,6 +1428,7 @@ function CharacterSkin:ApplyReputationDropdown(frame)
     }) or applied
     applied = SkinCharacterSectionCards(scrollBox,
         IDs.ReputationSectionCards, reputationSectionCardsRegistered) or applied
+    applied = self:ApplyReputationRows(frame) or applied
     if scrollBox and not reputationSectionCardsRegistered then
         reputationSectionCardsRegistered = NSkin:RegisterSkinningElement(
             IDs.ReputationSectionCards, {
@@ -1089,6 +1460,7 @@ function CharacterSkin:ApplyReputationDropdown(frame)
             SkinCharacterSectionCards(updatedScrollBox,
                 IDs.ReputationSectionCards,
                 reputationSectionCardsRegistered)
+            CharacterSkin:ApplyReputationRows(frame)
         end)
         reputationSectionCardsHooked = true
     end
@@ -1172,10 +1544,116 @@ function CharacterSkin:ApplyReputationDetails()
     return applied
 end
 
+function CharacterSkin:ApplyCurrencyRows(frame)
+    local currency = _G.TokenFrame
+    local scrollBox = currency and currency.ScrollBox
+    if not frame or not currency or not scrollBox then return false end
+
+    local function RefreshFamily(elementID, predicate, includeCollapse)
+        local resolvedRowStyle = NSkin:GetAppearanceStyle(
+            "row", IDs.Scope, elementID)
+        local rowStyle = {}
+        for key, value in pairs(resolvedRowStyle or {}) do
+            rowStyle[key] = value
+        end
+        -- Currency entries are lightweight list records. Keep their default
+        -- presentation borderless while ROW owns background/hover/selection.
+        rowStyle.borderSize = 0
+        local rowBorder = NSkin:GetAppearanceBorderColor(
+            "row", rowStyle, IDs.Scope, elementID)
+        local applied = false
+
+        NSkin:ForEachScrollBoxFrame(scrollBox, function(row)
+            if not predicate(row) then return end
+            local rowState = NSkin:SkinRow(row, {
+                style = rowStyle,
+                border = rowBorder,
+                nativeDecorationRegions = GetCurrencyRowNativeDecorations(row),
+                getHovered = IsRowHovered,
+                getSelected = includeCollapse and nil or IsCurrencyRowSelected,
+                columns = GetCurrencyRowColumns(row, includeCollapse),
+                elementID = elementID,
+                appearanceWindowID = IDs.Scope,
+            })
+            if rowState and rowState.border then
+                NSkin:SetPixelBorderShown(rowState.border, false)
+            end
+            applied = rowState ~= nil or applied
+        end)
+
+        NSkin:NotifySkinningElementBoundsChanged(elementID)
+        return applied
+    end
+
+    local function RegisterFamily(elementID, label, predicate, includeCollapse,
+        priority)
+        local registeredFlag = elementID == IDs.CurrencySubHeaderRows
+            and currencySubHeaderRowsRegistered or currencyRowsRegistered
+        if not registeredFlag then
+            local registered = NSkin:RegisterSkinningElement(elementID, {
+                module = "Character",
+                appearanceWindowID = IDs.Scope,
+                label = label,
+                kind = "ROW",
+                window = frame,
+                target = scrollBox,
+                priority = priority,
+                draggable = false,
+                appearanceStyles = { "row", "text", "icon" },
+                appearanceTypeIDs = { "ROW", "TEXT", "ICON" },
+                editorOptions = {
+                    { id = "shared.rowAppearance", label = "Row",
+                        category = "CUSTOMIZE" },
+                    { id = "shared.textAppearance", label = "Text",
+                        category = "CUSTOMIZE" },
+                    { id = "shared.iconAppearance", label = "Icons",
+                        category = "CUSTOMIZE" },
+                },
+                highlightRegions = function()
+                    return GetVisibleScrollBoxRows(scrollBox, predicate)
+                end,
+                pixelBorderTargets = function()
+                    return GetVisibleScrollBoxRows(scrollBox, predicate)
+                end,
+                refreshAppearance = function()
+                    return RefreshFamily(elementID, predicate, includeCollapse)
+                end,
+                refreshLayout = function()
+                    return RefreshFamily(elementID, predicate, includeCollapse)
+                end,
+                isEditable = function()
+                    return frame:IsVisible() and currency:IsVisible()
+                        and #GetVisibleScrollBoxRows(scrollBox, predicate) > 0
+                end,
+            }) == true
+            if elementID == IDs.CurrencySubHeaderRows then
+                currencySubHeaderRowsRegistered = registered
+            else
+                currencyRowsRegistered = registered
+            end
+        end
+        return RefreshFamily(elementID, predicate, includeCollapse)
+    end
+
+    local applied = RegisterFamily(
+        IDs.CurrencySubHeaderRows, "Currency subheader rows",
+        IsCurrencySubHeaderRow, true, 89)
+    applied = RegisterFamily(
+        IDs.CurrencyRows, "Currency rows",
+        IsCurrencyEntryRow, false, 90) or applied
+    return applied
+end
+
 function CharacterSkin:ApplyCurrencyDropdown(frame)
     local currency = _G.TokenFrame
     local scrollBox = currency and currency.ScrollBox
     local dropdown = currency and currency.filterDropdown
+    local transferLogButton = currency and currency.CurrencyTransferLogToggleButton
+
+    if scrollBox then
+        ConcealTexture(scrollBox.Shadows or scrollBox.shadows)
+    end
+
     local applied = NSkin:RegisterDropdown({
         id = IDs.CurrencyDropdown, module = "Character",
         appearanceWindowID = IDs.Scope,
@@ -1188,19 +1666,58 @@ function CharacterSkin:ApplyCurrencyDropdown(frame)
                 and dropdown:IsVisible()
         end,
     })
+
+    if transferLogButton then
+        local normalTexture = transferLogButton.GetNormalTexture
+            and transferLogButton:GetNormalTexture()
+            or transferLogButton.NormalTexture
+        local pushedTexture = transferLogButton.GetPushedTexture
+            and transferLogButton:GetPushedTexture()
+            or transferLogButton.PushedTexture
+        local highlightTexture = transferLogButton.GetHighlightTexture
+            and transferLogButton:GetHighlightTexture()
+            or transferLogButton.HighlightTexture
+        if normalTexture then
+            applied = NSkin:RegisterIcon({
+                id = IDs.CurrencyTransferLogButton, module = "Character",
+                appearanceWindowID = IDs.Scope,
+                label = "Currency transfer log button", window = frame,
+                target = transferLogButton,
+                texture = normalTexture,
+                borderOwner = transferLogButton,
+                priority = 86,
+                skinOptions = {
+                    showBorder = true,
+                    borderMode = "fixed",
+                    nativeDecorationRegions = {
+                        pushedTexture, highlightTexture,
+                    },
+                },
+                highlightRegions = { transferLogButton },
+                isEditable = function()
+                    return frame:IsVisible() and currency:IsVisible()
+                        and transferLogButton:IsVisible()
+                end,
+            }) ~= nil or applied
+        end
+    end
+
     applied = NSkin:RegisterScrollBar({
         id = IDs.CurrencyScrollBar, module = "Character",
         appearanceWindowID = IDs.Scope,
         label = "Currency scroll bar", window = frame,
-        target = currency and currency.ScrollBar, priority = 86,
+        target = currency and currency.ScrollBar, priority = 87,
         highlightRegions = { currency and currency.ScrollBar },
         isEditable = function()
             return frame:IsVisible() and currency:IsVisible()
                 and currency.ScrollBar:IsVisible()
         end,
     }) or applied
+
     applied = SkinCharacterSectionCards(scrollBox,
         IDs.CurrencySectionCards, currencySectionCardsRegistered) or applied
+    applied = self:ApplyCurrencyRows(frame) or applied
+
     if scrollBox and not currencySectionCardsRegistered then
         currencySectionCardsRegistered = NSkin:RegisterSkinningElement(
             IDs.CurrencySectionCards, {
@@ -1210,7 +1727,7 @@ function CharacterSkin:ApplyCurrencyDropdown(frame)
                 kind = "SECTION_CARD",
                 window = frame,
                 target = scrollBox,
-                priority = 87,
+                priority = 88,
                 draggable = false,
                 highlightRegions = function()
                     return GetVisibleCharacterSectionCards(scrollBox)
@@ -1225,15 +1742,18 @@ function CharacterSkin:ApplyCurrencyDropdown(frame)
                 end,
             }) == true
     end
+
     if scrollBox and not currencySectionCardsHooked
         and _G.hooksecurefunc and type(scrollBox.Update) == "function"
     then
         _G.hooksecurefunc(scrollBox, "Update", function(updatedScrollBox)
             SkinCharacterSectionCards(updatedScrollBox,
                 IDs.CurrencySectionCards, currencySectionCardsRegistered)
+            CharacterSkin:ApplyCurrencyRows(frame)
         end)
         currencySectionCardsHooked = true
     end
+
     if applied then HookOwnerRefresh(currency) end
     return applied ~= nil
 end
@@ -1242,8 +1762,6 @@ function CharacterSkin:ApplyCurrencyOptions()
     local popup = _G.TokenFramePopup
     if not popup then return false end
 
-    -- SecureDialogBorderTemplate is not part of the standard window chrome,
-    -- but its artwork is. Preserve the frame while suppressing that artwork.
     NSkin:ConcealWindowArtwork(popup.Border)
     local applied = ApplyAuxiliaryWindowChrome(
         popup, IDs.CurrencyOptions.Scope, IDs.CurrencyOptions.Window,
@@ -1286,12 +1804,107 @@ function CharacterSkin:ApplyCurrencyOptions()
     return applied
 end
 
+local function GetTransferRowStyle(scopeID, elementID)
+    local style = NSkin:GetAppearanceStyle("row", scopeID, elementID)
+    return style, NSkin:GetAppearanceBorderColor(
+        "row", style, scopeID, elementID)
+end
+
+local function RegisterCurrencyTransferRow(definition)
+    local row = definition.target
+    if not row then return nil end
+
+    local function Refresh()
+        local rowStyle, rowBorder = GetTransferRowStyle(
+            IDs.CurrencyTransfer.Scope, definition.id)
+
+        NSkin:SkinRow(row, {
+            style = rowStyle,
+            border = rowBorder,
+            columns = definition.columns,
+            elementID = definition.id,
+            appearanceWindowID = IDs.CurrencyTransfer.Scope,
+        })
+
+        for _, child in ipairs(definition.extraSkins or {}) do
+            if child.target then
+                local childDefinition = {
+                    id = definition.id,
+                    appearanceWindowID = IDs.CurrencyTransfer.Scope,
+                    target = child.target,
+                    skinOptions = child.skinOptions,
+                    menus = child.menus,
+                }
+                NSkin:SkinTypedElement(child.kind, childDefinition)
+            end
+        end
+
+        NSkin:NotifySkinningElementBoundsChanged(definition.id)
+        return true
+    end
+
+    local members = {
+        { kind = "ROW", role = "PRIMARY", target = row, label = "Row" },
+    }
+    for _, member in ipairs(definition.members or {}) do
+        members[#members + 1] = member
+    end
+
+    local element = NSkin:RegisterSkinningElement(definition.id, {
+        module = "Character",
+        appearanceWindowID = IDs.CurrencyTransfer.Scope,
+        label = definition.label,
+        kind = "ROW",
+        window = definition.window,
+        target = row,
+        priority = definition.priority,
+        composition = {
+            mode = "COMPOSITE",
+            movementOwner = row,
+            members = members,
+        },
+        highlightRegions = definition.highlightRegions,
+        refreshAppearance = Refresh,
+        refreshLayout = Refresh,
+        isEditable = function()
+            return definition.window:IsVisible() and row:IsVisible()
+        end,
+    })
+    Refresh()
+    return element
+end
+
+local function ApplyTransferDirectionArrow(sourceSelector)
+    local dropdown = sourceSelector and sourceSelector.Dropdown
+    local nativeArrow = dropdown and dropdown.LongArrow
+    if nativeArrow then ConcealTexture(nativeArrow) end
+    if not sourceSelector or not sourceSelector.CreateTexture then return end
+
+    local arrow = sourceSelector.NSkinTransferDirectionArrow
+    if not arrow then
+        arrow = sourceSelector:CreateTexture(nil, "OVERLAY", nil, 7)
+        arrow:SetSize(22, 22)
+        arrow:SetTexture(NSkin.mediaPath .. "angle-small-down.png")
+        arrow:SetRotation(-math.pi / 2)
+        arrow:SetPoint("CENTER", sourceSelector, "CENTER", 0, 0)
+        NSkin:ConfigureOwnedPixelTexture(arrow)
+        sourceSelector.NSkinTransferDirectionArrow = arrow
+    end
+    local textStyle = NSkin:GetAppearanceStyle(
+        "text", IDs.CurrencyTransfer.Scope, IDs.CurrencyTransfer.SourceRow)
+    local color = NSkin:GetResolvedAppearanceColor(textStyle, "color")
+        or textStyle.color or { 1, 1, 1, 1 }
+    arrow:SetVertexColor(unpack(color))
+    arrow:Show()
+end
+
 function CharacterSkin:ApplyCurrencyTransfer()
     local transfer = _G.CurrencyTransferMenu
     local content = transfer and transfer.Content
     if not transfer or not content then return false end
 
     ConcealTexture(transfer.Background)
+    ConcealTexture(content.TransactionDivider)
     NSkin:ConcealWindowArtwork(transfer.Inset)
     local applied = ApplyAuxiliaryWindowChrome(
         transfer, IDs.CurrencyTransfer.Scope, IDs.CurrencyTransfer.Window,
@@ -1299,62 +1912,272 @@ function CharacterSkin:ApplyCurrencyTransfer()
 
     local sourceSelector = content.SourceSelector
     local sourceDropdown = sourceSelector and sourceSelector.Dropdown
+    local sourceLabel = sourceSelector and sourceSelector.SourceLabel
+    local receiverText = sourceSelector and sourceSelector.PlayerName
+
     local amountSelector = content.AmountSelector
+    local amountLabel = amountSelector and amountSelector.TransferAmountLabel
     local amountInput = amountSelector and amountSelector.InputBox
     local maxButton = amountSelector and amountSelector.MaxQuantityButton
+
+    local sourceBalance = content.SourceBalancePreview
+    local sourceBalanceInfo = sourceBalance and sourceBalance.BalanceInfo
+    local sourceBalanceLabel = sourceBalance and sourceBalance.Label
+    local sourceBalanceAmount = sourceBalanceInfo and sourceBalanceInfo.Amount
+    local sourceBalanceIcon = sourceBalanceInfo and sourceBalanceInfo.CurrencyIcon
+
+    local playerBalance = content.PlayerBalancePreview
+    local playerBalanceInfo = playerBalance and playerBalance.BalanceInfo
+    local playerBalanceLabel = playerBalance and playerBalance.Label
+    local playerBalanceAmount = playerBalanceInfo and playerBalanceInfo.Amount
+    local playerBalanceIcon = playerBalanceInfo and playerBalanceInfo.CurrencyIcon
+
     local confirmButton = content.ConfirmButton
     local cancelButton = content.CancelButton
-    applied = NSkin:RegisterDropdown({
-        id = IDs.CurrencyTransfer.SourceDropdown, module = "Character",
-        appearanceWindowID = IDs.CurrencyTransfer.Scope,
-        label = "Currency source dropdown", window = transfer,
-        target = sourceDropdown, menus = { "MENU_CURRENCY_TRANSFER" },
-        priority = 70, highlightRegions = { sourceDropdown },
-        isEditable = function()
-            return transfer:IsVisible() and sourceDropdown:IsVisible()
-        end,
-    }) ~= nil or applied
-    applied = NSkin:RegisterSearchBox({
-        id = IDs.CurrencyTransfer.AmountInput, module = "Character",
-        appearanceWindowID = IDs.CurrencyTransfer.Scope,
-        label = "Currency transfer amount", window = transfer,
-        target = amountInput, priority = 71,
-        highlightRegions = { amountInput },
-        isEditable = function()
-            return transfer:IsVisible() and amountInput:IsVisible()
-        end,
-    }) ~= nil or applied
-    applied = NSkin:RegisterActionButton({
-        id = IDs.CurrencyTransfer.MaxButton, module = "Character",
-        appearanceWindowID = IDs.CurrencyTransfer.Scope,
-        label = "Maximum currency button", window = transfer,
-        target = maxButton, priority = 72,
-        highlightRegions = { maxButton },
-        isEditable = function()
-            return transfer:IsVisible() and maxButton:IsVisible()
-        end,
-    }) ~= nil or applied
+
+    ApplyTransferDirectionArrow(sourceSelector)
+
+    -- Source line:
+    -- TEXT label + DROPDOWN + decorative media arrow + TEXT receiver.
+    applied = RegisterCurrencyTransferRow({
+        id = IDs.CurrencyTransfer.SourceRow,
+        label = "Currency transfer source",
+        window = transfer,
+        target = sourceSelector,
+        priority = 70,
+        columns = {
+            { kind = "TEXT", target = sourceLabel },
+            { kind = "TEXT", target = receiverText },
+        },
+        extraSkins = {
+            {
+                kind = "DROPDOWN",
+                target = sourceDropdown,
+                menus = { "MENU_CURRENCY_TRANSFER" },
+            },
+        },
+        members = {
+            { kind = "TEXT", role = "SECONDARY",
+                target = sourceLabel, label = "Source label" },
+            { kind = "DROPDOWN", role = "SECONDARY",
+                target = sourceDropdown, label = "Source" },
+            { kind = "TEXT", role = "SECONDARY",
+                target = receiverText, label = "Receiver" },
+        },
+        highlightRegions = {
+            sourceSelector, sourceDropdown, sourceLabel, receiverText,
+        },
+    }) or applied
+
+    -- Amount line:
+    -- TEXT label + composite operation area (BUTTON Max + EDIT_BOX amount).
+    applied = RegisterCurrencyTransferRow({
+        id = IDs.CurrencyTransfer.AmountRow,
+        label = "Currency transfer amount",
+        window = transfer,
+        target = amountSelector,
+        priority = 71,
+        columns = {
+            { kind = "TEXT", target = amountLabel },
+            {
+                kind = "BUTTON",
+                target = maxButton,
+                skinOptions = {
+                    label = maxButton and maxButton:GetText() or "",
+                },
+            },
+        },
+        extraSkins = {
+            { kind = "EDIT_BOX", target = amountInput },
+        },
+        members = {
+            { kind = "TEXT", role = "SECONDARY",
+                target = amountLabel, label = "Label" },
+            { kind = "BUTTON", role = "SECONDARY",
+                target = maxButton, label = "Maximum" },
+            { kind = "EDIT_BOX", role = "SECONDARY",
+                target = amountInput, label = "Amount" },
+        },
+        highlightRegions = {
+            amountSelector, amountLabel, maxButton, amountInput,
+        },
+    }) or applied
+
+    -- Source balance:
+    -- TEXT label + amount/icon presentation grouped under the ROW.
+    applied = RegisterCurrencyTransferRow({
+        id = IDs.CurrencyTransfer.SourceBalanceRow,
+        label = "Source currency balance",
+        window = transfer,
+        target = sourceBalance,
+        priority = 72,
+        columns = {
+            { kind = "TEXT", target = sourceBalanceLabel },
+            { kind = "TEXT", target = sourceBalanceAmount },
+            {
+                kind = "ICON",
+                target = sourceBalanceIcon,
+                texture = sourceBalanceIcon,
+                borderOwner = sourceBalanceInfo,
+            },
+        },
+        members = {
+            { kind = "TEXT", role = "SECONDARY",
+                target = sourceBalanceLabel, label = "Label" },
+            { kind = "TEXT", role = "SECONDARY",
+                target = sourceBalanceAmount, label = "Amount" },
+            { kind = "ICON", role = "SECONDARY",
+                target = sourceBalanceIcon, label = "Currency icon" },
+        },
+        highlightRegions = {
+            sourceBalance, sourceBalanceLabel,
+            sourceBalanceAmount, sourceBalanceIcon,
+        },
+    }) or applied
+
+    -- Player balance:
+    -- TEXT label + amount/icon presentation grouped under the ROW.
+    applied = RegisterCurrencyTransferRow({
+        id = IDs.CurrencyTransfer.PlayerBalanceRow,
+        label = "Player currency balance",
+        window = transfer,
+        target = playerBalance,
+        priority = 73,
+        columns = {
+            { kind = "TEXT", target = playerBalanceLabel },
+            { kind = "TEXT", target = playerBalanceAmount },
+            {
+                kind = "ICON",
+                target = playerBalanceIcon,
+                texture = playerBalanceIcon,
+                borderOwner = playerBalanceInfo,
+            },
+        },
+        members = {
+            { kind = "TEXT", role = "SECONDARY",
+                target = playerBalanceLabel, label = "Label" },
+            { kind = "TEXT", role = "SECONDARY",
+                target = playerBalanceAmount, label = "Amount" },
+            { kind = "ICON", role = "SECONDARY",
+                target = playerBalanceIcon, label = "Currency icon" },
+        },
+        highlightRegions = {
+            playerBalance, playerBalanceLabel,
+            playerBalanceAmount, playerBalanceIcon,
+        },
+    }) or applied
+
     applied = NSkin:RegisterActionButton({
         id = IDs.CurrencyTransfer.ConfirmButton, module = "Character",
         appearanceWindowID = IDs.CurrencyTransfer.Scope,
         label = "Confirm currency transfer", window = transfer,
-        target = confirmButton, priority = 73,
+        target = confirmButton, priority = 74,
         highlightRegions = { confirmButton },
         isEditable = function()
             return transfer:IsVisible() and confirmButton:IsVisible()
         end,
     }) ~= nil or applied
-    applied = NSkin:RegisterActionButton({
-        id = IDs.CurrencyTransfer.CancelButton, module = "Character",
-        appearanceWindowID = IDs.CurrencyTransfer.Scope,
-        label = "Cancel currency transfer", window = transfer,
-        target = cancelButton, priority = 74,
-        highlightRegions = { cancelButton },
-        isEditable = function()
-            return transfer:IsVisible() and cancelButton:IsVisible()
-        end,
-    }) ~= nil or applied
+
+    applied = RegisterFlatButton(
+        IDs.CurrencyTransfer.CancelButton, IDs.CurrencyTransfer.Scope,
+        "Cancel currency transfer", transfer, cancelButton, 75) ~= nil or applied
+
     return applied
+end
+
+function CharacterSkin:ApplyCurrencyTransferLogRows()
+    local log = _G.CurrencyTransferLog
+    local scrollBox = log and log.ScrollBox
+    if not log or not scrollBox then return false end
+
+    local function Refresh()
+        local resolvedRowStyle = NSkin:GetAppearanceStyle(
+            "row", IDs.CurrencyTransferLog.Scope, IDs.CurrencyTransferLog.Rows)
+        local rowStyle = {}
+        for key, value in pairs(resolvedRowStyle or {}) do
+            rowStyle[key] = value
+        end
+        rowStyle.borderSize = 0
+        local rowBorder = NSkin:GetAppearanceBorderColor(
+            "row", rowStyle, IDs.CurrencyTransferLog.Scope,
+            IDs.CurrencyTransferLog.Rows)
+        local applied = false
+
+        NSkin:ForEachScrollBoxFrame(scrollBox, function(row)
+            if not IsCurrencyTransferLogRow(row) then return end
+            local columns = {
+                { kind = "TEXT", target = row.SourceName },
+                { kind = "TEXT", target = row.DestinationName },
+                { kind = "TEXT", target = row.CurrencyQuantity },
+                {
+                    kind = "ICON",
+                    target = row.CurrencyIcon,
+                    texture = row.CurrencyIcon,
+                    borderOwner = row,
+                },
+            }
+            local state = NSkin:SkinRow(row, {
+                style = rowStyle,
+                border = rowBorder,
+                nativeDecorationRegions = GetTransferLogNativeDecorations(row),
+                getHovered = IsRowHovered,
+                columns = columns,
+                elementID = IDs.CurrencyTransferLog.Rows,
+                appearanceWindowID = IDs.CurrencyTransferLog.Scope,
+            })
+            if state and state.border then
+                NSkin:SetPixelBorderShown(state.border, false)
+            end
+            applied = state ~= nil or applied
+        end)
+
+        NSkin:NotifySkinningElementBoundsChanged(IDs.CurrencyTransferLog.Rows)
+        return applied
+    end
+
+    if not currencyTransferLogRowsRegistered then
+        currencyTransferLogRowsRegistered = NSkin:RegisterSkinningElement(
+            IDs.CurrencyTransferLog.Rows, {
+                module = "Character",
+                appearanceWindowID = IDs.CurrencyTransferLog.Scope,
+                label = "Currency transfer log rows",
+                kind = "ROW",
+                window = log,
+                target = scrollBox,
+                priority = 72,
+                draggable = false,
+                appearanceStyles = { "row", "text", "icon" },
+                appearanceTypeIDs = { "ROW", "TEXT", "ICON" },
+                editorOptions = {
+                    { id = "shared.rowAppearance", label = "Row",
+                        category = "CUSTOMIZE" },
+                    { id = "shared.textAppearance", label = "Text",
+                        category = "CUSTOMIZE" },
+                    { id = "shared.iconAppearance", label = "Icons",
+                        category = "CUSTOMIZE" },
+                },
+                highlightRegions = function()
+                    return GetVisibleScrollBoxRows(
+                        scrollBox, IsCurrencyTransferLogRow)
+                end,
+                pixelBorderTargets = function()
+                    return GetVisibleScrollBoxRows(
+                        scrollBox, IsCurrencyTransferLogRow)
+                end,
+                refreshAppearance = Refresh,
+                refreshLayout = Refresh,
+                isEditable = function()
+                    return log:IsVisible()
+                        and #GetVisibleScrollBoxRows(
+                            scrollBox, IsCurrencyTransferLogRow) > 0
+                end,
+            }) == true
+    end
+
+    HookScrollBoxRefresh(scrollBox, function()
+        CharacterSkin:ApplyCurrencyTransferLogRows()
+    end)
+    return Refresh()
 end
 
 function CharacterSkin:ApplyCurrencyTransferLog()
@@ -1366,17 +2189,30 @@ function CharacterSkin:ApplyCurrencyTransferLog()
     local applied = ApplyAuxiliaryWindowChrome(
         log, IDs.CurrencyTransferLog.Scope, IDs.CurrencyTransferLog.Window,
         IDs.CurrencyTransferLog.HeaderControls, "Currency Transfer Log window")
+
+    local emptyMessage = log.EmptyLogMessage
     local scrollBar = log.ScrollBar
+    applied = NSkin:RegisterTextElement({
+        id = IDs.CurrencyTransferLog.EmptyMessage, module = "Character",
+        appearanceWindowID = IDs.CurrencyTransferLog.Scope,
+        label = "Currency transfer empty message", window = log,
+        target = emptyMessage, priority = 70,
+        highlightRegions = { emptyMessage },
+        isEditable = function()
+            return log:IsVisible() and emptyMessage:IsVisible()
+        end,
+    }) ~= nil or applied
     applied = NSkin:RegisterScrollBar({
         id = IDs.CurrencyTransferLog.ScrollBar, module = "Character",
         appearanceWindowID = IDs.CurrencyTransferLog.Scope,
         label = "Currency transfer log scroll bar", window = log,
-        target = scrollBar, priority = 70,
+        target = scrollBar, priority = 71,
         highlightRegions = { scrollBar },
         isEditable = function()
             return log:IsVisible() and scrollBar:IsVisible()
         end,
     }) ~= nil or applied
+    applied = self:ApplyCurrencyTransferLogRows() or applied
     return applied
 end
 
