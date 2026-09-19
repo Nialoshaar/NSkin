@@ -40,7 +40,6 @@ Skins\NSkin_DeathRecap.lua
 Skins\NSkin_ScriptErrors.lua
 Skins\NSkin_GreatVault.lua
 Skins\NSkin_Delves.lua
-Skins\NSkin_Merchant.lua
 Skins\NSkin_Mailbox.lua
 Skins\NSkin_NPCInteraction.lua
 Skins\NSkin_Trade.lua
@@ -49,7 +48,7 @@ Skins\NSkin_TimeManager.lua
 Skins\NSkin_Storage.lua
 Skins\NSkin_ItemUpgrade.lua
 Skins\NSkin_Achievements.lua
-Skins\NSkin_MidnightFeatures.lua
+Skins\NSkin_ExpansionFeatures.lua
 Skins\NSkin_TradingPost.lua
 Skins\NSkin_Shop.lua
 Skins\NSkin_AuctionHouse.lua

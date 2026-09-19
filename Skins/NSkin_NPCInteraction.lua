@@ -1344,11 +1344,15 @@ function NPCInteractionSkin:InitializeClassTrainer()
     return self:ApplyClassTrainer()
 end
 
+local merchantInitialized = false
+local merchantShowHooked = false
+
 function NPCInteractionSkin:RefreshAppearance()
     if gossipInitialized then self:ApplyGossip() end
     if questInitialized then self:ApplyQuest() end
     if questModelSceneInitialized then self:ApplyQuestModelScene() end
     if trainerInitialized then self:ApplyClassTrainer() end
+    if merchantInitialized then self:ApplyMerchant() end
 end
 
 NSkin:RegisterWindowSkin({
@@ -1358,4 +1362,90 @@ NSkin:RegisterWindowSkin({
     apply = function()
         return NPCInteractionSkin:InitializeClassTrainer()
     end,
+})
+
+local MerchantIDs = {
+    Scope = "Merchant",
+    Window = "Merchant.Window",
+    HeaderControls = "Merchant.HeaderControls",
+    FilterDropdown = "Merchant.FilterDropdown",
+}
+
+NSkin:RegisterAppearanceScope(MerchantIDs.Scope, {
+    label = "Merchant",
+})
+
+function NPCInteractionSkin:ApplyMerchantWindowChrome()
+    local frame = _G.MerchantFrame
+    if not frame then return false end
+
+    NSkin:SkinStandardWindowChrome({
+        frame = frame,
+        appearanceWindowID = MerchantIDs.Scope,
+        elementID = MerchantIDs.Window,
+        headerControlsID = MerchantIDs.HeaderControls,
+    })
+    NSkin:RegisterSkinningElement(MerchantIDs.Window, {
+        label = "Merchant window",
+        kind = "WINDOW",
+        module = "NPCInteraction",
+        appearanceWindowID = MerchantIDs.Scope,
+        window = frame,
+        target = frame,
+        priority = 0,
+        draggable = false,
+    })
+    return true
+end
+
+function NPCInteractionSkin:ApplyMerchantFilterDropdown()
+    local frame = _G.MerchantFrame
+    local dropdown = frame and frame.FilterDropdown
+    if not frame or not dropdown then return false end
+
+    NSkin:RegisterDropdown({
+        id = MerchantIDs.FilterDropdown,
+        module = "NPCInteraction",
+        appearanceWindowID = MerchantIDs.Scope,
+        label = "Merchant filter dropdown",
+        window = frame,
+        target = dropdown,
+        menus = { "MENU_MERCHANT_FRAME" },
+        priority = 80,
+        highlightRegions = { dropdown },
+        isEditable = function()
+            return frame:IsVisible() and dropdown:IsVisible()
+        end,
+    })
+    return true
+end
+
+function NPCInteractionSkin:ApplyMerchant()
+    local frame = _G.MerchantFrame
+    if not frame then return false end
+    self:ApplyMerchantWindowChrome()
+    self:ApplyMerchantFilterDropdown()
+    return true
+end
+
+function NPCInteractionSkin:InitializeMerchant()
+    local frame = _G.MerchantFrame
+    if not frame then return false end
+
+    if not merchantShowHooked and frame.HookScript then
+        frame:HookScript("OnShow", function()
+            C_Timer.After(0, function() NPCInteractionSkin:ApplyMerchant() end)
+        end)
+        merchantShowHooked = true
+    end
+
+    merchantInitialized = true
+    return self:ApplyMerchant()
+end
+
+NSkin:RegisterWindowSkin({
+    key = "NPCInteraction.Merchant",
+    module = "NPCInteraction",
+    addon = "Blizzard_UIPanels_Game",
+    apply = function() return NPCInteractionSkin:InitializeMerchant() end,
 })

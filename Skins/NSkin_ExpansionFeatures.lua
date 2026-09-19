@@ -1,6 +1,6 @@
 local _, NSkin = ...
 
-local MidnightFeaturesSkin = NSkin:NewModule("MidnightFeatures")
+local ExpansionFeaturesSkin = NSkin:NewModule("ExpansionFeatures")
 
 local IDs = {
     Scope = "MidnightFeatures",
@@ -157,11 +157,11 @@ local function QueueApply()
     applyPending = true
     C_Timer.After(0, function()
         applyPending = false
-        MidnightFeaturesSkin:Apply()
+        ExpansionFeaturesSkin:Apply()
     end)
 end
 
-function MidnightFeaturesSkin:ApplyOmniumFolioChrome()
+function ExpansionFeaturesSkin:ApplyOmniumFolioChrome()
     local folio = GetOmniumFolio()
     if not folio then return false end
 
@@ -191,7 +191,7 @@ function MidnightFeaturesSkin:ApplyOmniumFolioChrome()
     NSkin:RegisterSkinningElement(IDs.OmniumFolioWindow, {
         label = "Omnium Folio window",
         kind = "WINDOW",
-        module = "MidnightFeatures",
+        module = "ExpansionFeatures",
         appearanceWindowID = IDs.Scope,
         window = folio,
         target = folio,
@@ -211,7 +211,7 @@ local function QueuePlayerChoiceApply()
     playerChoiceApplyPending = true
     C_Timer.After(0, function()
         playerChoiceApplyPending = false
-        MidnightFeaturesSkin:ApplyPlayerChoice()
+        ExpansionFeaturesSkin:ApplyPlayerChoice()
     end)
 end
 
@@ -220,7 +220,7 @@ local function QueueCovenantMissionApply()
     covenantMissionApplyPending = true
     C_Timer.After(0, function()
         covenantMissionApplyPending = false
-        MidnightFeaturesSkin:ApplyCovenantMission()
+        ExpansionFeaturesSkin:ApplyCovenantMission()
     end)
 end
 
@@ -229,7 +229,7 @@ local function QueueAdventureMapQuestChoiceApply()
     adventureMapQuestChoiceApplyPending = true
     C_Timer.After(0, function()
         adventureMapQuestChoiceApplyPending = false
-        MidnightFeaturesSkin:ApplyAdventureMapQuestChoice()
+        ExpansionFeaturesSkin:ApplyAdventureMapQuestChoice()
     end)
 end
 
@@ -489,7 +489,7 @@ local function RegisterPlayerChoiceGroup(frame, definition)
         registeredPlayerChoiceGroups[id] = NSkin:RegisterSkinningElement(id, {
             label = definition.label,
             kind = definition.kind,
-            module = "MidnightFeatures",
+            module = "ExpansionFeatures",
             appearanceWindowID = IDs.PlayerChoice.Scope,
             window = frame,
             target = definition.owner or frame,
@@ -547,7 +547,7 @@ local function GetGenericTraitIconDescriptors(frame)
     return descriptors
 end
 
-function MidnightFeaturesSkin:ApplyGenericTraitWindow(frame)
+function ExpansionFeaturesSkin:ApplyGenericTraitWindow(frame)
     SuppressRegion(frame.Background)
     SuppressRegion(frame.BorderOverlay)
     NSkin:SkinStandardWindowChrome({
@@ -561,7 +561,7 @@ function MidnightFeaturesSkin:ApplyGenericTraitWindow(frame)
     NSkin:RegisterSkinningElement(IDs.GenericTrait.Window, {
         label = "Generic trait window",
         kind = "WINDOW",
-        module = "MidnightFeatures",
+        module = "ExpansionFeatures",
         appearanceWindowID = IDs.GenericTrait.Scope,
         window = frame,
         target = frame,
@@ -571,12 +571,12 @@ function MidnightFeaturesSkin:ApplyGenericTraitWindow(frame)
     return true
 end
 
-function MidnightFeaturesSkin:ApplyGenericTraitTitle(frame)
+function ExpansionFeaturesSkin:ApplyGenericTraitTitle(frame)
     local title = frame.Header and frame.Header.Title
     if not title then return false end
     local element = NSkin:RegisterTextElement({
         id = IDs.GenericTrait.Title,
-        module = "MidnightFeatures",
+        module = "ExpansionFeatures",
         appearanceWindowID = IDs.GenericTrait.Scope,
         label = "Generic trait title",
         window = frame,
@@ -591,13 +591,13 @@ function MidnightFeaturesSkin:ApplyGenericTraitTitle(frame)
     return element ~= nil
 end
 
-function MidnightFeaturesSkin:ApplyGenericTraitIcons(frame)
+function ExpansionFeaturesSkin:ApplyGenericTraitIcons(frame)
     local parent = frame.ButtonsParent
     if not parent then return false end
     if not genericTraitIconsRegistered then
         genericTraitIconsRegistered = NSkin:RegisterIconGroup({
             id = IDs.GenericTrait.Icons,
-            module = "MidnightFeatures",
+            module = "ExpansionFeatures",
             appearanceWindowID = IDs.GenericTrait.Scope,
             label = "Generic trait icons",
             window = frame,
@@ -626,7 +626,7 @@ function MidnightFeaturesSkin:ApplyGenericTraitIcons(frame)
     return genericTraitIconsRegistered
 end
 
-function MidnightFeaturesSkin:ApplyGenericTrait()
+function ExpansionFeaturesSkin:ApplyGenericTrait()
     local frame = _G.GenericTraitFrame
     if not frame then return false end
     local applied = self:ApplyGenericTraitWindow(frame)
@@ -761,7 +761,7 @@ local function RegisterPlayerChoiceText(frame, id, label, target, priority,
     if not target then return false end
     local element = NSkin:RegisterTextElement({
         id = id,
-        module = "MidnightFeatures",
+        module = "ExpansionFeatures",
         appearanceWindowID = appearanceWindowID or IDs.PlayerChoice.Scope,
         label = label,
         window = frame,
@@ -776,7 +776,7 @@ local function RegisterPlayerChoiceText(frame, id, label, target, priority,
     return element ~= nil
 end
 
-function MidnightFeaturesSkin:ApplyPlayerChoiceWindow(frame)
+function ExpansionFeaturesSkin:ApplyPlayerChoiceWindow(frame)
     SuppressPlayerChoiceArtwork(frame)
     local titleContainer = frame.Title
     local title = titleContainer and (titleContainer.Text
@@ -794,7 +794,7 @@ function MidnightFeaturesSkin:ApplyPlayerChoiceWindow(frame)
     NSkin:RegisterSkinningElement(IDs.PlayerChoice.Window, {
         label = "Player choice window",
         kind = "WINDOW",
-        module = "MidnightFeatures",
+        module = "ExpansionFeatures",
         appearanceWindowID = IDs.PlayerChoice.Scope,
         window = frame,
         target = frame,
@@ -826,7 +826,7 @@ function MidnightFeaturesSkin:ApplyPlayerChoiceWindow(frame)
     return applied or true
 end
 
-function MidnightFeaturesSkin:ApplyPlayerChoiceOptions(frame)
+function ExpansionFeaturesSkin:ApplyPlayerChoiceOptions(frame)
     local definitions = {
         {
             id = IDs.PlayerChoice.Headers,
@@ -964,7 +964,7 @@ local function ResolvePlayerChoicePaging(frame)
         group.PageText or group.PageNumber or group.Text
 end
 
-function MidnightFeaturesSkin:ApplyPlayerChoicePaging(frame)
+function ExpansionFeaturesSkin:ApplyPlayerChoicePaging(frame)
     local group, previous, nextButton, pageText =
         ResolvePlayerChoicePaging(frame)
     if not group or not previous or not nextButton or not pageText then
@@ -973,7 +973,7 @@ function MidnightFeaturesSkin:ApplyPlayerChoicePaging(frame)
     NSkin:SkinPagingControls(group)
     if not playerChoicePaginationController then
         playerChoicePaginationController = NSkin:RegisterPaginationGroup({
-            module = "MidnightFeatures",
+            module = "ExpansionFeatures",
             appearanceWindowID = IDs.PlayerChoice.Scope,
             window = frame,
             ids = {
@@ -1003,7 +1003,7 @@ local function ResolvePlayerChoiceGrid(frame)
         or frame.GridFrame
 end
 
-function MidnightFeaturesSkin:ApplyPlayerChoiceGridText(frame)
+function ExpansionFeaturesSkin:ApplyPlayerChoiceGridText(frame)
     local grid = ResolvePlayerChoiceGrid(frame)
     if not grid then return false end
     local definitions = {
@@ -1062,7 +1062,7 @@ local function HookPlayerChoicePoolCollection(pools)
     for _, pool in pairs(pools) do HookPlayerChoicePool(pool) end
 end
 
-function MidnightFeaturesSkin:ApplyPlayerChoice()
+function ExpansionFeaturesSkin:ApplyPlayerChoice()
     local frame = _G.PlayerChoiceFrame
     if not frame then return false end
     local applied = self:ApplyPlayerChoiceWindow(frame)
@@ -1087,7 +1087,7 @@ function MidnightFeaturesSkin:ApplyPlayerChoice()
     return applied
 end
 
-function MidnightFeaturesSkin:ApplyCovenantMission()
+function ExpansionFeaturesSkin:ApplyCovenantMission()
     local frame = _G.CovenantMissionFrame
     if not frame then return false end
     SuppressRegion(frame.Border)
@@ -1175,7 +1175,7 @@ function MidnightFeaturesSkin:ApplyCovenantMission()
             NSkin:RegisterSkinningElement(IDs.CovenantMission.CloseButton, {
                 label = "Covenant mission close button",
                 kind = "WINDOW_HEADER_CONTROLS",
-                module = "MidnightFeatures",
+                module = "ExpansionFeatures",
                 appearanceWindowID = IDs.CovenantMission.Scope,
                 window = frame,
                 target = closeButton,
@@ -1189,10 +1189,10 @@ function MidnightFeaturesSkin:ApplyCovenantMission()
                     return IsVisible(frame) and IsVisible(closeButton)
                 end,
                 refreshAppearance = function()
-                    return MidnightFeaturesSkin:ApplyCovenantMission()
+                    return ExpansionFeaturesSkin:ApplyCovenantMission()
                 end,
                 refreshLayout = function()
-                    return MidnightFeaturesSkin:ApplyCovenantMission()
+                    return ExpansionFeaturesSkin:ApplyCovenantMission()
                 end,
             })
         else
@@ -1203,17 +1203,17 @@ function MidnightFeaturesSkin:ApplyCovenantMission()
     NSkin:RegisterSkinningElement(IDs.CovenantMission.Window, {
         label = "Covenant mission window",
         kind = "WINDOW",
-        module = "MidnightFeatures",
+        module = "ExpansionFeatures",
         appearanceWindowID = IDs.CovenantMission.Scope,
         window = frame,
         target = frame,
         priority = 0,
         draggable = false,
         refreshAppearance = function()
-            return MidnightFeaturesSkin:ApplyCovenantMission()
+            return ExpansionFeaturesSkin:ApplyCovenantMission()
         end,
         refreshLayout = function()
-            return MidnightFeaturesSkin:ApplyCovenantMission()
+            return ExpansionFeaturesSkin:ApplyCovenantMission()
         end,
     })
     if title then
@@ -1247,7 +1247,7 @@ local function RegisterAdventureMapQuestChoiceGroup(dialog, definition)
             NSkin:RegisterSkinningElement(id, {
                 label = definition.label,
                 kind = definition.kind,
-                module = "MidnightFeatures",
+                module = "ExpansionFeatures",
                 appearanceWindowID = IDs.AdventureMapQuestChoice.Scope,
                 window = dialog,
                 target = definition.owner or dialog,
@@ -1290,7 +1290,7 @@ local function SuppressAdventureMapQuestChoiceArtwork(dialog)
     end
 end
 
-function MidnightFeaturesSkin:ApplyAdventureMapQuestChoiceWindow(dialog)
+function ExpansionFeaturesSkin:ApplyAdventureMapQuestChoiceWindow(dialog)
     SuppressAdventureMapQuestChoiceArtwork(dialog)
     NSkin:SkinStandardWindowChrome({
         frame = dialog,
@@ -1303,7 +1303,7 @@ function MidnightFeaturesSkin:ApplyAdventureMapQuestChoiceWindow(dialog)
     NSkin:RegisterSkinningElement(IDs.AdventureMapQuestChoice.Window, {
         label = "Adventure Map quest choice window",
         kind = "WINDOW",
-        module = "MidnightFeatures",
+        module = "ExpansionFeatures",
         appearanceWindowID = IDs.AdventureMapQuestChoice.Scope,
         window = dialog,
         target = dialog,
@@ -1313,7 +1313,7 @@ function MidnightFeaturesSkin:ApplyAdventureMapQuestChoiceWindow(dialog)
     return true
 end
 
-function MidnightFeaturesSkin:ApplyAdventureMapQuestChoiceText(dialog)
+function ExpansionFeaturesSkin:ApplyAdventureMapQuestChoiceText(dialog)
     local details = dialog.Details
     local child = details and details.Child
     local definitions = {
@@ -1361,7 +1361,7 @@ function MidnightFeaturesSkin:ApplyAdventureMapQuestChoiceText(dialog)
     return applied
 end
 
-function MidnightFeaturesSkin:ApplyAdventureMapQuestChoiceRewards(dialog)
+function ExpansionFeaturesSkin:ApplyAdventureMapQuestChoiceRewards(dialog)
     local function RewardIcons()
         local targets = {}
         for _, reward in ipairs(
@@ -1445,13 +1445,13 @@ function MidnightFeaturesSkin:ApplyAdventureMapQuestChoiceRewards(dialog)
     return applied
 end
 
-function MidnightFeaturesSkin:ApplyAdventureMapQuestChoiceControls(dialog)
+function ExpansionFeaturesSkin:ApplyAdventureMapQuestChoiceControls(dialog)
     local applied = false
     local scrollBar = dialog.Details and dialog.Details.ScrollBar
     if scrollBar then
         local element = NSkin:RegisterScrollBar({
             id = IDs.AdventureMapQuestChoice.ScrollBar,
-            module = "MidnightFeatures",
+            module = "ExpansionFeatures",
             appearanceWindowID = IDs.AdventureMapQuestChoice.Scope,
             label = "Adventure Map quest details scroll bar",
             window = dialog,
@@ -1468,7 +1468,7 @@ function MidnightFeaturesSkin:ApplyAdventureMapQuestChoiceControls(dialog)
     if dialog.AcceptButton then
         applied = NSkin:RegisterActionButton({
             id = IDs.AdventureMapQuestChoice.AcceptButton,
-            module = "MidnightFeatures",
+            module = "ExpansionFeatures",
             appearanceWindowID = IDs.AdventureMapQuestChoice.Scope,
             label = "Adventure Map accept quest button",
             window = dialog,
@@ -1483,7 +1483,7 @@ function MidnightFeaturesSkin:ApplyAdventureMapQuestChoiceControls(dialog)
     if dialog.DeclineButton then
         local element = NSkin:RegisterTypedElement("BUTTON", {
             id = IDs.AdventureMapQuestChoice.DeclineButton,
-            module = "MidnightFeatures",
+            module = "ExpansionFeatures",
             appearanceWindowID = IDs.AdventureMapQuestChoice.Scope,
             label = "Adventure Map decline quest button",
             window = dialog,
@@ -1500,7 +1500,7 @@ function MidnightFeaturesSkin:ApplyAdventureMapQuestChoiceControls(dialog)
     return applied
 end
 
-function MidnightFeaturesSkin:ApplyAdventureMapQuestChoice()
+function ExpansionFeaturesSkin:ApplyAdventureMapQuestChoice()
     local dialog = _G.AdventureMapQuestChoiceDialog
     if not dialog then return false end
     local applied = self:ApplyAdventureMapQuestChoiceWindow(dialog)
@@ -1525,7 +1525,7 @@ local function HookAdventureMapRewardPool(pool)
     hookedAdventureMapRewardPools[pool] = true
 end
 
-function MidnightFeaturesSkin:Apply()
+function ExpansionFeaturesSkin:Apply()
     local applied = self:ApplyOmniumFolioChrome()
     applied = self:ApplyGenericTrait() or applied
     applied = self:ApplyPlayerChoice() or applied
@@ -1539,11 +1539,11 @@ local function RegisterOverlayCallback()
     _G.EventRegistry:RegisterCallback(
         "ExpansionLandingPage.OverlayChanged",
         QueueApply,
-        MidnightFeaturesSkin)
+        ExpansionFeaturesSkin)
     registryCallbackRegistered = true
 end
 
-function MidnightFeaturesSkin:Initialize()
+function ExpansionFeaturesSkin:Initialize()
     local landingPage = _G.ExpansionLandingPage
     if not landingPage then return false end
 
@@ -1569,7 +1569,7 @@ function MidnightFeaturesSkin:Initialize()
     return true
 end
 
-function MidnightFeaturesSkin:InitializeGenericTrait()
+function ExpansionFeaturesSkin:InitializeGenericTrait()
     local frame = _G.GenericTraitFrame
     if not frame then return false end
 
@@ -1595,7 +1595,7 @@ function MidnightFeaturesSkin:InitializeGenericTrait()
     return applied
 end
 
-function MidnightFeaturesSkin:InitializePlayerChoice()
+function ExpansionFeaturesSkin:InitializePlayerChoice()
     local frame = _G.PlayerChoiceFrame
     if not frame then return false end
 
@@ -1647,7 +1647,7 @@ function MidnightFeaturesSkin:InitializePlayerChoice()
     return applied
 end
 
-function MidnightFeaturesSkin:InitializeCovenantMission()
+function ExpansionFeaturesSkin:InitializeCovenantMission()
     if not covenantMissionLifecycleHooked and _G.hooksecurefunc then
         for _, mixin in ipairs({
             _G.CovenantMissionFrameMixin,
@@ -1704,7 +1704,7 @@ function MidnightFeaturesSkin:InitializeCovenantMission()
     return applied
 end
 
-function MidnightFeaturesSkin:InitializeAdventureMapQuestChoice()
+function ExpansionFeaturesSkin:InitializeAdventureMapQuestChoice()
     local dialog = _G.AdventureMapQuestChoiceDialog
     if not dialog then return false end
     if not adventureMapQuestChoiceLifecycleHooked then
@@ -1731,7 +1731,7 @@ function MidnightFeaturesSkin:InitializeAdventureMapQuestChoice()
     return applied
 end
 
-function MidnightFeaturesSkin:RefreshAppearance()
+function ExpansionFeaturesSkin:RefreshAppearance()
     if initialized then self:ApplyOmniumFolioChrome() end
     if genericTraitInitialized then self:ApplyGenericTrait() end
     if playerChoiceInitialized then self:ApplyPlayerChoice() end
@@ -1742,43 +1742,43 @@ function MidnightFeaturesSkin:RefreshAppearance()
 end
 
 NSkin:RegisterWindowSkin({
-    module = "MidnightFeatures",
+    module = "ExpansionFeatures",
     addon = "Blizzard_ExpansionLandingPage",
-    apply = function() return MidnightFeaturesSkin:Initialize() end,
+    apply = function() return ExpansionFeaturesSkin:Initialize() end,
 })
 
 NSkin:RegisterWindowSkin({
     key = "MidnightFeatures.GenericTrait",
-    module = "MidnightFeatures",
+    module = "ExpansionFeatures",
     addon = "Blizzard_GenericTraitUI",
     apply = function()
-        return MidnightFeaturesSkin:InitializeGenericTrait()
+        return ExpansionFeaturesSkin:InitializeGenericTrait()
     end,
 })
 
 NSkin:RegisterWindowSkin({
     key = "MidnightFeatures.CovenantMission",
-    module = "MidnightFeatures",
+    module = "ExpansionFeatures",
     addon = "Blizzard_GarrisonUI",
     apply = function()
-        return MidnightFeaturesSkin:InitializeCovenantMission()
+        return ExpansionFeaturesSkin:InitializeCovenantMission()
     end,
 })
 
 NSkin:RegisterWindowSkin({
     key = "MidnightFeatures.AdventureMapQuestChoice",
-    module = "MidnightFeatures",
+    module = "ExpansionFeatures",
     addon = "Blizzard_AdventureMap",
     apply = function()
-        return MidnightFeaturesSkin:InitializeAdventureMapQuestChoice()
+        return ExpansionFeaturesSkin:InitializeAdventureMapQuestChoice()
     end,
 })
 
 NSkin:RegisterWindowSkin({
     key = "MidnightFeatures.PlayerChoice",
-    module = "MidnightFeatures",
+    module = "ExpansionFeatures",
     addon = "Blizzard_PlayerChoice",
     apply = function()
-        return MidnightFeaturesSkin:InitializePlayerChoice()
+        return ExpansionFeaturesSkin:InitializePlayerChoice()
     end,
 })

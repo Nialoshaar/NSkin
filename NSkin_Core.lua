@@ -52,10 +52,6 @@ NSkin.moduleDefinitions = {
         optionsGroup = "windows", optionsOrder = 79,
     },
     {
-        key = "Merchant", label = "Merchant", defaultEnabled = true,
-        optionsGroup = "windows", optionsOrder = 80,
-    },
-    {
         key = "Storage", label = "Storage", defaultEnabled = true,
         optionsGroup = "windows", optionsOrder = 85,
     },
@@ -112,7 +108,7 @@ NSkin.moduleDefinitions = {
         defaultEnabled = true, optionsGroup = "windows", optionsOrder = 160,
     },
     {
-        key = "MidnightFeatures", label = "Midnight Features",
+        key = "ExpansionFeatures", label = "Expansion Features",
         defaultEnabled = true, optionsGroup = "windows", optionsOrder = 170,
     },
     {
