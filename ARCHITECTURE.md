@@ -715,6 +715,13 @@ Cells inside a ROW remain canonical components such as:
 - TEXT
 - ICON
 
+`SkinRow(row, { columns = { ... } })` may declare several typed columns.
+Each column uses its existing shared component skin and resolves appearance
+through the owning ROW element. The columns are presentation members of that
+ROW, not separate canonical registrations or Skinning Mode elements. Repeated
+applications must restore columns removed from the declaration, including for
+recycled rows. The older `contentRegions` text path remains supported.
+
 The row-level visual surface must not take interaction ownership away from
 Blizzard child controls. If Blizzard intentionally makes a child button's hit
 rectangle cover the row, keep that child as the click/tooltip interaction owner

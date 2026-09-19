@@ -348,8 +348,30 @@ local function ApplySharedTextFormatting(fontString, options)
 end
 
 function NSkin:SkinText(fontString, style, options)
+    if not fontString or not fontString.GetFont then return false end
+    options = options or {}
+    if options.reset == true then
+        local state = self:GetSkinData(fontString, "sharedTextAppearance", false)
+        if not state or not state.active then return false end
+        state.active = nil
+        ApplySharedTextFormatting(fontString)
+        if state.originalColor and fontString.SetTextColor then
+            fontString:SetTextColor(unpack(state.originalColor))
+        end
+        local typography = self:GetSkinData(fontString, "resolvedTypography", false)
+        if typography and typography.baselineID then
+            self:RestoreComponentBaseline(typography.baselineID, { font = true })
+            if typography.originalFont and fontString.SetFont then
+                fontString:SetFont(unpack(typography.originalFont))
+            end
+        end
+        return true
+    end
     style = style or self:GetStyle("text")
     local state = self:GetSkinData(fontString, "sharedTextAppearance")
+    if not state.originalColor and fontString.GetTextColor then
+        state.originalColor = { fontString:GetTextColor() }
+    end
     state.style = style
     if not state.colorHooked and _G.hooksecurefunc
         and type(fontString.SetTextColor) == "function"
@@ -2631,7 +2653,8 @@ local SHARED_SKIN_ADAPTERS = {
         local options = definition.skinOptions or {}
         skinMethod(self, target, options.label, style.background, borderColor,
             options.textSize, options.labelOffsetX, options.labelOffsetY,
-            options.preserveTexture or definition.preserveTexture)
+            options.preserveTexture or definition.preserveTexture,
+            nil, style)
     end,
     COLUMN_HEADER = function(self, skinMethod, target, style, borderColor,
         definition)
@@ -2659,10 +2682,12 @@ local SHARED_SKIN_ADAPTERS = {
         for _, key in ipairs({
             "nativeDecorationRegions", "artworkRegions", "preserveTextures", "hoverRegion",
             "selectedRegion", "getHovered", "getSelected", "visualRegion",
-            "contentRegions", "contentStyle", "height", "reset",
+            "contentRegions", "contentStyle", "columns", "height", "reset",
         }) do
             if options[key] == nil then options[key] = definition[key] end
         end
+        options.elementID = definition.id
+        options.appearanceWindowID = definition.appearanceWindowID
         skinMethod(self, target, options)
     end,
     SECTION_ROW = function(self, skinMethod, target, style, borderColor,
@@ -2894,7 +2919,7 @@ local TYPED_SKIN_FIELDS_BY_TYPE = {
     ROW = {
         "nativeDecorationRegions", "artworkRegions", "preserveTextures", "hoverRegion",
         "selectedRegion", "getHovered", "getSelected", "visualRegion",
-        "contentRegions", "contentStyle", "height", "reset",
+        "contentRegions", "contentStyle", "columns", "height", "reset",
     },
     SECTION_ROW = {
         "nativeDecorationRegions", "artworkRegions", "preserveTextures",

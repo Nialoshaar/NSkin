@@ -84,10 +84,11 @@ function NSkin:SetFlatButtonLabel(button, label, size, offsetX, offsetY)
 end
 
 function NSkin:SkinFlatButton(button, label, backgroundColor, borderColor,
-    labelSize, labelOffsetX, labelOffsetY, preserveTexture, preserveLabelGeometry)
+    labelSize, labelOffsetX, labelOffsetY, preserveTexture,
+    preserveLabelGeometry, resolvedStyle)
     if not button or not button.CreateTexture or not button.CreateFontString then return end
 
-    local style = self:GetStyle("button")
+    local style = resolvedStyle or self:GetStyle("button")
     backgroundColor = backgroundColor or style.background
     borderColor = borderColor or self:GetComponentBorderColor("button", style)
 
@@ -106,7 +107,7 @@ end
 
 local function SuppressActionButtonNativeText(button)
     local data = NSkin:GetSkinData(button, COMPONENT_STATE, false)
-    if not data then return end
+    if not data or not data.actionActive then return end
     data.actionNativeTexts = data.actionNativeTexts or setmetatable({}, {
         __mode = "k",
     })
@@ -125,7 +126,8 @@ local function SuppressActionButtonNativeText(button)
             _G.hooksecurefunc(region, "SetAlpha", function(_, alpha)
                 local state = NSkin:GetSkinData(
                     button, COMPONENT_STATE, false)
-                if state and region ~= state.label and tonumber(alpha) ~= 0
+                if state and state.actionActive
+                    and region ~= state.label and tonumber(alpha) ~= 0
                     and not state.suppressingActionNativeText
                 then
                     state.suppressingActionNativeText = true
@@ -155,7 +157,7 @@ end
 
 local function RefreshActionButton(button)
     local data = NSkin:GetSkinData(button, COMPONENT_STATE, false)
-    if not data or not data.label then return end
+    if not data or not data.actionActive or not data.label then return end
     SuppressActionButtonNativeText(button)
     NSkin:ApplyResolvedTypography(data.label, NSkin:GetStyle("text"))
     local enabled = not button.IsEnabled or button:IsEnabled()
@@ -170,6 +172,7 @@ function NSkin:SkinActionButton(button, options)
     if not button then return end
     options = options or {}
     local data = self:GetSkinData(button, COMPONENT_STATE)
+    data.actionActive = true
     local style = options.style
         or (options.background and options.text and options)
         or self:GetStyle("button")
@@ -200,7 +203,7 @@ function NSkin:SkinActionButton(button, options)
         options.background or style.background,
         options.border or self:GetComponentBorderColor("button", style),
         options.textSize, nil, nil, options.preserveTexture,
-        options.preserveTextGeometry == true)
+        options.preserveTextGeometry == true, style)
     local border = self:GetPixelBorder(button, "NSkinFlatBackgroundBorder")
     self:SetPixelBorderSize(border, 1)
     SuppressActionButtonNativeText(button)
@@ -210,7 +213,8 @@ function NSkin:SkinActionButton(button, options)
     if not data.actionTextHooked and button.SetText and _G.hooksecurefunc then
         _G.hooksecurefunc(button, "SetText", function(_, value)
             local state = NSkin:GetSkinData(button, COMPONENT_STATE, false)
-            if state and state.label then state.label:SetText(value or "") end
+            if not state or not state.actionActive then return end
+            if state.label then state.label:SetText(value or "") end
             SuppressActionButtonNativeText(button)
         end)
         data.actionTextHooked = true

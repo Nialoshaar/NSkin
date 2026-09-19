@@ -101,12 +101,14 @@ local function RestoreRowContentRegion(regionState)
     regionState.applying = nil
 end
 
-local function ApplyRowContentRegions(target, state, declared)
+local function ApplyRowContentRegions(target, state, declared, excluded)
     local active = {}
     for _, region in ipairs(ResolveRowRegions(
         declared, target))
     do
-        if region and region.GetFont and region.SetTextColor then
+        if region and not (excluded and excluded[region])
+            and region.GetFont and region.SetTextColor
+        then
             active[region] = true
         end
     end
@@ -143,6 +145,244 @@ local function ApplyRowContentRegions(target, state, declared)
                 end
             end
             regionState.hooked = true
+        end
+    end
+end
+
+local ROW_COLUMN_KINDS = {
+    TEXT = true,
+    ICON = true,
+    BUTTON = true,
+    ACTION_BUTTON = true,
+    CHECKBOX = true,
+}
+
+local function CaptureRowButtonRegions(button)
+    local regions = {}
+    if not button.GetRegions then return regions end
+    for _, region in ipairs({ button:GetRegions() }) do
+        local forbidden = region.IsForbidden and region:IsForbidden()
+        local kind = not forbidden and region.GetObjectType
+            and region:GetObjectType()
+        if kind == "Texture" then
+            regions[#regions + 1] = {
+                region = region,
+                kind = kind,
+                alpha = region.GetAlpha and region:GetAlpha(),
+                shown = region.IsShown and region:IsShown(),
+                atlas = region.GetAtlas and region:GetAtlas(),
+                texture = region.GetTexture and region:GetTexture(),
+            }
+        elseif kind == "FontString" then
+            regions[#regions + 1] = {
+                region = region,
+                kind = kind,
+                alpha = region.GetAlpha and region:GetAlpha(),
+                shown = region.IsShown and region:IsShown(),
+                color = region.GetTextColor and { region:GetTextColor() },
+                font = region.GetFont and { region:GetFont() },
+                text = region.GetText and region:GetText(),
+            }
+        end
+    end
+    return regions
+end
+
+local function RestoreRowButtonColumn(columnState)
+    local button = columnState.target
+    local data = NSkin:GetSkinData(button, COMPONENT_STATE, false)
+    if columnState.kind == "CHECKBOX" then
+        if columnState.checkboxLabel then
+            NSkin:SkinText(columnState.checkboxLabel, nil, { reset = true })
+        end
+        if button.SetCheckedTexture then
+            button:SetCheckedTexture(columnState.checkedTexture)
+        end
+        if data and data.checkButtonCheckedTexture then
+            data.checkButtonCheckedTexture:Hide()
+        end
+    end
+    if data then
+        data.actionActive = nil
+        data.hoverGlowManaged = true
+        if data.hoverGlow then data.hoverGlow:Hide() end
+        if data.label and not columnState.originalRegions[data.label] then
+            data.label:Hide()
+            data.rowColumnLabel = data.label
+        end
+        if data.actionOwnedLabel then data.actionOwnedLabel:Hide() end
+        data.label = nil
+    end
+    local background = NSkin:GetFlatBackground(button)
+    if background then background:Hide() end
+    NSkin:SetPixelBorderShown(NSkin:GetPixelBorder(button,
+        "NSkinFlatBackgroundBorder"), false)
+    for _, original in ipairs(columnState.buttonRegions or {}) do
+        local region = original.region
+        if original.kind == "Texture" then
+            if original.atlas and region.SetAtlas then
+                region:SetAtlas(original.atlas)
+            elseif region.SetTexture then
+                region:SetTexture(original.texture)
+            end
+        elseif original.kind == "FontString" then
+            if original.text ~= nil and region.SetText then
+                region:SetText(original.text)
+            end
+            if original.font and region.SetFont then
+                region:SetFont(unpack(original.font))
+            end
+            if original.color and region.SetTextColor then
+                region:SetTextColor(unpack(original.color))
+            end
+        end
+        if original.alpha ~= nil and region.SetAlpha then
+            region:SetAlpha(original.alpha)
+        end
+        if original.shown ~= nil and region.SetShown then
+            region:SetShown(original.shown)
+        end
+    end
+end
+
+local function ResetRowColumn(columnState)
+    local target = columnState.target
+    if columnState.kind == "TEXT" then
+        NSkin:SkinText(target, nil, { reset = true })
+    elseif columnState.kind == "ICON" then
+        NSkin:SkinIcon(columnState.iconTarget or target, {
+            texture = columnState.texture,
+            borderOwner = columnState.borderOwner,
+            borderKey = columnState.borderKey,
+            reset = true,
+        })
+    else
+        RestoreRowButtonColumn(columnState)
+    end
+end
+
+local function ResolveRowColumns(target, declared)
+    local resolved = ResolveContentValue(declared, target)
+    local columns, targets = {}, {}
+    for _, column in ipairs(type(resolved) == "table" and resolved or {}) do
+        if type(column) == "table" and ROW_COLUMN_KINDS[column.kind] then
+            local child = ResolveContentValue(column.target, target)
+            if child and child.GetObjectType
+                and not (child.IsForbidden and child:IsForbidden())
+                and not targets[child]
+            then
+                local entry = {}
+                for key, value in pairs(column) do entry[key] = value end
+                entry.target = child
+                if type(entry.text) == "function" then
+                    entry.text = ResolveContentValue(entry.text, target)
+                end
+                if entry.texture then
+                    entry.texture = ResolveContentValue(entry.texture, target)
+                end
+                if not (entry.texture and entry.texture.IsForbidden
+                    and entry.texture:IsForbidden())
+                then
+                    columns[#columns + 1] = entry
+                    targets[child] = true
+                end
+            end
+        end
+    end
+    return columns, targets
+end
+
+local function ReconcileRowColumns(state, columns)
+    local current = {}
+    for _, column in ipairs(columns) do current[column.target] = column end
+    state.columnStates = state.columnStates or {}
+    for target, previous in pairs(state.columnStates) do
+        local column = current[target]
+        if not column or column.kind ~= previous.kind
+            or (column.kind == "ICON"
+                and (column.texture ~= previous.declaredTexture
+                    or column.iconTarget ~= previous.declaredIconTarget))
+        then
+            ResetRowColumn(previous)
+            state.columnStates[target] = nil
+        end
+    end
+end
+
+local function ApplyRowColumns(target, state, columns, options)
+    state.buttonBaselines = state.buttonBaselines
+        or setmetatable({}, { __mode = "k" })
+    for _, column in ipairs(columns) do
+        local child = column.target
+        local columnState = state.columnStates[child]
+        if not columnState then
+            columnState = {
+                kind = column.kind,
+                target = child,
+                declaredTexture = column.texture,
+                declaredIconTarget = column.iconTarget,
+                iconTarget = column.iconTarget or child,
+                texture = column.texture,
+                borderOwner = column.borderOwner,
+                borderKey = column.borderKey,
+            }
+            if column.kind == "BUTTON" or column.kind == "ACTION_BUTTON"
+                or column.kind == "CHECKBOX"
+            then
+                local baseline = state.buttonBaselines[child]
+                if not baseline then
+                    baseline = {
+                        regions = CaptureRowButtonRegions(child),
+                        originalRegions = {},
+                    }
+                    for _, original in ipairs(baseline.regions) do
+                        baseline.originalRegions[original.region] = true
+                    end
+                    state.buttonBaselines[child] = baseline
+                end
+                columnState.buttonRegions = baseline.regions
+                columnState.originalRegions = baseline.originalRegions
+                if column.kind == "CHECKBOX" then
+                    columnState.checkedTexture = child.GetCheckedTexture
+                        and child:GetCheckedTexture()
+                    columnState.checkboxLabel = column.text or child.Text
+                        or child.text
+                end
+            end
+            state.columnStates[child] = columnState
+        end
+        local definition = {}
+        for key, value in pairs(column) do definition[key] = value end
+        definition.id = options.elementID
+        definition.appearanceWindowID = options.appearanceWindowID
+        definition.skinOptions = column.skinOptions
+        if column.kind == "BUTTON" then
+            local buttonData = NSkin:GetSkinData(child, COMPONENT_STATE, false)
+            if buttonData and buttonData.rowColumnLabel then
+                buttonData.label = buttonData.rowColumnLabel
+            end
+        end
+        if columnState.buttonRegions and NSkin:GetFlatBackground(child) then
+            local preserved = column.preserveTexture
+                or (column.skinOptions and column.skinOptions.preserveTexture)
+            for _, original in ipairs(columnState.buttonRegions) do
+                local region = original.region
+                if original.kind == "Texture" and region ~= preserved then
+                    region:SetAlpha(0)
+                    region:SetTexture(nil)
+                    region:Hide()
+                end
+            end
+        end
+        NSkin:SkinTypedElement(column.kind, definition)
+        if column.kind == "ICON" then
+            local iconState = NSkin:GetSkinData(
+                columnState.iconTarget, "iconComponent", false)
+            if iconState then
+                columnState.texture = iconState.texture or column.texture
+                columnState.borderOwner = iconState.borderOwner
+                columnState.borderKey = iconState.borderKey
+            end
         end
     end
 end
@@ -273,6 +513,10 @@ function NSkin:SkinRow(target, options)
     local state = self:GetSkinData(target, ROW_STATE)
     if options.reset == true then
         state.active = nil
+        for target, columnState in pairs(state.columnStates or {}) do
+            ResetRowColumn(columnState)
+            state.columnStates[target] = nil
+        end
         if state.heightModified and state.originalHeight and target.SetHeight then
             target:SetHeight(state.originalHeight)
             state.heightModified = nil
@@ -364,7 +608,11 @@ function NSkin:SkinRow(target, options)
     ApplyRowStateRegions(target, state, {
         state.hoverRegion, state.selectedRegion,
     })
-    ApplyRowContentRegions(target, state, options.contentRegions)
+    local columns, columnTargets = ResolveRowColumns(target, options.columns)
+    ReconcileRowColumns(state, columns)
+    ApplyRowContentRegions(target, state, options.contentRegions,
+        columnTargets)
+    ApplyRowColumns(target, state, columns, options)
     if not state.hooked and target.HookScript then
         for _, script in ipairs({ "OnEnter", "OnLeave", "OnShow" }) do
             target:HookScript(script, RefreshRowPresentation)
