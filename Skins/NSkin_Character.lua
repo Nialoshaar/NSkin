@@ -7,6 +7,7 @@ local IDs = {
     Window = "Character.Window",
     HeaderControls = "Character.HeaderControls",
     BottomTabs = "Character.BottomTabs",
+    PaperDollSlots = "Character.PaperDoll.EquipmentSlots",
     TitleScrollBar = "Character.Titles.ScrollBar",
     Equipment = {
         ScrollBar = "Character.EquipmentManager.ScrollBar",
@@ -101,6 +102,7 @@ local hookedTabs = setmetatable({}, { __mode = "k" })
 local hookedShowOwners = setmetatable({}, { __mode = "k" })
 local concealedDetailArtwork = setmetatable({}, { __mode = "k" })
 local concealedSocketingArtwork = setmetatable({}, { __mode = "k" })
+local paperDollSlotsRegistered = false
 
 NSkin:RegisterAppearanceScope(IDs.Scope, {
     label = "Character",
@@ -171,6 +173,116 @@ local function ConcealTexture(texture)
     if not texture then return end
     texture:SetAlpha(0)
     texture:Hide()
+end
+
+
+local PAPER_DOLL_SLOT_NAMES = {
+    "CharacterHeadSlot",
+    "CharacterNeckSlot",
+    "CharacterShoulderSlot",
+    "CharacterBackSlot",
+    "CharacterChestSlot",
+    "CharacterShirtSlot",
+    "CharacterTabardSlot",
+    "CharacterWristSlot",
+    "CharacterHandsSlot",
+    "CharacterWaistSlot",
+    "CharacterLegsSlot",
+    "CharacterFeetSlot",
+    "CharacterFinger0Slot",
+    "CharacterFinger1Slot",
+    "CharacterTrinket0Slot",
+    "CharacterTrinket1Slot",
+    "CharacterMainHandSlot",
+    "CharacterSecondaryHandSlot",
+}
+
+local PAPER_DOLL_INNER_BORDER_NAMES = {
+    "PaperDollInnerBorderTopLeft",
+    "PaperDollInnerBorderTopRight",
+    "PaperDollInnerBorderBottomLeft",
+    "PaperDollInnerBorderBottomRight",
+    "PaperDollInnerBorderLeft",
+    "PaperDollInnerBorderRight",
+    "PaperDollInnerBorderTop",
+    "PaperDollInnerBorderBottom",
+    "PaperDollInnerBorderBottom2",
+}
+
+local function GetPaperDollSlots(visibleOnly)
+    local slots = {}
+    for _, name in ipairs(PAPER_DOLL_SLOT_NAMES) do
+        local slot = _G[name]
+        if slot and (not visibleOnly or slot:IsVisible()) then
+            slots[#slots + 1] = slot
+        end
+    end
+    return slots
+end
+
+local function GetPaperDollSlotTexture(slot)
+    if not slot then return nil end
+    local name = slot.GetName and slot:GetName()
+    return slot.icon or slot.Icon
+        or (name and _G[name .. "IconTexture"])
+end
+
+local function GetPaperDollSlotDecorations(slot, icon)
+    local decorations = {}
+    local seen = {}
+
+    local function Add(region)
+        if region and region ~= icon and not seen[region] then
+            decorations[#decorations + 1] = region
+            seen[region] = true
+        end
+    end
+
+    local name = slot and slot.GetName and slot:GetName()
+    Add(slot and slot.IconBorder)
+    Add(slot and slot.GetNormalTexture and slot:GetNormalTexture())
+    Add(name and _G[name .. "NormalTexture"])
+    Add(name and _G[name .. "Frame"])
+
+    -- The ornate left/right/bottom slot shells are direct BACKGROUND textures.
+    -- Preserve the item icon and functional overlay textures.
+    if slot and slot.GetRegions then
+        for _, region in ipairs({ slot:GetRegions() }) do
+            if region and region.GetObjectType
+                and region:GetObjectType() == "Texture"
+                and region ~= icon
+            then
+                local layer = region.GetDrawLayer and region:GetDrawLayer()
+                if layer == "BACKGROUND" then
+                    Add(region)
+                end
+            end
+        end
+    end
+
+    return decorations
+end
+
+local function ConcealFrameTexturesRecursive(owner, preserve)
+    if not owner then return end
+    preserve = preserve or {}
+
+    if owner.GetRegions then
+        for _, region in ipairs({ owner:GetRegions() }) do
+            if region and region.GetObjectType
+                and region:GetObjectType() == "Texture"
+                and not preserve[region]
+            then
+                ConcealTexture(region)
+            end
+        end
+    end
+
+    if owner.GetChildren then
+        for _, child in ipairs({ owner:GetChildren() }) do
+            ConcealFrameTexturesRecursive(child, preserve)
+        end
+    end
 end
 
 local CHARACTER_SECTION_ARTWORK = {
@@ -327,6 +439,123 @@ function CharacterSkin:ApplyTabs(frame)
     end
     NSkin:ApplyTabGroupLayout(IDs.BottomTabs)
     return true
+end
+
+
+function CharacterSkin:ApplyPaperDollSkin(frame)
+    local paperDoll = _G.PaperDollFrame
+    local modelScene = _G.CharacterModelScene
+    if not frame or not paperDoll or not modelScene then return false end
+
+    -- Remove CharacterFrame/PaperDoll decorative backgrounds and borders.
+    -- Keep the actual CharacterModelScene backdrop and model content.
+    if frame.Inset then
+        NSkin:ConcealWindowArtwork(frame.Inset)
+    end
+    if _G.CharacterFrameInset then
+        NSkin:ConcealWindowArtwork(_G.CharacterFrameInset)
+    end
+    if _G.CharacterFrameInsetRight then
+        NSkin:ConcealWindowArtwork(_G.CharacterFrameInsetRight)
+    end
+    ConcealTexture(_G.CharacterFrameInsetBG)
+
+    for _, name in ipairs(PAPER_DOLL_INNER_BORDER_NAMES) do
+        ConcealTexture(_G[name])
+    end
+
+    local sidebarTabs = _G.PaperDollSidebarTabs
+    if sidebarTabs then
+        ConcealTexture(sidebarTabs.DecorLeft)
+        ConcealTexture(sidebarTabs.DecorRight)
+    end
+
+    -- CharacterStatsPane is presentation-only here; strip its decorative
+    -- textures while preserving all FontStrings and interaction.
+    if _G.CharacterStatsPane then
+        ConcealFrameTexturesRecursive(_G.CharacterStatsPane)
+    end
+
+    -- Preserve these four character-scene background tiles plus the dark
+    -- model overlay. Everything else in the model scene remains untouched.
+    local preserveModel = {
+        [modelScene.BackgroundTopLeft] = true,
+        [modelScene.BackgroundTopRight] = true,
+        [modelScene.BackgroundBotLeft] = true,
+        [modelScene.BackgroundBotRight] = true,
+        [modelScene.BackgroundOverlay] = true,
+    }
+
+    if modelScene.GetRegions then
+        for _, region in ipairs({ modelScene:GetRegions() }) do
+            if region and region.GetObjectType
+                and region:GetObjectType() == "Texture"
+                and not preserveModel[region]
+            then
+                ConcealTexture(region)
+            end
+        end
+    end
+
+    local style = NSkin:GetAppearanceStyle(
+        "icon", IDs.Scope, IDs.PaperDollSlots)
+    local border = NSkin:GetAppearanceBorderColor(
+        "icon", style, IDs.Scope, IDs.PaperDollSlots)
+
+    local applied = false
+    for _, slot in ipairs(GetPaperDollSlots(false)) do
+        local icon = GetPaperDollSlotTexture(slot)
+        if icon then
+            applied = NSkin:SkinIcon(slot, {
+                texture = icon,
+                borderOwner = slot,
+                style = style,
+                border = border,
+                nativeDecorationRegions =
+                    GetPaperDollSlotDecorations(slot, icon),
+            }) or applied
+        end
+    end
+
+    if not paperDollSlotsRegistered then
+        paperDollSlotsRegistered = NSkin:RegisterSkinningElement(
+            IDs.PaperDollSlots, {
+                module = "Character",
+                appearanceWindowID = IDs.Scope,
+                label = "Character equipment slots",
+                kind = "ICON",
+                window = frame,
+                target = paperDoll,
+                priority = 60,
+                draggable = false,
+                highlightRegions = function()
+                    return GetPaperDollSlots(true)
+                end,
+                pixelBorderTargets = function()
+                    return GetPaperDollSlots(true)
+                end,
+                refreshAppearance = function()
+                    return CharacterSkin:ApplyPaperDollSkin(frame)
+                end,
+                refreshLayout = function()
+                    local changed = CharacterSkin:ApplyPaperDollSkin(frame)
+                    NSkin:NotifySkinningElementBoundsChanged(
+                        IDs.PaperDollSlots)
+                    return changed
+                end,
+                isEditable = function()
+                    return frame:IsVisible()
+                        and paperDoll:IsVisible()
+                        and #GetPaperDollSlots(true) > 0
+                end,
+            }) == true
+    end
+
+    if paperDollSlotsRegistered then
+        NSkin:NotifySkinningElementBoundsChanged(IDs.PaperDollSlots)
+    end
+
+    return applied or paperDollSlotsRegistered
 end
 
 function CharacterSkin:ApplyPaperDollControls(frame)
@@ -810,6 +1039,7 @@ function CharacterSkin:Apply()
     if not frame then return false end
     self:ApplyWindowChrome(frame)
     self:ApplyTabs(frame)
+    self:ApplyPaperDollSkin(frame)
     self:ApplyPaperDollControls(frame)
     self:ApplyEquipmentManagerPopup()
     self:ApplyReputationDropdown(frame)

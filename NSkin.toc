@@ -58,6 +58,7 @@ Skins\NSkin_Transmogrification.lua
 Skins\NSkin_Character.lua
 Skins\NSkin_HousingDashboard.lua
 Skins\NSkin_Stable.lua
+Skins\NSkin_BarberShop.lua
 Options\NSkin_WindowsOptions.lua
 Options\NSkin_Options.lua
 NSkin_SkinningMode.lua

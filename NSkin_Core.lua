@@ -135,6 +135,10 @@ NSkin.moduleDefinitions = {
         key = "Stable", label = "Stable",
         defaultEnabled = true, optionsGroup = "windows", optionsOrder = 210,
     },
+    {
+        key = "BarberShop", label = "BarberShop",
+        defaultEnabled = true, optionsGroup = "windows", optionsOrder = 210,
+    },
 }
 
 NSkin.moduleDefinitionByKey = {}
