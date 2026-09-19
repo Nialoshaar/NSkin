@@ -1849,10 +1849,17 @@ local function ApplyIconTexCoords(target)
     if not data or not data.active or data.applyingTexCoords
         or not texture or not texture.SetTexCoord
     then return end
+    if data.preserveAtlasTexCoords and texture.GetAtlas
+        and texture:GetAtlas()
+    then return end
     local width = texture.GetWidth and texture:GetWidth() or data.width
     local height = texture.GetHeight and texture:GetHeight() or data.height
     local shape = ICON_SHAPES[data.shape] or ICON_SHAPES.square
     data.applyingTexCoords = true
+    if data.textureBaselineID then
+        NSkin:MarkComponentGeometryModified(
+            data.textureBaselineID, "texCoords", true)
+    end
     shape.applyTexCoords(texture, width, height, data.zoom)
     data.applyingTexCoords = nil
 end
@@ -1923,7 +1930,9 @@ local function ApplyIconBorderAppearance(self, data, target)
     end
     self:SetPixelBorderColor(border, unpack(borderColor))
     self:SetPixelBorderShown(border,
-        data.showBorder ~= false and (tonumber(data.borderSize) or 0) > 0)
+        data.showBorder ~= false and (tonumber(data.borderSize) or 0) > 0
+            and (not data.texture or not data.texture.IsShown
+                or data.texture:IsShown()))
     return true
 end
 
@@ -2002,6 +2011,8 @@ function NSkin:SkinIcon(target, options)
     end
     data.active = true
     data.texture = texture
+    data.textureBaselineID = textureData.baselineID
+    data.preserveAtlasTexCoords = options.preserveAtlasTexCoords == true
     data.shape = shape
     data.zoom = tonumber(options.zoom)
         or tonumber(style.zoom) or 0
@@ -2057,8 +2068,6 @@ function NSkin:SkinIcon(target, options)
         })
     end
 
-    self:MarkComponentGeometryModified(
-        textureData.baselineID, "texCoords", true)
     ApplyIconTexCoords(target)
     ApplyIconNativeDecorations(data, target, texture,
         options.nativeDecorationRegions or options.nativeBorderRegions)
@@ -2084,14 +2093,48 @@ function NSkin:SkinIcon(target, options)
     end
     ApplyIconInteraction(self, data, target, texture, options)
 
-    local border = self:GetPixelBorder(owner, borderKey)
-        or self:CreatePixelBorder(owner, borderKey,
+    local borderFrame = owner
+    local borderAnchor = texture
+    if options.showBorder ~= false and target == texture
+        and texture.GetObjectType and texture:GetObjectType() == "Texture"
+        and _G.CreateFrame
+    then
+        local overlay = data.borderOverlay
+        if not overlay then
+            overlay = _G.CreateFrame("Frame", nil, owner)
+            overlay:EnableMouse(false)
+            data.borderOverlay = overlay
+        elseif overlay:GetParent() ~= owner then
+            overlay:SetParent(owner)
+        end
+        overlay:ClearAllPoints()
+        overlay:SetAllPoints(texture)
+        local textureParent = texture.GetParent and texture:GetParent()
+        local level = owner.GetFrameLevel and owner:GetFrameLevel() or 0
+        if textureParent and textureParent.GetFrameLevel then
+            level = math.max(level, textureParent:GetFrameLevel())
+        end
+        if overlay:GetFrameLevel() ~= level + 1 then
+            overlay:SetFrameLevel(level + 1)
+        end
+        borderFrame = overlay
+        borderAnchor = overlay
+    end
+    if data.border and (data.borderOwner ~= owner
+        or data.borderFrame ~= borderFrame
+        or data.borderKey ~= borderKey or data.texture ~= texture)
+    then
+        self:SetPixelBorderShown(data.border, false)
+    end
+    local border = self:GetPixelBorder(borderFrame, borderKey)
+        or self:CreatePixelBorder(borderFrame, borderKey,
             tonumber(options.borderSize) or tonumber(style.borderSize) or 1,
-            nil, options.outside == true, texture)
+            nil, options.outside == true, borderAnchor)
     if not border then return false end
-    border.anchor = texture
+    border.anchor = borderAnchor
     data.border = border
     data.borderOwner = owner
+    data.borderFrame = borderFrame
     data.borderKey = borderKey
     local borderSize = tonumber(options.borderSize)
         or tonumber(style.borderSize) or 1
@@ -2120,8 +2163,17 @@ function NSkin:SkinIcon(target, options)
         data.contentMethodHooksInstalled = true
     end
 
-    local sizeWatchTarget = target.HookScript and target or owner
-    if not data.sizeHooked and sizeWatchTarget and sizeWatchTarget.HookScript then
+    local sizeWatchTarget
+    if target.HookScript and target.HasScript
+        and target:HasScript("OnSizeChanged")
+    then
+        sizeWatchTarget = target
+    elseif owner.HookScript and owner.HasScript
+        and owner:HasScript("OnSizeChanged")
+    then
+        sizeWatchTarget = owner
+    end
+    if not data.sizeHooked and sizeWatchTarget then
         sizeWatchTarget:HookScript("OnSizeChanged", function()
             ApplyIconTexCoords(target)
         end)
@@ -2146,6 +2198,7 @@ function NSkin:SkinIcon(target, options)
         for _, method in ipairs({
             "SetSize", "SetWidth", "SetHeight", "SetTexture", "SetAtlas",
             "SetTexCoord", "ClearAllPoints", "SetPoint", "SetAllPoints",
+            "Show", "Hide", "SetShown",
         }) do
             if type(texture[method]) == "function" then
                 pcall(_G.hooksecurefunc, texture, method,

@@ -698,6 +698,13 @@ Clickable, empty, quality-bearing, disabled, popup-opening, or special-purpose i
 
 Special Blizzard slots such as enchant/salvage remain normal ICONs when their visual contract matches ICON.
 
+SIDE_TAB remains the canonical registration for icon-based navigation tabs.
+Its tab surface owns the background, border, hover, selected, and disabled
+presentation; its icon uses the shared ICON skin internally without a separate
+registration. Side tabs retain Blizzard icon anchors and size unless an ICON
+appearance override explicitly changes them. The tab border is full by default;
+an adapter may declare an `attachmentEdge` to leave that edge open.
+
 ---
 
 # 17. ROW Contract

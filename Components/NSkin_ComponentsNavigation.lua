@@ -355,11 +355,61 @@ end
 
 local SIDE_TAB_BORDER_KEY = "NSkinSideTabBorder"
 
-local function CenterSideTabIcon(tab)
-    local icon = tab and tab.Icon
-    if not icon then return end
-    icon:ClearAllPoints()
-    icon:SetPoint("CENTER", tab, "CENTER", 0, 0)
+local function IncludeSideTabIconAppearance(definition)
+    definition.appearanceStyles = definition.appearanceStyles or {}
+    for _, style in ipairs(definition.appearanceStyles) do
+        if style == "icon" then return end
+    end
+    definition.appearanceStyles[#definition.appearanceStyles + 1] = "icon"
+end
+
+local function GetSideTabIcon(tab)
+    local icon = tab and (tab.Icon or tab.icon or tab.IconTexture)
+    if icon and icon.GetObjectType and icon:GetObjectType() == "Texture" then
+        return icon
+    end
+    local texture = icon and (icon.Texture or icon.Icon or icon.icon)
+    return texture and texture.GetObjectType
+        and texture:GetObjectType() == "Texture" and texture or nil
+end
+
+local function GetSideTabAttachmentEdge(style, options)
+    local edge = options and options.attachmentEdge
+        or style and style.attachmentEdge
+    if type(edge) == "string" then edge = string.upper(edge) end
+    if edge == "LEFT" or edge == "RIGHT"
+        or edge == "TOP" or edge == "BOTTOM"
+    then return string.lower(edge) end
+end
+
+local function IsSideTabSelected(tab)
+    if type(tab.IsSelected) == "function" then return tab:IsSelected() end
+    if type(tab.GetChecked) == "function" then return tab:GetChecked() end
+    local selected = tab.SelectedTexture
+    return selected and selected.IsShown and selected:IsShown() or false
+end
+
+local function RefreshSideTabPresentation(tab)
+    local data = NSkin:GetSkinData(tab, COMPONENT_STATE, false)
+    local style = data and data.sideTabStyle
+    if not style then return end
+    local disabled = tab.IsEnabled and not tab:IsEnabled()
+    local alpha = disabled and 0.45 or 1
+    local selected = IsSideTabSelected(tab)
+    local colorKey = selected and style.selectedBackground
+        and "selectedBackground" or "background"
+    local color = NSkin:GetResolvedAppearanceColor(style, colorKey)
+    if color and data.sideTabBackground then
+        NSkin:SetOwnedTextureColor(data.sideTabBackground,
+            color[1], color[2], color[3], (color[4] or 1) * alpha)
+    end
+    local border = NSkin:GetPixelBorder(tab, SIDE_TAB_BORDER_KEY)
+    local borderColor = data.sideTabBorderColor
+    if border and borderColor then
+        NSkin:SetPixelBorderColor(border, borderColor[1], borderColor[2],
+            borderColor[3], (borderColor[4] or 1) * alpha)
+    end
+    if disabled and data.hoverGlow then data.hoverGlow:Hide() end
 end
 
 local function SuppressSideTabArtwork(tab)
@@ -393,9 +443,11 @@ function NSkin:RestoreSideTabOriginalState(tab, baselineID)
     if not tab or not data then return false end
     local restored = self:RestoreComponentBaseline(
         baselineID or data.sideTabBaselineID)
-    if tab.Icon and data.sideTabOriginalIconPoints then
-        RestoreFramePoints(tab.Icon, data.sideTabOriginalIconPoints)
-        restored = true
+    if data.sideTabIcon then
+        self:SkinIcon(data.sideTabIcon, {
+            texture = data.sideTabIcon, borderOwner = tab, reset = true,
+        })
+        data.sideTabIcon = nil
     end
     for _, state in ipairs(data.sideTabArtworkBaseline or {}) do
         if state.region.SetAlpha then state.region:SetAlpha(state.alpha) end
@@ -408,7 +460,7 @@ function NSkin:RestoreSideTabOriginalState(tab, baselineID)
     return restored == true
 end
 
-function NSkin:SkinSideTab(tab, style, borderColor)
+function NSkin:SkinSideTab(tab, style, borderColor, options)
     if not tab or not tab.CreateTexture then return false end
     style = style or self:GetStyle("sideTab")
     if not style then return false end
@@ -436,11 +488,23 @@ function NSkin:SkinSideTab(tab, style, borderColor)
         self:RestoreComponentBaseline(data.sideTabBaselineID, { size = true })
     end
 
-    if tab.Icon and not data.sideTabOriginalIconPoints then
-        data.sideTabOriginalIconPoints = CaptureFramePoints(tab.Icon)
+    local icon = GetSideTabIcon(tab)
+    if data.sideTabIcon and data.sideTabIcon ~= icon then
+        self:SkinIcon(data.sideTabIcon, {
+            texture = data.sideTabIcon, borderOwner = tab, reset = true,
+        })
+    end
+    data.sideTabIcon = icon
+    if icon then
+        local iconStyle = self:GetAppearanceStyle("icon",
+            options and options.appearanceWindowID,
+            options and options.elementID)
+        self:SkinIcon(icon, {
+            texture = icon, borderOwner = tab, style = iconStyle,
+            showBorder = false, preserveAtlasTexCoords = true,
+        })
     end
     CaptureSideTabArtwork(tab, data)
-    CenterSideTabIcon(tab)
     SuppressSideTabArtwork(tab)
 
     if not data.sideTabBackground then
@@ -449,41 +513,65 @@ function NSkin:SkinSideTab(tab, style, borderColor)
         self:ConfigureOwnedPixelTexture(background)
         data.sideTabBackground = background
     end
-    self:SetOwnedTextureColor(data.sideTabBackground, unpack(
-        self:GetResolvedAppearanceColor(style, "background")))
     data.sideTabBackground:Show()
 
     local resolvedBorder = borderColor
         or self:GetResolvedAppearanceColor(style, "border")
         or self:GetComponentBorderColor("sideTab", style)
     local border = self:GetPixelBorder(tab, SIDE_TAB_BORDER_KEY)
-        or self:CreatePixelEdgeBorder(tab, SIDE_TAB_BORDER_KEY,
-            { "top", "right", "bottom" }, 1, resolvedBorder, tab)
-    self:SetPixelBorderColor(border, unpack(resolvedBorder))
+        or self:CreatePixelBorder(tab, SIDE_TAB_BORDER_KEY,
+            1, resolvedBorder, false, tab)
     self:SetPixelBorderSize(border, 1)
     self:SetPixelBorderPadding(border, 0)
     self:SetPixelBorderShown(border, true)
+    local openEdge = GetSideTabAttachmentEdge(style, options)
+    for _, edge in ipairs({ "top", "right", "bottom", "left" }) do
+        if border[edge] then border[edge]:SetShown(edge ~= openEdge) end
+    end
 
     local glow = self:CreateFlatButtonGlow(tab, style.hoverAlpha)
     if glow then
         self:SetOwnedTextureColor(glow, 1, 1, 1, style.hoverAlpha or 0.10)
     end
     if not data.sideTabInteractionHooked and tab.HookScript then
-        tab:HookScript("OnMouseDown", CenterSideTabIcon)
-        tab:HookScript("OnMouseUp", CenterSideTabIcon)
         tab:HookScript("OnShow", function(shownTab)
             local shownData = NSkin:GetSkinData(
                 shownTab, COMPONENT_STATE, false)
             local shownStyle = shownData and shownData.sideTabStyle
             if shownStyle then
                 NSkin:SkinSideTab(shownTab, shownStyle,
-                    shownData.sideTabBorderColor)
+                    shownData.sideTabBorderColor, shownData.sideTabOptions)
             end
         end)
+        for _, script in ipairs({ "OnEnable", "OnDisable", "OnEnter",
+            "OnLeave", "OnClick" }) do
+            if not tab.HasScript or tab:HasScript(script) then
+                tab:HookScript(script, RefreshSideTabPresentation)
+            end
+        end
+        if _G.hooksecurefunc then
+            for _, method in ipairs({ "SetChecked", "SetSelected" }) do
+                if type(tab[method]) == "function" then
+                    pcall(_G.hooksecurefunc, tab, method,
+                        RefreshSideTabPresentation)
+                end
+            end
+            local selected = tab.SelectedTexture
+            if selected then
+                for _, method in ipairs({ "SetShown", "Show", "Hide" }) do
+                    if type(selected[method]) == "function" then
+                        pcall(_G.hooksecurefunc, selected, method,
+                            function() RefreshSideTabPresentation(tab) end)
+                    end
+                end
+            end
+        end
         data.sideTabInteractionHooked = true
     end
     data.sideTabStyle = style
     data.sideTabBorderColor = resolvedBorder
+    data.sideTabOptions = options
+    RefreshSideTabPresentation(tab)
     return true
 end
 
@@ -843,6 +931,7 @@ function NSkin:RegisterSideTab(definition)
     if type(definition) ~= "table" or type(definition.id) ~= "string"
         or not definition.target
     then return nil end
+    IncludeSideTabIconAppearance(definition)
     local id = definition.id
     self:CaptureComponentBaseline(id, definition.target, {
         points = true,
@@ -854,7 +943,12 @@ function NSkin:RegisterSideTab(definition)
         "sideTab", definition.appearanceWindowID, id)
     local borderColor = self:GetAppearanceBorderColor(
         "sideTab", style, definition.appearanceWindowID, id)
-    self:SkinSideTab(definition.target, style, borderColor)
+    local skinOptions = {
+        attachmentEdge = definition.attachmentEdge,
+        appearanceWindowID = definition.appearanceWindowID,
+        elementID = id,
+    }
+    self:SkinSideTab(definition.target, style, borderColor, skinOptions)
 
     definition.kind = "SIDE_TAB"
     definition.refreshAppearance = function(_, element)
@@ -862,7 +956,7 @@ function NSkin:RegisterSideTab(definition)
             "sideTab", element.appearanceWindowID, element.id)
         local color = NSkin:GetAppearanceBorderColor(
             "sideTab", appearance, element.appearanceWindowID, element.id)
-        NSkin:SkinSideTab(element.target, appearance, color)
+        NSkin:SkinSideTab(element.target, appearance, color, skinOptions)
         NSkin:ResnapPixelBordersForElement(element)
         return true
     end
@@ -915,6 +1009,7 @@ function NSkin:RegisterSideTabGroup(groupID, definition)
         or #definition.targets == 0
         or not definition.window
     then return nil end
+    IncludeSideTabIconAppearance(definition)
 
     local targets = definition.targets
     local primary = targets[1]
@@ -925,6 +1020,11 @@ function NSkin:RegisterSideTabGroup(groupID, definition)
         "sideTab", definition.appearanceWindowID, groupID)
     local borderColor = self:GetAppearanceBorderColor(
         "sideTab", style, definition.appearanceWindowID, groupID)
+    local skinOptions = {
+        attachmentEdge = definition.attachmentEdge,
+        appearanceWindowID = definition.appearanceWindowID,
+        elementID = groupID,
+    }
     for i = 1, #targets do
         local tab = targets[i]
         if tab then
@@ -936,7 +1036,7 @@ function NSkin:RegisterSideTabGroup(groupID, definition)
             })
             local data = self:GetSkinData(tab, COMPONENT_STATE)
             data.sideTabBaselineID = baselineID
-            self:SkinSideTab(tab, style, borderColor)
+            self:SkinSideTab(tab, style, borderColor, skinOptions)
         end
     end
 
@@ -949,7 +1049,9 @@ function NSkin:RegisterSideTabGroup(groupID, definition)
             "sideTab", definition.appearanceWindowID, groupID)
         local color = self:GetAppearanceBorderColor(
             "sideTab", appearance, definition.appearanceWindowID, groupID)
-        for i = 1, #targets do self:SkinSideTab(targets[i], appearance, color) end
+        for i = 1, #targets do
+            self:SkinSideTab(targets[i], appearance, color, skinOptions)
+        end
         self:ResnapPixelBordersForElement(definition)
         return true
     end

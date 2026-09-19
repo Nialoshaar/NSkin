@@ -752,6 +752,7 @@ function MapSkin:ApplySideTabs()
         label = "Map side tabs",
         window = map,
         targets = tabs,
+        attachmentEdge = "LEFT",
         priority = 60,
         isEditable = function()
             if not map:IsVisible() then return false end

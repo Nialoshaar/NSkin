@@ -7,9 +7,25 @@ local IDs = {
     Window = "Character.Window",
     HeaderControls = "Character.HeaderControls",
     BottomTabs = "Character.BottomTabs",
-    PaperDollSlots = "Character.PaperDoll.EquipmentSlots",
-    TitleScrollBar = "Character.Titles.ScrollBar",
+    PaperDoll = {
+        LevelText = "Character.PaperDoll.LevelText",
+        EquipmentSlotPrefix = "Character.PaperDoll.Equipment.",
+        SideTabs = "Character.PaperDoll.SideTabs",
+        CameraControls = "Character.PaperDoll.CameraControls",
+        Stats = {
+            ItemLevelHeader = "Character.Stats.ItemLevelHeader",
+            ItemLevelValue = "Character.Stats.ItemLevelValue",
+            AttributesHeader = "Character.Stats.AttributesHeader",
+            EnhancementsHeader = "Character.Stats.EnhancementsHeader",
+            Rows = "Character.Stats.Rows",
+        },
+    },
+    Titles = {
+        Rows = "Character.Titles.Rows",
+        ScrollBar = "Character.Titles.ScrollBar",
+    },
     Equipment = {
+        Rows = "Character.EquipmentManager.Rows",
         ScrollBar = "Character.EquipmentManager.ScrollBar",
         EquipButton = "Character.EquipmentManager.EquipButton",
         SaveButton = "Character.EquipmentManager.SaveButton",
@@ -102,7 +118,8 @@ local hookedTabs = setmetatable({}, { __mode = "k" })
 local hookedShowOwners = setmetatable({}, { __mode = "k" })
 local concealedDetailArtwork = setmetatable({}, { __mode = "k" })
 local concealedSocketingArtwork = setmetatable({}, { __mode = "k" })
-local paperDollSlotsRegistered = false
+local hookedScrollBoxes = setmetatable({}, { __mode = "k" })
+local paperDollStatsHooked = false
 
 NSkin:RegisterAppearanceScope(IDs.Scope, {
     label = "Character",
@@ -176,25 +193,25 @@ local function ConcealTexture(texture)
 end
 
 
-local PAPER_DOLL_SLOT_NAMES = {
-    "CharacterHeadSlot",
-    "CharacterNeckSlot",
-    "CharacterShoulderSlot",
-    "CharacterBackSlot",
-    "CharacterChestSlot",
-    "CharacterShirtSlot",
-    "CharacterTabardSlot",
-    "CharacterWristSlot",
-    "CharacterHandsSlot",
-    "CharacterWaistSlot",
-    "CharacterLegsSlot",
-    "CharacterFeetSlot",
-    "CharacterFinger0Slot",
-    "CharacterFinger1Slot",
-    "CharacterTrinket0Slot",
-    "CharacterTrinket1Slot",
-    "CharacterMainHandSlot",
-    "CharacterSecondaryHandSlot",
+local PAPER_DOLL_SLOTS = {
+    { name = "CharacterHeadSlot", key = "Head", label = "Head" },
+    { name = "CharacterNeckSlot", key = "Neck", label = "Neck" },
+    { name = "CharacterShoulderSlot", key = "Shoulder", label = "Shoulder" },
+    { name = "CharacterBackSlot", key = "Back", label = "Back" },
+    { name = "CharacterChestSlot", key = "Chest", label = "Chest" },
+    { name = "CharacterShirtSlot", key = "Shirt", label = "Shirt" },
+    { name = "CharacterTabardSlot", key = "Tabard", label = "Tabard" },
+    { name = "CharacterWristSlot", key = "Wrist", label = "Wrist" },
+    { name = "CharacterHandsSlot", key = "Hands", label = "Hands" },
+    { name = "CharacterWaistSlot", key = "Waist", label = "Waist" },
+    { name = "CharacterLegsSlot", key = "Legs", label = "Legs" },
+    { name = "CharacterFeetSlot", key = "Feet", label = "Feet" },
+    { name = "CharacterFinger0Slot", key = "Finger1", label = "Finger 1" },
+    { name = "CharacterFinger1Slot", key = "Finger2", label = "Finger 2" },
+    { name = "CharacterTrinket0Slot", key = "Trinket1", label = "Trinket 1" },
+    { name = "CharacterTrinket1Slot", key = "Trinket2", label = "Trinket 2" },
+    { name = "CharacterMainHandSlot", key = "MainHand", label = "Main Hand" },
+    { name = "CharacterSecondaryHandSlot", key = "OffHand", label = "Off Hand" },
 }
 
 local PAPER_DOLL_INNER_BORDER_NAMES = {
@@ -211,10 +228,14 @@ local PAPER_DOLL_INNER_BORDER_NAMES = {
 
 local function GetPaperDollSlots(visibleOnly)
     local slots = {}
-    for _, name in ipairs(PAPER_DOLL_SLOT_NAMES) do
-        local slot = _G[name]
+    for _, descriptor in ipairs(PAPER_DOLL_SLOTS) do
+        local slot = _G[descriptor.name]
         if slot and (not visibleOnly or slot:IsVisible()) then
-            slots[#slots + 1] = slot
+            slots[#slots + 1] = {
+                frame = slot,
+                key = descriptor.key,
+                label = descriptor.label,
+            }
         end
     end
     return slots
@@ -263,26 +284,59 @@ local function GetPaperDollSlotDecorations(slot, icon)
     return decorations
 end
 
-local function ConcealFrameTexturesRecursive(owner, preserve)
-    if not owner then return end
-    preserve = preserve or {}
+local function HookScrollBoxRefresh(scrollBox, callback)
+    if not scrollBox or hookedScrollBoxes[scrollBox]
+        or not _G.hooksecurefunc or type(scrollBox.Update) ~= "function"
+    then
+        return
+    end
+    _G.hooksecurefunc(scrollBox, "Update", callback)
+    hookedScrollBoxes[scrollBox] = true
+end
 
-    if owner.GetRegions then
-        for _, region in ipairs({ owner:GetRegions() }) do
-            if region and region.GetObjectType
-                and region:GetObjectType() == "Texture"
-                and not preserve[region]
-            then
-                ConcealTexture(region)
-            end
+local function GetVisibleScrollBoxRows(scrollBox, predicate)
+    local rows = {}
+    if not scrollBox then return rows end
+    NSkin:ForEachScrollBoxFrame(scrollBox, function(row)
+        if row and row:IsShown() and (not predicate or predicate(row)) then
+            rows[#rows + 1] = row
+        end
+    end)
+    return rows
+end
+
+local function GetDirectStatRows(pane, visibleOnly)
+    local rows = {}
+    if not pane or not pane.GetChildren then return rows end
+    for _, child in ipairs({ pane:GetChildren() }) do
+        if child and child.Label and child.Value and child.Background
+            and (not visibleOnly or child:IsShown())
+        then
+            rows[#rows + 1] = child
         end
     end
+    return rows
+end
 
-    if owner.GetChildren then
-        for _, child in ipairs({ owner:GetChildren() }) do
-            ConcealFrameTexturesRecursive(child, preserve)
-        end
+local function IsTitleRow(row)
+    return row and row.text and row.BgTop and row.BgBottom and row.BgMiddle
+end
+
+local function IsEquipmentRow(row)
+    return row and row.icon and row.text and row.BgTop and row.BgBottom
+        and row.BgMiddle and row.EditButton and row.DeleteButton
+end
+
+local function IsRowHovered(row)
+    return row and row.IsMouseOver and row:IsMouseOver() or false
+end
+
+local function GetRowDecorationRegions(row)
+    local regions = {}
+    for _, key in ipairs({ "BgTop", "BgBottom", "BgMiddle", "Stripe" }) do
+        if row and row[key] then regions[#regions + 1] = row[key] end
     end
+    return regions
 end
 
 local CHARACTER_SECTION_ARTWORK = {
@@ -442,13 +496,143 @@ function CharacterSkin:ApplyTabs(frame)
 end
 
 
+local function RegisterCharacterSectionHeader(frame, id, label, header, priority)
+    if not header or not header.Title then return false end
+
+    local function Refresh()
+        ConcealTexture(header.Background)
+        local style = NSkin:GetAppearanceStyle("text", IDs.Scope, id)
+        return NSkin:SkinText(header.Title, style) ~= nil
+    end
+
+    local registered = NSkin:RegisterSkinningElement(id, {
+        module = "Character",
+        appearanceWindowID = IDs.Scope,
+        label = label,
+        kind = "SECTION_HEADER",
+        window = frame,
+        target = header,
+        priority = priority,
+        draggable = false,
+        appearanceStyles = { "text" },
+        appearanceTypeIDs = { "TEXT" },
+        highlightRegions = { header },
+        refreshAppearance = Refresh,
+        refreshLayout = Refresh,
+        isEditable = function()
+            return frame:IsVisible() and header:IsVisible()
+        end,
+    })
+    Refresh()
+    return registered == true
+end
+
+function CharacterSkin:ApplyPaperDollStats(frame)
+    local pane = _G.CharacterStatsPane
+    if not frame or not pane then return false end
+
+    -- Remove only audited decorative art. Shared elements below provide the
+    -- replacement hierarchy instead of recursively hiding unknown textures.
+    ConcealTexture(pane.ClassBackground)
+
+    local applied = false
+    applied = RegisterCharacterSectionHeader(
+        frame, IDs.PaperDoll.Stats.ItemLevelHeader,
+        "Item level header", pane.ItemLevelCategory, 64) or applied
+    applied = RegisterCharacterSectionHeader(
+        frame, IDs.PaperDoll.Stats.AttributesHeader,
+        "Attributes header", pane.AttributesCategory, 65) or applied
+    applied = RegisterCharacterSectionHeader(
+        frame, IDs.PaperDoll.Stats.EnhancementsHeader,
+        "Enhancements header", pane.EnhancementsCategory, 66) or applied
+
+    local itemLevelFrame = pane.ItemLevelFrame
+    if itemLevelFrame then
+        ConcealTexture(itemLevelFrame.Background)
+        local value = itemLevelFrame.Value
+        if value then
+            local element = NSkin:RegisterTextElement({
+                id = IDs.PaperDoll.Stats.ItemLevelValue,
+                module = "Character",
+                appearanceWindowID = IDs.Scope,
+                label = "Item level value",
+                window = frame,
+                target = value,
+                priority = 67,
+                highlightRegions = { itemLevelFrame },
+                isEditable = function()
+                    return frame:IsVisible() and pane:IsVisible()
+                        and itemLevelFrame:IsVisible()
+                end,
+            })
+            if element then NSkin:RefreshTypedElementAppearance(element) end
+            applied = element ~= nil or applied
+        end
+    end
+
+    local function RefreshRows()
+        local style = NSkin:GetAppearanceStyle(
+            "row", IDs.Scope, IDs.PaperDoll.Stats.Rows)
+        local border = NSkin:GetAppearanceBorderColor(
+            "row", style, IDs.Scope, IDs.PaperDoll.Stats.Rows)
+        local changed = false
+        for _, row in ipairs(GetDirectStatRows(pane, false)) do
+            changed = NSkin:SkinRow(row, {
+                style = style,
+                border = border,
+                nativeDecorationRegions = { row.Background },
+                columns = {
+                    { kind = "TEXT", target = row.Label },
+                    { kind = "TEXT", target = row.Value },
+                },
+                elementID = IDs.PaperDoll.Stats.Rows,
+                appearanceWindowID = IDs.Scope,
+            }) ~= nil or changed
+        end
+        NSkin:NotifySkinningElementBoundsChanged(IDs.PaperDoll.Stats.Rows)
+        return changed
+    end
+
+    NSkin:RegisterSkinningElement(IDs.PaperDoll.Stats.Rows, {
+        module = "Character",
+        appearanceWindowID = IDs.Scope,
+        label = "Character stat rows",
+        kind = "ROW",
+        window = frame,
+        target = pane,
+        priority = 68,
+        draggable = false,
+        appearanceStyles = { "row", "text" },
+        appearanceTypeIDs = { "ROW", "TEXT" },
+        editorOptions = {
+            { id = "shared.rowAppearance", label = "Row",
+                category = "CUSTOMIZE" },
+            { id = "shared.textAppearance", label = "Text",
+                category = "CUSTOMIZE" },
+        },
+        highlightRegions = function()
+            return GetDirectStatRows(pane, true)
+        end,
+        pixelBorderTargets = function()
+            return GetDirectStatRows(pane, true)
+        end,
+        refreshAppearance = RefreshRows,
+        refreshLayout = RefreshRows,
+        isEditable = function()
+            return frame:IsVisible() and pane:IsVisible()
+                and #GetDirectStatRows(pane, true) > 0
+        end,
+    })
+    applied = RefreshRows() or applied
+
+    return applied
+end
+
 function CharacterSkin:ApplyPaperDollSkin(frame)
     local paperDoll = _G.PaperDollFrame
     local modelScene = _G.CharacterModelScene
     if not frame or not paperDoll or not modelScene then return false end
 
-    -- Remove CharacterFrame/PaperDoll decorative backgrounds and borders.
-    -- Keep the actual CharacterModelScene backdrop and model content.
     if frame.Inset then
         NSkin:ConcealWindowArtwork(frame.Inset)
     end
@@ -470,14 +654,6 @@ function CharacterSkin:ApplyPaperDollSkin(frame)
         ConcealTexture(sidebarTabs.DecorRight)
     end
 
-    -- CharacterStatsPane is presentation-only here; strip its decorative
-    -- textures while preserving all FontStrings and interaction.
-    if _G.CharacterStatsPane then
-        ConcealFrameTexturesRecursive(_G.CharacterStatsPane)
-    end
-
-    -- Preserve these four character-scene background tiles plus the dark
-    -- model overlay. Everything else in the model scene remains untouched.
     local preserveModel = {
         [modelScene.BackgroundTopLeft] = true,
         [modelScene.BackgroundTopRight] = true,
@@ -497,65 +673,260 @@ function CharacterSkin:ApplyPaperDollSkin(frame)
         end
     end
 
-    local style = NSkin:GetAppearanceStyle(
-        "icon", IDs.Scope, IDs.PaperDollSlots)
-    local border = NSkin:GetAppearanceBorderColor(
-        "icon", style, IDs.Scope, IDs.PaperDollSlots)
-
     local applied = false
-    for _, slot in ipairs(GetPaperDollSlots(false)) do
+
+    if _G.CharacterLevelText then
+        local levelText = NSkin:RegisterTextElement({
+            id = IDs.PaperDoll.LevelText,
+            module = "Character",
+            appearanceWindowID = IDs.Scope,
+            label = "Character level and specialization",
+            window = frame,
+            target = _G.CharacterLevelText,
+            priority = 59,
+            highlightRegions = { _G.CharacterLevelText },
+            isEditable = function()
+                return frame:IsVisible() and paperDoll:IsVisible()
+                    and _G.CharacterLevelText:IsVisible()
+            end,
+        })
+        if levelText then NSkin:RefreshTypedElementAppearance(levelText) end
+        applied = levelText ~= nil or applied
+    end
+
+    -- Persistent equipment slots get stable individual ICON registrations.
+    for _, descriptor in ipairs(GetPaperDollSlots(false)) do
+        local slot = descriptor.frame
         local icon = GetPaperDollSlotTexture(slot)
         if icon then
-            applied = NSkin:SkinIcon(slot, {
+            local element = NSkin:RegisterIcon({
+                id = IDs.PaperDoll.EquipmentSlotPrefix .. descriptor.key,
+                module = "Character",
+                appearanceWindowID = IDs.Scope,
+                label = descriptor.label .. " equipment slot",
+                window = frame,
+                target = slot,
                 texture = icon,
                 borderOwner = slot,
-                style = style,
-                border = border,
                 nativeDecorationRegions =
                     GetPaperDollSlotDecorations(slot, icon),
-            }) or applied
+                priority = 60,
+                isEditable = function()
+                    return frame:IsVisible() and paperDoll:IsVisible()
+                        and slot:IsVisible()
+                end,
+            })
+            applied = element ~= nil or applied
         end
     end
 
-    if not paperDollSlotsRegistered then
-        paperDollSlotsRegistered = NSkin:RegisterSkinningElement(
-            IDs.PaperDollSlots, {
-                module = "Character",
-                appearanceWindowID = IDs.Scope,
-                label = "Character equipment slots",
-                kind = "ICON",
-                window = frame,
-                target = paperDoll,
-                priority = 60,
-                draggable = false,
-                highlightRegions = function()
-                    return GetPaperDollSlots(true)
-                end,
-                pixelBorderTargets = function()
-                    return GetPaperDollSlots(true)
-                end,
-                refreshAppearance = function()
-                    return CharacterSkin:ApplyPaperDollSkin(frame)
-                end,
-                refreshLayout = function()
-                    local changed = CharacterSkin:ApplyPaperDollSkin(frame)
-                    NSkin:NotifySkinningElementBoundsChanged(
-                        IDs.PaperDollSlots)
-                    return changed
-                end,
-                isEditable = function()
-                    return frame:IsVisible()
-                        and paperDoll:IsVisible()
-                        and #GetPaperDollSlots(true) > 0
-                end,
-            }) == true
+    applied = self:ApplyPaperDollStats(frame) or applied
+    return applied
+end
+
+local function StylePaperDollSideTabArtwork(tab)
+    if not tab then return end
+    ConcealTexture(tab.TabBg)
+    ConcealTexture(tab.Hider)
+    ConcealTexture(tab.Highlight)
+end
+
+function CharacterSkin:ApplyPaperDollSideTabs(frame)
+    local paperDoll = _G.PaperDollFrame
+    local owner = _G.PaperDollSidebarTabs
+    if not frame or not paperDoll or not owner then return false end
+
+    local tabs = {
+        _G.PaperDollSidebarTab1,
+        _G.PaperDollSidebarTab2,
+        _G.PaperDollSidebarTab3,
+    }
+    for _, tab in ipairs(tabs) do
+        if not tab then return false end
+        StylePaperDollSideTabArtwork(tab)
     end
 
-    if paperDollSlotsRegistered then
-        NSkin:NotifySkinningElementBoundsChanged(IDs.PaperDollSlots)
+    local element = NSkin:RegisterSideTabGroup(IDs.PaperDoll.SideTabs, {
+        module = "Character",
+        appearanceWindowID = IDs.Scope,
+        label = "Character sidebar tabs",
+        window = frame,
+        target = tabs[1],
+        targets = tabs,
+        priority = 70,
+        isEditable = function()
+            return frame:IsVisible() and paperDoll:IsVisible()
+                and owner:IsVisible()
+        end,
+    })
+    return element ~= nil
+end
+
+function CharacterSkin:ApplyTitleRows(frame, titles)
+    local scrollBox = titles and titles.ScrollBox
+    if not frame or not titles or not scrollBox then return false end
+
+    local function Refresh()
+        local style = NSkin:GetAppearanceStyle(
+            "row", IDs.Scope, IDs.Titles.Rows)
+        local border = NSkin:GetAppearanceBorderColor(
+            "row", style, IDs.Scope, IDs.Titles.Rows)
+        local applied = false
+        NSkin:ForEachScrollBoxFrame(scrollBox, function(row)
+            if IsTitleRow(row) then
+                applied = NSkin:SkinRow(row, {
+                    style = style,
+                    border = border,
+                    nativeDecorationRegions = GetRowDecorationRegions(row),
+                    hoverRegion = row.GetHighlightTexture
+                        and row:GetHighlightTexture() or nil,
+                    getHovered = IsRowHovered,
+                    selectedRegion = row.SelectedBar,
+                    columns = {
+                        { kind = "TEXT", target = row.text },
+                    },
+                    elementID = IDs.Titles.Rows,
+                    appearanceWindowID = IDs.Scope,
+                }) ~= nil or applied
+            end
+        end)
+        NSkin:NotifySkinningElementBoundsChanged(IDs.Titles.Rows)
+        return applied
     end
 
-    return applied or paperDollSlotsRegistered
+    NSkin:RegisterSkinningElement(IDs.Titles.Rows, {
+        module = "Character",
+        appearanceWindowID = IDs.Scope,
+        label = "Character title rows",
+        kind = "ROW",
+        window = frame,
+        target = scrollBox,
+        priority = 80,
+        draggable = false,
+        appearanceStyles = { "row", "text" },
+        appearanceTypeIDs = { "ROW", "TEXT" },
+        editorOptions = {
+            { id = "shared.rowAppearance", label = "Row",
+                category = "CUSTOMIZE" },
+            { id = "shared.textAppearance", label = "Text",
+                category = "CUSTOMIZE" },
+        },
+        highlightRegions = function()
+            return GetVisibleScrollBoxRows(scrollBox, IsTitleRow)
+        end,
+        pixelBorderTargets = function()
+            return GetVisibleScrollBoxRows(scrollBox, IsTitleRow)
+        end,
+        refreshAppearance = Refresh,
+        refreshLayout = Refresh,
+        isEditable = function()
+            return frame:IsVisible() and titles:IsVisible()
+                and #GetVisibleScrollBoxRows(scrollBox, IsTitleRow) > 0
+        end,
+    })
+    HookScrollBoxRefresh(scrollBox, Refresh)
+    return Refresh()
+end
+
+function CharacterSkin:ApplyEquipmentManagerRows(frame, equipment)
+    local scrollBox = equipment and equipment.ScrollBox
+    if not frame or not equipment or not scrollBox then return false end
+
+    local function Refresh()
+        local style = NSkin:GetAppearanceStyle(
+            "row", IDs.Scope, IDs.Equipment.Rows)
+        local border = NSkin:GetAppearanceBorderColor(
+            "row", style, IDs.Scope, IDs.Equipment.Rows)
+        local applied = false
+        NSkin:ForEachScrollBoxFrame(scrollBox, function(row)
+            if IsEquipmentRow(row) then
+                local columns = {
+                    {
+                        kind = "ICON",
+                        target = row.icon,
+                        texture = row.icon,
+                        borderOwner = row,
+                    },
+                    { kind = "TEXT", target = row.text },
+                }
+                if row.SpecIcon then
+                    columns[#columns + 1] = {
+                        kind = "ICON",
+                        target = row.SpecIcon,
+                        texture = row.SpecIcon,
+                        borderOwner = row,
+                        nativeDecorationRegions = row.SpecRing
+                            and { row.SpecRing } or nil,
+                    }
+                end
+                if row.EditButton and row.EditButton.texture then
+                    columns[#columns + 1] = {
+                        kind = "ICON",
+                        target = row.EditButton,
+                        texture = row.EditButton.texture,
+                        borderOwner = row.EditButton,
+                    }
+                end
+                if row.DeleteButton and row.DeleteButton.texture then
+                    columns[#columns + 1] = {
+                        kind = "ICON",
+                        target = row.DeleteButton,
+                        texture = row.DeleteButton.texture,
+                        borderOwner = row.DeleteButton,
+                    }
+                end
+
+                applied = NSkin:SkinRow(row, {
+                    style = style,
+                    border = border,
+                    nativeDecorationRegions = GetRowDecorationRegions(row),
+                    hoverRegion = row.HighlightBar,
+                    getHovered = IsRowHovered,
+                    selectedRegion = row.SelectedBar,
+                    columns = columns,
+                    elementID = IDs.Equipment.Rows,
+                    appearanceWindowID = IDs.Scope,
+                }) ~= nil or applied
+            end
+        end)
+        NSkin:NotifySkinningElementBoundsChanged(IDs.Equipment.Rows)
+        return applied
+    end
+
+    NSkin:RegisterSkinningElement(IDs.Equipment.Rows, {
+        module = "Character",
+        appearanceWindowID = IDs.Scope,
+        label = "Equipment manager rows",
+        kind = "ROW",
+        window = frame,
+        target = scrollBox,
+        priority = 81,
+        draggable = false,
+        appearanceStyles = { "row", "text", "icon" },
+        appearanceTypeIDs = { "ROW", "TEXT", "ICON" },
+        editorOptions = {
+            { id = "shared.rowAppearance", label = "Row",
+                category = "CUSTOMIZE" },
+            { id = "shared.textAppearance", label = "Text",
+                category = "CUSTOMIZE" },
+            { id = "shared.iconAppearance", label = "Icons",
+                category = "CUSTOMIZE" },
+        },
+        highlightRegions = function()
+            return GetVisibleScrollBoxRows(scrollBox, IsEquipmentRow)
+        end,
+        pixelBorderTargets = function()
+            return GetVisibleScrollBoxRows(scrollBox, IsEquipmentRow)
+        end,
+        refreshAppearance = Refresh,
+        refreshLayout = Refresh,
+        isEditable = function()
+            return frame:IsVisible() and equipment:IsVisible()
+                and #GetVisibleScrollBoxRows(scrollBox, IsEquipmentRow) > 0
+        end,
+    })
+    HookScrollBoxRefresh(scrollBox, Refresh)
+    return Refresh()
 end
 
 function CharacterSkin:ApplyPaperDollControls(frame)
@@ -568,50 +939,64 @@ function CharacterSkin:ApplyPaperDollControls(frame)
     local equipmentScrollBar = equipment and equipment.ScrollBar
     local equipButton = equipment and equipment.EquipSet
     local saveButton = equipment and equipment.SaveSet
-    local applied = NSkin:RegisterScrollBar({
-        id = IDs.TitleScrollBar, module = "Character",
+
+    local applied = self:ApplyPaperDollSideTabs(frame)
+    applied = self:ApplyTitleRows(frame, titles) or applied
+    applied = self:ApplyEquipmentManagerRows(frame, equipment) or applied
+
+    applied = NSkin:RegisterScrollBar({
+        id = IDs.Titles.ScrollBar, module = "Character",
         appearanceWindowID = IDs.Scope,
         label = "Character titles scroll bar", window = frame,
-        target = titleScrollBar, priority = 80,
+        target = titleScrollBar, priority = 82,
         highlightRegions = { titleScrollBar },
         isEditable = function()
             return frame:IsVisible() and titles:IsVisible()
                 and titleScrollBar:IsVisible()
         end,
-    }) ~= nil
+    }) ~= nil or applied
+
     applied = NSkin:RegisterScrollBar({
         id = IDs.Equipment.ScrollBar, module = "Character",
         appearanceWindowID = IDs.Scope,
         label = "Equipment manager scroll bar", window = frame,
-        target = equipmentScrollBar, priority = 81,
+        target = equipmentScrollBar, priority = 83,
         highlightRegions = { equipmentScrollBar },
         isEditable = function()
             return frame:IsVisible() and equipment:IsVisible()
                 and equipmentScrollBar:IsVisible()
         end,
     }) ~= nil or applied
-    applied = NSkin:RegisterActionButton({
+
+    applied = NSkin:RegisterTypedElement("BUTTON", {
         id = IDs.Equipment.EquipButton, module = "Character",
         appearanceWindowID = IDs.Scope,
         label = "Equipment manager equip button", window = frame,
-        target = equipButton, priority = 82,
+        target = equipButton, priority = 84,
         highlightRegions = { equipButton },
         isEditable = function()
             return frame:IsVisible() and equipment:IsVisible()
                 and equipButton:IsVisible()
         end,
     }) ~= nil or applied
+
     applied = NSkin:RegisterActionButton({
         id = IDs.Equipment.SaveButton, module = "Character",
         appearanceWindowID = IDs.Scope,
         label = "Equipment manager save button", window = frame,
-        target = saveButton, priority = 83,
+        target = saveButton, priority = 85,
         highlightRegions = { saveButton },
         isEditable = function()
             return frame:IsVisible() and equipment:IsVisible()
                 and saveButton:IsVisible()
         end,
     }) ~= nil or applied
+
+    -- ModelSceneControlFrame glyphs are atlas-backed. The current ICON shared
+    -- component rewrites texcoords, so registering these as ICON children would
+    -- corrupt their atlas presentation. Keep the Blizzard camera controls
+    -- untouched until ICON gains a generic preserve-native-texcoords option.
+
     HookOwnerRefresh(titles)
     HookOwnerRefresh(equipment)
     return applied
@@ -1061,6 +1446,16 @@ function CharacterSkin:Initialize()
     if not toggleHooked and _G.hooksecurefunc and _G.ToggleCharacter then
         _G.hooksecurefunc("ToggleCharacter", QueueApply)
         toggleHooked = true
+    end
+    if not paperDollStatsHooked and _G.hooksecurefunc
+        and type(_G.PaperDollFrame_UpdateStats) == "function"
+    then
+        _G.hooksecurefunc("PaperDollFrame_UpdateStats", function()
+            if initialized then
+                CharacterSkin:ApplyPaperDollStats(frame)
+            end
+        end)
+        paperDollStatsHooked = true
     end
     local popup = _G.GearManagerPopupFrame
     if popup and not equipmentPopupLifecycleHooked and popup.HookScript then

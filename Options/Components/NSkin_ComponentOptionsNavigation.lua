@@ -204,6 +204,8 @@ local sideTabResetPaths = {
     borderMode = "sideTab.borderMode",
     background = "sideTab.background",
     backgroundMode = "sideTab.backgroundMode",
+    selectedBackground = "sideTab.selectedBackground",
+    selectedBackgroundMode = "sideTab.selectedBackgroundMode",
     hoverAlpha = "sideTab.hoverAlpha",
 }
 
@@ -232,6 +234,11 @@ NSkin:RegisterOptionGroup("shared.sideTabAppearance", {
             label = "Highlight opacity", min = 0, max = 1,
             step = 0.05, decimals = 2, order = 3,
         },
+        {
+            type = "COLOR", key = "selectedBackground",
+            modeKey = "selectedBackgroundMode",
+            label = "Selected background", order = 4,
+        },
     },
     get = function(context)
         local style = NSkin:GetAppearanceStyle(
@@ -246,13 +253,16 @@ NSkin:RegisterOptionGroup("shared.sideTabAppearance", {
             borderMode = style.borderMode,
             background = CopyColor(style.background),
             backgroundMode = style.backgroundMode,
+            selectedBackground = CopyColor(style.selectedBackground),
+            selectedBackgroundMode = style.selectedBackgroundMode,
             hoverAlpha = tonumber(style.hoverAlpha) or 0.10,
         }
     end,
     set = function(context, values)
         local changed
         for _, key in ipairs({ "width", "height", "border", "borderMode",
-            "background", "backgroundMode", "hoverAlpha" })
+            "background", "backgroundMode", "selectedBackground",
+            "selectedBackgroundMode", "hoverAlpha" })
         do
             if values[key] ~= nil then
                 changed = SetElementValue(
@@ -265,7 +275,8 @@ NSkin:RegisterOptionGroup("shared.sideTabAppearance", {
         return ResetElementPaths(context, {
             "sideTab.width", "sideTab.height", "sideTab.border",
             "sideTab.borderMode", "sideTab.background",
-            "sideTab.backgroundMode", "sideTab.hoverAlpha",
+            "sideTab.backgroundMode", "sideTab.selectedBackground",
+            "sideTab.selectedBackgroundMode", "sideTab.hoverAlpha",
         })
     end,
     resetSubset = function(context, keys)
