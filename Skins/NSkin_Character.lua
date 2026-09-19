@@ -1677,21 +1677,37 @@ function CharacterSkin:ApplyCurrencyDropdown(frame)
         local highlightTexture = transferLogButton.GetHighlightTexture
             and transferLogButton:GetHighlightTexture()
             or transferLogButton.HighlightTexture
-        if normalTexture then
+
+        -- Treat the toggle like the Character side tabs: the Blizzard button
+        -- remains the interaction owner, NSkin owns the flat surface, and the
+        -- native artwork is reused only as the icon presentation.
+        local presentation = transferLogButton.NSkinTransferLogIcon
+        if not presentation and transferLogButton.CreateTexture then
+            presentation = transferLogButton:CreateTexture(
+                nil, "ARTWORK", nil, 7)
+            presentation:SetSize(16, 16)
+            presentation:SetPoint("CENTER", transferLogButton, "CENTER", 0, 0)
+            presentation:SetAtlas("transfer-log-button-up", false)
+            NSkin:ConfigureOwnedPixelTexture(presentation)
+            transferLogButton.NSkinTransferLogIcon = presentation
+        end
+
+        if presentation then
             applied = NSkin:RegisterIcon({
                 id = IDs.CurrencyTransferLogButton, module = "Character",
                 appearanceWindowID = IDs.Scope,
                 label = "Currency transfer log button", window = frame,
                 target = transferLogButton,
-                texture = normalTexture,
+                texture = presentation,
                 borderOwner = transferLogButton,
+                nativeDecorationRegions = {
+                    normalTexture, pushedTexture, highlightTexture,
+                },
                 priority = 86,
                 skinOptions = {
                     showBorder = true,
                     borderMode = "fixed",
-                    nativeDecorationRegions = {
-                        pushedTexture, highlightTexture,
-                    },
+                    preserveAtlasTexCoords = true,
                 },
                 highlightRegions = { transferLogButton },
                 isEditable = function()
@@ -1805,7 +1821,14 @@ function CharacterSkin:ApplyCurrencyOptions()
 end
 
 local function GetTransferRowStyle(scopeID, elementID)
-    local style = NSkin:GetAppearanceStyle("row", scopeID, elementID)
+    local resolved = NSkin:GetAppearanceStyle("row", scopeID, elementID)
+    local style = {}
+    for key, value in pairs(resolved or {}) do
+        style[key] = value
+    end
+    -- Transfer rows are lightweight layout records, not boxed cards. Keep the
+    -- default presentation borderless while retaining ROW-owned background.
+    style.borderSize = 0
     return style, NSkin:GetAppearanceBorderColor(
         "row", style, scopeID, elementID)
 end
@@ -1818,13 +1841,16 @@ local function RegisterCurrencyTransferRow(definition)
         local rowStyle, rowBorder = GetTransferRowStyle(
             IDs.CurrencyTransfer.Scope, definition.id)
 
-        NSkin:SkinRow(row, {
+        local rowState = NSkin:SkinRow(row, {
             style = rowStyle,
             border = rowBorder,
             columns = definition.columns,
             elementID = definition.id,
             appearanceWindowID = IDs.CurrencyTransfer.Scope,
         })
+        if rowState and rowState.border then
+            NSkin:SetPixelBorderShown(rowState.border, false)
+        end
 
         for _, child in ipairs(definition.extraSkins or {}) do
             if child.target then
@@ -1883,11 +1909,10 @@ local function ApplyTransferDirectionArrow(sourceSelector)
     local arrow = sourceSelector.NSkinTransferDirectionArrow
     if not arrow then
         arrow = sourceSelector:CreateTexture(nil, "OVERLAY", nil, 7)
-        arrow:SetSize(22, 22)
-        arrow:SetTexture(NSkin.mediaPath .. "angle-small-down.png")
-        arrow:SetRotation(-math.pi / 2)
+        -- Reuse the exact Blizzard arrow used by Currency Transfer Log rows.
+        -- This keeps the direction and visual language identical in both views.
+        arrow:SetAtlas("arrow-short", true)
         arrow:SetPoint("CENTER", sourceSelector, "CENTER", 0, 0)
-        NSkin:ConfigureOwnedPixelTexture(arrow)
         sourceSelector.NSkinTransferDirectionArrow = arrow
     end
     local textStyle = NSkin:GetAppearanceStyle(
