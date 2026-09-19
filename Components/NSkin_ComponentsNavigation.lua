@@ -501,7 +501,7 @@ function NSkin:SkinSideTab(tab, style, borderColor, options)
             options and options.elementID)
         self:SkinIcon(icon, {
             texture = icon, borderOwner = tab, style = iconStyle,
-            showBorder = false, preserveAtlasTexCoords = true,
+            showBorder = false, preserveTexCoords = true,
         })
     end
     CaptureSideTabArtwork(tab, data)

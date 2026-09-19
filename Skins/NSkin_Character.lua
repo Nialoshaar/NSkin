@@ -10,6 +10,11 @@ local IDs = {
     PaperDoll = {
         LevelText = "Character.PaperDoll.LevelText",
         EquipmentSlotPrefix = "Character.PaperDoll.Equipment.",
+        EquipmentGroups = {
+            Left = "Character.PaperDoll.Equipment.Left",
+            Right = "Character.PaperDoll.Equipment.Right",
+            Bottom = "Character.PaperDoll.Equipment.Bottom",
+        },
         SideTabs = "Character.PaperDoll.SideTabs",
         CameraControls = "Character.PaperDoll.CameraControls",
         Stats = {
@@ -58,6 +63,8 @@ local IDs = {
     ReputationDropdown = "Character.Reputation.FilterDropdown",
     ReputationScrollBar = "Character.Reputation.ScrollBar",
     ReputationSectionCards = "Character.Reputation.SectionCards",
+    ReputationSubHeaderRows = "Character.Reputation.SubHeaderRows",
+    ReputationRows = "Character.Reputation.Rows",
     ReputationDetails = {
         Scope = "Character.ReputationDetails",
         Window = "Character.ReputationDetails.Window",
@@ -70,8 +77,11 @@ local IDs = {
         ViewRenownButton = "Character.ReputationDetails.ViewRenownButton",
     },
     CurrencyDropdown = "Character.Currency.FilterDropdown",
+    CurrencyTransferLogButton = "Character.Currency.TransferLogButton",
     CurrencyScrollBar = "Character.Currency.ScrollBar",
     CurrencySectionCards = "Character.Currency.SectionCards",
+    CurrencySubHeaderRows = "Character.Currency.SubHeaderRows",
+    CurrencyRows = "Character.Currency.Rows",
     CurrencyOptions = {
         Scope = "Character.CurrencyOptions",
         Window = "Character.CurrencyOptions.Window",
@@ -84,9 +94,10 @@ local IDs = {
         Scope = "Character.CurrencyTransfer",
         Window = "Character.CurrencyTransfer.Window",
         HeaderControls = "Character.CurrencyTransfer.HeaderControls",
-        SourceDropdown = "Character.CurrencyTransfer.SourceDropdown",
-        AmountInput = "Character.CurrencyTransfer.AmountInput",
-        MaxButton = "Character.CurrencyTransfer.MaxButton",
+        SourceRow = "Character.CurrencyTransfer.SourceRow",
+        AmountRow = "Character.CurrencyTransfer.AmountRow",
+        SourceBalanceRow = "Character.CurrencyTransfer.SourceBalanceRow",
+        PlayerBalanceRow = "Character.CurrencyTransfer.PlayerBalanceRow",
         ConfirmButton = "Character.CurrencyTransfer.ConfirmButton",
         CancelButton = "Character.CurrencyTransfer.CancelButton",
     },
@@ -94,12 +105,18 @@ local IDs = {
         Scope = "Character.CurrencyTransferLog",
         Window = "Character.CurrencyTransferLog.Window",
         HeaderControls = "Character.CurrencyTransferLog.HeaderControls",
+        EmptyMessage = "Character.CurrencyTransferLog.EmptyMessage",
+        Rows = "Character.CurrencyTransferLog.Rows",
         ScrollBar = "Character.CurrencyTransferLog.ScrollBar",
     },
     ItemSocketing = {
         Scope = "Character.ItemSocketing",
         Window = "Character.ItemSocketing.Window",
         HeaderControls = "Character.ItemSocketing.HeaderControls",
+        TextContainer = "Character.ItemSocketing.ItemText",
+        ItemName = "Character.ItemSocketing.ItemText.Name",
+        ItemDetails = "Character.ItemSocketing.ItemText.Details",
+        Sockets = "Character.ItemSocketing.Sockets",
         ApplyButton = "Character.ItemSocketing.ApplyButton",
     },
 }
@@ -112,14 +129,20 @@ local tabsRegistered = false
 local applyPending = false
 local reputationSectionCardsHooked = false
 local reputationSectionCardsRegistered = false
+local reputationSubHeaderRowsRegistered = false
+local reputationRowsRegistered = false
 local currencySectionCardsHooked = false
 local currencySectionCardsRegistered = false
+local currencySubHeaderRowsRegistered = false
+local currencyRowsRegistered = false
+local currencyTransferLogRowsRegistered = false
 local hookedTabs = setmetatable({}, { __mode = "k" })
 local hookedShowOwners = setmetatable({}, { __mode = "k" })
 local concealedDetailArtwork = setmetatable({}, { __mode = "k" })
 local concealedSocketingArtwork = setmetatable({}, { __mode = "k" })
 local hookedScrollBoxes = setmetatable({}, { __mode = "k" })
 local paperDollStatsHooked = false
+local itemSocketingUpdateHooked = false
 
 NSkin:RegisterAppearanceScope(IDs.Scope, {
     label = "Character",
@@ -194,24 +217,36 @@ end
 
 
 local PAPER_DOLL_SLOTS = {
-    { name = "CharacterHeadSlot", key = "Head", label = "Head" },
-    { name = "CharacterNeckSlot", key = "Neck", label = "Neck" },
-    { name = "CharacterShoulderSlot", key = "Shoulder", label = "Shoulder" },
-    { name = "CharacterBackSlot", key = "Back", label = "Back" },
-    { name = "CharacterChestSlot", key = "Chest", label = "Chest" },
-    { name = "CharacterShirtSlot", key = "Shirt", label = "Shirt" },
-    { name = "CharacterTabardSlot", key = "Tabard", label = "Tabard" },
-    { name = "CharacterWristSlot", key = "Wrist", label = "Wrist" },
-    { name = "CharacterHandsSlot", key = "Hands", label = "Hands" },
-    { name = "CharacterWaistSlot", key = "Waist", label = "Waist" },
-    { name = "CharacterLegsSlot", key = "Legs", label = "Legs" },
-    { name = "CharacterFeetSlot", key = "Feet", label = "Feet" },
-    { name = "CharacterFinger0Slot", key = "Finger1", label = "Finger 1" },
-    { name = "CharacterFinger1Slot", key = "Finger2", label = "Finger 2" },
-    { name = "CharacterTrinket0Slot", key = "Trinket1", label = "Trinket 1" },
-    { name = "CharacterTrinket1Slot", key = "Trinket2", label = "Trinket 2" },
-    { name = "CharacterMainHandSlot", key = "MainHand", label = "Main Hand" },
-    { name = "CharacterSecondaryHandSlot", key = "OffHand", label = "Off Hand" },
+    { name = "CharacterHeadSlot", key = "Head", label = "Head", group = "Left" },
+    { name = "CharacterNeckSlot", key = "Neck", label = "Neck", group = "Left" },
+    { name = "CharacterShoulderSlot", key = "Shoulder", label = "Shoulder", group = "Left" },
+    { name = "CharacterBackSlot", key = "Back", label = "Back", group = "Left" },
+    { name = "CharacterChestSlot", key = "Chest", label = "Chest", group = "Left" },
+    { name = "CharacterShirtSlot", key = "Shirt", label = "Shirt", group = "Left" },
+    { name = "CharacterTabardSlot", key = "Tabard", label = "Tabard", group = "Left" },
+    { name = "CharacterWristSlot", key = "Wrist", label = "Wrist", group = "Left" },
+    { name = "CharacterHandsSlot", key = "Hands", label = "Hands", group = "Right" },
+    { name = "CharacterWaistSlot", key = "Waist", label = "Waist", group = "Right" },
+    { name = "CharacterLegsSlot", key = "Legs", label = "Legs", group = "Right" },
+    { name = "CharacterFeetSlot", key = "Feet", label = "Feet", group = "Right" },
+    { name = "CharacterFinger0Slot", key = "Finger1", label = "Finger 1", group = "Right" },
+    { name = "CharacterFinger1Slot", key = "Finger2", label = "Finger 2", group = "Right" },
+    { name = "CharacterTrinket0Slot", key = "Trinket1", label = "Trinket 1", group = "Right" },
+    { name = "CharacterTrinket1Slot", key = "Trinket2", label = "Trinket 2", group = "Right" },
+    { name = "CharacterMainHandSlot", key = "MainHand", label = "Main Hand", group = "Bottom" },
+    { name = "CharacterSecondaryHandSlot", key = "OffHand", label = "Off Hand", group = "Bottom" },
+}
+
+local PAPER_DOLL_GROUP_LABELS = {
+    Left = "Left equipment",
+    Right = "Right equipment",
+    Bottom = "Bottom equipment",
+}
+
+local PAPER_DOLL_GROUP_APPEARANCE_SOURCE = {
+    Left = "Head",
+    Right = "Hands",
+    Bottom = "MainHand",
 }
 
 local PAPER_DOLL_INNER_BORDER_NAMES = {
@@ -235,6 +270,7 @@ local function GetPaperDollSlots(visibleOnly)
                 frame = slot,
                 key = descriptor.key,
                 label = descriptor.label,
+                group = descriptor.group,
             }
         end
     end
@@ -246,6 +282,13 @@ local function GetPaperDollSlotTexture(slot)
     local name = slot.GetName and slot:GetName()
     return slot.icon or slot.Icon
         or (name and _G[name .. "IconTexture"])
+end
+
+local function GetPaperDollSlotQuality(slot)
+    if not slot or type(_G.GetInventoryItemQuality) ~= "function"
+        or type(slot.GetID) ~= "function"
+    then return nil end
+    return _G.GetInventoryItemQuality("player", slot:GetID())
 end
 
 local function GetPaperDollSlotDecorations(slot, icon)
@@ -262,7 +305,9 @@ local function GetPaperDollSlotDecorations(slot, icon)
     local name = slot and slot.GetName and slot:GetName()
     Add(slot and slot.IconBorder)
     Add(slot and slot.GetNormalTexture and slot:GetNormalTexture())
+    Add(slot and slot.GetPushedTexture and slot:GetPushedTexture())
     Add(name and _G[name .. "NormalTexture"])
+    Add(name and _G[name .. "PushedTexture"])
     Add(name and _G[name .. "Frame"])
 
     -- The ornate left/right/bottom slot shells are direct BACKGROUND textures.
@@ -283,6 +328,76 @@ local function GetPaperDollSlotDecorations(slot, icon)
 
     return decorations
 end
+
+local function GetModelSceneCameraButtons(controlFrame)
+    local buttons = {}
+    if not controlFrame or not controlFrame.GetChildren then return buttons end
+
+    for _, child in ipairs({ controlFrame:GetChildren() }) do
+        if child and child.GetObjectType
+            and child:GetObjectType() == "Button"
+            and child.Icon and child.Icon.SetTexCoord
+        then
+            buttons[#buttons + 1] = child
+        end
+    end
+
+    table.sort(buttons, function(left, right)
+        local leftX = left.GetLeft and left:GetLeft()
+        local rightX = right.GetLeft and right:GetLeft()
+        if leftX and rightX and leftX ~= rightX then return leftX < rightX end
+        return tostring(left) < tostring(right)
+    end)
+    return buttons
+end
+
+local function GetCameraControlIconChildren(controlFrame)
+    local children = {}
+    for _, button in ipairs(GetModelSceneCameraButtons(controlFrame)) do
+        local decorations = {}
+        local normal = button.GetNormalTexture and button:GetNormalTexture()
+            or button.NormalTexture
+        local pushed = button.GetPushedTexture and button:GetPushedTexture()
+            or button.PushedTexture
+        local highlight = button.GetHighlightTexture and button:GetHighlightTexture()
+            or button.HighlightTexture
+
+        -- Keep Blizzard's button as the logical interaction owner. ICON hides
+        -- only the square normal/pushed shell; the native highlight is handed
+        -- to the shared ICON interaction path so each camera button gets its
+        -- own hover glow instead of relying on the group's editor highlight.
+        if normal then decorations[#decorations + 1] = normal end
+        if pushed then decorations[#decorations + 1] = pushed end
+
+        children[#children + 1] = {
+            target = button,
+            texture = button.Icon,
+            borderOwner = button,
+            nativeDecorationRegions = decorations,
+            preserveAtlasTexCoords = true,
+            showBorder = false,
+            hoverRegion = highlight,
+            getHovered = function(target)
+                return target and target.IsMouseOver
+                    and target:IsMouseOver() or false
+            end,
+            refreshOn = { "OnShow", "OnEnter", "OnLeave" },
+        }
+    end
+    return children
+end
+
+local function GetVisibleCameraControlButtons(controlFrame)
+    local visible = {}
+    for _, button in ipairs(GetModelSceneCameraButtons(controlFrame)) do
+        if not button.IsShown or button:IsShown() then
+            visible[#visible + 1] = button
+        end
+    end
+    return visible
+end
+
+
 
 local function HookScrollBoxRefresh(scrollBox, callback)
     if not scrollBox or hookedScrollBoxes[scrollBox]
@@ -329,6 +444,235 @@ end
 
 local function IsRowHovered(row)
     return row and row.IsMouseOver and row:IsMouseOver() or false
+end
+
+local function GetReputationElementData(row)
+    if not row then return nil end
+    if type(row.GetElementData) == "function" then
+        local ok, data = pcall(row.GetElementData, row)
+        if ok and data then return data end
+    end
+    return row.elementData
+end
+
+local function IsReputationSubHeaderRow(row)
+    local data = GetReputationElementData(row)
+    return data and data.isHeader == true and data.isChild == true
+        and row.Content and row.Content.Name and row.Content.ReputationBar
+end
+
+local function IsReputationEntryRow(row)
+    local data = GetReputationElementData(row)
+    return data and data.isHeader ~= true
+        and row.Content and row.Content.Name and row.Content.ReputationBar
+end
+
+local function IsReputationRowSelected(row)
+    if not row or type(row.IsSelected) ~= "function" then return false end
+    local ok, selected = pcall(row.IsSelected, row)
+    return ok and selected == true or false
+end
+
+local function GetReputationRowNativeDecorations(row)
+    local regions = {}
+    local content = row and row.Content
+    local highlight = content and content.BackgroundHighlight
+    if highlight then regions[#regions + 1] = highlight end
+    return regions
+end
+
+local function GetReputationIconColumns(row, includeCollapse)
+    local columns = {}
+    local content = row and row.Content
+    if not content then return columns end
+
+    local accountWide = content.AccountWideIcon
+    if accountWide and accountWide.Icon then
+        columns[#columns + 1] = {
+            kind = "ICON",
+            target = accountWide,
+            texture = accountWide.Icon,
+            borderOwner = accountWide,
+            skinOptions = {
+                showBorder = false,
+                preserveAtlasTexCoords = true,
+            },
+        }
+    end
+
+    if includeCollapse and row.ToggleCollapseButton then
+        local collapse = row.ToggleCollapseButton
+        local data = GetReputationElementData(row)
+        columns[#columns + 1] = {
+            kind = "BUTTON",
+            target = collapse,
+            skinOptions = {
+                label = data and data.isCollapsed and "+" or "-",
+                textSize = 12,
+            },
+        }
+    end
+
+    local paragon = content.ParagonIcon
+    if paragon and paragon.Icon then
+        columns[#columns + 1] = {
+            kind = "ICON",
+            target = paragon,
+            texture = paragon.Icon,
+            borderOwner = paragon,
+            skinOptions = {
+                showBorder = false,
+                preserveAtlasTexCoords = true,
+            },
+        }
+    end
+    return columns
+end
+
+local function SkinReputationProgressBar(bar, elementID)
+    if not bar then return false end
+    local style = NSkin:GetAppearanceStyle(
+        "progressBar", IDs.Scope, elementID)
+    if not style then return false end
+    local border = NSkin:GetAppearanceBorderColor(
+        "progressBar", style, IDs.Scope, elementID)
+    return NSkin:SkinProgressBar(bar, {
+        style = style,
+        background = true,
+        backgroundColor = style.background,
+        borderColor = border,
+        useAppearanceTexture = true,
+        artworkRegions = { bar.LeftTexture, bar.RightTexture },
+        centerText = true,
+        textRegions = { bar.BarText },
+    }) == true
+end
+
+
+local function GetCurrencyElementData(row)
+    if not row then return nil end
+    if type(row.GetElementData) == "function" then
+        local ok, data = pcall(row.GetElementData, row)
+        if ok and data then return data end
+    end
+    return row.elementData
+end
+
+local function IsCurrencySubHeaderRow(row)
+    local data = GetCurrencyElementData(row)
+    return data and data.isHeader == true
+        and tonumber(data.currencyListDepth or 0) > 0
+        and row.Text and row.ToggleCollapseButton
+end
+
+local function IsCurrencyEntryRow(row)
+    local data = GetCurrencyElementData(row)
+    return data and data.isHeader ~= true
+        and row.Content and row.Content.Name and row.Content.Count
+        and row.Content.CurrencyIcon
+end
+
+local function IsCurrencyRowSelected(row)
+    if not row or type(row.IsSelected) ~= "function" then return false end
+    local ok, selected = pcall(row.IsSelected, row)
+    return ok and selected == true or false
+end
+
+local function GetCurrencyRowNativeDecorations(row)
+    local content = row and row.Content
+    local highlight = content and content.BackgroundHighlight
+    return highlight and { highlight } or {}
+end
+
+local function GetCurrencyRowColumns(row, includeCollapse)
+    local columns = {}
+    if includeCollapse then
+        local collapse = row and row.ToggleCollapseButton
+        local data = GetCurrencyElementData(row)
+        if collapse then
+            columns[#columns + 1] = {
+                kind = "BUTTON",
+                target = collapse,
+                skinOptions = {
+                    label = data and data.isHeaderExpanded and "-" or "+",
+                    textSize = 12,
+                },
+            }
+        end
+        if row and row.Text then
+            columns[#columns + 1] = {
+                kind = "TEXT",
+                target = row.Text,
+            }
+        end
+        return columns
+    end
+
+    local content = row and row.Content
+    if not content then return columns end
+
+    local accountWide = content.AccountWideIcon
+    if accountWide and accountWide.Icon then
+        columns[#columns + 1] = {
+            kind = "ICON",
+            target = accountWide,
+            texture = accountWide.Icon,
+            borderOwner = accountWide,
+            skinOptions = {
+                showBorder = false,
+                preserveAtlasTexCoords = true,
+            },
+        }
+    end
+
+    columns[#columns + 1] = {
+        kind = "TEXT",
+        target = content.Name,
+    }
+    columns[#columns + 1] = {
+        kind = "TEXT",
+        target = content.Count,
+    }
+    columns[#columns + 1] = {
+        kind = "ICON",
+        target = content.CurrencyIcon,
+        texture = content.CurrencyIcon,
+        borderOwner = content,
+    }
+
+    -- WatchedCurrencyCheck is a semantic state indicator rather than a
+    -- separately editable icon, so leave it Blizzard-owned.
+    return columns
+end
+
+local function IsCurrencyTransferLogRow(row)
+    return row and row.SourceName and row.DestinationName
+        and row.CurrencyQuantity and row.CurrencyIcon
+end
+
+local function GetTransferLogNativeDecorations(row)
+    return row and row.BackgroundHighlight
+        and { row.BackgroundHighlight } or {}
+end
+
+local function RegisterFlatButton(id, scopeID, label, window, button, priority)
+    if not button then return nil end
+    return NSkin:RegisterTypedElement("BUTTON", {
+        id = id,
+        module = "Character",
+        appearanceWindowID = scopeID,
+        label = label,
+        window = window,
+        target = button,
+        priority = priority,
+        skinOptions = {
+            label = button.GetText and button:GetText() or "",
+        },
+        highlightRegions = { button },
+        isEditable = function()
+            return window:IsVisible() and button:IsVisible()
+        end,
+    })
 end
 
 local function GetRowDecorationRegions(row)
@@ -400,6 +744,7 @@ local function SkinCharacterSectionCards(scrollBox, elementID, registered)
             NSkin:SkinSectionCard(frame, {
                 style = style,
                 border = border,
+                showBackground = true,
                 collapsible = true,
                 getExpanded = IsCharacterSectionCardExpanded,
                 textRegion = frame.Name,
@@ -413,7 +758,7 @@ local function SkinCharacterSectionCards(scrollBox, elementID, registered)
 end
 
 local function ApplyAuxiliaryWindowChrome(frame, scopeID, windowID,
-    headerControlsID, label, title)
+    headerControlsID, label, title, closeButton)
     if not frame then return false end
 
     NSkin:SkinStandardWindowChrome({
@@ -422,6 +767,7 @@ local function ApplyAuxiliaryWindowChrome(frame, scopeID, windowID,
         elementID = windowID,
         headerControlsID = headerControlsID,
         title = title,
+        closeButton = closeButton,
     })
     NSkin:RegisterSkinningElement(windowID, {
         label = label,
@@ -439,6 +785,10 @@ end
 
 function CharacterSkin:ApplyWindowChrome(frame)
     if not frame then return false end
+
+    -- CharacterFrame adds its own panel atlas on top of ButtonFrameTemplate.
+    -- It is decorative chrome and must not remain visible behind skinned tabs.
+    ConcealTexture(frame.Background)
 
     NSkin:SkinStandardWindowChrome({
         frame = frame,
@@ -496,37 +846,6 @@ function CharacterSkin:ApplyTabs(frame)
 end
 
 
-local function RegisterCharacterSectionHeader(frame, id, label, header, priority)
-    if not header or not header.Title then return false end
-
-    local function Refresh()
-        ConcealTexture(header.Background)
-        local style = NSkin:GetAppearanceStyle("text", IDs.Scope, id)
-        return NSkin:SkinText(header.Title, style) ~= nil
-    end
-
-    local registered = NSkin:RegisterSkinningElement(id, {
-        module = "Character",
-        appearanceWindowID = IDs.Scope,
-        label = label,
-        kind = "SECTION_HEADER",
-        window = frame,
-        target = header,
-        priority = priority,
-        draggable = false,
-        appearanceStyles = { "text" },
-        appearanceTypeIDs = { "TEXT" },
-        highlightRegions = { header },
-        refreshAppearance = Refresh,
-        refreshLayout = Refresh,
-        isEditable = function()
-            return frame:IsVisible() and header:IsVisible()
-        end,
-    })
-    Refresh()
-    return registered == true
-end
-
 function CharacterSkin:ApplyPaperDollStats(frame)
     local pane = _G.CharacterStatsPane
     if not frame or not pane then return false end
@@ -536,38 +855,163 @@ function CharacterSkin:ApplyPaperDollStats(frame)
     ConcealTexture(pane.ClassBackground)
 
     local applied = false
-    applied = RegisterCharacterSectionHeader(
-        frame, IDs.PaperDoll.Stats.ItemLevelHeader,
-        "Item level header", pane.ItemLevelCategory, 64) or applied
-    applied = RegisterCharacterSectionHeader(
-        frame, IDs.PaperDoll.Stats.AttributesHeader,
-        "Attributes header", pane.AttributesCategory, 65) or applied
-    applied = RegisterCharacterSectionHeader(
-        frame, IDs.PaperDoll.Stats.EnhancementsHeader,
-        "Enhancements header", pane.EnhancementsCategory, 66) or applied
 
+    local itemLevelHeader = pane.ItemLevelCategory
     local itemLevelFrame = pane.ItemLevelFrame
-    if itemLevelFrame then
-        ConcealTexture(itemLevelFrame.Background)
-        local value = itemLevelFrame.Value
-        if value then
-            local element = NSkin:RegisterTextElement({
-                id = IDs.PaperDoll.Stats.ItemLevelValue,
+    local itemLevelTitle = itemLevelHeader and itemLevelHeader.Title
+    local itemLevelValue = itemLevelFrame and itemLevelFrame.Value
+
+    -- Item Level is one logical Blizzard block, separate from the
+    -- Attributes/Enhancements header composite.
+    if itemLevelHeader and itemLevelFrame and itemLevelTitle and itemLevelValue then
+        local function RefreshItemLevel()
+            ConcealTexture(itemLevelHeader.Background)
+            ConcealTexture(itemLevelFrame.Background)
+            local style = NSkin:GetAppearanceStyle(
+                "text", IDs.Scope, IDs.PaperDoll.Stats.ItemLevelHeader)
+            local changed = NSkin:SkinText(itemLevelTitle, style) == true
+            changed = NSkin:SkinText(itemLevelValue, style) == true or changed
+            NSkin:NotifySkinningElementBoundsChanged(
+                IDs.PaperDoll.Stats.ItemLevelHeader)
+            return changed
+        end
+
+        applied = NSkin:RegisterSkinningElement(
+            IDs.PaperDoll.Stats.ItemLevelHeader, {
                 module = "Character",
                 appearanceWindowID = IDs.Scope,
-                label = "Item level value",
+                label = "Item level",
+                kind = "TEXT",
                 window = frame,
-                target = value,
-                priority = 67,
-                highlightRegions = { itemLevelFrame },
+                target = itemLevelHeader,
+                priority = 64,
+                draggable = false,
+                appearanceStyles = { "text" },
+                appearanceTypeIDs = { "TEXT" },
+                editorOptions = {
+                    { id = "shared.textAppearance", label = "Text",
+                        category = "CUSTOMIZE" },
+                },
+                composition = {
+                    mode = "COMPOSITE",
+                    movementOwner = itemLevelHeader,
+                    members = {
+                        { kind = "TEXT", role = "PRIMARY",
+                            target = itemLevelTitle, label = "Label" },
+                        { kind = "TEXT", role = "SECONDARY",
+                            target = itemLevelValue, label = "Value" },
+                    },
+                },
+                highlightRegions = { itemLevelHeader, itemLevelFrame },
+                refreshAppearance = RefreshItemLevel,
+                refreshLayout = RefreshItemLevel,
                 isEditable = function()
                     return frame:IsVisible() and pane:IsVisible()
+                        and itemLevelHeader:IsVisible()
                         and itemLevelFrame:IsVisible()
                 end,
-            })
-            if element then NSkin:RefreshTypedElementAppearance(element) end
-            applied = element ~= nil or applied
+            }) == true or applied
+
+        NSkin:RegisterSkinningElement(IDs.PaperDoll.Stats.ItemLevelValue, {
+            module = "Character",
+            appearanceWindowID = IDs.Scope,
+            label = "Item level value",
+            kind = "TEXT",
+            window = frame,
+            target = itemLevelValue,
+            priority = 67,
+            draggable = false,
+            compositionParentID = IDs.PaperDoll.Stats.ItemLevelHeader,
+            highlightRegions = { itemLevelFrame },
+            refreshAppearance = RefreshItemLevel,
+            refreshLayout = RefreshItemLevel,
+            isEditable = function()
+                return frame:IsVisible() and pane:IsVisible()
+                    and itemLevelFrame:IsVisible()
+            end,
+        })
+        RefreshItemLevel()
+    end
+
+    local attributesHeader = pane.AttributesCategory
+    local enhancementsHeader = pane.EnhancementsCategory
+    local attributesTitle = attributesHeader and attributesHeader.Title
+    local enhancementsTitle = enhancementsHeader and enhancementsHeader.Title
+    if attributesHeader and enhancementsHeader
+        and attributesTitle and enhancementsTitle
+    then
+        local function RefreshStatHeaders()
+            ConcealTexture(attributesHeader.Background)
+            ConcealTexture(enhancementsHeader.Background)
+            local style = NSkin:GetAppearanceStyle(
+                "text", IDs.Scope, IDs.PaperDoll.Stats.AttributesHeader)
+            local changed = NSkin:SkinText(attributesTitle, style) == true
+            changed = NSkin:SkinText(enhancementsTitle, style) == true or changed
+            NSkin:NotifySkinningElementBoundsChanged(
+                IDs.PaperDoll.Stats.AttributesHeader)
+            return changed
         end
+
+        applied = NSkin:RegisterSkinningElement(
+            IDs.PaperDoll.Stats.AttributesHeader, {
+                module = "Character",
+                appearanceWindowID = IDs.Scope,
+                label = "Attribute and enhancement headers",
+                kind = "TEXT",
+                window = frame,
+                target = attributesHeader,
+                priority = 65,
+                draggable = false,
+                appearanceStyles = { "text" },
+                appearanceTypeIDs = { "TEXT" },
+                editorOptions = {
+                    { id = "shared.textAppearance", label = "Text",
+                        category = "CUSTOMIZE" },
+                },
+                composition = {
+                    mode = "COMPOSITE",
+                    movementOwner = attributesHeader,
+                    members = {
+                        { kind = "TEXT", role = "PRIMARY",
+                            target = attributesTitle, label = "Attributes" },
+                        { kind = "TEXT", role = "SECONDARY",
+                            target = enhancementsTitle, label = "Enhancements" },
+                    },
+                },
+                highlightRegions = {
+                    attributesHeader, enhancementsHeader,
+                },
+                refreshAppearance = RefreshStatHeaders,
+                refreshLayout = RefreshStatHeaders,
+                isEditable = function()
+                    return frame:IsVisible() and pane:IsVisible()
+                        and attributesHeader:IsVisible()
+                        and enhancementsHeader:IsVisible()
+                end,
+            }) == true or applied
+
+        -- Preserve the previous Enhancements canonical ID as a structural child
+        -- while exposing the pair as one composite in Skinning Mode.
+        NSkin:RegisterSkinningElement(
+            IDs.PaperDoll.Stats.EnhancementsHeader, {
+                module = "Character",
+                appearanceWindowID = IDs.Scope,
+                label = "Enhancements header",
+                kind = "TEXT",
+                window = frame,
+                target = enhancementsTitle,
+                priority = 66,
+                draggable = false,
+                compositionParentID = IDs.PaperDoll.Stats.AttributesHeader,
+                highlightRegions = { enhancementsHeader },
+                refreshAppearance = RefreshStatHeaders,
+                refreshLayout = RefreshStatHeaders,
+                isEditable = function()
+                    return frame:IsVisible() and pane:IsVisible()
+                        and enhancementsHeader:IsVisible()
+                end,
+            })
+        RefreshStatHeaders()
     end
 
     local function RefreshRows()
@@ -580,7 +1024,9 @@ function CharacterSkin:ApplyPaperDollStats(frame)
             changed = NSkin:SkinRow(row, {
                 style = style,
                 border = border,
+                surfaceInset = 0,
                 nativeDecorationRegions = { row.Background },
+                getHovered = IsRowHovered,
                 columns = {
                     { kind = "TEXT", target = row.Label },
                     { kind = "TEXT", target = row.Value },
@@ -654,26 +1100,16 @@ function CharacterSkin:ApplyPaperDollSkin(frame)
         ConcealTexture(sidebarTabs.DecorRight)
     end
 
-    local preserveModel = {
-        [modelScene.BackgroundTopLeft] = true,
-        [modelScene.BackgroundTopRight] = true,
-        [modelScene.BackgroundBotLeft] = true,
-        [modelScene.BackgroundBotRight] = true,
-        [modelScene.BackgroundOverlay] = true,
-    }
-
-    if modelScene.GetRegions then
-        for _, region in ipairs({ modelScene:GetRegions() }) do
-            if region and region.GetObjectType
-                and region:GetObjectType() == "Texture"
-                and not preserveModel[region]
-            then
-                ConcealTexture(region)
-            end
-        end
-    end
+    -- Hide only Blizzard's audited Paper Doll model-scene backdrop. No
+    -- replacement Paper Doll-specific background is created in this pass.
+    ConcealTexture(modelScene.BackgroundTopLeft)
+    ConcealTexture(modelScene.BackgroundTopRight)
+    ConcealTexture(modelScene.BackgroundBotLeft)
+    ConcealTexture(modelScene.BackgroundBotRight)
+    ConcealTexture(modelScene.BackgroundOverlay)
 
     local applied = false
+
 
     if _G.CharacterLevelText then
         local levelText = NSkin:RegisterTextElement({
@@ -694,7 +1130,9 @@ function CharacterSkin:ApplyPaperDollSkin(frame)
         applied = levelText ~= nil or applied
     end
 
-    -- Persistent equipment slots get stable individual ICON registrations.
+    -- Keep stable per-slot ICON registrations for lifecycle/reset ownership,
+    -- but expose them as three editor/appearance anchor groups matching the
+    -- Blizzard paper-doll layout: left, right, and bottom.
     for _, descriptor in ipairs(GetPaperDollSlots(false)) do
         local slot = descriptor.frame
         local icon = GetPaperDollSlotTexture(slot)
@@ -706,8 +1144,13 @@ function CharacterSkin:ApplyPaperDollSkin(frame)
                 label = descriptor.label .. " equipment slot",
                 window = frame,
                 target = slot,
+                anchorGroupID = IDs.PaperDoll.EquipmentGroups[descriptor.group],
+                anchorGroupLabel = PAPER_DOLL_GROUP_LABELS[descriptor.group],
+                anchorGroupAppearanceSource = IDs.PaperDoll.EquipmentSlotPrefix
+                    .. PAPER_DOLL_GROUP_APPEARANCE_SOURCE[descriptor.group],
                 texture = icon,
                 borderOwner = slot,
+                qualityProvider = GetPaperDollSlotQuality,
                 nativeDecorationRegions =
                     GetPaperDollSlotDecorations(slot, icon),
                 priority = 60,
@@ -718,6 +1161,35 @@ function CharacterSkin:ApplyPaperDollSkin(frame)
             })
             applied = element ~= nil or applied
         end
+    end
+    local controlFrame = modelScene.ControlFrame
+    if controlFrame then
+        local cameraGroup = NSkin:RegisterIconGroup({
+            id = IDs.PaperDoll.CameraControls,
+            module = "Character",
+            appearanceWindowID = IDs.Scope,
+            label = "Camera controls",
+            window = frame,
+            target = controlFrame,
+            priority = 69,
+            draggable = false,
+            children = function()
+                return GetCameraControlIconChildren(controlFrame)
+            end,
+            highlightRegions = function()
+                return GetVisibleCameraControlButtons(controlFrame)
+            end,
+            pixelBorderTargets = function()
+                return GetVisibleCameraControlButtons(controlFrame)
+            end,
+            isEditable = function()
+                return frame:IsVisible() and paperDoll:IsVisible()
+                    and controlFrame:IsVisible()
+                    and #GetVisibleCameraControlButtons(controlFrame) > 0
+            end,
+        })
+        applied = cameraGroup ~= nil or applied
+        HookOwnerRefresh(controlFrame)
     end
 
     applied = self:ApplyPaperDollStats(frame) or applied
@@ -777,6 +1249,7 @@ function CharacterSkin:ApplyTitleRows(frame, titles)
                 applied = NSkin:SkinRow(row, {
                     style = style,
                     border = border,
+                    surfaceInset = 0,
                     nativeDecorationRegions = GetRowDecorationRegions(row),
                     hoverRegion = row.GetHighlightTexture
                         and row:GetHighlightTexture() or nil,
@@ -992,10 +1465,6 @@ function CharacterSkin:ApplyPaperDollControls(frame)
         end,
     }) ~= nil or applied
 
-    -- ModelSceneControlFrame glyphs are atlas-backed. The current ICON shared
-    -- component rewrites texcoords, so registering these as ICON children would
-    -- corrupt their atlas presentation. Keep the Blizzard camera controls
-    -- untouched until ICON gains a generic preserve-native-texcoords option.
 
     HookOwnerRefresh(titles)
     HookOwnerRefresh(equipment)
@@ -1029,10 +1498,127 @@ function CharacterSkin:ApplyEquipmentManagerPopup()
     })
 end
 
+function CharacterSkin:ApplyReputationRows(frame)
+    local reputation = _G.ReputationFrame
+    local scrollBox = reputation and reputation.ScrollBox
+    if not frame or not reputation or not scrollBox then return false end
+
+    local function RefreshFamily(elementID, predicate, includeCollapse)
+        local resolvedRowStyle = NSkin:GetAppearanceStyle(
+            "row", IDs.Scope, elementID)
+        local rowStyle = {}
+        for key, value in pairs(resolvedRowStyle or {}) do
+            rowStyle[key] = value
+        end
+        -- Reputation entries are list records rather than boxed cards. Keep
+        -- their default presentation borderless while retaining ROW-owned
+        -- background/hover/selection behavior.
+        rowStyle.borderSize = 0
+        local rowBorder = NSkin:GetAppearanceBorderColor(
+            "row", rowStyle, IDs.Scope, elementID)
+        local applied = false
+
+        NSkin:ForEachScrollBoxFrame(scrollBox, function(row)
+            if not predicate(row) then return end
+            local content = row.Content
+            local columns = GetReputationIconColumns(row, includeCollapse)
+            columns[#columns + 1] = {
+                kind = "TEXT",
+                target = content.Name,
+            }
+
+            local rowState = NSkin:SkinRow(row, {
+                style = rowStyle,
+                border = rowBorder,
+                showBackground = false,
+                nativeDecorationRegions = GetReputationRowNativeDecorations(row),
+                getHovered = IsRowHovered,
+                getSelected = IsReputationRowSelected,
+                columns = columns,
+                elementID = elementID,
+                appearanceWindowID = IDs.Scope,
+            })
+            if rowState and rowState.border then
+                NSkin:SetPixelBorderShown(rowState.border, false)
+            end
+            applied = rowState ~= nil or applied
+
+            applied = SkinReputationProgressBar(
+                content.ReputationBar, elementID) or applied
+        end)
+
+        NSkin:NotifySkinningElementBoundsChanged(elementID)
+        return applied
+    end
+
+    local function RegisterFamily(elementID, label, predicate, includeCollapse,
+        priority)
+        local registeredFlag = elementID == IDs.ReputationSubHeaderRows
+            and reputationSubHeaderRowsRegistered or reputationRowsRegistered
+        if not registeredFlag then
+            local registered = NSkin:RegisterSkinningElement(elementID, {
+                module = "Character",
+                appearanceWindowID = IDs.Scope,
+                label = label,
+                kind = "ROW",
+                window = frame,
+                target = scrollBox,
+                priority = priority,
+                draggable = false,
+                appearanceStyles = { "row", "text", "icon", "progressBar" },
+                appearanceTypeIDs = { "ROW", "TEXT", "ICON", "PROGRESS_BAR" },
+                editorOptions = {
+                    { id = "shared.rowAppearance", label = "Row",
+                        category = "CUSTOMIZE" },
+                    { id = "shared.textAppearance", label = "Text",
+                        category = "CUSTOMIZE" },
+                    { id = "shared.iconAppearance", label = "Icons",
+                        category = "CUSTOMIZE" },
+                },
+                highlightRegions = function()
+                    return GetVisibleScrollBoxRows(scrollBox, predicate)
+                end,
+                pixelBorderTargets = function()
+                    return GetVisibleScrollBoxRows(scrollBox, predicate)
+                end,
+                refreshAppearance = function()
+                    return RefreshFamily(elementID, predicate, includeCollapse)
+                end,
+                refreshLayout = function()
+                    return RefreshFamily(elementID, predicate, includeCollapse)
+                end,
+                isEditable = function()
+                    return frame:IsVisible() and reputation:IsVisible()
+                        and #GetVisibleScrollBoxRows(scrollBox, predicate) > 0
+                end,
+            }) == true
+            if elementID == IDs.ReputationSubHeaderRows then
+                reputationSubHeaderRowsRegistered = registered
+            else
+                reputationRowsRegistered = registered
+            end
+        end
+        return RefreshFamily(elementID, predicate, includeCollapse)
+    end
+
+    local applied = RegisterFamily(
+        IDs.ReputationSubHeaderRows, "Reputation subheader rows",
+        IsReputationSubHeaderRow, true, 87)
+    applied = RegisterFamily(
+        IDs.ReputationRows, "Reputation faction rows",
+        IsReputationEntryRow, false, 88) or applied
+    return applied
+end
+
 function CharacterSkin:ApplyReputationDropdown(frame)
     local reputation = _G.ReputationFrame
     local scrollBox = reputation and reputation.ScrollBox
     local dropdown = reputation and reputation.filterDropdown
+    -- WowScrollBoxList contributes its own edge/shadow backdrop. It is
+    -- decorative chrome and otherwise remains visible behind the skinned rows.
+    if scrollBox then
+        ConcealTexture(scrollBox.Shadows or scrollBox.shadows)
+    end
     local applied = NSkin:RegisterDropdown({
         id = IDs.ReputationDropdown, module = "Character",
         appearanceWindowID = IDs.Scope,
@@ -1058,6 +1644,7 @@ function CharacterSkin:ApplyReputationDropdown(frame)
     }) or applied
     applied = SkinCharacterSectionCards(scrollBox,
         IDs.ReputationSectionCards, reputationSectionCardsRegistered) or applied
+    applied = self:ApplyReputationRows(frame) or applied
     if scrollBox and not reputationSectionCardsRegistered then
         reputationSectionCardsRegistered = NSkin:RegisterSkinningElement(
             IDs.ReputationSectionCards, {
@@ -1089,6 +1676,7 @@ function CharacterSkin:ApplyReputationDropdown(frame)
             SkinCharacterSectionCards(updatedScrollBox,
                 IDs.ReputationSectionCards,
                 reputationSectionCardsRegistered)
+            CharacterSkin:ApplyReputationRows(frame)
         end)
         reputationSectionCardsHooked = true
     end
@@ -1172,14 +1760,121 @@ function CharacterSkin:ApplyReputationDetails()
     return applied
 end
 
+function CharacterSkin:ApplyCurrencyRows(frame)
+    local currency = _G.TokenFrame
+    local scrollBox = currency and currency.ScrollBox
+    if not frame or not currency or not scrollBox then return false end
+
+    local function RefreshFamily(elementID, predicate, includeCollapse)
+        local resolvedRowStyle = NSkin:GetAppearanceStyle(
+            "row", IDs.Scope, elementID)
+        local rowStyle = {}
+        for key, value in pairs(resolvedRowStyle or {}) do
+            rowStyle[key] = value
+        end
+        -- Currency entries are lightweight list records. Keep their default
+        -- presentation borderless while ROW owns background/hover/selection.
+        rowStyle.borderSize = 0
+        local rowBorder = NSkin:GetAppearanceBorderColor(
+            "row", rowStyle, IDs.Scope, elementID)
+        local applied = false
+
+        NSkin:ForEachScrollBoxFrame(scrollBox, function(row)
+            if not predicate(row) then return end
+            local rowState = NSkin:SkinRow(row, {
+                style = rowStyle,
+                border = rowBorder,
+                showBackground = false,
+                nativeDecorationRegions = GetCurrencyRowNativeDecorations(row),
+                getHovered = IsRowHovered,
+                getSelected = includeCollapse and nil or IsCurrencyRowSelected,
+                columns = GetCurrencyRowColumns(row, includeCollapse),
+                elementID = elementID,
+                appearanceWindowID = IDs.Scope,
+            })
+            if rowState and rowState.border then
+                NSkin:SetPixelBorderShown(rowState.border, false)
+            end
+            applied = rowState ~= nil or applied
+        end)
+
+        NSkin:NotifySkinningElementBoundsChanged(elementID)
+        return applied
+    end
+
+    local function RegisterFamily(elementID, label, predicate, includeCollapse,
+        priority)
+        local registeredFlag = elementID == IDs.CurrencySubHeaderRows
+            and currencySubHeaderRowsRegistered or currencyRowsRegistered
+        if not registeredFlag then
+            local registered = NSkin:RegisterSkinningElement(elementID, {
+                module = "Character",
+                appearanceWindowID = IDs.Scope,
+                label = label,
+                kind = "ROW",
+                window = frame,
+                target = scrollBox,
+                priority = priority,
+                draggable = false,
+                appearanceStyles = { "row", "text", "icon" },
+                appearanceTypeIDs = { "ROW", "TEXT", "ICON" },
+                editorOptions = {
+                    { id = "shared.rowAppearance", label = "Row",
+                        category = "CUSTOMIZE" },
+                    { id = "shared.textAppearance", label = "Text",
+                        category = "CUSTOMIZE" },
+                    { id = "shared.iconAppearance", label = "Icons",
+                        category = "CUSTOMIZE" },
+                },
+                highlightRegions = function()
+                    return GetVisibleScrollBoxRows(scrollBox, predicate)
+                end,
+                pixelBorderTargets = function()
+                    return GetVisibleScrollBoxRows(scrollBox, predicate)
+                end,
+                refreshAppearance = function()
+                    return RefreshFamily(elementID, predicate, includeCollapse)
+                end,
+                refreshLayout = function()
+                    return RefreshFamily(elementID, predicate, includeCollapse)
+                end,
+                isEditable = function()
+                    return frame:IsVisible() and currency:IsVisible()
+                        and #GetVisibleScrollBoxRows(scrollBox, predicate) > 0
+                end,
+            }) == true
+            if elementID == IDs.CurrencySubHeaderRows then
+                currencySubHeaderRowsRegistered = registered
+            else
+                currencyRowsRegistered = registered
+            end
+        end
+        return RefreshFamily(elementID, predicate, includeCollapse)
+    end
+
+    local applied = RegisterFamily(
+        IDs.CurrencySubHeaderRows, "Currency subheader rows",
+        IsCurrencySubHeaderRow, true, 89)
+    applied = RegisterFamily(
+        IDs.CurrencyRows, "Currency rows",
+        IsCurrencyEntryRow, false, 90) or applied
+    return applied
+end
+
 function CharacterSkin:ApplyCurrencyDropdown(frame)
     local currency = _G.TokenFrame
     local scrollBox = currency and currency.ScrollBox
     local dropdown = currency and currency.filterDropdown
-    local applied = NSkin:RegisterDropdown({
+    local transferLogButton = currency and currency.CurrencyTransferLogToggleButton
+
+    if scrollBox then
+        ConcealTexture(scrollBox.Shadows or scrollBox.shadows)
+    end
+
+    local dropdownElement = NSkin:RegisterDropdown({
         id = IDs.CurrencyDropdown, module = "Character",
         appearanceWindowID = IDs.Scope,
-        label = "Currency filter dropdown", window = frame,
+        label = "Currency filter and transfer log", window = frame,
         target = dropdown, menus = { "MENU_CURRENCY_FRAME_FILTER" },
         priority = 85,
         highlightRegions = { dropdown },
@@ -1188,19 +1883,134 @@ function CharacterSkin:ApplyCurrencyDropdown(frame)
                 and dropdown:IsVisible()
         end,
     })
+    local applied = dropdownElement ~= nil
+
+    if transferLogButton then
+        local normalTexture = transferLogButton.GetNormalTexture
+            and transferLogButton:GetNormalTexture()
+            or transferLogButton.NormalTexture
+        local pushedTexture = transferLogButton.GetPushedTexture
+            and transferLogButton:GetPushedTexture()
+            or transferLogButton.PushedTexture
+        local highlightTexture = transferLogButton.GetHighlightTexture
+            and transferLogButton:GetHighlightTexture()
+            or transferLogButton.HighlightTexture
+
+        -- Keep Blizzard's 22x22 button unchanged as the interaction/anchor owner.
+        -- A larger mouse-transparent visual frame provides enough room for the
+        -- custom scroll icon and its border without shifting Blizzard layout.
+        -- The icon itself stays smaller than the border anchor so edge detail is
+        -- not covered by the 1px border (especially the scroll top/bottom curls).
+        local visual = transferLogButton.NSkinTransferLogVisual
+        if not visual and _G.CreateFrame then
+            visual = _G.CreateFrame("Frame", nil, transferLogButton)
+            visual:EnableMouse(false)
+            visual:SetSize(32, 32)
+            visual:SetPoint("CENTER", transferLogButton, "CENTER", 0, 0)
+            if visual.SetFrameLevel and transferLogButton.GetFrameLevel then
+                visual:SetFrameLevel(transferLogButton:GetFrameLevel() + 1)
+            end
+            transferLogButton.NSkinTransferLogVisual = visual
+        end
+
+        local presentation = transferLogButton.NSkinTransferLogIcon
+        if visual and not presentation and visual.CreateTexture then
+            presentation = visual:CreateTexture(nil, "ARTWORK", nil, 7)
+            presentation:SetSize(20, 20)
+            presentation:SetPoint("CENTER", visual, "CENTER", 0, 0)
+            presentation:SetTexture(NSkin.mediaPath .. "ancient-scroll.png")
+            NSkin:ConfigureOwnedPixelTexture(presentation)
+            transferLogButton.NSkinTransferLogIcon = presentation
+        end
+
+        if presentation and visual then
+            visual:ClearAllPoints()
+            visual:SetPoint("CENTER", transferLogButton, "CENTER", 0, 0)
+            visual:SetSize(32, 32)
+            visual:Show()
+
+            presentation:ClearAllPoints()
+            presentation:SetPoint("CENTER", visual, "CENTER", 0, 0)
+            presentation:SetSize(20, 20)
+            presentation:SetTexture(NSkin.mediaPath .. "ancient-scroll.png")
+            presentation:Show()
+
+            local function RefreshTransferLogIcon()
+                local iconStyle = NSkin:GetAppearanceStyle(
+                    "icon", IDs.Scope, IDs.CurrencyDropdown)
+                NSkin:SkinIcon(transferLogButton, {
+                    texture = presentation,
+                    borderOwner = visual,
+                    style = iconStyle,
+                    width = 20,
+                    height = 20,
+                    crop = 1,
+                    zoom = 0,
+                    showBorder = true,
+                    borderSize = 1,
+                    borderPadding = 4,
+                    borderMode = "fixed",
+                    preserveTexCoords = true,
+                    nativeDecorationRegions = {
+                        normalTexture, pushedTexture, highlightTexture,
+                    },
+                })
+                return true
+            end
+
+            RefreshTransferLogIcon()
+
+            -- The dropdown and transfer-log icon are one logical editor control.
+            -- DROPDOWN remains the primary/movement owner; ICON contributes its
+            -- canonical appearance options as the secondary composite member.
+            if dropdownElement then
+                dropdownElement.composition = {
+                    mode = "COMPOSITE",
+                    movementOwner = dropdown,
+                    members = {
+                        { kind = "DROPDOWN", role = "PRIMARY",
+                            target = dropdown, label = "Filter" },
+                        { kind = "ICON", role = "SECONDARY",
+                            target = visual, label = "Transfer Log" },
+                    },
+                }
+                dropdownElement.highlightRegions = { dropdown, visual }
+                local originalRefreshAppearance = dropdownElement.refreshAppearance
+                local originalRefreshLayout = dropdownElement.refreshLayout
+                dropdownElement.refreshAppearance = function(owner, element)
+                    local refreshed = originalRefreshAppearance
+                        and originalRefreshAppearance(owner, element)
+                    RefreshTransferLogIcon()
+                    return refreshed ~= false
+                end
+                dropdownElement.refreshLayout = function(owner, element)
+                    local refreshed = originalRefreshLayout
+                        and originalRefreshLayout(owner, element)
+                    RefreshTransferLogIcon()
+                    NSkin:NotifySkinningElementBoundsChanged(element.id)
+                    return refreshed ~= false
+                end
+                NSkin:InitializeElementComposition(dropdownElement)
+            end
+        end
+    end
+
     applied = NSkin:RegisterScrollBar({
         id = IDs.CurrencyScrollBar, module = "Character",
         appearanceWindowID = IDs.Scope,
         label = "Currency scroll bar", window = frame,
-        target = currency and currency.ScrollBar, priority = 86,
+        target = currency and currency.ScrollBar, priority = 87,
         highlightRegions = { currency and currency.ScrollBar },
         isEditable = function()
             return frame:IsVisible() and currency:IsVisible()
                 and currency.ScrollBar:IsVisible()
         end,
     }) or applied
+
     applied = SkinCharacterSectionCards(scrollBox,
         IDs.CurrencySectionCards, currencySectionCardsRegistered) or applied
+    applied = self:ApplyCurrencyRows(frame) or applied
+
     if scrollBox and not currencySectionCardsRegistered then
         currencySectionCardsRegistered = NSkin:RegisterSkinningElement(
             IDs.CurrencySectionCards, {
@@ -1210,7 +2020,7 @@ function CharacterSkin:ApplyCurrencyDropdown(frame)
                 kind = "SECTION_CARD",
                 window = frame,
                 target = scrollBox,
-                priority = 87,
+                priority = 88,
                 draggable = false,
                 highlightRegions = function()
                     return GetVisibleCharacterSectionCards(scrollBox)
@@ -1225,15 +2035,18 @@ function CharacterSkin:ApplyCurrencyDropdown(frame)
                 end,
             }) == true
     end
+
     if scrollBox and not currencySectionCardsHooked
         and _G.hooksecurefunc and type(scrollBox.Update) == "function"
     then
         _G.hooksecurefunc(scrollBox, "Update", function(updatedScrollBox)
             SkinCharacterSectionCards(updatedScrollBox,
                 IDs.CurrencySectionCards, currencySectionCardsRegistered)
+            CharacterSkin:ApplyCurrencyRows(frame)
         end)
         currencySectionCardsHooked = true
     end
+
     if applied then HookOwnerRefresh(currency) end
     return applied ~= nil
 end
@@ -1242,13 +2055,14 @@ function CharacterSkin:ApplyCurrencyOptions()
     local popup = _G.TokenFramePopup
     if not popup then return false end
 
-    -- SecureDialogBorderTemplate is not part of the standard window chrome,
-    -- but its artwork is. Preserve the frame while suppressing that artwork.
     NSkin:ConcealWindowArtwork(popup.Border)
+    local popupCloseButton = popup.CloseButton
+        or popup["$parent.CloseButton"]
+        or _G.TokenFramePopupCloseButton
     local applied = ApplyAuxiliaryWindowChrome(
         popup, IDs.CurrencyOptions.Scope, IDs.CurrencyOptions.Window,
         IDs.CurrencyOptions.HeaderControls, "Currency Options window",
-        popup.Title)
+        popup.Title, popupCloseButton)
 
     local unused = popup.InactiveCheckbox
     local backpack = popup.BackpackCheckbox
@@ -1258,6 +2072,7 @@ function CharacterSkin:ApplyCurrencyOptions()
         appearanceWindowID = IDs.CurrencyOptions.Scope,
         label = "Show unused currencies", window = popup,
         target = unused, text = GetCheckboxText(unused), priority = 70,
+        skinOptions = { visualSize = 14 },
         highlightRegions = { unused },
         isEditable = function()
             return popup:IsVisible() and unused:IsVisible()
@@ -1268,6 +2083,7 @@ function CharacterSkin:ApplyCurrencyOptions()
         appearanceWindowID = IDs.CurrencyOptions.Scope,
         label = "Show currency on backpack", window = popup,
         target = backpack, text = GetCheckboxText(backpack), priority = 71,
+        skinOptions = { visualSize = 14 },
         highlightRegions = { backpack },
         isEditable = function()
             return popup:IsVisible() and backpack:IsVisible()
@@ -1286,12 +2102,144 @@ function CharacterSkin:ApplyCurrencyOptions()
     return applied
 end
 
+local function GetTransferRowStyle(scopeID, elementID)
+    local resolved = NSkin:GetAppearanceStyle("row", scopeID, elementID)
+    local style = {}
+    for key, value in pairs(resolved or {}) do
+        style[key] = value
+    end
+    -- Transfer rows are lightweight layout records, not boxed cards. Keep the
+    -- default presentation borderless while retaining ROW-owned background.
+    style.borderSize = 0
+    return style, NSkin:GetAppearanceBorderColor(
+        "row", style, scopeID, elementID)
+end
+
+local function RegisterCurrencyTransferRow(definition)
+    local row = definition.target
+    if not row then return nil end
+
+    local function Refresh()
+        local rowStyle, rowBorder = GetTransferRowStyle(
+            IDs.CurrencyTransfer.Scope, definition.id)
+
+        local rowState = NSkin:SkinRow(row, {
+            style = rowStyle,
+            border = rowBorder,
+            showBackground = false,
+            columns = definition.columns,
+            elementID = definition.id,
+            appearanceWindowID = IDs.CurrencyTransfer.Scope,
+        })
+        if rowState and rowState.border then
+            NSkin:SetPixelBorderShown(rowState.border, false)
+        end
+
+        for _, child in ipairs(definition.extraSkins or {}) do
+            if child.target then
+                local childDefinition = {
+                    id = definition.id,
+                    appearanceWindowID = IDs.CurrencyTransfer.Scope,
+                    target = child.target,
+                    skinOptions = child.skinOptions,
+                    menus = child.menus,
+                }
+                NSkin:SkinTypedElement(child.kind, childDefinition)
+            end
+        end
+
+        NSkin:NotifySkinningElementBoundsChanged(definition.id)
+        return true
+    end
+
+    local members = {
+        { kind = "ROW", role = "PRIMARY", target = row, label = "Row" },
+    }
+    for _, member in ipairs(definition.members or {}) do
+        members[#members + 1] = member
+    end
+
+    local element = NSkin:RegisterSkinningElement(definition.id, {
+        module = "Character",
+        appearanceWindowID = IDs.CurrencyTransfer.Scope,
+        label = definition.label,
+        kind = "ROW",
+        window = definition.window,
+        target = row,
+        priority = definition.priority,
+        composition = {
+            mode = "COMPOSITE",
+            movementOwner = row,
+            members = members,
+        },
+        highlightRegions = definition.highlightRegions,
+        refreshAppearance = Refresh,
+        refreshLayout = Refresh,
+        isEditable = function()
+            return definition.window:IsVisible() and row:IsVisible()
+        end,
+    })
+    Refresh()
+    return element
+end
+
+local function ApplyTransferDirectionArrow(sourceSelector)
+    local dropdown = sourceSelector and sourceSelector.Dropdown
+    local nativeArrow = dropdown and dropdown.LongArrow
+    if nativeArrow then ConcealTexture(nativeArrow) end
+    if not sourceSelector or not sourceSelector.CreateTexture then return end
+
+    local arrow = sourceSelector.NSkinTransferDirectionArrow
+    if not arrow then
+        arrow = sourceSelector:CreateTexture(nil, "OVERLAY", nil, 7)
+        arrow:SetSize(22, 22)
+        arrow:SetTexture(NSkin.mediaPath .. "angle-small-down.png")
+        -- The media asset points down by default; WoW texture rotation uses
+        -- positive pi/2 here for the source-to-destination direction.
+        arrow:SetRotation(math.pi / 2)
+        arrow:SetPoint("CENTER", sourceSelector, "CENTER", 0, 0)
+        NSkin:ConfigureOwnedPixelTexture(arrow)
+        sourceSelector.NSkinTransferDirectionArrow = arrow
+    end
+    local textStyle = NSkin:GetAppearanceStyle(
+        "text", IDs.CurrencyTransfer.Scope, IDs.CurrencyTransfer.SourceRow)
+    local color = NSkin:GetResolvedAppearanceColor(textStyle, "color")
+        or textStyle.color or { 1, 1, 1, 1 }
+    arrow:SetVertexColor(unpack(color))
+    arrow:Show()
+end
+
+local function ApplyTransferLogDirectionArrow(row)
+    local nativeArrow = row and row.Arrow
+    if not nativeArrow then return end
+
+    local arrow = row.NSkinTransferDirectionArrow
+    if not arrow and row.CreateTexture then
+        arrow = row:CreateTexture(nil, "ARTWORK", nil, 1)
+        arrow:SetAllPoints(nativeArrow)
+        arrow:SetTexture(NSkin.mediaPath .. "angle-small-down.png")
+        arrow:SetRotation(math.pi / 2)
+        NSkin:ConfigureOwnedPixelTexture(arrow)
+        row.NSkinTransferDirectionArrow = arrow
+    end
+
+    ConcealTexture(nativeArrow)
+    if arrow then
+        arrow:SetAllPoints(nativeArrow)
+        arrow:SetTexture(NSkin.mediaPath .. "angle-small-down.png")
+        arrow:SetRotation(math.pi / 2)
+        arrow:SetVertexColor(1, 1, 1, 1)
+        arrow:Show()
+    end
+end
+
 function CharacterSkin:ApplyCurrencyTransfer()
     local transfer = _G.CurrencyTransferMenu
     local content = transfer and transfer.Content
     if not transfer or not content then return false end
 
     ConcealTexture(transfer.Background)
+    ConcealTexture(content.TransactionDivider)
     NSkin:ConcealWindowArtwork(transfer.Inset)
     local applied = ApplyAuxiliaryWindowChrome(
         transfer, IDs.CurrencyTransfer.Scope, IDs.CurrencyTransfer.Window,
@@ -1299,62 +2247,274 @@ function CharacterSkin:ApplyCurrencyTransfer()
 
     local sourceSelector = content.SourceSelector
     local sourceDropdown = sourceSelector and sourceSelector.Dropdown
+    local sourceLabel = sourceSelector and sourceSelector.SourceLabel
+    local receiverText = sourceSelector and sourceSelector.PlayerName
+
     local amountSelector = content.AmountSelector
+    local amountLabel = amountSelector and amountSelector.TransferAmountLabel
     local amountInput = amountSelector and amountSelector.InputBox
     local maxButton = amountSelector and amountSelector.MaxQuantityButton
+
+    local sourceBalance = content.SourceBalancePreview
+    local sourceBalanceInfo = sourceBalance and sourceBalance.BalanceInfo
+    local sourceBalanceLabel = sourceBalance and sourceBalance.Label
+    local sourceBalanceAmount = sourceBalanceInfo and sourceBalanceInfo.Amount
+    local sourceBalanceIcon = sourceBalanceInfo and sourceBalanceInfo.CurrencyIcon
+
+    local playerBalance = content.PlayerBalancePreview
+    local playerBalanceInfo = playerBalance and playerBalance.BalanceInfo
+    local playerBalanceLabel = playerBalance and playerBalance.Label
+    local playerBalanceAmount = playerBalanceInfo and playerBalanceInfo.Amount
+    local playerBalanceIcon = playerBalanceInfo and playerBalanceInfo.CurrencyIcon
+
     local confirmButton = content.ConfirmButton
     local cancelButton = content.CancelButton
-    applied = NSkin:RegisterDropdown({
-        id = IDs.CurrencyTransfer.SourceDropdown, module = "Character",
-        appearanceWindowID = IDs.CurrencyTransfer.Scope,
-        label = "Currency source dropdown", window = transfer,
-        target = sourceDropdown, menus = { "MENU_CURRENCY_TRANSFER" },
-        priority = 70, highlightRegions = { sourceDropdown },
-        isEditable = function()
-            return transfer:IsVisible() and sourceDropdown:IsVisible()
-        end,
-    }) ~= nil or applied
-    applied = NSkin:RegisterSearchBox({
-        id = IDs.CurrencyTransfer.AmountInput, module = "Character",
-        appearanceWindowID = IDs.CurrencyTransfer.Scope,
-        label = "Currency transfer amount", window = transfer,
-        target = amountInput, priority = 71,
-        highlightRegions = { amountInput },
-        isEditable = function()
-            return transfer:IsVisible() and amountInput:IsVisible()
-        end,
-    }) ~= nil or applied
-    applied = NSkin:RegisterActionButton({
-        id = IDs.CurrencyTransfer.MaxButton, module = "Character",
-        appearanceWindowID = IDs.CurrencyTransfer.Scope,
-        label = "Maximum currency button", window = transfer,
-        target = maxButton, priority = 72,
-        highlightRegions = { maxButton },
-        isEditable = function()
-            return transfer:IsVisible() and maxButton:IsVisible()
-        end,
-    }) ~= nil or applied
+
+    ApplyTransferDirectionArrow(sourceSelector)
+
+    -- Source line:
+    -- TEXT label + DROPDOWN + decorative media arrow + TEXT receiver.
+    applied = RegisterCurrencyTransferRow({
+        id = IDs.CurrencyTransfer.SourceRow,
+        label = "Currency transfer source",
+        window = transfer,
+        target = sourceSelector,
+        priority = 70,
+        columns = {
+            { kind = "TEXT", target = sourceLabel },
+            { kind = "TEXT", target = receiverText },
+        },
+        extraSkins = {
+            {
+                kind = "DROPDOWN",
+                target = sourceDropdown,
+                menus = { "MENU_CURRENCY_TRANSFER" },
+            },
+        },
+        members = {
+            { kind = "TEXT", role = "SECONDARY",
+                target = sourceLabel, label = "Source label" },
+            { kind = "DROPDOWN", role = "SECONDARY",
+                target = sourceDropdown, label = "Source" },
+            { kind = "TEXT", role = "SECONDARY",
+                target = receiverText, label = "Receiver" },
+        },
+        highlightRegions = {
+            sourceSelector, sourceDropdown, sourceLabel, receiverText,
+        },
+    }) or applied
+
+    -- Amount line:
+    -- TEXT label + composite operation area (BUTTON Max + EDIT_BOX amount).
+    applied = RegisterCurrencyTransferRow({
+        id = IDs.CurrencyTransfer.AmountRow,
+        label = "Currency transfer amount",
+        window = transfer,
+        target = amountSelector,
+        priority = 71,
+        columns = {
+            { kind = "TEXT", target = amountLabel },
+            {
+                kind = "BUTTON",
+                target = maxButton,
+                skinOptions = {
+                    label = maxButton and maxButton:GetText() or "",
+                },
+            },
+        },
+        extraSkins = {
+            { kind = "EDIT_BOX", target = amountInput },
+        },
+        members = {
+            { kind = "TEXT", role = "SECONDARY",
+                target = amountLabel, label = "Label" },
+            { kind = "BUTTON", role = "SECONDARY",
+                target = maxButton, label = "Maximum" },
+            { kind = "EDIT_BOX", role = "SECONDARY",
+                target = amountInput, label = "Amount" },
+        },
+        highlightRegions = {
+            amountSelector, amountLabel, maxButton, amountInput,
+        },
+    }) or applied
+
+    -- Source balance:
+    -- TEXT label + amount/icon presentation grouped under the ROW.
+    applied = RegisterCurrencyTransferRow({
+        id = IDs.CurrencyTransfer.SourceBalanceRow,
+        label = "Source currency balance",
+        window = transfer,
+        target = sourceBalance,
+        priority = 72,
+        columns = {
+            { kind = "TEXT", target = sourceBalanceLabel },
+            { kind = "TEXT", target = sourceBalanceAmount },
+            {
+                kind = "ICON",
+                target = sourceBalanceIcon,
+                texture = sourceBalanceIcon,
+                borderOwner = sourceBalanceInfo,
+            },
+        },
+        members = {
+            { kind = "TEXT", role = "SECONDARY",
+                target = sourceBalanceLabel, label = "Label" },
+            { kind = "TEXT", role = "SECONDARY",
+                target = sourceBalanceAmount, label = "Amount" },
+            { kind = "ICON", role = "SECONDARY",
+                target = sourceBalanceIcon, label = "Currency icon" },
+        },
+        highlightRegions = {
+            sourceBalance, sourceBalanceLabel,
+            sourceBalanceAmount, sourceBalanceIcon,
+        },
+    }) or applied
+
+    -- Player balance:
+    -- TEXT label + amount/icon presentation grouped under the ROW.
+    applied = RegisterCurrencyTransferRow({
+        id = IDs.CurrencyTransfer.PlayerBalanceRow,
+        label = "Player currency balance",
+        window = transfer,
+        target = playerBalance,
+        priority = 73,
+        columns = {
+            { kind = "TEXT", target = playerBalanceLabel },
+            { kind = "TEXT", target = playerBalanceAmount },
+            {
+                kind = "ICON",
+                target = playerBalanceIcon,
+                texture = playerBalanceIcon,
+                borderOwner = playerBalanceInfo,
+            },
+        },
+        members = {
+            { kind = "TEXT", role = "SECONDARY",
+                target = playerBalanceLabel, label = "Label" },
+            { kind = "TEXT", role = "SECONDARY",
+                target = playerBalanceAmount, label = "Amount" },
+            { kind = "ICON", role = "SECONDARY",
+                target = playerBalanceIcon, label = "Currency icon" },
+        },
+        highlightRegions = {
+            playerBalance, playerBalanceLabel,
+            playerBalanceAmount, playerBalanceIcon,
+        },
+    }) or applied
+
     applied = NSkin:RegisterActionButton({
         id = IDs.CurrencyTransfer.ConfirmButton, module = "Character",
         appearanceWindowID = IDs.CurrencyTransfer.Scope,
         label = "Confirm currency transfer", window = transfer,
-        target = confirmButton, priority = 73,
+        target = confirmButton, priority = 74,
         highlightRegions = { confirmButton },
         isEditable = function()
             return transfer:IsVisible() and confirmButton:IsVisible()
         end,
     }) ~= nil or applied
-    applied = NSkin:RegisterActionButton({
-        id = IDs.CurrencyTransfer.CancelButton, module = "Character",
-        appearanceWindowID = IDs.CurrencyTransfer.Scope,
-        label = "Cancel currency transfer", window = transfer,
-        target = cancelButton, priority = 74,
-        highlightRegions = { cancelButton },
-        isEditable = function()
-            return transfer:IsVisible() and cancelButton:IsVisible()
-        end,
-    }) ~= nil or applied
+
+    applied = RegisterFlatButton(
+        IDs.CurrencyTransfer.CancelButton, IDs.CurrencyTransfer.Scope,
+        "Cancel currency transfer", transfer, cancelButton, 75) ~= nil or applied
+
     return applied
+end
+
+function CharacterSkin:ApplyCurrencyTransferLogRows()
+    local log = _G.CurrencyTransferLog
+    local scrollBox = log and log.ScrollBox
+    if not log or not scrollBox then return false end
+
+    local function Refresh()
+        local resolvedRowStyle = NSkin:GetAppearanceStyle(
+            "row", IDs.CurrencyTransferLog.Scope, IDs.CurrencyTransferLog.Rows)
+        local rowStyle = {}
+        for key, value in pairs(resolvedRowStyle or {}) do
+            rowStyle[key] = value
+        end
+        rowStyle.borderSize = 0
+        local rowBorder = NSkin:GetAppearanceBorderColor(
+            "row", rowStyle, IDs.CurrencyTransferLog.Scope,
+            IDs.CurrencyTransferLog.Rows)
+        local applied = false
+
+        NSkin:ForEachScrollBoxFrame(scrollBox, function(row)
+            if not IsCurrencyTransferLogRow(row) then return end
+            ApplyTransferLogDirectionArrow(row)
+            local columns = {
+                { kind = "TEXT", target = row.SourceName },
+                { kind = "TEXT", target = row.DestinationName },
+                { kind = "TEXT", target = row.CurrencyQuantity },
+                {
+                    kind = "ICON",
+                    target = row.CurrencyIcon,
+                    texture = row.CurrencyIcon,
+                    borderOwner = row,
+                },
+            }
+            local state = NSkin:SkinRow(row, {
+                style = rowStyle,
+                border = rowBorder,
+                showBackground = false,
+                nativeDecorationRegions = GetTransferLogNativeDecorations(row),
+                getHovered = IsRowHovered,
+                columns = columns,
+                elementID = IDs.CurrencyTransferLog.Rows,
+                appearanceWindowID = IDs.CurrencyTransferLog.Scope,
+            })
+            if state and state.border then
+                NSkin:SetPixelBorderShown(state.border, false)
+            end
+            applied = state ~= nil or applied
+        end)
+
+        NSkin:NotifySkinningElementBoundsChanged(IDs.CurrencyTransferLog.Rows)
+        return applied
+    end
+
+    if not currencyTransferLogRowsRegistered then
+        currencyTransferLogRowsRegistered = NSkin:RegisterSkinningElement(
+            IDs.CurrencyTransferLog.Rows, {
+                module = "Character",
+                appearanceWindowID = IDs.CurrencyTransferLog.Scope,
+                label = "Currency transfer log rows",
+                kind = "ROW",
+                window = log,
+                target = scrollBox,
+                priority = 72,
+                draggable = false,
+                appearanceStyles = { "row", "text", "icon" },
+                appearanceTypeIDs = { "ROW", "TEXT", "ICON" },
+                editorOptions = {
+                    { id = "shared.rowAppearance", label = "Row",
+                        category = "CUSTOMIZE" },
+                    { id = "shared.textAppearance", label = "Text",
+                        category = "CUSTOMIZE" },
+                    { id = "shared.iconAppearance", label = "Icons",
+                        category = "CUSTOMIZE" },
+                },
+                highlightRegions = function()
+                    return GetVisibleScrollBoxRows(
+                        scrollBox, IsCurrencyTransferLogRow)
+                end,
+                pixelBorderTargets = function()
+                    return GetVisibleScrollBoxRows(
+                        scrollBox, IsCurrencyTransferLogRow)
+                end,
+                refreshAppearance = Refresh,
+                refreshLayout = Refresh,
+                isEditable = function()
+                    return log:IsVisible()
+                        and #GetVisibleScrollBoxRows(
+                            scrollBox, IsCurrencyTransferLogRow) > 0
+                end,
+            }) == true
+    end
+
+    HookScrollBoxRefresh(scrollBox, function()
+        CharacterSkin:ApplyCurrencyTransferLogRows()
+    end)
+    return Refresh()
 end
 
 function CharacterSkin:ApplyCurrencyTransferLog()
@@ -1366,17 +2526,30 @@ function CharacterSkin:ApplyCurrencyTransferLog()
     local applied = ApplyAuxiliaryWindowChrome(
         log, IDs.CurrencyTransferLog.Scope, IDs.CurrencyTransferLog.Window,
         IDs.CurrencyTransferLog.HeaderControls, "Currency Transfer Log window")
+
+    local emptyMessage = log.EmptyLogMessage
     local scrollBar = log.ScrollBar
+    applied = NSkin:RegisterTextElement({
+        id = IDs.CurrencyTransferLog.EmptyMessage, module = "Character",
+        appearanceWindowID = IDs.CurrencyTransferLog.Scope,
+        label = "Currency transfer empty message", window = log,
+        target = emptyMessage, priority = 70,
+        highlightRegions = { emptyMessage },
+        isEditable = function()
+            return log:IsVisible() and emptyMessage:IsVisible()
+        end,
+    }) ~= nil or applied
     applied = NSkin:RegisterScrollBar({
         id = IDs.CurrencyTransferLog.ScrollBar, module = "Character",
         appearanceWindowID = IDs.CurrencyTransferLog.Scope,
         label = "Currency transfer log scroll bar", window = log,
-        target = scrollBar, priority = 70,
+        target = scrollBar, priority = 71,
         highlightRegions = { scrollBar },
         isEditable = function()
             return log:IsVisible() and scrollBar:IsVisible()
         end,
     }) ~= nil or applied
+    applied = self:ApplyCurrencyTransferLogRows() or applied
     return applied
 end
 
@@ -1387,35 +2560,515 @@ function CharacterSkin:ApplyCurrencyWindows()
     return applied
 end
 
+local ITEM_SOCKETING_DECORATION_KEYS = {
+    "ParchmentFrame-Top", "ParchmentFrame-Bottom",
+    "ParchmentFrame-Left", "ParchmentFrame-Right",
+    "SocketFrame-Left", "SocketFrame-Right",
+    "ButtonFrame-Left", "ButtonFrame-Right", "ButtonBorder-Mid",
+    "GoldBorder-BottomRight", "GoldBorder-BottomLeft",
+    "GoldBorder-TopRight", "GoldBorder-TopLeft",
+    "GoldBorder-Left", "GoldBorder-Right",
+    "GoldBorder-Top", "GoldBorder-Bottom",
+    "BackgroundColor", "BackgroundHighlight",
+    "BorderShadow-TopLeftCorner", "BorderShadow-TopRightCorner",
+    "BorderShadow-BottomLeftCorner", "BorderShadow-BottomRightCorner",
+    "BorderShadow-Top", "BorderShadow-Left",
+    "BorderShadow-Bottom", "BorderShadow-Right",
+    "BottomLeftNub", "BottomRightNub",
+    "MiddleLeftNub", "MiddleRightNub",
+    "TopLeftNub", "TopRightNub",
+}
+
+local function GetItemSocketingTitle(socketing)
+    if not socketing or not socketing.GetRegions then return nil end
+    local wanted = _G.ITEM_SOCKETING
+    local fallback
+    for _, region in ipairs({ socketing:GetRegions() }) do
+        if region and region.GetObjectType
+            and region:GetObjectType() == "FontString"
+        then
+            fallback = fallback or region
+            local value = region.GetText and region:GetText()
+            if wanted and value == wanted then return region end
+        end
+    end
+    return fallback
+end
+
+local function ConcealItemSocketingDecorations(socketing)
+    if not socketing then return end
+    for _, key in ipairs(ITEM_SOCKETING_DECORATION_KEYS) do
+        ConcealTexture(socketing[key])
+    end
+end
+
+local function GetItemSocketFrames(container)
+    local frames, seen = {}, {}
+    local function Add(frame)
+        if frame and not seen[frame] then
+            frames[#frames + 1] = frame
+            seen[frame] = true
+        end
+    end
+    for _, frame in ipairs(container and container.SocketFrames or {}) do
+        Add(frame)
+    end
+    Add(container and container.Socket1)
+    Add(container and container.Socket2)
+    Add(container and container.Socket3)
+    return frames
+end
+
+local function GetSocketNativeDecorations(socket)
+    local decorations, seen = {}, {}
+    local function Add(region)
+        if region and region ~= socket.Icon and not seen[region] then
+            decorations[#decorations + 1] = region
+            seen[region] = true
+        end
+    end
+
+    -- Remove Blizzard's complete socket ornamentation. The functional socket
+    -- is represented by the shared NSkin ICON border instead, including while
+    -- the slot is empty.
+    Add(socket.LeftFiligree)
+    Add(socket.RightFiligree)
+    Add(socket.Background)
+
+    local bracketFrame = socket.BracketFrame
+    Add(bracketFrame and bracketFrame.ClosedBracket)
+    Add(bracketFrame and bracketFrame.OpenBracket)
+
+    Add(socket.GetNormalTexture and socket:GetNormalTexture())
+    Add(socket.GetPushedTexture and socket:GetPushedTexture())
+
+    -- Socket1 can retain inherited template regions that are no longer exposed
+    -- by parentKey after its override. Enumerate the audited BACKGROUND/BORDER
+    -- layers so every physical ornament region is suppressed.
+    if socket.GetRegions then
+        for _, region in ipairs({ socket:GetRegions() }) do
+            if region and region ~= socket.Icon
+                and region ~= socket.NSkinEmptySocketBackground
+                and region.GetObjectType
+                and region:GetObjectType() == "Texture"
+            then
+                local layer = region.GetDrawLayer and region:GetDrawLayer()
+                if layer == "BACKGROUND" or layer == "BORDER" then
+                    Add(region)
+                end
+            end
+        end
+    end
+    return decorations
+end
+
+local function ConcealSocketFrameDecorations(socket)
+    if not socket then return end
+    for _, region in ipairs(GetSocketNativeDecorations(socket)) do
+        ConcealTexture(region)
+    end
+end
+
+local function ConcealSocketContainerDecorations(container)
+    for _, socket in ipairs(GetItemSocketFrames(container)) do
+        ConcealSocketFrameDecorations(socket)
+    end
+end
+
+local function GetVisibleSocketFrames(container)
+    local visible = {}
+    for _, socket in ipairs(GetItemSocketFrames(container)) do
+        if not socket.IsShown or socket:IsShown() then
+            visible[#visible + 1] = socket
+        end
+    end
+    return visible
+end
+
+local function SocketHasGem(socket, index)
+    index = tonumber(index)
+        or (socket and socket.GetID and socket:GetID())
+    if not index or not _G.C_ItemSocketInfo then return false end
+
+    if type(_G.C_ItemSocketInfo.GetNewSocketInfo) == "function" then
+        local _, icon = _G.C_ItemSocketInfo.GetNewSocketInfo(index)
+        if icon then return true end
+    end
+    if type(_G.C_ItemSocketInfo.GetExistingSocketInfo) == "function" then
+        local _, icon = _G.C_ItemSocketInfo.GetExistingSocketInfo(index)
+        if icon then return true end
+    end
+    return false
+end
+
+local function GetSocketCount()
+    if _G.C_ItemSocketInfo
+        and type(_G.C_ItemSocketInfo.GetNumSockets) == "function"
+    then
+        return tonumber(_G.C_ItemSocketInfo.GetNumSockets()) or 0
+    end
+    return 0
+end
+
+local function EnsureSocketPlaceholder(socket)
+    if not socket or not socket.Icon or not socket.CreateTexture then return nil end
+
+    local placeholder = socket.NSkinEmptySocketBackground
+    if not placeholder then
+        -- This is a real ICON presentation texture, not just decoration.
+        -- Using it as the shared ICON texture while the socket is empty keeps
+        -- the normal NSkin 1px border visible even when Blizzard hides Icon.
+        placeholder = socket:CreateTexture(nil, "ARTWORK", nil, -8)
+        placeholder:SetAllPoints(socket.Icon)
+        placeholder:SetColorTexture(0.20, 0.20, 0.20, 0.85)
+        NSkin:ConfigureOwnedPixelTexture(placeholder)
+        socket.NSkinEmptySocketBackground = placeholder
+    end
+    return placeholder
+end
+
+local function GetSocketPresentationTexture(socket, index)
+    if not socket then return nil end
+    local slotIndex = tonumber(index)
+        or (socket.GetID and tonumber(socket:GetID()))
+    local isRealSocket = slotIndex and slotIndex <= GetSocketCount()
+    local hasGem = isRealSocket and SocketHasGem(socket, slotIndex) or false
+    local placeholder = EnsureSocketPlaceholder(socket)
+
+    if placeholder then placeholder:SetShown(isRealSocket and not hasGem) end
+    if hasGem and socket.Icon then
+        socket.Icon:Show()
+        return socket.Icon
+    end
+    if isRealSocket then
+        return placeholder
+    end
+    return socket.Icon
+end
+
+local function RefreshEmptySocketBorder(socket, presentation, shown)
+    if not socket or not presentation then return end
+
+    local style = NSkin:GetAppearanceStyle(
+        "icon", IDs.ItemSocketing.Scope, IDs.ItemSocketing.Sockets)
+        or NSkin:GetStyle("icon")
+    local borderColor = NSkin:GetAppearanceBorderColor(
+        "icon", style, IDs.ItemSocketing.Scope, IDs.ItemSocketing.Sockets)
+        or NSkin:GetComponentBorderColor("icon", style)
+        or { 1, 1, 1, 1 }
+
+    local border = NSkin:GetPixelBorder(socket, "NSkinEmptySocketBorder")
+        or NSkin:CreatePixelBorder(
+            socket, "NSkinEmptySocketBorder",
+            tonumber(style and style.borderSize) or 1,
+            borderColor,
+            style and style.outside == true,
+            presentation)
+
+    if not border then return end
+    border.anchor = presentation
+    NSkin:SetPixelBorderSize(
+        border, tonumber(style and style.borderSize) or 1)
+    NSkin:SetPixelBorderPadding(
+        border, tonumber(style and style.borderPadding) or 0)
+    NSkin:SetPixelBorderColor(border, unpack(borderColor))
+    NSkin:SetPixelBorderShown(border, shown == true)
+    NSkin:ResnapPixelBorder(border)
+end
+
+local function RefreshSocketEmptyBackgrounds(container)
+    local count = GetSocketCount()
+    for index, socket in ipairs(GetItemSocketFrames(container)) do
+        local presentation = GetSocketPresentationTexture(socket, index)
+        local isRealSocket = index <= count
+        local isEmpty = isRealSocket and not SocketHasGem(socket, index)
+        RefreshEmptySocketBorder(socket, presentation, isEmpty)
+    end
+end
+
+local function GetSocketIconChildren(container)
+    local children = {}
+    for index, socket in ipairs(GetItemSocketFrames(container)) do
+        if socket.Icon then
+            children[#children + 1] = {
+                target = socket,
+                texture = GetSocketPresentationTexture(socket, index),
+                borderOwner = socket,
+                nativeDecorationRegions = GetSocketNativeDecorations(socket),
+                showBorder = true,
+                refreshOn = { "OnShow" },
+            }
+        end
+    end
+    return children
+end
+
+local function GetSocketingDescriptionLines(description)
+    local lines = {}
+    if not description or not description.GetRegions then return lines end
+    for _, region in ipairs({ description:GetRegions() }) do
+        if region and region.GetObjectType
+            and region:GetObjectType() == "FontString"
+        then
+            lines[#lines + 1] = region
+        end
+    end
+    table.sort(lines, function(left, right)
+        local leftTop = left.GetTop and left:GetTop()
+        local rightTop = right.GetTop and right:GetTop()
+        if leftTop and rightTop and leftTop ~= rightTop then
+            return leftTop > rightTop
+        end
+        local leftX = left.GetLeft and left:GetLeft()
+        local rightX = right.GetLeft and right:GetLeft()
+        if leftX and rightX and leftX ~= rightX then return leftX < rightX end
+        return tostring(left) < tostring(right)
+    end)
+    return lines
+end
+
+local function GetSocketingNameLine(description)
+    local named = _G.ItemSocketingDescriptionTextLeft1
+    if named then return named end
+    return GetSocketingDescriptionLines(description)[1]
+end
+
+local function GetSocketingDetailLines(description)
+    local nameLine = GetSocketingNameLine(description)
+    local details = {}
+    for _, line in ipairs(GetSocketingDescriptionLines(description)) do
+        if line ~= nameLine then details[#details + 1] = line end
+    end
+    return details
+end
+
+local function GetVisibleSocketingDetailLines(description)
+    local visible = {}
+    for _, line in ipairs(GetSocketingDetailLines(description)) do
+        if not line.IsShown or line:IsShown() then
+            visible[#visible + 1] = line
+        end
+    end
+    return visible
+end
+
+local function RegisterItemSocketingText(socketing)
+    local description = _G.ItemSocketingDescription
+    if not description then return false end
+
+    local applied = false
+
+    -- The embedded GameTooltip intentionally uses item-quality/stat colors.
+    -- Keep those Blizzard colors instead of applying NSkin's generic TEXT
+    -- color, while still allowing the shared typography options to affect the
+    -- two logical text groups.
+    local function ApplyTypography(target, id)
+        if not target then return false end
+        local style = NSkin:GetAppearanceStyle(
+            "text", IDs.ItemSocketing.Scope, id)
+        return NSkin:ApplyResolvedTypography(target, style) == true
+    end
+
+    local nameLine = GetSocketingNameLine(description)
+    local function RefreshName()
+        local changed = ApplyTypography(nameLine, IDs.ItemSocketing.ItemName)
+        NSkin:NotifySkinningElementBoundsChanged(IDs.ItemSocketing.ItemName)
+        return changed
+    end
+
+    if nameLine then
+        applied = NSkin:RegisterSkinningElement(IDs.ItemSocketing.ItemName, {
+            module = "Character",
+            appearanceWindowID = IDs.ItemSocketing.Scope,
+            label = "Socketed item name",
+            kind = "TEXT",
+            window = socketing,
+            target = nameLine,
+            priority = 72,
+            draggable = false,
+            compositionParentID = IDs.ItemSocketing.TextContainer,
+            appearanceStyles = { "text" },
+            appearanceTypeIDs = { "TEXT" },
+            editorOptions = {
+                { id = "shared.textAppearance", label = "Text",
+                    category = "CUSTOMIZE" },
+            },
+            highlightRegions = { nameLine },
+            refreshAppearance = RefreshName,
+            refreshLayout = RefreshName,
+            isEditable = function()
+                return socketing:IsVisible()
+                    and (not nameLine.IsShown or nameLine:IsShown())
+            end,
+        }) == true or applied
+        RefreshName()
+    end
+
+    local function RefreshDetails()
+        local changed = false
+        for _, line in ipairs(GetSocketingDetailLines(description)) do
+            changed = ApplyTypography(
+                line, IDs.ItemSocketing.ItemDetails) or changed
+        end
+        NSkin:NotifySkinningElementBoundsChanged(
+            IDs.ItemSocketing.ItemDetails)
+        return changed
+    end
+
+    applied = NSkin:RegisterSkinningElement(IDs.ItemSocketing.ItemDetails, {
+        module = "Character",
+        appearanceWindowID = IDs.ItemSocketing.Scope,
+        label = "Socketed item details",
+        kind = "TEXT",
+        window = socketing,
+        target = description,
+        priority = 73,
+        draggable = false,
+        compositionParentID = IDs.ItemSocketing.TextContainer,
+        appearanceStyles = { "text" },
+        appearanceTypeIDs = { "TEXT" },
+        editorOptions = {
+            { id = "shared.textAppearance", label = "Text",
+                category = "CUSTOMIZE" },
+        },
+        highlightRegions = function()
+            return GetVisibleSocketingDetailLines(description)
+        end,
+        refreshAppearance = RefreshDetails,
+        refreshLayout = RefreshDetails,
+        isEditable = function()
+            return socketing:IsVisible()
+                and #GetVisibleSocketingDetailLines(description) > 0
+        end,
+    }) == true or applied
+    RefreshDetails()
+
+    local container = NSkin:RegisterSimpleMovableElement({
+        id = IDs.ItemSocketing.TextContainer,
+        module = "Character",
+        appearanceWindowID = IDs.ItemSocketing.Scope,
+        label = "Socketed item text",
+        composition = {
+            mode = "CONTAINER",
+            movementOwner = description,
+            children = {
+                IDs.ItemSocketing.ItemName,
+                IDs.ItemSocketing.ItemDetails,
+            },
+        },
+        kind = "MOVABLE",
+        window = socketing,
+        target = description,
+        priority = 71,
+        draggable = true,
+        highlightRegions = { description },
+        isEditable = function()
+            return socketing:IsVisible() and description:IsVisible()
+        end,
+    })
+    if container then
+        NSkin:NotifySkinningElementBoundsChanged(
+            IDs.ItemSocketing.TextContainer)
+    end
+    return container ~= nil or applied
+end
+
 function CharacterSkin:ApplyItemSocketing()
     local socketing = _G.ItemSocketingFrame
     if not socketing then return false end
 
     if not concealedSocketingArtwork[socketing] then
-        NSkin:HideTextureRegions(socketing)
+        ConcealItemSocketingDecorations(socketing)
         concealedSocketingArtwork[socketing] = true
     end
     NSkin:ConcealWindowArtwork(socketing.Inset)
+
+    local title = GetItemSocketingTitle(socketing)
     local applied = ApplyAuxiliaryWindowChrome(
         socketing, IDs.ItemSocketing.Scope, IDs.ItemSocketing.Window,
-        IDs.ItemSocketing.HeaderControls, "Item Socketing window")
+        IDs.ItemSocketing.HeaderControls, "Item Socketing window",
+        title, socketing.CloseButton)
 
     local container = socketing.SocketingContainer
+    ConcealSocketContainerDecorations(container)
+
+    local sockets = container and NSkin:RegisterIconGroup({
+        id = IDs.ItemSocketing.Sockets,
+        module = "Character",
+        appearanceWindowID = IDs.ItemSocketing.Scope,
+        label = "Socket icons",
+        window = socketing,
+        target = container,
+        priority = 70,
+        draggable = false,
+        children = function()
+            return GetSocketIconChildren(container)
+        end,
+        refreshContent = function()
+            RefreshSocketEmptyBackgrounds(container)
+        end,
+        highlightRegions = function()
+            return GetVisibleSocketFrames(container)
+        end,
+        pixelBorderTargets = function()
+            return GetVisibleSocketFrames(container)
+        end,
+        isEditable = function()
+            return socketing:IsVisible()
+                and #GetVisibleSocketFrames(container) > 0
+        end,
+    })
+    applied = sockets ~= nil or applied
+    RefreshSocketEmptyBackgrounds(container)
+
+    -- GenericItemSocketingFrameMixin:Update() reasserts filigree, gem
+    -- background/brackets and other socket art. Hook the actual runtime
+    -- container method so the cleanup and shared ICON presentation run after
+    -- Blizzard has updated this exact frame.
+    if container and not itemSocketingUpdateHooked and _G.hooksecurefunc
+        and type(container.Update) == "function"
+    then
+        _G.hooksecurefunc(container, "Update", function(updatedContainer)
+            ConcealSocketContainerDecorations(updatedContainer)
+            NSkin:RefreshIconGroup(IDs.ItemSocketing.Sockets)
+            RefreshSocketEmptyBackgrounds(updatedContainer)
+        end)
+        itemSocketingUpdateHooked = true
+    end
+
+    applied = RegisterItemSocketingText(socketing) or applied
+
     local applyButton = container and container.ApplySocketsButton
-    applied = NSkin:RegisterActionButton({
+    local action = NSkin:RegisterActionButton({
         id = IDs.ItemSocketing.ApplyButton,
         module = "Character",
         appearanceWindowID = IDs.ItemSocketing.Scope,
         label = "Apply sockets button",
         window = socketing,
         target = applyButton,
-        priority = 70,
+        priority = 74,
         highlightRegions = { applyButton },
         isEditable = function()
             return socketing:IsVisible() and applyButton:IsVisible()
         end,
-    }) ~= nil or applied
+    })
+    applied = action ~= nil or applied
+
+    -- ACTION_BUTTON owns this presentation; keep its normal 1px NSkin border
+    -- visible even while Blizzard disables Apply because no socket change is
+    -- pending.
+    if applyButton then
+        local border = NSkin:GetPixelBorder(
+            applyButton, "NSkinFlatBackgroundBorder")
+        if border then
+            NSkin:SetPixelBorderSize(border, 1)
+            NSkin:SetPixelBorderPadding(border, 0)
+            NSkin:SetPixelBorderShown(border, true)
+        end
+    end
+
     HookOwnerRefresh(container)
+    HookOwnerRefresh(_G.ItemSocketingDescription)
     return applied
 end
 

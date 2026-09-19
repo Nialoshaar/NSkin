@@ -693,6 +693,8 @@ Important invariants:
 - functional Blizzard overlays/state must be preserved
 - direct `SkinIcon()` callers remain supported
 - grouped/generated icon collections still use canonical ICON behavior
+- icons that use Blizzard sprite-sheet coordinates may opt into
+  `preserveTexCoords` while still using shared ICON geometry and lifecycle
 
 Clickable, empty, quality-bearing, disabled, popup-opening, or special-purpose icons should not become bespoke visual types merely because their behavior differs.
 
@@ -716,6 +718,11 @@ fields. It owns row-level visual state such as:
 - border
 - hover
 - selected state
+
+`showBackground = false` leaves ROW's border, hover, selected state, and
+columns active while omitting its flat background.
+`surfaceInset` controls the inset of the owned background and state overlays;
+it defaults to 1, while 0 aligns those surfaces with the row border.
 
 Cells inside a ROW remain canonical components such as:
 
@@ -944,6 +951,12 @@ definition.text
 target.Text
 target.text
 ```
+
+Shared CHECKBOX skinning keeps Blizzard's hit rectangle intact and centers a
+pixel-snapped visual square (14 by default, configurable with `visualSize`).
+The owned background, border, checked mark, and hover surface follow that
+square; an attached label may anchor to its right edge while its original
+points remain available for reset.
 
 Do not broadly scan arbitrary FontStrings.
 

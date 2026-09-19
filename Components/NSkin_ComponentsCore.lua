@@ -2682,7 +2682,9 @@ local SHARED_SKIN_ADAPTERS = {
         for _, key in ipairs({
             "nativeDecorationRegions", "artworkRegions", "preserveTextures", "hoverRegion",
             "selectedRegion", "getHovered", "getSelected", "visualRegion",
-            "contentRegions", "contentStyle", "columns", "height", "reset",
+            "contentRegions", "contentStyle", "columns", "showBackground",
+            "surfaceInset",
+            "height", "reset",
         }) do
             if options[key] == nil then options[key] = definition[key] end
         end
@@ -2762,6 +2764,9 @@ local SHARED_SKIN_ADAPTERS = {
         if options.getChecked == nil then
             options.getChecked = definition.getChecked
         end
+        if options.visualSize == nil then
+            options.visualSize = definition.visualSize
+        end
         skinMethod(self, target, options)
     end,
     DROPDOWN = function(self, skinMethod, target, style, borderColor, definition)
@@ -2829,7 +2834,8 @@ local SHARED_SKIN_ADAPTERS = {
             "texture", "quality", "qualityProvider", "borderColor", "borderMode",
             "borderSize", "borderPadding", "borderKey", "borderOwner",
             "outside", "showBorder", "width", "height", "zoom", "crop",
-            "shape", "nativeDecorationRegions", "nativeBorderRegions",
+            "shape", "preserveTexCoords", "nativeDecorationRegions",
+            "nativeBorderRegions",
             "hoverRegion", "hoverRegions", "selectedRegion",
             "getHovered", "getSelected",
             "interactionAlpha", "reset",
@@ -2919,7 +2925,9 @@ local TYPED_SKIN_FIELDS_BY_TYPE = {
     ROW = {
         "nativeDecorationRegions", "artworkRegions", "preserveTextures", "hoverRegion",
         "selectedRegion", "getHovered", "getSelected", "visualRegion",
-        "contentRegions", "contentStyle", "columns", "height", "reset",
+        "contentRegions", "contentStyle", "columns", "showBackground",
+        "surfaceInset",
+        "height", "reset",
     },
     SECTION_ROW = {
         "nativeDecorationRegions", "artworkRegions", "preserveTextures",
@@ -2927,7 +2935,7 @@ local TYPED_SKIN_FIELDS_BY_TYPE = {
         "visualRegion", "textRegion", "contentRegions", "contentStyle",
         "collapseButton", "reset",
     },
-    CHECKBOX = { "text", "getChecked", "labelBaselineID" },
+    CHECKBOX = { "text", "getChecked", "labelBaselineID", "visualSize" },
     DROPDOWN = { "menus" },
     SLIDER = { "nativeDecorationRegions" },
     SEARCH_ACCESSORY = { "menus" },
@@ -2945,7 +2953,7 @@ local TYPED_SKIN_FIELDS_BY_TYPE = {
         "texture", "quality", "qualityProvider", "borderColor", "borderMode",
         "borderSize", "borderPadding", "borderKey", "borderOwner", "outside",
         "showBorder", "width", "height", "zoom", "crop", "shape",
-        "nativeDecorationRegions", "nativeBorderRegions",
+        "preserveTexCoords", "nativeDecorationRegions", "nativeBorderRegions",
         "hoverRegion", "hoverRegions", "selectedRegion",
         "getHovered", "getSelected",
         "interactionAlpha", "reset",
