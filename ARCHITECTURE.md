@@ -444,6 +444,11 @@ one explicit movement owner
 all composite members follow through existing hierarchy/anchors
 ```
 
+The declared `composition.movementOwner` is authoritative for baseline
+capture, placement, reset, and Skinning Mode dragging. The element target
+remains its registration and appearance target when it differs from the
+movement owner.
+
 Example:
 
 ```text
@@ -696,8 +701,14 @@ Important invariants:
 - grouped/generated icon collections still use canonical ICON behavior
 - icons that use Blizzard sprite-sheet coordinates may opt into
   `preserveTexCoords` while still using shared ICON geometry and lifecycle
-- native icon masks remain Blizzard-owned; NSkin removes only its own circle
-  mask on reset or a switch back to square
+- native icon masks remain Blizzard-owned. An adapter may opt into suppressing
+  an explicitly named native mask relationship; shared ICON records whether
+  it removed that relationship and restores it on reset. NSkin removes only
+  its own circle mask on reset or a switch back to square
+- texture-backed ICON interaction may use a mouse-disabled presentation
+  overlay while a Blizzard Button retains click and spell-cast ownership
+- textured glow borders are shared NSkin-owned primitives; adapters decide
+  their state and visibility
 
 Clickable, empty, quality-bearing, disabled, popup-opening, or special-purpose icons should not become bespoke visual types merely because their behavior differs.
 
@@ -724,7 +735,19 @@ profile compatibility.
 Repeated `SECTION_HEADERS` instances use the shared header skin for text,
 underline, optional placement offset, and audited native decoration. The
 adapter supplies the pooled targets and their native fields; the shared skin
-captures original text points and decoration state for reset.
+captures original text points and decoration state for reset. It maps
+`text`/`textMode` to shared TEXT color handling and may accept a per-registration
+`defaultTextSize` when no custom section-header size is selected.
+
+Search accessories can omit the shared dropdown arrow, background, or border
+without post-skin cleanup. In grouped mode, an unsaved placement restores the
+accessory and primary Blizzard baselines in that order; custom placement
+applies the primary first and then runs the adapter's grouped anchor callback.
+When Blizzard anchors cross two controls that the adapter defines as separate
+movement groups, the adapter may opt into using its declared window-relative
+default placement as the reset baseline. That opt-in replaces the cross-group
+anchor without changing either group's resolved default position; ordinary
+movable elements continue to restore their captured Blizzard anchors.
 
 ROW is used for tabular/data-record rows, often containing several cells or
 fields. It owns row-level visual state such as:
@@ -1002,6 +1025,11 @@ Avoid:
 - deferred slider hacks
 
 unless explicitly required by a demonstrated lifecycle constraint.
+
+Composite member typography and geometry can change several times in one
+frame during a single inspector edit. Their shared bounds notification may
+coalesce those same-frame changes into one deferred notification; this is
+limited to composite bounds and does not reapply a window or poll for changes.
 
 Prefer:
 

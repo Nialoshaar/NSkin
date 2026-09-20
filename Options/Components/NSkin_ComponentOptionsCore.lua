@@ -259,8 +259,8 @@ local function CommitValues(view, values, knownCurrent, liveInspectorChange)
         applied = ApplyValues()
     end
     if applied == true then
-        if view.context.id and NSkin.NotifySkinningElementBoundsChanged then
-            NSkin:NotifySkinningElementBoundsChanged(view.context.id)
+        if context.id and NSkin.NotifySkinningElementBoundsChanged then
+            NSkin:NotifySkinningElementBoundsChanged(context.id)
         end
         NSkin:NotifyOptionGroupChanged(view.id,
             preserveLocalState and view or nil)

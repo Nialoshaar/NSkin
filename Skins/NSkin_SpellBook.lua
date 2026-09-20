@@ -2,6 +2,8 @@ local _, NSkin = ...
 
 local SpellBookSkin = NSkin:NewModule("SpellBook")
 
+local SPELL_BOOK_STATE = "spellBook"
+
 local IDs = {
     AppearanceWindow = "PlayerSpells.SpellBook",
     Window = "SpellBook.Window",
@@ -16,8 +18,7 @@ local IDs = {
         SecondaryText = "SpellBook.Spells.SecondaryText",
     },
     AssistedCombat = {
-        Icon = "SpellBook.AssistedCombat.Icon",
-        Label = "SpellBook.AssistedCombat.Label",
+        Group = "SpellBook.AssistedCombat",
     },
     Talents = {
         ApplyButton = "SpellBook.Talents.ApplyButton",
@@ -80,12 +81,6 @@ local function RoundOne(value)
     if value >= 0 then return math.floor(value * 10 + 0.5) / 10 end
     return math.ceil(value * 10 - 0.5) / 10
 end
-
-
-
-
-
-
 
 
 
@@ -341,80 +336,231 @@ local function GetSpellBookResizeButtons(playerSpells, spellBook)
     return targets
 end
 
-local function GetAssistedCombatDivider(frame)
-    if not frame or not frame.GetRegions then return nil end
-    for _, region in ipairs({ frame:GetRegions() }) do
-        if region and region.GetObjectType
-            and region:GetObjectType() == "Texture"
-        then
-            return region
+local function GetSpellBookFrameInsets(playerSpells, spellBook)
+    local playerWidth = playerSpells and playerSpells.GetWidth
+        and playerSpells:GetWidth() or 0
+    local playerHeight = playerSpells and playerSpells.GetHeight
+        and playerSpells:GetHeight() or 0
+    local spellBookWidth = spellBook and spellBook.GetWidth
+        and spellBook:GetWidth() or 0
+    local spellBookHeight = spellBook and spellBook.GetHeight
+        and spellBook:GetHeight() or 0
+    local leftOffset, bottomOffset = 0, 0
+    if spellBook and spellBook.GetPoint then
+        local _, relativeTo, _, x, y = spellBook:GetPoint(1)
+        if relativeTo == playerSpells then
+            leftOffset = tonumber(x) or 0
+            bottomOffset = tonumber(y) or 0
         end
     end
-    return nil
+    return math.max(0, playerWidth - leftOffset - spellBookWidth),
+        math.max(0, playerHeight - bottomOffset - spellBookHeight)
+end
+
+local function GetSpellBookSearchPlacements(playerSpells, spellBook)
+    local rightInset, topInset =
+        GetSpellBookFrameInsets(playerSpells, spellBook)
+    local cog = spellBook.SettingsDropdown
+    local assistant = spellBook.AssistedCombatRotationSpellFrame
+    local cogWidth = cog:GetWidth() or 0
+    local cogHeight = cog:GetHeight() or 0
+    local assistantOffset = assistant and assistant:IsShown()
+        and (assistant:GetWidth() or 0) + 1 or 0
+    return {
+        mode = "GRID", point = "RIGHT", relativePoint = "TOPRIGHT",
+        x = -rightInset - 35 - cogWidth - assistantOffset,
+        y = -topInset - 17 - cogHeight / 2,
+    }, {
+        edge = "TOP", side = "INSIDE", alignment = "RIGHT",
+        alongOffset = -rightInset - 30 - assistantOffset,
+        edgeOffset = -topInset - 17,
+    }
 end
 
 local function SkinAssistedCombat(frame)
     if not frame then return end
 
-    local divider = GetAssistedCombatDivider(frame)
-    if divider then ConcealTexture(divider) end
+    -- Keep the visual path from the known-working base implementation.
+    local data = NSkin:GetSkinData(frame, SPELL_BOOK_STATE)
+    if not data.spellBookSkinned then
+        NSkin:HideTextureRegions(frame)
+        data.spellBookSkinned = true
+    end
 
     local button = frame.Button
     local icon = button and button.Icon
-    if button and icon then
-        local native = {}
-        if button.Border then native[#native + 1] = button.Border end
-        NSkin:RegisterIcon({
-            id = IDs.AssistedCombat.Icon,
-            module = "SpellBook",
-            appearanceWindowID = IDs.AppearanceWindow,
-            label = "Assisted Combat spell",
-            window = _G.PlayerSpellsFrame,
-            target = button,
-            texture = icon,
-            borderOwner = button,
-            nativeDecorationRegions = native,
-            priority = 66,
-            highlightRegions = { button },
-            isEditable = function()
-                return frame:IsVisible() and button:IsVisible()
-            end,
-        })
-    end
-
-    if frame.Label then
-        NSkin:RegisterTextElement({
-            id = IDs.AssistedCombat.Label,
-            module = "SpellBook",
-            appearanceWindowID = IDs.AppearanceWindow,
-            label = "Assisted Combat label",
-            window = _G.PlayerSpellsFrame,
-            target = frame.Label,
-            priority = 67,
-            highlightRegions = { frame.Label },
-            isEditable = function()
-                return frame:IsVisible() and frame.Label:IsVisible()
-            end,
-        })
-    end
+    local label = frame.Label
+    if not button or not icon or not label then return end
 
     if not State.assistedCombatDivider then
-        State.assistedCombatDivider = frame:CreateTexture(nil, "ARTWORK", nil, 1)
-        State.assistedCombatDivider:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -2)
-        State.assistedCombatDivider:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 0, 2)
+        State.assistedCombatDivider =
+            frame:CreateTexture(nil, "ARTWORK", nil, 1)
+        State.assistedCombatDivider:SetPoint(
+            "TOPLEFT", frame, "TOPLEFT", 0, -2)
+        State.assistedCombatDivider:SetPoint(
+            "BOTTOMLEFT", frame, "BOTTOMLEFT", 0, 2)
         State.assistedCombatDivider:SetWidth(1)
     end
-    State.assistedCombatDivider:SetColorTexture(
-        unpack(NSkin:GetStyle("window").header.divider))
+
+    local divider = State.assistedCombatDivider
+
+    local function RefreshComposite()
+        -- The composite owns both appearance namespaces, so resolve appearance
+        -- from its canonical ID rather than the global SpellBook defaults.
+        local iconStyle = NSkin:GetAppearanceStyle(
+            "icon", IDs.AppearanceWindow, IDs.AssistedCombat.Group)
+        local iconBorder = NSkin:GetAppearanceBorderColor(
+            "icon", iconStyle, IDs.AppearanceWindow, IDs.AssistedCombat.Group)
+        local textStyle = NSkin:GetAppearanceStyle(
+            "text", IDs.AppearanceWindow, IDs.AssistedCombat.Group)
+
+        local pushed = button.GetPushedTexture and button:GetPushedTexture()
+        local nativeDecorations = {}
+        if button.Border then
+            nativeDecorations[#nativeDecorations + 1] = button.Border
+        end
+        if pushed then
+            nativeDecorations[#nativeDecorations + 1] = pushed
+        end
+
+        -- Keep the shared icon component responsible for the native pushed
+        -- artwork as part of the assistant's icon presentation.
+        NSkin:SkinIcon(button, {
+            texture = icon,
+            style = iconStyle,
+            borderKey = "NSkinSpellBookBorder",
+            borderColor = iconBorder,
+            nativeDecorationRegions = nativeDecorations,
+        })
+
+        NSkin:SkinText(label, textStyle)
+
+        -- Avoid a layout feedback loop here. label:GetWidth() is constrained
+        -- by this frame's current anchors, so deriving frame width from it can
+        -- repeatedly invalidate the inspector while typography is changing.
+        -- GetStringWidth() is intrinsic to the rendered text/font instead.
+        if frame.resizeToText and label.GetStringWidth and button.GetWidth then
+            local labelWidth = label:GetStringWidth()
+            local buttonWidth = button:GetWidth()
+            if labelWidth and buttonWidth then
+                local desiredWidth = math.ceil(
+                    labelWidth + buttonWidth
+                    + (tonumber(frame.textPadLeft) or 0)
+                    + (tonumber(frame.textPadRight) or 0)
+                    + 1)
+                if math.abs((frame:GetWidth() or 0) - desiredWidth) >= 0.5 then
+                    frame:SetWidth(desiredWidth)
+                end
+            end
+        end
+
+        divider:SetColorTexture(
+            unpack(NSkin:GetStyle("window").header.divider))
+        divider:Show()
+        return true
+    end
+
+    local playerSpells = _G.PlayerSpellsFrame
+    local rightInset, topInset = GetSpellBookFrameInsets(
+        playerSpells, frame:GetParent())
+    local defaultPlacement = {
+        edge = "TOP", side = "INSIDE", alignment = "RIGHT",
+        alongOffset = -rightInset - 20,
+        edgeOffset = -topInset - 7,
+    }
+    local element = NSkin:GetSkinningElement(IDs.AssistedCombat.Group)
+    if not element then
+        NSkin:RegisterMovableElement({
+            id = IDs.AssistedCombat.Group,
+            module = "SpellBook",
+            appearanceWindowID = IDs.AppearanceWindow,
+            label = "Single-Button Assistant",
+            kind = "MOVABLE",
+            window = _G.PlayerSpellsFrame,
+            target = frame,
+            priority = 90,
+            draggable = true,
+            defaultPlacement = defaultPlacement,
+            useDefaultPlacementOnReset = true,
+
+            composition = {
+                mode = "COMPOSITE",
+                movementOwner = frame,
+                members = {
+                    {
+                        kind = "ICON",
+                        role = "PRIMARY",
+                        target = icon,
+                        regions = { divider, icon },
+                        label = "Icon",
+                    },
+                    {
+                        kind = "TEXT",
+                        role = "SECONDARY",
+                        target = label,
+                        label = "Text",
+                    },
+                },
+            },
+            highlightRegions = { divider, label, icon },
+            refreshAppearance = function()
+                return RefreshComposite()
+            end,
+            refreshLayout = function(_, current)
+                RefreshComposite()
+                local saved =
+                    NSkin:GetSavedMovableElementPlacement(current.id)
+                local placement = saved
+                    or (current.useDefaultPlacementOnReset
+                        and current.defaultPlacement)
+                if placement and current.applyPlacement then
+                    current.applyPlacement(
+                        current, placement, { suppressNotify = true })
+                end
+                return true
+            end,
+            isEditable = function()
+                return frame:IsVisible()
+                    and button:IsVisible()
+                    and label:IsVisible()
+            end,
+        })
+    else
+        element.defaultPlacement = defaultPlacement
+    end
+
+    element = element or NSkin:GetSkinningElement(IDs.AssistedCombat.Group)
+    if element and element.refreshLayout then
+        element.refreshLayout(nil, element)
+    else
+        RefreshComposite()
+    end
 end
 
+
+
+local function RefreshSpellBookSearchController()
+    local controller = State.searchController
+    if not controller then return end
+    local playerSpells = _G.PlayerSpellsFrame
+    local spellBook = playerSpells and playerSpells.SpellBookFrame
+    if spellBook then
+        local searchPlacement, cogPlacement =
+            GetSpellBookSearchPlacements(playerSpells, spellBook)
+        local searchElement = NSkin:GetSkinningElement(IDs.Search.Group)
+        local cogElement = NSkin:GetSkinningElement(IDs.Search.Accessory)
+        if searchElement then searchElement.defaultPlacement = searchPlacement end
+        if cogElement then cogElement.defaultPlacement = cogPlacement end
+    end
+    controller:Refresh()
+end
 
 local function SkinSpellBookControls()
     local playerSpells = _G.PlayerSpellsFrame
     local spellBook = playerSpells and playerSpells.SpellBookFrame
-    local pagedSpells = spellBook and spellBook.PagedSpellsFrame
     if not spellBook then return end
     if State.paginationController then State.paginationController:Refresh() end
+    RefreshSpellBookSearchController()
 
     local resizeTargets = GetSpellBookResizeButtons(playerSpells, spellBook)
     NSkin:SkinStandardWindowChrome({
@@ -430,12 +576,6 @@ local function SkinSpellBookControls()
         },
     })
     SkinSpellBookTabs()
-    local searchStyle = NSkin:GetAppearanceStyle(
-        "searchBox", IDs.AppearanceWindow, IDs.Search.Group)
-    NSkin:SkinSearchBox(spellBook.SearchBox, searchStyle,
-        NSkin:GetAppearanceBorderColor(
-            "searchBox", searchStyle, IDs.AppearanceWindow, IDs.Search.Group))
-    NSkin:SkinPagingControls(pagedSpells and pagedSpells.PagingControls)
     SkinAssistedCombat(spellBook.AssistedCombatRotationSpellFrame)
 end
 
@@ -651,6 +791,8 @@ local function GetSpellIconNativeDecorations(item)
     return regions
 end
 
+local ACTION_BAR_STATUS_GLOW = { 1, 0.84, 0.10, 1 }
+
 local function ApplySpellTextAppearance(fontString, appearanceID)
     if not fontString then return false end
     local style = NSkin:GetAppearanceStyle(
@@ -680,6 +822,133 @@ local function RefreshSpellSecondaryTextAppearance(pagedSpells)
     return changed
 end
 
+local function GetSpellActionBarHighlight(item)
+    local button = item and item.Button
+    if button and button.ActionBarHighlight then
+        return button.ActionBarHighlight
+    end
+    if item and item.ActionBarHighlight then
+        return item.ActionBarHighlight
+    end
+    return nil
+end
+
+local function GetSpellIconDescriptor(item)
+    local button = item and item.Button
+    local icon = button and button.Icon
+    if not icon then return nil end
+
+    local spellInfo = item.spellBookItemInfo
+    local isPassive = spellInfo and spellInfo.isPassive
+
+    return {
+        target = icon,
+        texture = icon,
+        borderOwner = item,
+        nativeDecorationRegions = GetSpellIconNativeDecorations(item),
+        shape = isPassive and "circle" or nil,
+        nativeMask = button.IconMask,
+        suppressNativeMask = true,
+        -- SpellBook buttons are protected cast/drag controls. Keep shared
+        -- ICON interaction disabled for these entries so it never creates an
+        -- overlay Frame above the Blizzard Button's hit rect. Hover is rendered
+        -- separately with a mouse-transparent Texture below.
+    }
+end
+
+local function RefreshSpellIconHover(item)
+    local button = item and item.Button
+    local icon = button and button.Icon
+    local highlight = button and button.IconHighlight
+    if not icon or not highlight then return end
+
+    -- Blizzard's template anchors IconHighlight to the 40x40 Button. Re-anchor
+    -- the same native hover atlas to the 36x36 presentation icon instead.
+    -- The Square/Circle art-set atlas remains Blizzard-owned, so passive icons
+    -- keep the correct circular hover shape automatically.
+    highlight:ClearAllPoints()
+    highlight:SetAllPoints(icon)
+
+    local hovered = button.IsMouseOver and button:IsMouseOver() or false
+    local available = not item.isUnlearned
+    if hovered and available then
+        local pushed = button.GetButtonState
+            and button:GetButtonState() == "PUSHED"
+        highlight:SetAlpha(pushed
+            and (item.iconHighlightPressAlpha or 0.65)
+            or (item.iconHighlightHoverAlpha or 0.35))
+        highlight:Show()
+    else
+        highlight:SetAlpha(item.iconHighlightHoverAlpha or 0.35)
+        highlight:Hide()
+    end
+end
+
+
+local function BuildSpellActionGlow(item)
+    if not item or not item.Button or not item.Button.Icon then return nil end
+
+    local button = item.Button
+    local icon = button.Icon
+    local data = NSkin:GetSkinData(item, "spellBookActionGlow")
+
+    if not data.clip then
+        local clip = CreateFrame("Frame", nil, button)
+        clip:EnableMouse(false)
+        clip:SetClipsChildren(true)
+        data.clip = clip
+    end
+
+    local clip = data.clip
+    local pixel = NSkin:GetPhysicalPixelSize(button)
+    clip:ClearAllPoints()
+    clip:SetPoint("TOPLEFT", icon, "TOPLEFT", -pixel, pixel)
+    clip:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", pixel, -pixel)
+    clip:SetFrameLevel((button:GetFrameLevel() or 0) + 6)
+
+    -- Keep the glow asset at its authored 12px geometry. Its luminous centre
+    -- remains on the icon edge; the clip only trims the distant outer falloff.
+    return NSkin:CreateTexturedGlowBorder(
+        clip, "NSkinSpellActionBarStatusGlow", icon, {
+            levelOwner = clip,
+            levelOffset = 1,
+            edgeSize = 12,
+            edgeInset = 6,
+            color = ACTION_BAR_STATUS_GLOW,
+            shown = false,
+        })
+end
+
+
+local function SetSpellActionBarGlowShown(item, shown)
+    local glow = BuildSpellActionGlow(item)
+    if glow then glow:SetShown(shown == true) end
+end
+
+local function RefreshSpellActionBarStatusGlow(item)
+    if not item or not item.Button or not item.Button.Icon then return end
+
+    local nativeHighlight = GetSpellActionBarHighlight(item)
+    local missingStatus = _G.ActionButtonUtil
+        and _G.ActionButtonUtil.ActionBarActionStatus
+        and _G.ActionButtonUtil.ActionBarActionStatus.MissingFromAllBars
+    local showGlow = item.HasValidData and item:HasValidData()
+        and missingStatus ~= nil
+        and item.actionBarStatus == missingStatus
+        and item:IsShown()
+
+    -- Keep Blizzard's action-bar state as the source of truth, but suppress
+    -- its original glow artwork and render the NSkin textured glow border.
+    if nativeHighlight then
+        if nativeHighlight.Anim and nativeHighlight.Anim:IsPlaying() then
+            nativeHighlight.Anim:Stop()
+        end
+        nativeHighlight:SetAlpha(0)
+    end
+
+    SetSpellActionBarGlowShown(item, showGlow == true)
+end
+
 local function RegisterSpellBookContentFamilies(playerSpells, spellBook)
     local pagedSpells = spellBook and spellBook.PagedSpellsFrame
     if not pagedSpells then return false end
@@ -696,32 +965,24 @@ local function RegisterSpellBookContentFamilies(playerSpells, spellBook)
         children = function()
             local children = {}
             for _, item in ipairs(GetActiveSpellBookItems(pagedSpells)) do
-                local button = item.Button
-                local isPassive = item.spellBookItemInfo
-                    and item.spellBookItemInfo.isPassive
-                children[#children + 1] = {
-                    target = button,
-                    texture = button.Icon,
-                    borderOwner = button,
-                    nativeDecorationRegions =
-                        GetSpellIconNativeDecorations(item),
-                    shape = isPassive and "circle" or nil,
-                    refreshOn = { "OnShow", "OnEnter", "OnLeave" },
-                }
+                local descriptor = GetSpellIconDescriptor(item)
+                if descriptor then
+                    children[#children + 1] = descriptor
+                end
             end
             return children
         end,
         highlightRegions = function()
             local regions = {}
             for _, item in ipairs(GetActiveSpellBookItems(pagedSpells)) do
-                regions[#regions + 1] = item.Button
+                regions[#regions + 1] = item.Button.Icon
             end
             return regions
         end,
         pixelBorderTargets = function()
             local regions = {}
             for _, item in ipairs(GetActiveSpellBookItems(pagedSpells)) do
-                regions[#regions + 1] = item.Button
+                regions[#regions + 1] = item
             end
             return regions
         end,
@@ -802,19 +1063,20 @@ local function SkinSpellBookItem(item)
     local icon = button.Icon
     if not icon then return end
 
-    local spellInfo = item.spellBookItemInfo
-    local isPassive = spellInfo and spellInfo.isPassive
+    local descriptor = GetSpellIconDescriptor(item)
+    if not descriptor then return end
+
     local iconStyle = NSkin:GetAppearanceStyle(
         "icon", IDs.AppearanceWindow, IDs.Spells.Icons)
     local iconBorderColor = NSkin:GetAppearanceBorderColor(
         "icon", iconStyle, IDs.AppearanceWindow, IDs.Spells.Icons)
-    NSkin:SkinIcon(button, {
-        texture = icon,
-        style = iconStyle,
-        borderColor = iconBorderColor,
-        shape = isPassive and "circle" or nil,
-        nativeDecorationRegions = GetSpellIconNativeDecorations(item),
-    })
+
+    -- Keep the protected Blizzard Button out of NSkin's ICON lifecycle. The
+    -- same descriptor is shared with the pooled ICON_GROUP so both refresh
+    -- paths stay structurally identical.
+    descriptor.style = iconStyle
+    descriptor.borderColor = iconBorderColor
+    NSkin:SkinIcon(descriptor.target, descriptor)
 
     if button.Cooldown then
         button.Cooldown:ClearAllPoints()
@@ -824,12 +1086,17 @@ local function SkinSpellBookItem(item)
     ApplySpellTextAppearance(item.Name, IDs.Spells.Names)
     ApplySpellTextAppearance(item.SubName, IDs.Spells.SecondaryText)
     ApplySpellTextAppearance(item.RequiredLevel, IDs.Spells.SecondaryText)
+
+    RefreshSpellActionBarStatusGlow(item)
+    RefreshSpellIconHover(item)
 end
 
 local function SkinSpellBookHeader(header)
     if not header then return end
     local style = NSkin:GetAppearanceStyle(
         "sectionHeader", IDs.AppearanceWindow, IDs.Headers)
+        or NSkin:GetStyle("sectionHeader")
+        or {}
     local decorations = {}
     if header.Backplate then decorations[#decorations + 1] = header.Backplate end
     if header.Border then decorations[#decorations + 1] = header.Border end
@@ -837,6 +1104,7 @@ local function SkinSpellBookHeader(header)
         style = style,
         text = header.Text,
         offset = NSkin:GetSpellBookHeaderOffset(),
+        defaultTextSize = 20,
         underline = { left = -8, right = -60, y = 12 },
         nativeDecorations = decorations,
     })
@@ -863,7 +1131,14 @@ local function SkinActiveSpellBookItems()
         RefreshSpellNameAppearance(pagedSpells)
         RefreshSpellSecondaryTextAppearance(pagedSpells)
     end
-    SkinSpellBookControls()
+
+    -- Page changes rebuild the SpellBook content and Blizzard can restore the
+    -- Single-Button Assistant presentation as part of that update. Reapply only
+    -- the Assistant here, after Blizzard has finished the page refresh. Do not
+    -- call SkinSpellBookControls(), because that would also refresh the search
+    -- controller and reintroduce the per-page search-position drift.
+    if State.paginationController then State.paginationController:Refresh() end
+    SkinAssistedCombat(spellBook and spellBook.AssistedCombatRotationSpellFrame)
 end
 
 
@@ -923,12 +1198,7 @@ local function RemoveSpellBookBackground()
         if region then region:SetAlpha(0) end
     end
 
-    local pagedSpells = spellBook.PagedSpellsFrame
     RegisterSpellBookContentFamilies(playerSpells, spellBook)
-    local pagingControls = pagedSpells and pagedSpells.PagingControls
-    if pagingControls and pagingControls.PageText then
-        pagingControls.PageText:SetTextColor(unpack(NSkin:GetStyle("button").text))
-    end
 end
 
 function SpellBookSkin:Initialize()
@@ -945,19 +1215,33 @@ function SpellBookSkin:Initialize()
     end
 
     _G.hooksecurefunc(mixin, "UpdateVisuals", SkinSpellBookItem)
-    -- Blizzard restores the backplate alpha on both hover edges.
+    if type(mixin.UpdateActionBarAnim) == "function" then
+        _G.hooksecurefunc(mixin, "UpdateActionBarAnim",
+            RefreshSpellActionBarStatusGlow)
+    end
     if type(mixin.OnIconEnter) == "function" then
-        _G.hooksecurefunc(mixin, "OnIconEnter", SkinSpellBookItem)
+        _G.hooksecurefunc(mixin, "OnIconEnter", RefreshSpellIconHover)
     end
     if type(mixin.OnIconLeave) == "function" then
-        _G.hooksecurefunc(mixin, "OnIconLeave", SkinSpellBookItem)
+        _G.hooksecurefunc(mixin, "OnIconLeave", RefreshSpellIconHover)
     end
-
+    if type(mixin.OnIconMouseDown) == "function" then
+        _G.hooksecurefunc(mixin, "OnIconMouseDown", RefreshSpellIconHover)
+    end
+    if type(mixin.OnIconMouseUp) == "function" then
+        _G.hooksecurefunc(mixin, "OnIconMouseUp", RefreshSpellIconHover)
+    end
     if type(playerSpells.UpdateTabs) == "function" then
         _G.hooksecurefunc(playerSpells, "UpdateTabs", SkinSpellBookTabs)
     end
     if type(spellBook.UpdateAllSpellData) == "function" then
         _G.hooksecurefunc(spellBook, "UpdateAllSpellData", SkinSpellBookTabs)
+    end
+    if type(spellBook.UpdateAttic) == "function" then
+        _G.hooksecurefunc(spellBook, "UpdateAttic", function()
+            RefreshSpellBookSearchController()
+            SkinAssistedCombat(spellBook.AssistedCombatRotationSpellFrame)
+        end)
     end
 
     NSkin:RegisterTabGroup(IDs.MainTabs, {
@@ -1070,10 +1354,8 @@ function SpellBookSkin:Initialize()
         end,
     })
     local pagingControls = pagedSpells and pagedSpells.PagingControls
-    local defaultCog = { edge = "TOP", side = "INSIDE", alignment = "RIGHT",
-        alongOffset = -30, edgeOffset = -17 }
-    local defaultSearch = { edge = "TOP", side = "INSIDE", alignment = "RIGHT",
-        alongOffset = -35 - (spellBook.SettingsDropdown:GetWidth() or 0), edgeOffset = -17 }
+    local defaultSearch, defaultCog =
+        GetSpellBookSearchPlacements(playerSpells, spellBook)
     local defaultBottom = { edge = "BOTTOM", side = "INSIDE", alignment = "RIGHT",
         alongOffset = -20, edgeOffset = 20 }
     State.searchController = NSkin:RegisterAccessoryGroup({
@@ -1090,6 +1372,18 @@ function SpellBookSkin:Initialize()
             cog:SetPoint("LEFT", searchBox, "RIGHT", 5, 0)
             return true
         end,
+        elements = {
+            primary = {
+                useDefaultPlacementOnReset = true,
+            },
+            accessory = {
+                skinOptions = {
+                    showArrow = false,
+                    showBackground = false,
+                    showBorder = false,
+                },
+            },
+        },
     })
     State.paginationController = NSkin:RegisterPaginationGroup({
         module = "SpellBook", appearanceWindowID = IDs.AppearanceWindow,

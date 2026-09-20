@@ -410,11 +410,28 @@ function NSkin:SkinDropdown(dropdown, options)
     local style = options.style
         or (options.background and options.text and options)
         or self:GetStyle("button")
-    self:CreateFlatBackground(dropdown, nil,
-        options.background or style.background,
-        options.border or self:GetComponentBorderColor("button", style))
+    local showBackground = options.showBackground ~= false
+    local showBorder = options.showBorder ~= false
+    local background = self:GetFlatBackground(dropdown)
+    local borderColor = options.border
+        or self:GetComponentBorderColor("button", style)
+    if showBackground then
+        background = self:CreateFlatBackground(dropdown, nil,
+            options.background or style.background, borderColor)
+        if background then background:Show() end
+    elseif background then
+        background:Hide()
+    end
     local border = self:GetPixelBorder(dropdown, "NSkinFlatBackgroundBorder")
-    self:SetPixelBorderSize(border, 1)
+    if showBorder and not border then
+        border = self:CreatePixelBorder(dropdown,
+            "NSkinFlatBackgroundBorder", 1, borderColor)
+    end
+    if border then
+        self:SetPixelBorderColor(border, unpack(borderColor))
+        self:SetPixelBorderSize(border, 1)
+        self:SetPixelBorderShown(border, showBorder)
+    end
     self:CreateFlatButtonGlow(dropdown, style.hoverAlpha)
     if dropdown.Background then dropdown.Background:SetAlpha(0) end
     if dropdown.Arrow then dropdown.Arrow:SetAlpha(0) end
@@ -434,7 +451,7 @@ function NSkin:SkinDropdown(dropdown, options)
     end
 
     local arrow = data.dropdownArrow
-    if not arrow then
+    if options.showArrow ~= false and not arrow then
         arrow = dropdown:CreateTexture(nil, "OVERLAY")
         arrow:SetSize(14, 14)
         arrow:SetPoint("RIGHT", dropdown, "RIGHT", -8, 0)
@@ -442,7 +459,7 @@ function NSkin:SkinDropdown(dropdown, options)
         self:ConfigureOwnedPixelTexture(arrow)
         data.dropdownArrow = arrow
     end
-    arrow:Show()
+    if arrow then arrow:SetShown(options.showArrow ~= false) end
 
     data.dropdownTextColor = self:GetResolvedAppearanceColor(style, "text")
         or style.text or { 1, 1, 1, 1 }
@@ -1201,6 +1218,12 @@ function NSkin:RegisterAccessoryGroup(definition)
         NSkin:NotifySkinningElementBoundsChanged(self.ids.primary)
         NSkin:NotifySkinningElementBoundsChanged(self.ids.accessory)
     end
+    function controller:RestoreGroupedBaseline()
+        -- The native primary may be anchored to the accessory. Restore the
+        -- accessory first so neither control retains a grouped anchor cycle.
+        NSkin:RestoreMovableElementOriginal(self.ids.accessory, true)
+        NSkin:RestoreMovableElementOriginal(self.ids.primary, true)
+    end
     function controller:RefreshAppearance(element)
         if element then return NSkin:RefreshTypedElementAppearance(element) end
         NSkin:SkinTypedElement("SEARCH_GROUP", {
@@ -1226,9 +1249,15 @@ function NSkin:RegisterAccessoryGroup(definition)
             local saved = primaryElement and GetSavedMovablePlacement(primaryElement)
             if saved then
                 primaryElement.applyPlacement(primaryElement, saved, SUPPRESS_NOTIFICATION)
+            elseif primaryElement
+                and primaryElement.useDefaultPlacementOnReset
+                and primaryElement.defaultPlacement
+            then
+                primaryElement.applyPlacement(primaryElement,
+                    CopyPlacement(primaryElement.defaultPlacement),
+                    SUPPRESS_NOTIFICATION)
             else
-                NSkin:RestoreMovableElementOriginal(self.ids.accessory, true)
-                NSkin:RestoreMovableElementOriginal(self.ids.primary, true)
+                self:RestoreGroupedBaseline()
             end
         elseif mode == "INDEPENDENT" then
             local element = skinningElements[self.ids.accessory]
@@ -1321,6 +1350,8 @@ function NSkin:RegisterAccessoryGroup(definition)
             end,
             livePreview = primaryDefinition.livePreview,
             draggable = primaryDefinition.draggable,
+            useDefaultPlacementOnReset =
+                primaryDefinition.useDefaultPlacementOnReset == true,
             skinOptions = controller.primarySkinOptions,
             highlightRegions = function()
                 return controller:GetMode() == "GROUPED"
@@ -1344,9 +1375,13 @@ function NSkin:RegisterAccessoryGroup(definition)
     if primary then
         local resetPrimary = primary.resetPlacement
         primary.resetPlacement = function(element)
-            NSkin:RestoreMovableElementOriginal(controller.ids.accessory, true)
+            if controller:GetMode() == "GROUPED"
+                and not element.useDefaultPlacementOnReset
+            then
+                controller:RestoreGroupedBaseline()
+            end
             local reset = resetPrimary(element)
-            controller:Refresh()
+            controller:RefreshLayout()
             return reset
         end
     end

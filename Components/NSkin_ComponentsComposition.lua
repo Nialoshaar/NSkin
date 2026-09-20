@@ -267,7 +267,19 @@ function NSkin:InitializeElementComposition(element)
         if target and not element.compositionHookedTargets[target] then
             element.compositionHookedTargets[target] = true
             local function RefreshBounds()
-                NSkin:NotifySkinningElementBoundsChanged(element.id)
+                if element.compositionBoundsRefreshPending then return end
+                element.compositionBoundsRefreshPending = true
+                local function NotifyOnce()
+                    element.compositionBoundsRefreshPending = nil
+                    if NSkin:GetSkinningElement(element.id) == element then
+                        NSkin:NotifySkinningElementBoundsChanged(element.id)
+                    end
+                end
+                if C_Timer and C_Timer.After then
+                    C_Timer.After(0, NotifyOnce)
+                else
+                    NotifyOnce()
+                end
             end
             for _, method in ipairs({ "Show", "Hide", "SetShown", "SetText", "SetFont",
                 "SetFormattedText",

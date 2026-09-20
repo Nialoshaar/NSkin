@@ -1501,6 +1501,47 @@ function NSkin:CreatePixelBorder(frame, key, size, color, outside, anchor)
     return border
 end
 
+-- Textured eight-slice border for transient status glows. The border is
+-- NSkin-owned, mouse-disabled, and anchored to presentation geometry only.
+function NSkin:CreateTexturedGlowBorder(owner, key, anchor, options)
+    if not owner or type(key) ~= "string" or not anchor
+        or not _G.CreateFrame
+        or (owner.IsForbidden and owner:IsForbidden())
+        or (anchor.IsForbidden and anchor:IsForbidden())
+    then return nil end
+    options = options or {}
+    local data = self:GetSkinData(owner, "primitives")
+    data.texturedGlowBorders = data.texturedGlowBorders or {}
+    local glow = data.texturedGlowBorders[key]
+    if not glow then
+        glow = _G.CreateFrame("Frame", nil, owner, "BackdropTemplate")
+        glow:EnableMouse(false)
+        data.texturedGlowBorders[key] = glow
+    end
+    local edgeSize = tonumber(options.edgeSize) or 12
+    local edgeInset = tonumber(options.edgeInset) or edgeSize * 0.5
+    glow:ClearAllPoints()
+    glow:SetPoint("TOPLEFT", anchor, "TOPLEFT", -edgeInset, edgeInset)
+    glow:SetPoint("BOTTOMRIGHT", anchor, "BOTTOMRIGHT",
+        edgeInset, -edgeInset)
+    local levelOwner = options.levelOwner
+        or (anchor.GetParent and anchor:GetParent()) or owner
+    local level = levelOwner and levelOwner.GetFrameLevel
+        and levelOwner:GetFrameLevel() or owner:GetFrameLevel()
+    glow:SetFrameLevel(level + (tonumber(options.levelOffset) or 1))
+    local edgeFile = options.edgeFile
+        or (self.mediaPath .. "Borders\\NSkin_glow_border.tga")
+    local state = self:GetSkinData(glow, "texturedGlowBorder")
+    if state.edgeFile ~= edgeFile or state.edgeSize ~= edgeSize then
+        glow:SetBackdrop({ edgeFile = edgeFile, edgeSize = edgeSize })
+        state.edgeFile, state.edgeSize = edgeFile, edgeSize
+    end
+    local color = options.color or { 1, 1, 1, 1 }
+    glow:SetBackdropBorderColor(unpack(color))
+    if options.shown ~= nil then glow:SetShown(options.shown == true) end
+    return glow
+end
+
 -- Creates only the requested physical-pixel edges. Components that attach to
 -- a window edge can therefore omit that seam instead of drawing a full border
 -- and covering one side with another region.
@@ -2324,11 +2365,10 @@ function NSkin:IsSkinningElementEditable(element)
 end
 
 function NSkin:LayoutWindowElement(element, placement, options)
-    local target = element and element.target
+    local target = element and self:GetCompositionMovementOwner(element)
     local window = element and element.window
     if not target or not window or type(placement) ~= "table"
         or not target.ClearAllPoints or not target.SetPoint
-        or (target.IsProtected and target:IsProtected())
         or (_G.InCombatLockdown and _G.InCombatLockdown())
     then
         return false
@@ -2344,12 +2384,15 @@ function NSkin:LayoutWindowElement(element, placement, options)
         return true
     end
     local relativeElement = placement.relativeTo and skinningElements[placement.relativeTo]
+    local relativeTarget = relativeElement
+        and (self:GetCompositionMovementOwner(relativeElement)
+            or relativeElement.target)
     if relativeElement and relativeElement.snapTarget and relativeElement.window == window
-        and relativeElement.target and (not relativeElement.target.IsShown
-            or relativeElement.target:IsShown())
+        and relativeTarget and (not relativeTarget.IsShown
+            or relativeTarget:IsShown())
     then
         target:ClearAllPoints()
-        target:SetPoint(placement.point, relativeElement.target, placement.relativePoint,
+        target:SetPoint(placement.point, relativeTarget, placement.relativePoint,
             tonumber(placement.offsetX) or 0, tonumber(placement.offsetY) or 0)
         if not (options and options.suppressNotify) then
             self:NotifySkinningElementBoundsChanged(element.id)
@@ -2384,10 +2427,9 @@ end
 -- their height. Replacing that pair with one movable anchor changes the
 -- resolved height. Translate the complete captured anchor set instead.
 function NSkin:LayoutWindowElementPreservingAnchorSpan(element, placement, options)
-    local target = element and element.target
+    local target = element and self:GetCompositionMovementOwner(element)
     local window = element and element.window
     if not target or not window or type(placement) ~= "table"
-        or (target.IsProtected and target:IsProtected())
         or (_G.InCombatLockdown and _G.InCombatLockdown())
     then return false end
 
@@ -2482,15 +2524,16 @@ end
 function NSkin:RestoreMovableElementOriginal(elementOrID, suppressNotify)
     local element = type(elementOrID) == "table"
         and elementOrID or skinningElements[elementOrID]
-    if not element or not element.target or element.compositionParentID then return false end
+    local movementOwner = element and self:GetCompositionMovementOwner(element)
+    if not movementOwner or element.compositionParentID then return false end
     local restored = self:RestoreComponentBaseline(element.id)
     if not restored then
         local points = movableOriginalPoints[element.id]
         if not points then return false end
-        RestoreFramePoints(element.target, points)
+        RestoreFramePoints(movementOwner, points)
         local size = movableOriginalSizes[element.id]
-        if size and element.supportsResize and element.target.SetSize then
-            element.target:SetSize(size[1], size[2])
+        if size and element.supportsResize and movementOwner.SetSize then
+            movementOwner:SetSize(size[1], size[2])
         end
     end
     if not suppressNotify then self:NotifySkinningElementBoundsChanged(element.id) end
@@ -2531,7 +2574,9 @@ function NSkin:RegisterMovableElement(definition)
         definition.resetPlacement = nil
         return self:RegisterSkinningElement(id, definition)
     end
-    self:CaptureComponentBaseline(id, definition.target, {
+    local movementOwner = self:GetCompositionMovementOwner(definition)
+    if not movementOwner or not movementOwner.GetNumPoints then return false end
+    self:CaptureComponentBaseline(id, movementOwner, {
         points = true,
         size = definition.supportsResize == true,
         refreshBlizzardLayout = definition.refreshBlizzardLayout,
@@ -2539,12 +2584,12 @@ function NSkin:RegisterMovableElement(definition)
     })
     if not movableOriginalPoints[id] then
         local points = {}
-        for i = 1, definition.target:GetNumPoints() do
-            points[i] = { definition.target:GetPoint(i) }
+        for i = 1, movementOwner:GetNumPoints() do
+            points[i] = { movementOwner:GetPoint(i) }
         end
         movableOriginalPoints[id] = points
-        if definition.supportsResize and definition.target.GetSize then
-            movableOriginalSizes[id] = { definition.target:GetSize() }
+        if definition.supportsResize and movementOwner.GetSize then
+            movableOriginalSizes[id] = { movementOwner:GetSize() }
         end
     end
     local customApply = definition.applyPlacement
@@ -2566,7 +2611,8 @@ function NSkin:RegisterMovableElement(definition)
         local saved = GetSavedMovablePlacement(element)
         if saved then return CopyPlacement(saved) end
         return CopyPlacement(element.defaultPlacement
-            or GetCurrentWindowPlacement(element.window, element.target))
+            or GetCurrentWindowPlacement(element.window,
+                NSkin:GetCompositionMovementOwner(element)))
     end
     definition.applyPlacement = customApply or function(element, placement, applyOptions)
         if element.preserveAnchorSpan then
@@ -2588,6 +2634,15 @@ function NSkin:RegisterMovableElement(definition)
         return true
     end
     definition.resetPlacement = definition.resetPlacement or function(element)
+        if element.useDefaultPlacementOnReset and element.defaultPlacement then
+            if not element.applyPlacement(
+                element, CopyPlacement(element.defaultPlacement))
+            then return false end
+            ClearSavedMovablePlacement(element)
+            NSkin:MarkComponentGeometryModified(element.id, "points", true)
+            EnsureMovableWatcher(element.window)
+            return true
+        end
         if not NSkin:RestoreMovableElementOriginal(element) then return false end
         ClearSavedMovablePlacement(element)
         return true
@@ -2610,6 +2665,12 @@ function NSkin:RegisterMovableElement(definition)
             self:MarkComponentGeometryModified(element.id, "points", true)
             EnsureMovableWatcher(element.window)
         end
+    elseif not saved and element.useDefaultPlacementOnReset
+        and element.defaultPlacement
+        and element.applyPlacement(
+            element, CopyPlacement(element.defaultPlacement), SUPPRESS_NOTIFICATION)
+    then
+        self:MarkComponentGeometryModified(element.id, "points", true)
     end
     return true
 end
@@ -2649,6 +2710,9 @@ function NSkin:RegisterSimpleMovableElement(definition)
 end
 
 local SHARED_SKIN_ADAPTERS = {
+    PAGINATION_GROUP = function(self, skinMethod, target)
+        skinMethod(self, target)
+    end,
     BUTTON = function(self, skinMethod, target, style, borderColor, definition)
         local options = definition.skinOptions or {}
         skinMethod(self, target, options.label, style.background, borderColor,
@@ -2834,11 +2898,12 @@ local SHARED_SKIN_ADAPTERS = {
             "texture", "quality", "qualityProvider", "borderColor", "borderMode",
             "borderSize", "borderPadding", "borderKey", "borderOwner",
             "outside", "showBorder", "width", "height", "zoom", "crop",
-            "shape", "preserveTexCoords", "nativeDecorationRegions",
+            "shape", "preserveTexCoords", "nativeMask",
+            "suppressNativeMask", "nativeDecorationRegions",
             "nativeBorderRegions",
             "hoverRegion", "hoverRegions", "selectedRegion",
             "getHovered", "getSelected",
-            "interactionAlpha", "reset",
+            "interactionAlpha", "interactionOwner", "reset",
         }) do
             if options[key] == nil then options[key] = definition[key] end
         end
@@ -2953,10 +3018,11 @@ local TYPED_SKIN_FIELDS_BY_TYPE = {
         "texture", "quality", "qualityProvider", "borderColor", "borderMode",
         "borderSize", "borderPadding", "borderKey", "borderOwner", "outside",
         "showBorder", "width", "height", "zoom", "crop", "shape",
-        "preserveTexCoords", "nativeDecorationRegions", "nativeBorderRegions",
+        "preserveTexCoords", "nativeMask", "suppressNativeMask",
+        "nativeDecorationRegions", "nativeBorderRegions",
         "hoverRegion", "hoverRegions", "selectedRegion",
         "getHovered", "getSelected",
-        "interactionAlpha", "reset",
+        "interactionAlpha", "interactionOwner", "reset",
     },
     TEXT = { "numberFormat", "suffixIcon" },
 }
@@ -3538,6 +3604,8 @@ local function RegisterControllerElement(controller, id, label, target, options)
         editorOptions = options.editorOptions,
         defaultPlacement = CopyPlacement(options.defaultPlacement
             or GetCurrentWindowPlacement(controller.window, target)),
+        useDefaultPlacementOnReset =
+            options.useDefaultPlacementOnReset == true,
         priority = options.priority,
         anchorHighlight = options.anchorHighlight,
         highlightRegions = options.highlightRegions,

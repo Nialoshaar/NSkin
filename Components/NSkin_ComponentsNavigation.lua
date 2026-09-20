@@ -1290,7 +1290,13 @@ function NSkin:RegisterPaginationGroup(definition)
         NSkin:NotifySkinningElementBoundsChanged(self.ids.next)
         NSkin:NotifySkinningElementBoundsChanged(self.ids.text)
     end
+    function controller:RefreshAppearance()
+        local element = skinningElements[self.ids.group]
+        return element and NSkin:RefreshTypedElementAppearance(element)
+            or false
+    end
     function controller:Refresh()
+        self:RefreshAppearance()
         self.controls.text:SetShown(self:GetTextMode() ~= "HIDDEN")
         local function ApplyMode(id, independent)
             local element = skinningElements[id]
@@ -1424,11 +1430,10 @@ function NSkin:RegisterPaginationGroup(definition)
         })
     for _, element in ipairs({ group, previous, nextPage, text }) do
         if element then
-            element.refreshAppearance = function(_, current)
-                return NSkin:RefreshTypedElementAppearance(current)
+            element.refreshAppearance = function()
+                return controller:RefreshAppearance()
             end
-            element.refreshLayout = function(_, current)
-                if not NSkin:RefreshTypedElementLayout(current) then return false end
+            element.refreshLayout = function()
                 controller:Refresh()
                 return true
             end
