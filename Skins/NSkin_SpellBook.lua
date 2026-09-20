@@ -2,9 +2,6 @@ local _, NSkin = ...
 
 local SpellBookSkin = NSkin:NewModule("SpellBook")
 
-local BORDER_SIZE = 1
-local CIRCLE_MASK_ATLAS = "talents-node-circle-mask"
-local SPELL_BOOK_STATE = "spellBook"
 local IDs = {
     AppearanceWindow = "PlayerSpells.SpellBook",
     Window = "SpellBook.Window",
@@ -13,6 +10,15 @@ local IDs = {
     MainTabs = "SpellBook.MainTabs",
     CategoryTabs = "SpellBook.CategoryTabs",
     Headers = "SpellBook.Headers",
+    Spells = {
+        Icons = "SpellBook.Spells.Icons",
+        Names = "SpellBook.Spells.Names",
+        SecondaryText = "SpellBook.Spells.SecondaryText",
+    },
+    AssistedCombat = {
+        Icon = "SpellBook.AssistedCombat.Icon",
+        Label = "SpellBook.AssistedCombat.Label",
+    },
     Talents = {
         ApplyButton = "SpellBook.Talents.ApplyButton",
         SearchBox = "SpellBook.Talents.SearchBox",
@@ -42,86 +48,46 @@ local State = {
 local Adapters = {}
 
 NSkin:RegisterAppearanceScope(IDs.AppearanceWindow, { label = "Spellbook" })
+
+local iconDisposition = NSkin:RegisterColumnDisposition(
+    "SpellBook.Spells.Disposition", {
+        module = "SpellBook",
+        optionKey = "iconsPerRow",
+        allowed = { 2, 3, 4 },
+        get = function()
+            local playerSpells = _G.PlayerSpellsFrame
+            local spellBook = playerSpells and playerSpells.SpellBookFrame
+            local pagedSpells = spellBook and spellBook.PagedSpellsFrame
+            return pagedSpells and pagedSpells.columnsPerRow
+        end,
+        set = function(columns)
+            local playerSpells = _G.PlayerSpellsFrame
+            local spellBook = playerSpells and playerSpells.SpellBookFrame
+            local pagedSpells = spellBook and spellBook.PagedSpellsFrame
+            if not pagedSpells then return false end
+            pagedSpells.columnsPerRow = columns
+        end,
+        refresh = function()
+            local playerSpells = _G.PlayerSpellsFrame
+            local spellBook = playerSpells and playerSpells.SpellBookFrame
+            if spellBook and type(spellBook.UpdateDisplayedSpells) == "function" then
+                spellBook:UpdateDisplayedSpells(true, false)
+            end
+        end,
+    })
 local function RoundOne(value)
     value = tonumber(value) or 0
     if value >= 0 then return math.floor(value * 10 + 0.5) / 10 end
     return math.ceil(value * 10 - 0.5) / 10
 end
 
-function NSkin:GetSpellBookTextSizeOverride()
-    local options = self:GetModuleOptions("SpellBook", false)
-    local size = options and tonumber(options.textSize)
-    if not size then return nil end
-    return math.max(8, math.min(32, math.floor(size + 0.5)))
-end
 
-function NSkin:GetSpellBookTextSize()
-    return self:GetSpellBookTextSizeOverride()
-        or State.original.spellTextSize or 0
-end
 
-function NSkin:SetSpellBookTextSize(size)
-    size = tonumber(size)
-    if not size then return false end
-    if size == 0 then return self:ResetSpellBookTextSize() end
 
-    size = math.max(8, math.min(32, math.floor(size + 0.5)))
-    self:GetModuleOptions("SpellBook", true).textSize = size
 
-    if self:IsModuleEnabled("SpellBook") and SpellBookSkin.RefreshTextSize then
-        SpellBookSkin:RefreshTextSize()
-    end
-    return true
-end
 
-function NSkin:GetSpellBookAssistantHidden()
-    local options = self:GetModuleOptions("SpellBook", false)
-    return options and options.hideAssistant == true or false
-end
 
-function NSkin:SetSpellBookAssistantHidden(hidden)
-    if _G.InCombatLockdown and _G.InCombatLockdown() then return false end
-    hidden = hidden == true
-    local options = self:GetModuleOptions("SpellBook", hidden)
-    if hidden then
-        options.hideAssistant = true
-    elseif options then
-        options.hideAssistant = nil
-        local profile = self:GetProfile()
-        if not next(options) then profile.moduleOptions.SpellBook = nil end
-        if profile.moduleOptions and not next(profile.moduleOptions) then
-            profile.moduleOptions = nil
-        end
-    end
-    if self:IsModuleEnabled("SpellBook") and SpellBookSkin.RefreshAssistant then
-        SpellBookSkin:RefreshAssistant()
-    end
-    return true
-end
 
-function NSkin:GetSpellBookIconsPerRowOverride()
-    local options = self:GetModuleOptions("SpellBook", false)
-    local value = options and tonumber(options.iconsPerRow)
-    if not value then return nil end
-    value = math.floor(value + 0.5)
-    return (value == 2 or value == 3 or value == 4) and value or nil
-end
-
-function NSkin:GetSpellBookIconsPerRow()
-    return self:GetSpellBookIconsPerRowOverride()
-        or State.original.iconsPerRow or 0
-end
-
-function NSkin:SetSpellBookIconsPerRow(value)
-    value = math.floor((tonumber(value) or 0) + 0.5)
-    if value == 0 then return self:ResetSpellBookIconsPerRow() end
-    if value ~= 2 and value ~= 3 and value ~= 4 then return false end
-    self:GetModuleOptions("SpellBook", true).iconsPerRow = value
-    if SpellBookSkin.ApplyIconDisposition then
-        SpellBookSkin:ApplyIconDisposition()
-    end
-    return true
-end
 
 function NSkin:GetSpellBookHeaderOffset()
     local options = self:GetModuleOptions("SpellBook", false)
@@ -171,18 +137,8 @@ local function GetMainTabPlacementOptions()
 end
 
 
-function NSkin:ResetSpellBookIconsPerRow()
-    self:RemoveModuleOption("SpellBook", "iconsPerRow")
-    if SpellBookSkin.ApplyIconDisposition then SpellBookSkin:ApplyIconDisposition() end
-    return true
-end
 
 
-function NSkin:ResetSpellBookTextSize()
-    self:RemoveModuleOption("SpellBook", "textSize")
-    if SpellBookSkin.RefreshTextSize then SpellBookSkin:RefreshTextSize() end
-    return true
-end
 
 local function HasMainTabPlacement()
     return GetMainTabPlacementOptions() ~= nil
@@ -339,12 +295,6 @@ local function ResetCategoryTabPlacement(group)
     return Adapters.RestoreCategoryTabAnchors(group.container)
 end
 
-local function SetFontSize(fontString, size)
-    if not fontString or not size then return end
-
-    local font, _, flags = fontString:GetFont()
-    if font then fontString:SetFont(font, size, flags) end
-end
 
 local function SkinSpellBookTabs()
     local playerSpells = _G.PlayerSpellsFrame
@@ -391,31 +341,60 @@ local function GetSpellBookResizeButtons(playerSpells, spellBook)
     return targets
 end
 
+local function GetAssistedCombatDivider(frame)
+    if not frame or not frame.GetRegions then return nil end
+    for _, region in ipairs({ frame:GetRegions() }) do
+        if region and region.GetObjectType
+            and region:GetObjectType() == "Texture"
+        then
+            return region
+        end
+    end
+    return nil
+end
+
 local function SkinAssistedCombat(frame)
     if not frame then return end
 
-    local data = NSkin:GetSkinData(frame, SPELL_BOOK_STATE)
-    if not data.spellBookSkinned then
-        NSkin:HideTextureRegions(frame)
-        data.spellBookSkinned = true
-    end
-    if frame.Label then frame.Label:SetTextColor(unpack(NSkin:GetStyle("button").text)) end
+    local divider = GetAssistedCombatDivider(frame)
+    if divider then ConcealTexture(divider) end
 
     local button = frame.Button
     local icon = button and button.Icon
     if button and icon then
-        if button.Border then
-            button.Border:SetTexture(nil)
-            button.Border:Hide()
-        end
-        local iconStyle = NSkin:GetAppearanceStyle(
-            "icon", IDs.AppearanceWindow)
-        NSkin:SkinIcon(button, {
+        local native = {}
+        if button.Border then native[#native + 1] = button.Border end
+        NSkin:RegisterIcon({
+            id = IDs.AssistedCombat.Icon,
+            module = "SpellBook",
+            appearanceWindowID = IDs.AppearanceWindow,
+            label = "Assisted Combat spell",
+            window = _G.PlayerSpellsFrame,
+            target = button,
             texture = icon,
-            style = iconStyle,
-            borderKey = "NSkinSpellBookBorder",
-            borderColor = NSkin:GetAppearanceBorderColor(
-                "icon", iconStyle, IDs.AppearanceWindow),
+            borderOwner = button,
+            nativeDecorationRegions = native,
+            priority = 66,
+            highlightRegions = { button },
+            isEditable = function()
+                return frame:IsVisible() and button:IsVisible()
+            end,
+        })
+    end
+
+    if frame.Label then
+        NSkin:RegisterTextElement({
+            id = IDs.AssistedCombat.Label,
+            module = "SpellBook",
+            appearanceWindowID = IDs.AppearanceWindow,
+            label = "Assisted Combat label",
+            window = _G.PlayerSpellsFrame,
+            target = frame.Label,
+            priority = 67,
+            highlightRegions = { frame.Label },
+            isEditable = function()
+                return frame:IsVisible() and frame.Label:IsVisible()
+            end,
         })
     end
 
@@ -425,51 +404,10 @@ local function SkinAssistedCombat(frame)
         State.assistedCombatDivider:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 0, 2)
         State.assistedCombatDivider:SetWidth(1)
     end
-    State.assistedCombatDivider:SetColorTexture(unpack(NSkin:GetStyle("window").header.divider))
-    local hidden = NSkin:GetSpellBookAssistantHidden()
-    local assistantIcon = frame.Button and frame.Button.Icon
-    local assistantBorder = frame.Button
-        and NSkin:GetPixelBorder(frame.Button, "NSkinSpellBookBorder")
-    if hidden then
-        if not data.assistantHiddenByNSkin then
-            data.assistantWasShown = frame:IsShown()
-            data.assistantAlpha = frame:GetAlpha()
-            data.assistantMouseEnabled = frame:IsMouseEnabled()
-            data.assistantButtonWasShown = frame.Button and frame.Button:IsShown()
-        end
-        if frame.Label then frame.Label:Hide() end
-        if assistantIcon then assistantIcon:Hide() end
-        if assistantBorder then NSkin:SetPixelBorderShown(assistantBorder, false) end
-        State.assistedCombatDivider:Hide()
-        if frame.Button then frame.Button:Hide() end
-        frame:EnableMouse(false)
-        frame:SetAlpha(0)
-        frame:Hide()
-        data.assistantHiddenByNSkin = true
-    elseif data.assistantHiddenByNSkin then
-        if frame.Label then frame.Label:Show() end
-        if assistantIcon then assistantIcon:Show() end
-        if assistantBorder then NSkin:SetPixelBorderShown(assistantBorder, true) end
-        State.assistedCombatDivider:Show()
-        frame:SetAlpha(data.assistantAlpha or 1)
-        frame:EnableMouse(data.assistantMouseEnabled == true)
-        if frame.Button and data.assistantButtonWasShown then frame.Button:Show() end
-        if data.assistantWasShown then frame:Show() end
-        data.assistantWasShown = nil
-        data.assistantAlpha = nil
-        data.assistantMouseEnabled = nil
-        data.assistantButtonWasShown = nil
-        data.assistantHiddenByNSkin = nil
-    end
+    State.assistedCombatDivider:SetColorTexture(
+        unpack(NSkin:GetStyle("window").header.divider))
 end
 
-local function RemoveSpellBookHelp(spellBook)
-    if not spellBook then return end
-    if spellBook.HelpPlateButton then
-        spellBook.HelpPlateButton:SetAlpha(0)
-        spellBook.HelpPlateButton:Hide()
-    end
-end
 
 local function SkinSpellBookControls()
     local playerSpells = _G.PlayerSpellsFrame
@@ -478,7 +416,6 @@ local function SkinSpellBookControls()
     if not spellBook then return end
     if State.paginationController then State.paginationController:Refresh() end
 
-    RemoveSpellBookHelp(spellBook)
     local resizeTargets = GetSpellBookResizeButtons(playerSpells, spellBook)
     NSkin:SkinStandardWindowChrome({
         frame = playerSpells,
@@ -689,21 +626,173 @@ local function RegisterSpecializationControls(playerSpells)
     return true
 end
 
-local function CreateCircularBorder(button, icon, style, borderColor)
-    local borderSize = tonumber(style and style.borderSize) or BORDER_SIZE
-    local border = button:CreateTexture(nil, "ARTWORK", nil, -2)
-    border:SetColorTexture(unpack(borderColor))
-    border:SetPoint("TOPLEFT", icon, "TOPLEFT", -borderSize, borderSize)
-    border:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", borderSize, -borderSize)
 
-    local mask = button:CreateMaskTexture(nil, "ARTWORK")
-    mask:SetAtlas(CIRCLE_MASK_ATLAS, false)
-    mask:SetAllPoints(border)
-    border:AddMaskTexture(mask)
+local function GetActiveSpellBookItems(pagedSpells)
+    local items = {}
+    if not pagedSpells or not pagedSpells.EnumerateFrames then return items end
+    for _, frame in pagedSpells:EnumerateFrames() do
+        if frame.HasValidData and frame:HasValidData()
+            and frame.Button and frame.Button.Icon
+        then
+            items[#items + 1] = frame
+        end
+    end
+    return items
+end
 
-    border:Hide()
-    NSkin:GetSkinData(button, SPELL_BOOK_STATE).circularBorder = border
-    return border
+local function GetSpellIconNativeDecorations(item)
+    local button = item and item.Button
+    local regions = {}
+    if item and item.Backplate then regions[#regions + 1] = item.Backplate end
+    if button and button.Border then regions[#regions + 1] = button.Border end
+    if button and button.BorderSheen then
+        regions[#regions + 1] = button.BorderSheen
+    end
+    return regions
+end
+
+local function ApplySpellTextAppearance(fontString, appearanceID)
+    if not fontString then return false end
+    local style = NSkin:GetAppearanceStyle(
+        "text", IDs.AppearanceWindow, appearanceID)
+    return NSkin:SkinText(fontString, style) == true
+end
+
+local function RefreshSpellNameAppearance(pagedSpells)
+    local changed = false
+    for _, item in ipairs(GetActiveSpellBookItems(pagedSpells)) do
+        changed = ApplySpellTextAppearance(
+            item.Name, IDs.Spells.Names) or changed
+    end
+    NSkin:NotifySkinningElementBoundsChanged(IDs.Spells.Names)
+    return changed
+end
+
+local function RefreshSpellSecondaryTextAppearance(pagedSpells)
+    local changed = false
+    for _, item in ipairs(GetActiveSpellBookItems(pagedSpells)) do
+        changed = ApplySpellTextAppearance(
+            item.SubName, IDs.Spells.SecondaryText) or changed
+        changed = ApplySpellTextAppearance(
+            item.RequiredLevel, IDs.Spells.SecondaryText) or changed
+    end
+    NSkin:NotifySkinningElementBoundsChanged(IDs.Spells.SecondaryText)
+    return changed
+end
+
+local function RegisterSpellBookContentFamilies(playerSpells, spellBook)
+    local pagedSpells = spellBook and spellBook.PagedSpellsFrame
+    if not pagedSpells then return false end
+
+    local icons = NSkin:RegisterIconGroup({
+        id = IDs.Spells.Icons,
+        module = "SpellBook",
+        appearanceWindowID = IDs.AppearanceWindow,
+        label = "Spell icons",
+        window = playerSpells,
+        target = pagedSpells,
+        priority = 68,
+        draggable = false,
+        children = function()
+            local children = {}
+            for _, item in ipairs(GetActiveSpellBookItems(pagedSpells)) do
+                local button = item.Button
+                local isPassive = item.spellBookItemInfo
+                    and item.spellBookItemInfo.isPassive
+                children[#children + 1] = {
+                    target = button,
+                    texture = button.Icon,
+                    borderOwner = button,
+                    nativeDecorationRegions =
+                        GetSpellIconNativeDecorations(item),
+                    shape = isPassive and "circle" or nil,
+                    refreshOn = { "OnShow", "OnEnter", "OnLeave" },
+                }
+            end
+            return children
+        end,
+        highlightRegions = function()
+            local regions = {}
+            for _, item in ipairs(GetActiveSpellBookItems(pagedSpells)) do
+                regions[#regions + 1] = item.Button
+            end
+            return regions
+        end,
+        pixelBorderTargets = function()
+            local regions = {}
+            for _, item in ipairs(GetActiveSpellBookItems(pagedSpells)) do
+                regions[#regions + 1] = item.Button
+            end
+            return regions
+        end,
+        isEditable = function()
+            return spellBook:IsVisible()
+                and #GetActiveSpellBookItems(pagedSpells) > 0
+        end,
+    })
+
+    local function RegisterTextFamily(id, label, priority, refresh, regions)
+        return NSkin:RegisterSkinningElement(id, {
+            module = "SpellBook",
+            appearanceWindowID = IDs.AppearanceWindow,
+            label = label,
+            kind = "TEXT",
+            window = playerSpells,
+            target = pagedSpells,
+            priority = priority,
+            draggable = false,
+            appearanceStyles = { "text" },
+            appearanceTypeIDs = { "TEXT" },
+            editorOptions = {
+                { id = "shared.textAppearance", label = "Text",
+                    category = "CUSTOMIZE" },
+            },
+            highlightRegions = regions,
+            refreshAppearance = function()
+                return refresh(pagedSpells)
+            end,
+            refreshLayout = function()
+                return refresh(pagedSpells)
+            end,
+            isEditable = function()
+                return spellBook:IsVisible()
+                    and #GetActiveSpellBookItems(pagedSpells) > 0
+            end,
+        })
+    end
+
+    local names = RegisterTextFamily(
+        IDs.Spells.Names, "Spell names", 69,
+        RefreshSpellNameAppearance,
+        function()
+            local regions = {}
+            for _, item in ipairs(GetActiveSpellBookItems(pagedSpells)) do
+                if item.Name and item.Name:IsShown() then
+                    regions[#regions + 1] = item.Name
+                end
+            end
+            return regions
+        end)
+
+    local secondary = RegisterTextFamily(
+        IDs.Spells.SecondaryText, "Spell secondary text", 70,
+        RefreshSpellSecondaryTextAppearance,
+        function()
+            local regions = {}
+            for _, item in ipairs(GetActiveSpellBookItems(pagedSpells)) do
+                if item.SubName and item.SubName:IsShown() then
+                    regions[#regions + 1] = item.SubName
+                end
+                if item.RequiredLevel and item.RequiredLevel:IsShown() then
+                    regions[#regions + 1] = item.RequiredLevel
+                end
+            end
+            return regions
+        end)
+
+    RefreshSpellNameAppearance(pagedSpells)
+    RefreshSpellSecondaryTextAppearance(pagedSpells)
+    return icons ~= nil or names == true or secondary == true
 end
 
 local function SkinSpellBookItem(item)
@@ -715,131 +804,42 @@ local function SkinSpellBookItem(item)
 
     local spellInfo = item.spellBookItemInfo
     local isPassive = spellInfo and spellInfo.isPassive
-    local iconStyle = NSkin:GetAppearanceStyle("icon", IDs.AppearanceWindow)
+    local iconStyle = NSkin:GetAppearanceStyle(
+        "icon", IDs.AppearanceWindow, IDs.Spells.Icons)
     local iconBorderColor = NSkin:GetAppearanceBorderColor(
-        "icon", iconStyle, IDs.AppearanceWindow)
+        "icon", iconStyle, IDs.AppearanceWindow, IDs.Spells.Icons)
     NSkin:SkinIcon(button, {
         texture = icon,
         style = iconStyle,
         borderColor = iconBorderColor,
-        showBorder = not isPassive,
+        shape = isPassive and "circle" or nil,
+        nativeDecorationRegions = GetSpellIconNativeDecorations(item),
     })
+
     if button.Cooldown then
         button.Cooldown:ClearAllPoints()
         button.Cooldown:SetAllPoints(icon)
     end
 
-    -- Keep functional overlays while removing Blizzard's ornamental artwork.
-    if item.Backplate then item.Backplate:SetAlpha(0) end
-    local textColor = NSkin:GetStyle("button").text
-    if item.Name then
-        local textData = NSkin:GetSkinData(item.Name, SPELL_BOOK_STATE)
-        if not textData.originalFont then
-            textData.originalFont = { item.Name:GetFont() }
-            State.original.spellTextSize = State.original.spellTextSize
-                or textData.originalFont[2]
-        end
-        item.Name:SetTextColor(unpack(textColor))
-        local sizeOverride = NSkin:GetSpellBookTextSizeOverride()
-        if sizeOverride then
-            SetFontSize(item.Name, sizeOverride)
-        elseif textData.originalFont[1] then
-            item.Name:SetFont(unpack(textData.originalFont))
-        end
-    end
-    if item.SubName then item.SubName:SetTextColor(unpack(textColor)) end
-    if item.RequiredLevel then item.RequiredLevel:SetTextColor(unpack(textColor)) end
-    if button.BorderSheen then button.BorderSheen:SetAlpha(0) end
-    if button.Border then
-        button.Border:SetTexture(nil)
-        button.Border:Hide()
-    end
-
-    local data = NSkin:GetSkinData(button, SPELL_BOOK_STATE)
-    local circularBorder = data.circularBorder
-
-    if isPassive then
-        if button.IconMask then button.IconMask:Show() end
-
-        circularBorder = circularBorder
-            or CreateCircularBorder(
-                button, icon, iconStyle, iconBorderColor)
-        local borderSize = tonumber(iconStyle.borderSize) or BORDER_SIZE
-        circularBorder:ClearAllPoints()
-        circularBorder:SetPoint(
-            "TOPLEFT", icon, "TOPLEFT", -borderSize, borderSize)
-        circularBorder:SetPoint(
-            "BOTTOMRIGHT", icon, "BOTTOMRIGHT", borderSize, -borderSize)
-        circularBorder:SetColorTexture(unpack(iconBorderColor))
-        circularBorder:Show()
-    else
-        if button.IconMask then button.IconMask:Hide() end
-        if circularBorder then circularBorder:Hide() end
-    end
+    ApplySpellTextAppearance(item.Name, IDs.Spells.Names)
+    ApplySpellTextAppearance(item.SubName, IDs.Spells.SecondaryText)
+    ApplySpellTextAppearance(item.RequiredLevel, IDs.Spells.SecondaryText)
 end
 
 local function SkinSpellBookHeader(header)
     if not header then return end
-
-    if header.Backplate then
-        header.Backplate:SetTexture(nil)
-        header.Backplate:Hide()
-    end
     local style = NSkin:GetAppearanceStyle(
         "sectionHeader", IDs.AppearanceWindow, IDs.Headers)
-    local offset = NSkin:GetSpellBookHeaderOffset()
-    if header.Text then
-        local textData = NSkin:GetSkinData(header.Text, SPELL_BOOK_STATE)
-        if not textData.originalPoints then
-            textData.originalPoints = {}
-            for i = 1, header.Text:GetNumPoints() do
-                textData.originalPoints[i] = { header.Text:GetPoint(i) }
-            end
-        end
-        header.Text:ClearAllPoints()
-        for i = 1, #textData.originalPoints do
-            local point = textData.originalPoints[i]
-            header.Text:SetPoint(point[1], point[2], point[3],
-                (point[4] or 0) + offset.offsetX,
-                (point[5] or 0) + offset.offsetY)
-        end
-        header.Text:SetTextColor(unpack(
-            NSkin:GetResolvedAppearanceColor(style, "text")))
-        NSkin:ApplyResolvedTypography(header.Text, style)
-    end
-    if header.Border then
-        header.Border:SetTexture(nil)
-        header.Border:Hide()
-    end
-
-    local data = NSkin:GetSkinData(header, SPELL_BOOK_STATE)
-    if not data.headerLine then
-        local line = header:CreateTexture(nil, "ARTWORK", nil, 1)
-        line:SetPoint("BOTTOMLEFT", header, "BOTTOMLEFT", -8, 12)
-        line:SetPoint("BOTTOMRIGHT", header, "BOTTOMRIGHT", -60, 12)
-        line:SetHeight(1)
-        data.headerLine = line
-    end
-    data.headerLine:ClearAllPoints()
-    data.headerLine:SetPoint("BOTTOMLEFT", header, "BOTTOMLEFT",
-        -8 + offset.offsetX, 12 + offset.offsetY)
-    data.headerLine:SetPoint("BOTTOMRIGHT", header, "BOTTOMRIGHT",
-        -60 + offset.offsetX, 12 + offset.offsetY)
-    data.headerLine:SetHeight(style.underlineSize)
-    data.headerLine:SetColorTexture(unpack(
-        NSkin:GetResolvedAppearanceColor(style, "underline")))
-    data.headerLine:SetShown(style.underlineVisible == true)
-end
-
-local function RemoveActionBarDecoration(item)
-    local button = item and item.Button
-    local highlight = button and button.ActionBarHighlight
-    if not highlight then return end
-
-    if highlight.Anim and highlight.Anim:IsPlaying() then
-        highlight.Anim:Stop()
-    end
-    highlight:Hide()
+    local decorations = {}
+    if header.Backplate then decorations[#decorations + 1] = header.Backplate end
+    if header.Border then decorations[#decorations + 1] = header.Border end
+    NSkin:SkinSectionHeader(header, {
+        style = style,
+        text = header.Text,
+        offset = NSkin:GetSpellBookHeaderOffset(),
+        underline = { left = -8, right = -60, y = 12 },
+        nativeDecorations = decorations,
+    })
 end
 
 local function SkinActiveSpellBookItems()
@@ -850,36 +850,22 @@ local function SkinActiveSpellBookItems()
         for _, frame in pagedSpells:EnumerateFrames() do
             if frame.HasValidData and frame:HasValidData() then
                 SkinSpellBookItem(frame)
-                RemoveActionBarDecoration(frame)
             elseif frame.Text then
                 SkinSpellBookHeader(frame)
             end
         end
     end
 
+    if NSkin:GetSkinningElement(IDs.Spells.Icons) then
+        NSkin:RefreshIconGroup(IDs.Spells.Icons)
+    end
+    if pagedSpells then
+        RefreshSpellNameAppearance(pagedSpells)
+        RefreshSpellSecondaryTextAppearance(pagedSpells)
+    end
     SkinSpellBookControls()
 end
 
-function SpellBookSkin:RefreshTextSize()
-    if not NSkin:IsModuleEnabled("SpellBook") then return end
-
-    local playerSpells = _G.PlayerSpellsFrame
-    local spellBook = playerSpells and playerSpells.SpellBookFrame
-    local pagedSpells = spellBook and spellBook.PagedSpellsFrame
-    if not pagedSpells or not pagedSpells.EnumerateFrames then return end
-
-    local size = NSkin:GetSpellBookTextSizeOverride()
-    for _, frame in pagedSpells:EnumerateFrames() do
-        if frame.HasValidData and frame:HasValidData() and frame.Name then
-            local data = NSkin:GetSkinData(frame.Name, SPELL_BOOK_STATE)
-            if size then
-                SetFontSize(frame.Name, size)
-            elseif data.originalFont and data.originalFont[1] then
-                frame.Name:SetFont(unpack(data.originalFont))
-            end
-        end
-    end
-end
 
 function SpellBookSkin:RefreshHeaders()
     if not NSkin:IsModuleEnabled("SpellBook") then return end
@@ -895,30 +881,10 @@ function SpellBookSkin:RefreshHeaders()
     NSkin:NotifySkinningElementBoundsChanged(IDs.Headers)
 end
 
-function SpellBookSkin:RefreshAssistant()
-    if not NSkin:IsModuleEnabled("SpellBook") then return end
-    local playerSpells = _G.PlayerSpellsFrame
-    local spellBook = playerSpells and playerSpells.SpellBookFrame
-    local frame = spellBook and spellBook.AssistedCombatRotationSpellFrame
-    if frame then SkinAssistedCombat(frame) end
-end
 
 function SpellBookSkin:ApplyIconDisposition()
     if not NSkin:IsModuleEnabled("SpellBook") then return false end
-    local playerSpells = _G.PlayerSpellsFrame
-    local spellBook = playerSpells and playerSpells.SpellBookFrame
-    local pagedSpells = spellBook and spellBook.PagedSpellsFrame
-    if not pagedSpells then return false end
-    State.original.iconsPerRow = State.original.iconsPerRow
-        or pagedSpells.columnsPerRow
-    local columns = NSkin:GetSpellBookIconsPerRowOverride()
-        or State.original.iconsPerRow
-    if pagedSpells.columnsPerRow == columns then return true end
-    pagedSpells.columnsPerRow = columns
-    if type(spellBook.UpdateDisplayedSpells) == "function" then
-        spellBook:UpdateDisplayedSpells(true, false)
-    end
-    return true
+    return iconDisposition and iconDisposition:Apply() or false
 end
 
 local function RemoveSpellBookBackground()
@@ -958,6 +924,7 @@ local function RemoveSpellBookBackground()
     end
 
     local pagedSpells = spellBook.PagedSpellsFrame
+    RegisterSpellBookContentFamilies(playerSpells, spellBook)
     local pagingControls = pagedSpells and pagedSpells.PagingControls
     if pagingControls and pagingControls.PageText then
         pagingControls.PageText:SetTextColor(unpack(NSkin:GetStyle("button").text))
@@ -978,10 +945,6 @@ function SpellBookSkin:Initialize()
     end
 
     _G.hooksecurefunc(mixin, "UpdateVisuals", SkinSpellBookItem)
-    if type(mixin.UpdateActionBarAnim) == "function" then
-        _G.hooksecurefunc(mixin, "UpdateActionBarAnim", RemoveActionBarDecoration)
-    end
-
     -- Blizzard restores the backplate alpha on both hover edges.
     if type(mixin.OnIconEnter) == "function" then
         _G.hooksecurefunc(mixin, "OnIconEnter", SkinSpellBookItem)
@@ -1082,8 +1045,8 @@ function SpellBookSkin:Initialize()
                 for _, frame in pagedSpells:EnumerateFrames() do
                     if not (frame.HasValidData and frame:HasValidData()) and frame.Text then
                         regions[#regions + 1] = frame.Text
-                        local data = NSkin:GetSkinData(frame, SPELL_BOOK_STATE, false)
-                        if data and data.headerLine then regions[#regions + 1] = data.headerLine end
+                        local line = NSkin:GetSectionHeaderUnderline(frame)
+                        if line then regions[#regions + 1] = line end
                     end
                 end
             end
@@ -1163,6 +1126,11 @@ function SpellBookSkin:RefreshAppearance()
         SkinSpellBookControls()
         RegisterTalentControls(_G.PlayerSpellsFrame)
         RegisterSpecializationControls(_G.PlayerSpellsFrame)
+        local playerSpells = _G.PlayerSpellsFrame
+        if playerSpells and playerSpells.SpellBookFrame then
+            RegisterSpellBookContentFamilies(
+                playerSpells, playerSpells.SpellBookFrame)
+        end
         SkinActiveSpellBookItems()
         NSkin:ApplyTabGroupLayout(IDs.MainTabs)
         NSkin:ApplyTabGroupLayout(IDs.CategoryTabs)

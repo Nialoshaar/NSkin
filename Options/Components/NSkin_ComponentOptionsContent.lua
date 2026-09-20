@@ -179,7 +179,8 @@ local iconAppearanceControls = {
     { type = "SLIDER", key = "crop", label = "Crop ratio",
         min = 0.1, max = 1, step = 0.01, decimals = 2, order = 6 },
     { type = "DROPDOWN", key = "shape", label = "Shape", order = 7,
-        values = { { value = "square", label = "Square" } } },
+        values = { { value = "square", label = "Square" },
+            { value = "circle", label = "Circle" } } },
     { type = "RESET", label = "Reset Icons" },
 }
 

@@ -1,5 +1,78 @@
 local _, NSkin = ...
 
+-- A window adapter supplies the layout owner and its refresh operation.  The
+-- controller owns only the allowed choices, first-seen Blizzard value, and
+-- saved override; it does not infer or rearrange any child frames.
+local columnDispositions = {}
+
+function NSkin:RegisterColumnDisposition(id, definition)
+    if type(id) ~= "string" or type(definition) ~= "table"
+        or type(definition.get) ~= "function"
+        or type(definition.set) ~= "function"
+        or type(definition.module) ~= "string"
+        or type(definition.optionKey) ~= "string"
+    then return nil end
+    local controller = columnDispositions[id]
+    if controller then return controller end
+    local allowed = {}
+    for _, count in ipairs(definition.allowed or {}) do
+        count = tonumber(count)
+        if count and count > 0 and count % 1 == 0 then
+            allowed[count] = true
+        end
+    end
+    controller = { definition = definition, allowed = allowed }
+    function controller:GetOverride()
+        local options = NSkin:GetModuleOptions(definition.module, false)
+        local count = options and tonumber(options[definition.optionKey])
+        return count and allowed[count] and count or nil
+    end
+    function controller:CaptureOriginal()
+        if self.original ~= nil then return self.original end
+        local value = tonumber(definition.get())
+        if value then self.original = value end
+        return self.original
+    end
+    function controller:GetChoice()
+        return self:GetOverride() or 0
+    end
+    function controller:GetEffective()
+        return self:GetOverride() or self:CaptureOriginal()
+    end
+    function controller:Apply()
+        local original = self:CaptureOriginal()
+        if original == nil then return false end
+        local value = self:GetOverride() or original
+        if tonumber(definition.get()) == value then return true end
+        if definition.set(value) == false then return false end
+        if type(definition.refresh) == "function" then definition.refresh() end
+        return true
+    end
+    function controller:Set(count)
+        count = tonumber(count)
+        if count == 0 then return self:Reset() end
+        if not count or not allowed[count] then return false end
+        self:CaptureOriginal()
+        NSkin:GetModuleOptions(definition.module, true)[definition.optionKey] = count
+        -- The owner may be created only when its Blizzard addon opens. The
+        -- saved choice is still valid and will apply on that lifecycle path.
+        self:Apply()
+        return true
+    end
+    function controller:Reset()
+        local changed = NSkin:RemoveModuleOption(
+            definition.module, definition.optionKey)
+        self:Apply()
+        return changed
+    end
+    columnDispositions[id] = controller
+    return controller
+end
+
+function NSkin:GetColumnDisposition(id)
+    return columnDispositions[id]
+end
+
 local COMPONENT_STATE = "components"
 local navigationBarAddButtonHooked = false
 

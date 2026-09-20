@@ -6,6 +6,109 @@ local ROW_STATE = "rowComponent"
 local COLUMN_HEADER_BACKGROUND = "NSkinColumnHeaderBackground"
 local ROW_BACKGROUND = "NSkinRowBackground"
 
+-- A repeated SECTION_HEADERS family supplies its own active targets and
+-- Blizzard decoration fields.  The shared component owns presentation and
+-- first-write text placement for every pooled instance.
+function NSkin:SkinSectionHeader(target, options)
+    if not target or not target.CreateTexture
+        or (target.IsForbidden and target:IsForbidden())
+    then return false end
+    options = options or {}
+    local state = self:GetSkinData(target, "sectionHeaderComponent")
+    if options.reset then
+        if state.textBaselineID then
+            self:RestoreComponentBaseline(state.textBaselineID,
+                { points = true })
+        end
+        if state.text then self:SkinText(state.text, nil, { reset = true }) end
+        for region, original in pairs(state.decorations or {}) do
+            if original.atlas and region.SetAtlas then
+                region:SetAtlas(original.atlas, false)
+            elseif region.SetTexture then
+                region:SetTexture(original.texture)
+            end
+            if region.SetAlpha then region:SetAlpha(original.alpha) end
+            if region.SetShown then region:SetShown(original.shown) end
+        end
+        if state.underline then state.underline:Hide() end
+        return true
+    end
+    local style = options.style or self:GetStyle("sectionHeader")
+    if not style then return false end
+    local text = options.text or target.Text
+    if text and not (text.IsForbidden and text:IsForbidden()) then
+        if state.text ~= text then
+            if state.textBaselineID then
+                self:RestoreComponentBaseline(state.textBaselineID,
+                    { points = true })
+            end
+            if state.text then
+                self:SkinText(state.text, nil, { reset = true })
+            end
+            state.text = text
+            state.textBaselineID = "SectionHeaderText:" .. tostring(text)
+            self:CaptureComponentBaseline(state.textBaselineID, text,
+                { points = true })
+        end
+        local baseline = self:GetComponentBaseline(state.textBaselineID)
+        local offset = options.offset or {}
+        local x = tonumber(offset.offsetX) or 0
+        local y = tonumber(offset.offsetY) or 0
+        if baseline and baseline.points and text.ClearAllPoints then
+            text:ClearAllPoints()
+            for _, point in ipairs(baseline.points) do
+                text:SetPoint(point[1], point[2], point[3],
+                    (point[4] or 0) + x, (point[5] or 0) + y)
+            end
+            self:MarkComponentGeometryModified(
+                state.textBaselineID, "points", x ~= 0 or y ~= 0)
+        end
+        self:SkinText(text, style)
+    end
+    state.decorations = state.decorations or {}
+    for _, region in ipairs(options.nativeDecorations or {}) do
+        if region and not (region.IsForbidden and region:IsForbidden()) then
+            if not state.decorations[region] then
+                state.decorations[region] = {
+                    atlas = region.GetAtlas and region:GetAtlas(),
+                    texture = region.GetTexture and region:GetTexture(),
+                    alpha = region.GetAlpha and region:GetAlpha() or 1,
+                    shown = region.IsShown and region:IsShown() or false,
+                }
+            end
+            if region.SetAlpha then region:SetAlpha(0) end
+            if region.Hide then region:Hide() end
+        end
+    end
+    local underline = state.underline
+    if not underline then
+        underline = target:CreateTexture(nil, "ARTWORK", nil, 1)
+        self:ConfigureOwnedPixelTexture(underline)
+        state.underline = underline
+    end
+    local placement = options.underline or {}
+    local x = tonumber((options.offset or {}).offsetX) or 0
+    local y = tonumber((options.offset or {}).offsetY) or 0
+    underline:ClearAllPoints()
+    underline:SetPoint("BOTTOMLEFT", target, "BOTTOMLEFT",
+        (tonumber(placement.left) or 0) + x,
+        (tonumber(placement.y) or 0) + y)
+    underline:SetPoint("BOTTOMRIGHT", target, "BOTTOMRIGHT",
+        (tonumber(placement.right) or 0) + x,
+        (tonumber(placement.y) or 0) + y)
+    underline:SetHeight(tonumber(style.underlineSize) or 1)
+    self:SetOwnedTextureColor(underline, unpack(
+        self:GetResolvedAppearanceColor(style, "underline")))
+    underline:SetShown(style.underlineVisible == true)
+    return true, underline
+end
+
+function NSkin:GetSectionHeaderUnderline(target)
+    local state = target and self:GetSkinData(
+        target, "sectionHeaderComponent", false)
+    return state and state.underline
+end
+
 local function ResolveContentValue(value, target)
     if type(value) ~= "function" then return value end
     local ok, resolved = pcall(value, target)
@@ -634,6 +737,7 @@ function NSkin:SkinRow(target, options)
     if not state.methodHooksInstalled and _G.hooksecurefunc then
         for _, method in ipairs({
             "LockHighlight", "UnlockHighlight", "SetSelected",
+            "SetHighlighted",
         }) do
             if type(target[method]) == "function" then
                 pcall(_G.hooksecurefunc, target, method, function()
@@ -1563,7 +1667,61 @@ local ICON_SHAPES = {
                 width, height, zoom))
         end,
     },
+    circle = {
+        applyTexCoords = function(texture, width, height, zoom)
+            texture:SetTexCoord(NSkin:GetIconTexCoords(
+                width, height, zoom))
+        end,
+    },
 }
+
+local function ClearCircleIconMask(data)
+    if data.circleIconMaskAdded and data.texture
+        and data.texture.RemoveMaskTexture
+    then
+        data.texture:RemoveMaskTexture(data.circleIconMask)
+    end
+    data.circleIconMaskAdded = nil
+end
+
+local function EnsureCircleIconPresentation(self, data, owner, texture)
+    if not owner.CreateMaskTexture or not texture.AddMaskTexture then
+        return false
+    end
+    if data.circleBorderOwner and data.circleBorderOwner ~= owner then
+        if data.circleBorder then data.circleBorder:Hide() end
+        data.circleBorder = nil
+        data.circleBorderMask = nil
+        data.circleIconMask = nil
+    end
+    if not data.circleBorder then
+        local border = owner:CreateTexture(nil, "ARTWORK", nil, -2)
+        local mask = owner:CreateMaskTexture(nil, "ARTWORK")
+        mask:SetAtlas("talents-node-circle-mask", false)
+        mask:SetAllPoints(border)
+        border:AddMaskTexture(mask)
+        self:ConfigureOwnedPixelTexture(border)
+        data.circleBorder = border
+        data.circleBorderMask = mask
+        data.circleBorderOwner = owner
+    end
+    if not data.circleIconMaskAdded
+        and (not texture.GetNumMaskTextures
+            or texture:GetNumMaskTextures() == 0)
+    then
+        local mask = data.circleIconMask
+        if not mask then
+            mask = owner:CreateMaskTexture(nil, "ARTWORK")
+            mask:SetAtlas("talents-node-circle-mask", false)
+            data.circleIconMask = mask
+        end
+        mask:ClearAllPoints()
+        mask:SetAllPoints(texture)
+        texture:AddMaskTexture(mask)
+        data.circleIconMaskAdded = true
+    end
+    return true
+end
 
 local function ResolveIconNativeDecorationRegions(value, target, texture)
     if type(value) == "function" then
@@ -1865,6 +2023,11 @@ local function ApplyIconTexCoords(target)
     if data.preserveAtlasTexCoords and texture.GetAtlas
         and texture:GetAtlas()
     then return end
+    -- WoW disallows SetTexCoord on some textures carrying a mask. Preserve
+    -- their Blizzard crop instead of erroring or stripping a native mask.
+    if texture.GetNumMaskTextures
+        and texture:GetNumMaskTextures() > 0
+    then return end
     local width = texture.GetWidth and texture:GetWidth() or data.width
     local height = texture.GetHeight and texture:GetHeight() or data.height
     local shape = ICON_SHAPES[data.shape] or ICON_SHAPES.square
@@ -1941,11 +2104,30 @@ local function ApplyIconBorderAppearance(self, data, target)
             if red then borderColor = { red, green, blue, 1 } end
         end
     end
+    local shown = data.showBorder ~= false
+        and (tonumber(data.borderSize) or 0) > 0
+        and (not data.texture or not data.texture.IsShown
+            or data.texture:IsShown())
     self:SetPixelBorderColor(border, unpack(borderColor))
-    self:SetPixelBorderShown(border,
-        data.showBorder ~= false and (tonumber(data.borderSize) or 0) > 0
-            and (not data.texture or not data.texture.IsShown
-                or data.texture:IsShown()))
+    self:SetPixelBorderShown(border, shown and data.shape ~= "circle")
+    if data.circleBorder then
+        if data.shape == "circle" then
+            local texture = data.texture
+            local outset = ((tonumber(data.borderSize) or 1)
+                + (tonumber(data.borderPadding) or 0))
+                * self:GetPhysicalPixelSize(texture)
+            data.circleBorder:ClearAllPoints()
+            data.circleBorder:SetPoint("TOPLEFT", texture, "TOPLEFT",
+                -outset, outset)
+            data.circleBorder:SetPoint("BOTTOMRIGHT", texture,
+                "BOTTOMRIGHT", outset, -outset)
+            self:SetOwnedTextureColor(data.circleBorder,
+                unpack(borderColor))
+            data.circleBorder:SetShown(shown)
+        else
+            data.circleBorder:Hide()
+        end
+    end
     return true
 end
 
@@ -1953,21 +2135,32 @@ local function RefreshActiveIconPresentation(target)
     local data = NSkin:GetSkinData(target, ICON_COMPONENT_STATE, false)
     if not data or not data.active then return end
     ApplyIconGeometry(target)
+    if data.circleIconMaskAdded then ClearCircleIconMask(data) end
     ApplyIconTexCoords(target)
+    if data.shape == "circle" then
+        EnsureCircleIconPresentation(NSkin, data, data.borderOwner,
+            data.texture)
+    end
     ApplyIconBorderAppearance(NSkin, data, target)
 end
 
 function NSkin:SkinIcon(target, options)
-    if not target then return false end
+    if not target or (target.IsForbidden and target:IsForbidden()) then
+        return false
+    end
     options = options or {}
     local texture = ResolveIconTexture(target, options)
-    if not texture or not texture.SetTexCoord then return false end
+    if not texture or not texture.SetTexCoord
+        or (texture.IsForbidden and texture:IsForbidden())
+    then return false end
 
     local owner = options.borderOwner
         or (target.GetObjectType and target:GetObjectType() ~= "Texture"
             and target)
         or (texture.GetParent and texture:GetParent())
-    if not owner or not owner.CreateTexture then return false end
+    if not owner or not owner.CreateTexture
+        or (owner.IsForbidden and owner:IsForbidden())
+    then return false end
 
     local data = self:GetSkinData(target, ICON_COMPONENT_STATE)
     local textureData = self:GetSkinData(texture, ICON_COMPONENT_STATE)
@@ -1985,6 +2178,8 @@ function NSkin:SkinIcon(target, options)
     end
     if options.reset == true then
         data.active = nil
+        ClearCircleIconMask(data)
+        if data.circleBorder then data.circleBorder:Hide() end
         self:RestoreComponentBaseline(textureData.baselineID, {
             size = true,
             points = true,
@@ -2017,6 +2212,9 @@ function NSkin:SkinIcon(target, options)
         options.shape or style.shape or "square"))
     if not ICON_SHAPES[shape] then shape = "square" end
 
+    if data.texture and data.texture ~= texture then
+        ClearCircleIconMask(data)
+    end
     if data.border and (data.borderOwner ~= owner
         or data.borderKey ~= borderKey or data.texture ~= texture)
     then
@@ -2028,6 +2226,7 @@ function NSkin:SkinIcon(target, options)
     data.preserveTexCoords = options.preserveTexCoords == true
     data.preserveAtlasTexCoords = options.preserveAtlasTexCoords == true
     data.shape = shape
+    ClearCircleIconMask(data)
     data.zoom = tonumber(options.zoom)
         or tonumber(style.zoom) or 0
     data.crop = tonumber(options.crop)
@@ -2092,6 +2291,11 @@ function NSkin:SkinIcon(target, options)
         end
     end
     ApplyIconTexCoords(target)
+    if shape == "circle" then
+        if not EnsureCircleIconPresentation(self, data, owner, texture) then
+            data.shape = "square"
+        end
+    end
     ApplyIconNativeDecorations(data, target, texture,
         options.nativeDecorationRegions or options.nativeBorderRegions)
     if not data.nativeDecorationControlHooksInstalled
@@ -2164,6 +2368,8 @@ function NSkin:SkinIcon(target, options)
     self:SetPixelBorderSize(border, math.max(1, borderSize))
     self:SetPixelBorderPadding(border,
         tonumber(options.borderPadding) or tonumber(style.borderPadding) or 0)
+    data.borderPadding = tonumber(options.borderPadding)
+        or tonumber(style.borderPadding) or 0
     data.borderStyle = style
     data.configuredBorderColor = options.borderColor
     data.borderMode = string.lower(tostring(
@@ -2211,10 +2417,7 @@ function NSkin:SkinIcon(target, options)
                 local state = NSkin:GetSkinData(
                     appearanceTarget, ICON_COMPONENT_STATE, false)
                 if state and state.texture == texture then
-                    ApplyIconGeometry(appearanceTarget)
-                    ApplyIconTexCoords(appearanceTarget)
-                    ApplyIconBorderAppearance(
-                        NSkin, state, appearanceTarget)
+                    RefreshActiveIconPresentation(appearanceTarget)
                 end
             end
         end

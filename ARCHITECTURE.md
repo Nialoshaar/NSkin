@@ -680,6 +680,7 @@ ICON may support shared controls such as:
 - crop
 - zoom
 - border
+- shape (`square` by default, or a masked circular presentation)
 - quality presentation
 
 Important invariants:
@@ -695,6 +696,8 @@ Important invariants:
 - grouped/generated icon collections still use canonical ICON behavior
 - icons that use Blizzard sprite-sheet coordinates may opt into
   `preserveTexCoords` while still using shared ICON geometry and lifecycle
+- native icon masks remain Blizzard-owned; NSkin removes only its own circle
+  mask on reset or a switch back to square
 
 Clickable, empty, quality-bearing, disabled, popup-opening, or special-purpose icons should not become bespoke visual types merely because their behavior differs.
 
@@ -710,6 +713,18 @@ an adapter may declare an `attachmentEdge` to leave that edge open.
 ---
 
 # 17. ROW Contract
+
+Shared column disposition is layout state, not an ICON appearance option. A
+window adapter supplies allowed counts plus getter, setter, and refresh
+callbacks to the shared controller. The controller captures Blizzard's first
+value before changing it, stores only the explicit override, and restores the
+captured value on reset. Existing module option keys may be retained for saved
+profile compatibility.
+
+Repeated `SECTION_HEADERS` instances use the shared header skin for text,
+underline, optional placement offset, and audited native decoration. The
+adapter supplies the pooled targets and their native fields; the shared skin
+captures original text points and decoration state for reset.
 
 ROW is used for tabular/data-record rows, often containing several cells or
 fields. It owns row-level visual state such as:
@@ -802,6 +817,11 @@ This differs from compositions such as checkbox+text, where the members remain d
 # 21. Popup Architecture
 
 Reusable popup families belong in shared popup infrastructure when their visual/behavioral structure is genuinely shared.
+
+A transient search preview with a Blizzard-owned ScrollBox or button pool may
+compose the existing popup surface, ROW, ICON, and TEXT skins. Its adapter
+provides active entries and hooks the list's real update lifecycle; NSkin
+keeps click and selection ownership on Blizzard's result buttons.
 
 Do not build one universal giant popup abstraction.
 
