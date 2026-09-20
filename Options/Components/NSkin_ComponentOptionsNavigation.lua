@@ -1,5 +1,42 @@
 local _, NSkin = ...
 
+function NSkin:RegisterColumnDispositionOptionGroup(id, definition)
+    if type(id) ~= "string" or type(definition) ~= "table" then
+        return false
+    end
+    local controller = self:GetColumnDisposition(definition.controllerID)
+    if not controller then return false end
+    local counts = {}
+    for count in pairs(controller.allowed) do counts[#counts + 1] = count end
+    table.sort(counts)
+    local values = {
+        { value = 0, label = definition.defaultLabel or "Blizzard default" },
+    }
+    for _, count in ipairs(counts) do
+        values[#values + 1] = {
+            value = count,
+            label = type(definition.formatChoice) == "function"
+                and definition.formatChoice(count)
+                or (count .. " columns"),
+        }
+    end
+    self:RegisterOptionGroup(id, {
+        controls = {
+            { type = "DROPDOWN", key = "columns",
+                label = definition.label or "Columns", values = values },
+            { type = "RESET", label = definition.resetLabel or "Reset Layout",
+                compactLabel = "Reset" },
+        },
+        get = function() return { columns = controller:GetChoice() } end,
+        set = function(_, values)
+            if values.columns == nil then return false end
+            return controller:Set(values.columns)
+        end,
+        reset = function() return controller:Reset() end,
+    })
+    return true
+end
+
 local OPTION_INTERNALS = NSkin._componentOptionInternals
 local CopyColor = OPTION_INTERNALS.CopyColor
 local SetColor = OPTION_INTERNALS.SetColor

@@ -1,7 +1,5 @@
 local _, NSkin = ...
 
-local SPELL_TEXT_MIN = 8
-local SPELL_TEXT_MAX = 32
 local WINDOW_ID = "PlayerSpells.SpellBook"
 
 local function CopyColor(color)
@@ -33,66 +31,13 @@ NSkin:RegisterOptionGroup("encounterJournal.journeyCardsBackground", {
     end,
 })
 
-NSkin:RegisterOptionGroup("spellbook.settings", {
-    controls = {
-        {
-            type = "SLIDER",
-            key = "textSize",
-            label = "Spell name text size",
-            min = SPELL_TEXT_MIN,
-            max = SPELL_TEXT_MAX,
-            step = 1,
-            suffix = " px",
-        },
-        {
-            type = "CHECKBOX",
-            key = "hideAssistant",
-            label = "Hide Single-Button Assistant",
-        },
-        {
-            type = "DROPDOWN",
-            key = "iconsPerRow",
-            label = "Icons disposition",
-            values = {
-                { value = 0, label = "Blizzard default" },
-                { value = 2, label = "2 icons per row" },
-                { value = 3, label = "3 icons per row" },
-                { value = 4, label = "4 icons per row" },
-            },
-        },
-        { type = "RESET", label = "Reset Default", compactLabel = "Reset" },
-    },
-    get = function()
-        return {
-            textSize = NSkin:GetSpellBookTextSize(),
-            hideAssistant = NSkin:GetSpellBookAssistantHidden(),
-            iconsPerRow = NSkin:GetSpellBookIconsPerRow(),
-        }
-    end,
-    set = function(_, values)
-        local changed
-        if values.textSize ~= nil and values.textSize ~= NSkin:GetSpellBookTextSize() then
-            changed = NSkin:SetSpellBookTextSize(values.textSize) or changed
-        end
-        if values.hideAssistant ~= nil
-            and values.hideAssistant ~= NSkin:GetSpellBookAssistantHidden()
-        then
-            changed = NSkin:SetSpellBookAssistantHidden(values.hideAssistant) or changed
-        end
-        if values.iconsPerRow ~= nil
-            and values.iconsPerRow ~= NSkin:GetSpellBookIconsPerRow()
-        then
-            changed = NSkin:SetSpellBookIconsPerRow(values.iconsPerRow) or changed
-        end
-        return changed == true
-    end,
-    reset = function()
-        local changed = NSkin:ResetSpellBookTextSize()
-        changed = NSkin:SetSpellBookAssistantHidden(false) or changed
-        changed = NSkin:ResetSpellBookIconsPerRow() or changed
-        return changed == true
-    end,
-})
+local dispositionOptions = {
+    controllerID = "SpellBook.Spells.Disposition",
+    label = "Icons disposition",
+    formatChoice = function(count) return count .. " icons per row" end,
+}
+NSkin:RegisterColumnDispositionOptionGroup("spellbook.settings",
+    dispositionOptions)
 
 NSkin:RegisterOptionGroup("spellbook.appearance", {
     controls = {
@@ -117,52 +62,8 @@ NSkin:RegisterOptionGroup("spellbook.appearance", {
     end,
 })
 
-NSkin:RegisterOptionGroup("spellbook.iconDisposition", {
-    controls = {
-        { type = "SLIDER", key = "textSize", label = "Spell name text size",
-            min = SPELL_TEXT_MIN, max = SPELL_TEXT_MAX,
-            step = 1, suffix = " px" },
-        { type = "DROPDOWN", key = "iconsPerRow",
-            label = "Icons disposition", values = {
-                { value = 0, label = "Blizzard default" },
-                { value = 2, label = "2 icons per row" },
-                { value = 3, label = "3 icons per row" },
-                { value = 4, label = "4 icons per row" } } },
-        { type = "CHECKBOX", key = "hideAssistant",
-            label = "Hide Single-Button Assistant" },
-        { type = "RESET", label = "Reset Layout", compactLabel = "Reset" },
-    },
-    get = function()
-        return { textSize = NSkin:GetSpellBookTextSize(),
-            iconsPerRow = NSkin:GetSpellBookIconsPerRow(),
-            hideAssistant = NSkin:GetSpellBookAssistantHidden() }
-    end,
-    set = function(_, values)
-        local changed
-        if values.textSize ~= nil
-            and values.textSize ~= NSkin:GetSpellBookTextSize()
-        then
-            changed = NSkin:SetSpellBookTextSize(values.textSize)
-        end
-        if values.iconsPerRow ~= nil
-            and values.iconsPerRow ~= NSkin:GetSpellBookIconsPerRow()
-        then
-            changed = NSkin:SetSpellBookIconsPerRow(values.iconsPerRow) or changed
-        end
-        if values.hideAssistant ~= nil
-            and values.hideAssistant ~= NSkin:GetSpellBookAssistantHidden()
-        then
-            changed = NSkin:SetSpellBookAssistantHidden(values.hideAssistant) or changed
-        end
-        return changed == true
-    end,
-    reset = function()
-        local changed = NSkin:ResetSpellBookTextSize()
-        changed = NSkin:ResetSpellBookIconsPerRow() or changed
-        changed = NSkin:SetSpellBookAssistantHidden(false) or changed
-        return changed == true
-    end,
-})
+NSkin:RegisterColumnDispositionOptionGroup("spellbook.iconDisposition",
+    dispositionOptions)
 
 local function BuildSpellBookOptions(parent)
     local page = NSkin:CreateOptionsPage(parent)

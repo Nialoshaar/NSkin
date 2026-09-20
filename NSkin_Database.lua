@@ -337,7 +337,7 @@ end
 local _, NSkin = ...
 
 local DEFAULT_PROFILE = "Default"
-local CURRENT_DATABASE_VERSION = 9
+local CURRENT_DATABASE_VERSION = 10
 local activeProfile
 
 local function CopyTable(source)
@@ -396,17 +396,8 @@ local function MigrateVersion1(database, profile)
         RemoveEmptyAppearanceTables(profile)
     end
 
-    if database.spellBookTextSize ~= nil then
-        profile.moduleOptions = profile.moduleOptions or {}
-        profile.moduleOptions.SpellBook = profile.moduleOptions.SpellBook or {}
-        if profile.moduleOptions.SpellBook.textSize == nil then
-            profile.moduleOptions.SpellBook.textSize = database.spellBookTextSize
-        end
-    end
-
     database.modules = nil
     database.statusBarTexture = nil
-    database.spellBookTextSize = nil
 end
 
 local function MigrateVersion2(database)
@@ -575,6 +566,20 @@ local function RunMigrations(database, activeProfileTable)
             if elements and not next(elements) then overrides.elements = nil end
             if overrides and not next(overrides) then
                 profile.appearanceOverrides = nil
+            end
+        end
+    end
+    if version < 10 then
+        -- The removed SpellBook controls no longer own profile state.
+        database.spellBookTextSize = nil
+        for _, profile in pairs(database.profiles) do
+            local moduleOptions = profile.moduleOptions
+            local spellBook = moduleOptions and moduleOptions.SpellBook
+            if spellBook then
+                spellBook.textSize = nil
+                spellBook.hideAssistant = nil
+                if not next(spellBook) then moduleOptions.SpellBook = nil end
+                if not next(moduleOptions) then profile.moduleOptions = nil end
             end
         end
     end
