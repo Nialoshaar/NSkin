@@ -29,11 +29,6 @@ local IDs = {
         ElementPrefix = "SpellBook.Specializations.Spec.",
     },
     Search = { Group = "SpellBook.Search", Accessory = "SpellBook.Search.Cog" },
-    SearchPreview = {
-        Window = "SpellBook.SearchPreview.Window",
-        Rows = "SpellBook.SearchPreview.Rows",
-        OverflowText = "SpellBook.SearchPreview.OverflowText",
-    },
     Pagination = {
         Group = "SpellBook.Pagination",
         Previous = "SpellBook.Pagination.Previous",
@@ -53,22 +48,11 @@ local State = {
 local Adapters = {}
 
 NSkin:RegisterAppearanceScope(IDs.AppearanceWindow, { label = "Spellbook" })
-local function RoundOne(value)
-    value = tonumber(value) or 0
-    if value >= 0 then return math.floor(value * 10 + 0.5) / 10 end
-    return math.ceil(value * 10 - 0.5) / 10
-end
-
-local function ConcealTexture(texture)
-    if not texture then return end
-    texture:SetAlpha(0)
-    texture:Hide()
-end
 
 local iconDisposition = NSkin:RegisterColumnDisposition(
     "SpellBook.Spells.Disposition", {
         module = "SpellBook",
-        optionKey = "iconsPerRow", -- preserve saved overrides
+        optionKey = "iconsPerRow",
         allowed = { 2, 3, 4 },
         get = function()
             local playerSpells = _G.PlayerSpellsFrame
@@ -91,6 +75,20 @@ local iconDisposition = NSkin:RegisterColumnDisposition(
             end
         end,
     })
+local function RoundOne(value)
+    value = tonumber(value) or 0
+    if value >= 0 then return math.floor(value * 10 + 0.5) / 10 end
+    return math.ceil(value * 10 - 0.5) / 10
+end
+
+
+
+
+
+
+
+
+
 function NSkin:GetSpellBookHeaderOffset()
     local options = self:GetModuleOptions("SpellBook", false)
     local offset = options and options.headerOffset
@@ -137,6 +135,9 @@ local function GetMainTabPlacementOptions()
     local options = NSkin:GetModuleOptions("SpellBook", false)
     return options and options.mainTabsPlacement
 end
+
+
+
 
 
 local function HasMainTabPlacement()
@@ -294,6 +295,7 @@ local function ResetCategoryTabPlacement(group)
     return Adapters.RestoreCategoryTabAnchors(group.container)
 end
 
+
 local function SkinSpellBookTabs()
     local playerSpells = _G.PlayerSpellsFrame
     local spellBook = playerSpells and playerSpells.SpellBookFrame
@@ -339,40 +341,29 @@ local function GetSpellBookResizeButtons(playerSpells, spellBook)
     return targets
 end
 
-local function GetAssistedCombatDecorations(frame)
-    local regions = {}
-    if not frame then return regions end
-
-    -- SpellBookFrame.xml gives AssistedCombatRotationSpellFrame one direct
-    -- ARTWORK divider texture. It is presentation-only and replaced below by
-    -- the NSkin divider. Do not recursively suppress unknown child textures.
-    if frame.GetRegions then
-        for _, region in ipairs({ frame:GetRegions() }) do
-            if region and region.GetObjectType
-                and region:GetObjectType() == "Texture"
-            then
-                regions[#regions + 1] = region
-            end
+local function GetAssistedCombatDivider(frame)
+    if not frame or not frame.GetRegions then return nil end
+    for _, region in ipairs({ frame:GetRegions() }) do
+        if region and region.GetObjectType
+            and region:GetObjectType() == "Texture"
+        then
+            return region
         end
     end
-
-    local button = frame.Button
-    if button and button.Border then
-        regions[#regions + 1] = button.Border
-    end
-    return regions
+    return nil
 end
 
 local function SkinAssistedCombat(frame)
     if not frame then return end
 
-    for _, region in ipairs(GetAssistedCombatDecorations(frame)) do
-        ConcealTexture(region)
-    end
+    local divider = GetAssistedCombatDivider(frame)
+    if divider then ConcealTexture(divider) end
 
     local button = frame.Button
     local icon = button and button.Icon
     if button and icon then
+        local native = {}
+        if button.Border then native[#native + 1] = button.Border end
         NSkin:RegisterIcon({
             id = IDs.AssistedCombat.Icon,
             module = "SpellBook",
@@ -382,6 +373,7 @@ local function SkinAssistedCombat(frame)
             target = button,
             texture = icon,
             borderOwner = button,
+            nativeDecorationRegions = native,
             priority = 66,
             highlightRegions = { button },
             isEditable = function()
@@ -414,8 +406,8 @@ local function SkinAssistedCombat(frame)
     end
     State.assistedCombatDivider:SetColorTexture(
         unpack(NSkin:GetStyle("window").header.divider))
-
 end
+
 
 local function SkinSpellBookControls()
     local playerSpells = _G.PlayerSpellsFrame
@@ -438,21 +430,12 @@ local function SkinSpellBookControls()
         },
     })
     SkinSpellBookTabs()
-    if State.searchController and State.searchController.Refresh then
-        State.searchController:Refresh()
-    else
-        local searchStyle = NSkin:GetAppearanceStyle(
-            "searchBox", IDs.AppearanceWindow, IDs.Search.Group)
-        NSkin:SkinSearchBox(spellBook.SearchBox, searchStyle,
-            NSkin:GetAppearanceBorderColor(
-                "searchBox", searchStyle,
-                IDs.AppearanceWindow, IDs.Search.Group))
-    end
-    if State.paginationController and State.paginationController.Refresh then
-        State.paginationController:Refresh()
-    else
-        NSkin:SkinPagingControls(pagedSpells and pagedSpells.PagingControls)
-    end
+    local searchStyle = NSkin:GetAppearanceStyle(
+        "searchBox", IDs.AppearanceWindow, IDs.Search.Group)
+    NSkin:SkinSearchBox(spellBook.SearchBox, searchStyle,
+        NSkin:GetAppearanceBorderColor(
+            "searchBox", searchStyle, IDs.AppearanceWindow, IDs.Search.Group))
+    NSkin:SkinPagingControls(pagedSpells and pagedSpells.PagingControls)
     SkinAssistedCombat(spellBook.AssistedCombatRotationSpellFrame)
 end
 
@@ -643,6 +626,7 @@ local function RegisterSpecializationControls(playerSpells)
     return true
 end
 
+
 local function GetActiveSpellBookItems(pagedSpells)
     local items = {}
     if not pagedSpells or not pagedSpells.EnumerateFrames then return items end
@@ -659,6 +643,7 @@ end
 local function GetSpellIconNativeDecorations(item)
     local button = item and item.Button
     local regions = {}
+    if item and item.Backplate then regions[#regions + 1] = item.Backplate end
     if button and button.Border then regions[#regions + 1] = button.Border end
     if button and button.BorderSheen then
         regions[#regions + 1] = button.BorderSheen
@@ -670,22 +655,14 @@ local function ApplySpellTextAppearance(fontString, appearanceID)
     if not fontString then return false end
     local style = NSkin:GetAppearanceStyle(
         "text", IDs.AppearanceWindow, appearanceID)
-    local changed = NSkin:ApplyResolvedTypography(fontString, style) == true
-    local color = NSkin:GetResolvedAppearanceColor(style, "text")
-    if color then
-        fontString:SetTextColor(unpack(color))
-        changed = true
-    end
-    return changed
+    return NSkin:SkinText(fontString, style) == true
 end
 
 local function RefreshSpellNameAppearance(pagedSpells)
     local changed = false
     for _, item in ipairs(GetActiveSpellBookItems(pagedSpells)) do
-        if item.Name then
-            changed = ApplySpellTextAppearance(
-                item.Name, IDs.Spells.Names) or changed
-        end
+        changed = ApplySpellTextAppearance(
+            item.Name, IDs.Spells.Names) or changed
     end
     NSkin:NotifySkinningElementBoundsChanged(IDs.Spells.Names)
     return changed
@@ -844,10 +821,6 @@ local function SkinSpellBookItem(item)
         button.Cooldown:SetAllPoints(icon)
     end
 
-    -- Backplate is presentation-only. Preserve functional overlays such as
-    -- ActionBarHighlight, LevelLinkLock, Trainable FX and Assisted Combat state.
-    if item.Backplate then ConcealTexture(item.Backplate) end
-
     ApplySpellTextAppearance(item.Name, IDs.Spells.Names)
     ApplySpellTextAppearance(item.SubName, IDs.Spells.SecondaryText)
     ApplySpellTextAppearance(item.RequiredLevel, IDs.Spells.SecondaryText)
@@ -893,6 +866,7 @@ local function SkinActiveSpellBookItems()
     SkinSpellBookControls()
 end
 
+
 function SpellBookSkin:RefreshHeaders()
     if not NSkin:IsModuleEnabled("SpellBook") then return end
     local playerSpells = _G.PlayerSpellsFrame
@@ -907,9 +881,10 @@ function SpellBookSkin:RefreshHeaders()
     NSkin:NotifySkinningElementBoundsChanged(IDs.Headers)
 end
 
+
 function SpellBookSkin:ApplyIconDisposition()
     if not NSkin:IsModuleEnabled("SpellBook") then return false end
-    return iconDisposition:Apply()
+    return iconDisposition and iconDisposition:Apply() or false
 end
 
 local function RemoveSpellBookBackground()
@@ -950,145 +925,10 @@ local function RemoveSpellBookBackground()
 
     local pagedSpells = spellBook.PagedSpellsFrame
     RegisterSpellBookContentFamilies(playerSpells, spellBook)
-
     local pagingControls = pagedSpells and pagedSpells.PagingControls
     if pagingControls and pagingControls.PageText then
         pagingControls.PageText:SetTextColor(unpack(NSkin:GetStyle("button").text))
     end
-end
-
-local function ForEachSearchPreviewRow(preview, callback)
-    if not preview then return end
-    NSkin:ForEachScrollBoxFrame(preview.ScrollBox, callback)
-    local pool = preview.suggestedResultButtonsPool
-    if pool and pool.EnumerateActive then
-        for button in pool:EnumerateActive() do callback(button) end
-    end
-end
-
-local function RefreshSearchPreview()
-    local playerSpells = _G.PlayerSpellsFrame
-    local spellBook = playerSpells and playerSpells.SpellBookFrame
-    local preview = spellBook and spellBook.SearchPreviewContainer
-    if not preview or (preview.IsForbidden and preview:IsForbidden()) then
-        return false
-    end
-    local decorations = {}
-    for _, region in ipairs({ "Background", "BorderAnchor",
-        "BotRightCorner", "BottomBorder", "LeftBorder", "RightBorder" }) do
-        if preview[region] then
-            decorations[#decorations + 1] = preview[region]
-        end
-    end
-    local windowStyle = NSkin:GetAppearanceStyle(
-        "window", IDs.AppearanceWindow, IDs.SearchPreview.Window)
-    NSkin:SkinPopupSurface(preview, {
-        windowStyle = windowStyle,
-        border = NSkin:GetAppearanceBorderColor("window", windowStyle,
-            IDs.AppearanceWindow, IDs.SearchPreview.Window),
-        nativeDecorationRegions = decorations,
-    })
-    local rowStyle = NSkin:GetAppearanceStyle(
-        "row", IDs.AppearanceWindow, IDs.SearchPreview.Rows)
-    local rowBorder = NSkin:GetAppearanceBorderColor(
-        "row", rowStyle, IDs.AppearanceWindow, IDs.SearchPreview.Rows)
-    ForEachSearchPreviewRow(preview, function(button)
-        if not button or (button.IsForbidden and button:IsForbidden()) then
-            return
-        end
-        local native = {}
-        for _, region in ipairs({
-            button.IconFrame or false,
-            button.GetNormalTexture and button:GetNormalTexture() or false,
-            button.GetPushedTexture and button:GetPushedTexture() or false,
-        }) do
-            if region then native[#native + 1] = region end
-        end
-        local columns = {}
-        if button.Icon then
-            columns[#columns + 1] = {
-                kind = "ICON", target = button.Icon,
-                texture = button.Icon, borderOwner = button,
-                showBorder = button.Name ~= nil,
-                preserveTexCoords = button.Name == nil,
-            }
-        end
-        local label = button.Name or button.Text
-        if label then
-            columns[#columns + 1] = { kind = "TEXT", target = label }
-        end
-        NSkin:SkinRow(button, {
-            style = rowStyle, border = rowBorder,
-            elementID = IDs.SearchPreview.Rows,
-            appearanceWindowID = IDs.AppearanceWindow,
-            nativeDecorationRegions = native,
-            selectedRegion = button.HighlightTexture,
-            getSelected = function(row)
-                local index = row.GetIndex and row:GetIndex()
-                    or row.displayIndex
-                return index ~= nil and preview.highlightedIndex == index
-            end,
-            getHovered = function(row)
-                return row.IsMouseOver and row:IsMouseOver() or false
-            end,
-            columns = columns,
-        })
-    end)
-    return true
-end
-
-local function RegisterSearchPreview(playerSpells, spellBook)
-    local preview = spellBook and spellBook.SearchPreviewContainer
-    if not preview then return end
-    local overflow = preview.OverflowCount
-    if overflow and overflow.Text then
-        NSkin:RegisterTextElement({
-            id = IDs.SearchPreview.OverflowText,
-            module = "SpellBook",
-            appearanceWindowID = IDs.AppearanceWindow,
-            label = "Spell search overflow count",
-            window = playerSpells, target = overflow.Text,
-            priority = 74, draggable = false,
-            isEditable = function()
-                return preview:IsVisible() and overflow:IsVisible()
-            end,
-        })
-    end
-    NSkin:RegisterSkinningElement(IDs.SearchPreview.Window, {
-        label = "Spell search preview", kind = "WINDOW",
-        module = "SpellBook", appearanceWindowID = IDs.AppearanceWindow,
-        window = playerSpells, target = preview, priority = 72,
-        draggable = false,
-        refreshAppearance = RefreshSearchPreview,
-        refreshLayout = RefreshSearchPreview,
-        isEditable = function() return preview:IsVisible() end,
-    })
-    NSkin:RegisterSkinningElement(IDs.SearchPreview.Rows, {
-        label = "Spell search results", kind = "ROW",
-        module = "SpellBook", appearanceWindowID = IDs.AppearanceWindow,
-        window = playerSpells, target = preview, priority = 73,
-        draggable = false,
-        refreshAppearance = RefreshSearchPreview,
-        refreshLayout = RefreshSearchPreview,
-        highlightRegions = function()
-            local regions = {}
-            ForEachSearchPreviewRow(preview, function(button)
-                if button and button.IsVisible and button:IsVisible() then
-                    regions[#regions + 1] = button
-                end
-            end)
-            return regions
-        end,
-        isEditable = function() return preview:IsVisible() end,
-    })
-    if not State.searchPreviewHooked and _G.hooksecurefunc
-        and type(preview.UpdateResultsDisplay) == "function"
-    then
-        _G.hooksecurefunc(preview, "UpdateResultsDisplay",
-            RefreshSearchPreview)
-        State.searchPreviewHooked = true
-    end
-    RefreshSearchPreview()
 end
 
 function SpellBookSkin:Initialize()
@@ -1180,7 +1020,6 @@ function SpellBookSkin:Initialize()
     })
     RegisterTalentControls(playerSpells)
     RegisterSpecializationControls(playerSpells)
-    RegisterSearchPreview(playerSpells, spellBook)
 
     local pagedSpells = spellBook and spellBook.PagedSpellsFrame
     NSkin:RegisterSkinningElement(IDs.Headers, {
@@ -1289,7 +1128,6 @@ function SpellBookSkin:RefreshAppearance()
         RegisterSpecializationControls(_G.PlayerSpellsFrame)
         local playerSpells = _G.PlayerSpellsFrame
         if playerSpells and playerSpells.SpellBookFrame then
-            RegisterSearchPreview(playerSpells, playerSpells.SpellBookFrame)
             RegisterSpellBookContentFamilies(
                 playerSpells, playerSpells.SpellBookFrame)
         end
