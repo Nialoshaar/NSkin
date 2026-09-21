@@ -99,7 +99,7 @@ function NSkin:ConcealWindowArtwork(frame, preserveArtwork)
 end
 
 function NSkin:SkinWindow(frame, backgroundAnchor, style, borderColor,
-    backgroundOwner, preserveArtwork, borderOwner)
+    backgroundOwner, preserveArtwork, borderOwner, borderAnchor)
     if not frame then return nil end
 
     local data = self:GetSkinData(frame, COMPONENT_STATE)
@@ -141,7 +141,7 @@ function NSkin:SkinWindow(frame, backgroundAnchor, style, borderColor,
     data.windowBorderOwner = borderOwner
     local border = self:CreatePixelBorder(
         borderOwner, "NSkinWindowBorder", style.borderSize,
-        borderColor or self:GetWindowBorderColor(), false, anchor
+        borderColor or self:GetWindowBorderColor(), false, borderAnchor or anchor
     )
     self:SetPixelBorderSize(border, style.borderSize)
     self:SetPixelBorderPadding(border, style.borderPadding or 0)
@@ -149,23 +149,38 @@ function NSkin:SkinWindow(frame, backgroundAnchor, style, borderColor,
     return background, border
 end
 
-function NSkin:SkinWindowHeader(frame, style)
+function NSkin:SkinWindowHeader(frame, style, owner, defaultHeight, anchor)
     if not frame then return nil end
 
     style = style or self:GetStyle("window").header
     local data = self:GetSkinData(frame, COMPONENT_STATE)
+    owner = owner or frame
+    anchor = anchor or frame
     local background = data.windowHeaderBackground
+    if background and data.windowHeaderOwner ~= owner then
+        background:Hide()
+        background = nil
+    end
     if not background then
-        background = frame:CreateTexture(nil, "BACKGROUND", nil, 7)
-        background:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
-        background:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 0)
+        background = owner:CreateTexture(nil, "BACKGROUND", nil, 7)
         data.windowHeaderBackground = background
+        data.windowHeaderOwner = owner
+        data.windowHeaderAnchor = nil
+    end
+    if data.windowHeaderAnchor ~= anchor then
+        background:ClearAllPoints()
+        background:SetPoint("TOPLEFT", anchor, "TOPLEFT", 0, 0)
+        background:SetPoint("TOPRIGHT", anchor, "TOPRIGHT", 0, 0)
+        data.windowHeaderAnchor = anchor
     end
     local height = tonumber(style.height) or data.blizzardHeaderHeight
+        or tonumber(defaultHeight)
         or (frame.nskinOwnedGeometry and 22 or nil)
     if height then
         height = self:SnapToPhysicalPixel(frame, math.max(0, height))
-        if data.windowHeaderHeight ~= height then background:SetHeight(height) end
+        if data.windowHeaderHeight ~= height or not background:GetHeight()
+            or background:GetHeight() == 0
+        then background:SetHeight(height) end
     end
     local color = style.matchBackground and data.windowBackgroundColor
         or self:GetResolvedAppearanceColor(style, "background")
@@ -463,8 +478,10 @@ function NSkin:SkinStandardWindowChrome(definition)
     local background, border = self:SkinWindow(
         frame, definition.backgroundAnchor, style, borderColor,
         definition.backgroundOwner, definition.preserveArtwork,
-        definition.borderOwner)
-    local header = self:SkinWindowHeader(frame, style.header)
+        definition.borderOwner, definition.borderAnchor)
+    local header = self:SkinWindowHeader(frame, style.header,
+        definition.headerOwner, definition.headerHeight,
+        definition.headerAnchor)
 
     local title = definition.title
     if title == nil then
@@ -566,5 +583,94 @@ function NSkin:RefreshStandardWindowChromeElement(element)
     local definition = data and data.standardWindowChromeDefinition
     if not definition or not self:SkinStandardWindowChrome(definition) then return false end
     self:ResnapPixelBordersForElement(element)
+    return true
+end
+
+local function CanModifyBackgroundRegion(region)
+    return region and not (region.IsForbidden and region:IsForbidden())
+        and not (region.IsProtected and region:IsProtected() and InCombatLockdown())
+end
+
+local function SetNativeBackgroundShown(state, region, shown)
+    if not CanModifyBackgroundRegion(region) then return end
+    state.applying = true
+    region:SetShown(shown)
+    state.applying = nil
+end
+
+-- The native source remains authoritative for texture/atlas, alpha, crop and
+-- layout. Only visibility is owned while replacing it. In particular, Default
+-- must reveal the current native atlas, not a snapshot from an earlier page/spec.
+function NSkin:ApplyTextureBackground(owner, definition, settings)
+    local source = definition and definition.source
+    if not CanModifyBackgroundRegion(owner) or not CanModifyBackgroundRegion(source) then return false end
+    local state = self:GetSkinData(owner, "textureBackground:" .. definition.id)
+    local mode = settings and settings.mode or "DEFAULT"
+    if mode ~= "DEFAULT" and mode ~= "NONE" and mode ~= "CUSTOM" then mode = "DEFAULT" end
+    state.mode, state.active = mode, true
+    state.regions = state.regions or {}
+    local regions = { source }
+    for _, region in ipairs(definition.regions or {}) do regions[#regions + 1] = region end
+    local current = {}
+    for _, region in ipairs(regions) do
+        if CanModifyBackgroundRegion(region) then
+            current[region] = true
+            local native = state.regions[region]
+            if not native then
+                native = { shown = region:IsShown() }
+                state.regions[region] = native
+                -- Record only visibility authored outside this helper. Hidden
+                -- native layers may still animate; hiding them avoids overriding
+                -- their alpha, animation state, or current atlas.
+                local function NativeVisibility(shown)
+                    if state.applying then return end
+                    native.shown = shown
+                    if native.active and state.active and state.mode ~= "DEFAULT" then
+                        SetNativeBackgroundShown(state, region, false)
+                    end
+                    if native.active and region == source and state.texture and state.active and state.mode == "CUSTOM" then
+                        state.texture:SetShown(state.loaded and shown)
+                    end
+                end
+                hooksecurefunc(region, "Show", function() NativeVisibility(true) end)
+                hooksecurefunc(region, "Hide", function() NativeVisibility(false) end)
+                hooksecurefunc(region, "SetShown", function(_, shown) NativeVisibility(shown == true) end)
+            end
+            native.active = true
+            SetNativeBackgroundShown(state, region, mode == "DEFAULT" and native.shown)
+        end
+    end
+    for region, native in pairs(state.regions) do
+        if not current[region] and native.active then
+            native.active = nil
+            SetNativeBackgroundShown(state, region, native.shown)
+        end
+    end
+    if state.texture then state.texture:Hide() end
+    state.loaded = false
+    if mode == "CUSTOM" and type(settings.path) == "string" and settings.path ~= "" then
+        if not state.texture then
+            local layer, sublevel = source:GetDrawLayer()
+            state.texture = owner:CreateTexture(nil, layer, nil, sublevel)
+        end
+        state.texture:ClearAllPoints()
+        state.texture:SetAllPoints(source)
+        local ok, loaded = pcall(state.texture.SetTexture, state.texture, settings.path)
+        state.loaded = ok and loaded == true
+        state.texture:SetShown(state.loaded and state.regions[source].shown)
+    end
+    return true
+end
+
+function NSkin:RestoreTextureBackground(owner, id)
+    if not CanModifyBackgroundRegion(owner) then return false end
+    local state = self:GetSkinData(owner, "textureBackground:" .. id, false)
+    if not state then return false end
+    state.active = nil
+    if state.texture then state.texture:Hide() end
+    for region, native in pairs(state.regions) do
+        native.active = nil
+        SetNativeBackgroundShown(state, region, native.shown)
+    end
     return true
 end

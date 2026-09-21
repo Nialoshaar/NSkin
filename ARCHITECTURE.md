@@ -391,6 +391,23 @@ The semantic membership of a Container belongs in the relevant window adapter.
 
 The generic behavior of Containers belongs in the shared composition/editor layer.
 
+`CONTAINER` may declare `movementStrategy = "OFFSET_ROOTS"` and a `roots`
+provider when one semantic group has several independent Blizzard-owned roots.
+`RegisterOffsetContainer` in ComponentsComposition creates its non-interactive
+movement owner and uses the normal movable registration, saved placement, and
+editor APIs. There is no second layout registry. Roots retain their native
+parents and relative anchors; only a common translation is applied to their
+native anchor offsets. The provider must name independent roots, not both an
+anchored child and its moving ancestor. Children remain non-movable components.
+
+The combined root bounds determine the movement owner's bounds. Adapters call
+`ObserveOffsetContainerLayout` only after an authoritative native positioning
+method, and `ReleaseOffsetContainerRoot` before a provider recycles a root.
+Offsets are applied to those native points, never accumulated on NSkin points.
+Movement and reset are blocked during combat. Native anchor updates for a
+single movable owner can use `ObserveMovableElementNativePoints` with explicitly
+identified, freshly authored native points; never pass a skin-modified snapshot.
+
 ---
 
 # 8. Selection Policy Must Remain Replaceable
@@ -685,12 +702,13 @@ ICON may support shared controls such as:
 - crop
 - zoom
 - border
-- shape (`square` by default, or a masked circular presentation)
+- shape (`square` by default, plus `circle`, `hexagon`, and `octagon`)
 - quality presentation
 
 Important invariants:
 
-- crop changes presentation geometry without stretching
+- crop changes sampled texture coordinates without changing the rendered icon
+  dimensions or stretching the artwork
 - zoom changes texcoords only
 - changing icon presentation must not resize/move the parent Button unless explicitly intended
 - visual skinning must not replace, cover, or steal mouse input from the Blizzard interaction target
@@ -699,16 +717,48 @@ Important invariants:
 - functional Blizzard overlays/state must be preserved
 - direct `SkinIcon()` callers remain supported
 - grouped/generated icon collections still use canonical ICON behavior
+- adapters may declare `defaultShape`; it applies while the owning ICON has no
+  custom shape choice, and does not prevent a later element appearance override
 - icons that use Blizzard sprite-sheet coordinates may opt into
   `preserveTexCoords` while still using shared ICON geometry and lifecycle
+- `size` is the canonical square dimension; legacy adapter-provided `width`
+  and `height` remain supported for non-square layout contracts
+- square borders use the shared pixel-border primitive; circle keeps an
+  NSkin-owned masked solid backing, while hexagon and octagon use tintable
+  NSkin border assets paired with their dedicated clipping masks. All shapes
+  follow the effective icon geometry and physical-pixel border controls
+- a non-square shape's clipping mask and NSkin border form one lifecycle pair;
+  shape changes deactivate the old pair before configuring the new one
 - native icon masks remain Blizzard-owned. An adapter may opt into suppressing
   an explicitly named native mask relationship; shared ICON records whether
   it removed that relationship and restores it on reset. NSkin removes only
-  its own circle mask on reset or a switch back to square
+  its own shape mask on reset or a switch back to square
 - texture-backed ICON interaction may use a mouse-disabled presentation
   overlay while a Blizzard Button retains click and spell-cast ownership
 - textured glow borders are shared NSkin-owned primitives; adapters decide
   their state and visibility
+
+ComponentsContent contains one canonical `SkinIcon` entry point, with private
+single-presentation rendering and multi-presentation coordination. A logical
+ICON may declare `presentations` containing explicit textures, `nativeMasks`,
+an optional suppressed `nativeMask`, and `presentationMasks`. All presentations
+share the effective style, shape, zoom and primary presentation size. Only the
+primary creates an outer border; secondary textures are not editor identities.
+
+Masked texcoords require `allowMaskedTexCoords`. The private mask helper detaches
+only an entirely known, explicitly declared attached set, applies the crop, and
+immediately reattaches that same set even if the client rejects the operation.
+An unknown or inaccessible attached mask prevents the operation. Declared
+presentation-mask geometry uses first-write baselines and follows effective
+texture geometry; reset restores only NSkin-owned geometry and masks.
+
+Optional `splitDivider`/`splitVisible` and `cornerIndicator`/`cornerVisible`
+request non-interactive texture adornments. The divider uses the primary's
+effective border color and shape clipping. Adapters supply assets and visibility
+semantics. Generic `borderColorProvider` supplies automatic/state colors; explicit
+user color modes still override it. Shared ICON knows no window-specific node
+types, states, or semantics. Provider-owned pooled groups release a runtime child
+through `ReleaseIconGroupChild` before another family acquires it.
 
 Clickable, empty, quality-bearing, disabled, popup-opening, or special-purpose icons should not become bespoke visual types merely because their behavior differs.
 
@@ -878,6 +928,16 @@ named inset backgrounds, NineSlice containers, edges, and corners, but must not
 hide the inset frame itself or its functional children.
 
 Exceptional internal artwork suppression must remain explicit and audited.
+
+ComponentsWindows owns `ApplyTextureBackground`/`RestoreTextureBackground` for a
+declared native source and optional associated decorative layers. `DEFAULT`
+reveals the current native source; `NONE` suppresses it; `CUSTOM` uses an owned
+texture over the same native area and a WoW-accessible texture path. Invalid
+paths fail closed without discarding the saved path. No OS file access occurs.
+The helper owns replacement visibility only: native atlas/texture, texcoords,
+alpha/animations and anchors remain untouched, so a native source change while
+customized is still the source on reset. First-write visibility capture and
+guarded native visibility hooks distinguish native updates from NSkin writes.
 
 Do not recursively hide all textures in a window.
 
@@ -1066,6 +1126,11 @@ A safe-looking shared Blizzard template does not guarantee that every runtime
 instance is writable. For secure-sensitive or transactional UI, runtime
 accessibility is authoritative. If a target or child is forbidden/inaccessible,
 skip the mutation and never attempt to bypass Blizzard protection.
+
+`IsProtected()` alone is not a permanent rejection rule for layout. Where the
+API permits out-of-combat changes, preserve that behavior and use
+`InCombatLockdown()` to guard restricted operations. Forbidden/inaccessible
+targets remain excluded regardless of combat state.
 
 Skinning should remain presentation-focused. NSkin-owned visual surfaces must not
 become accidental mouse blockers or replacement interaction layers unless the
