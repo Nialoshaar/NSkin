@@ -704,8 +704,8 @@ Important invariants:
 - `size` is the canonical square dimension; legacy adapter-provided `width`
   and `height` remain supported for non-square layout contracts
 - square borders use the shared pixel-border primitive; circle, hexagon, and
-  octagon borders use NSkin-owned, physical-pixel-snapped outlines around the
-  clipped presentation texture
+  octagon borders use a reusable NSkin-owned solid backing, masked to the
+  selected shape and expanded in physical pixels behind the clipped texture
 - native icon masks remain Blizzard-owned. An adapter may opt into suppressing
   an explicitly named native mask relationship; shared ICON records whether
   it removed that relationship and restores it on reset. NSkin removes only

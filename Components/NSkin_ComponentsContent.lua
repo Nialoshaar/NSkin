@@ -1684,8 +1684,6 @@ local ICON_SHAPES = {
             texture:SetTexCoord(NSkin:GetIconTexCoords(
                 width, height, zoom))
         end,
-        segmentCount = 32,
-        angleOffset = math.pi / 2,
         configureMask = function(mask)
             mask:SetAtlas("talents-node-circle-mask", false)
         end,
@@ -1695,8 +1693,6 @@ local ICON_SHAPES = {
             texture:SetTexCoord(NSkin:GetIconTexCoords(
                 width, height, zoom))
         end,
-        segmentCount = 6,
-        angleOffset = math.pi / 2,
         configureMask = function(mask)
             mask:SetTexture(
                 "Interface\\AddOns\\NSkin\\Media\\icon-mask-hexagon.tga")
@@ -1707,8 +1703,6 @@ local ICON_SHAPES = {
             texture:SetTexCoord(NSkin:GetIconTexCoords(
                 width, height, zoom))
         end,
-        segmentCount = 8,
-        angleOffset = math.pi / 8,
         configureMask = function(mask)
             mask:SetTexture(
                 "Interface\\AddOns\\NSkin\\Media\\icon-mask-octagon.tga")
@@ -1752,12 +1746,13 @@ local function ApplyIconNativeMask(data)
     end
 end
 
-local function ConfigureIconShapeMask(mask, shape, anchor)
+local function ConfigureIconShapeMask(mask, shape, anchor, explicitSize)
     local definition = ICON_SHAPES[shape]
     if not mask or not definition or not definition.configureMask
         or not anchor or not anchor.GetWidth or not anchor.GetHeight
     then return false end
-    local size = math.min(anchor:GetWidth() or 0, anchor:GetHeight() or 0)
+    local size = tonumber(explicitSize)
+        or math.min(anchor:GetWidth() or 0, anchor:GetHeight() or 0)
     if size <= 0 then return false end
     mask:ClearAllPoints()
     mask:SetPoint("CENTER", anchor, "CENTER", 0, 0)
@@ -1797,29 +1792,53 @@ local function EnsureIconShapeMask(self, data, owner, texture)
 end
 
 local function HideIconShapeBorder(data)
-    for i = 1, #(data.shapeBorderSegments or {}) do
-        data.shapeBorderSegments[i]:Hide()
+    if data.shapeBorderBacking then data.shapeBorderBacking:Hide() end
+end
+
+local LOWER_ICON_DRAW_LAYER = {
+    HIGHLIGHT = "OVERLAY",
+    OVERLAY = "ARTWORK",
+    ARTWORK = "BORDER",
+    BORDER = "BACKGROUND",
+}
+
+local function SetIconShapeBorderLayer(backing, texture)
+    if not backing or not backing.SetDrawLayer
+        or not texture or not texture.GetDrawLayer
+    then return end
+    local layer, subLevel = texture:GetDrawLayer()
+    subLevel = tonumber(subLevel) or 0
+    if subLevel > -8 then
+        backing:SetDrawLayer(layer or "ARTWORK", subLevel - 1)
+    else
+        backing:SetDrawLayer(
+            LOWER_ICON_DRAW_LAYER[layer] or layer or "BACKGROUND", 7)
     end
 end
 
-local function EnsureIconShapeBorder(data, frame)
-    if not frame or not frame.CreateLine then return false end
+local function EnsureIconShapeBorder(data, owner, texture)
+    if not owner or not owner.CreateTexture or not owner.CreateMaskTexture
+        or not texture
+    then return false end
     data.shapeBorderSets = data.shapeBorderSets
         or setmetatable({}, { __mode = "k" })
-    if data.shapeBorderFrame ~= frame then
+    if data.shapeBorderOwner ~= owner then
         HideIconShapeBorder(data)
-        data.shapeBorderSegments = data.shapeBorderSets[frame]
-        data.shapeBorderFrame = frame
+        local border = data.shapeBorderSets[owner]
+        data.shapeBorderBacking = border and border.backing
+        data.shapeBorderMask = border and border.mask
+        data.shapeBorderOwner = owner
     end
-    if not data.shapeBorderSegments then
-        data.shapeBorderSegments = {}
-        for i = 1, 32 do
-            local segment = frame:CreateLine(nil, "OVERLAY", nil, 7)
-            NSkin:ConfigureOwnedPixelTexture(segment)
-            data.shapeBorderSegments[i] = segment
-        end
-        data.shapeBorderSets[frame] = data.shapeBorderSegments
+    if not data.shapeBorderBacking then
+        local backing = owner:CreateTexture(nil, "ARTWORK", nil, -1)
+        local mask = owner:CreateMaskTexture(nil, "ARTWORK")
+        backing:AddMaskTexture(mask)
+        NSkin:ConfigureOwnedPixelTexture(backing)
+        data.shapeBorderBacking = backing
+        data.shapeBorderMask = mask
+        data.shapeBorderSets[owner] = { backing = backing, mask = mask }
     end
+    SetIconShapeBorderLayer(data.shapeBorderBacking, texture)
     return true
 end
 
@@ -2253,38 +2272,26 @@ local function ApplyIconBorderAppearance(self, data, target)
     HideIconShapeBorder(data)
     local definition = ICON_SHAPES[data.shape]
     if data.shape ~= "square" and definition
-        and EnsureIconShapeBorder(data, data.borderFrame)
+        and EnsureIconShapeBorder(data, data.borderOwner, data.texture)
     then
         local texture = data.texture
         local pixel = self:GetPhysicalPixelSize(texture)
-        local thickness = math.max(1,
-            tonumber(data.borderSize) or 1) * pixel
-        local padding = (tonumber(data.borderPadding) or 0) * pixel
-        local width = texture.GetWidth and texture:GetWidth() or 0
-        local height = texture.GetHeight and texture:GetHeight() or 0
-        -- Pixel-border edges sit inside their anchor at zero padding. Center
-        -- the segment half a thickness inward to preserve that contract.
-        local radius = self:SnapToPhysicalPixel(texture, math.max(0,
-            math.min(width, height) / 2 + padding - thickness / 2))
-        local count = definition.segmentCount or 0
-        local angleOffset = definition.angleOffset or 0
-        for i = 1, count do
-            local startAngle = angleOffset
-                + ((i - 1) / count) * math.pi * 2
-            local endAngle = angleOffset
-                + (i / count) * math.pi * 2
-            local startX = math.cos(startAngle) * radius
-            local startY = math.sin(startAngle) * radius
-            local endX = math.cos(endAngle) * radius
-            local endY = math.sin(endAngle) * radius
-            local segment = data.shapeBorderSegments[i]
-            segment:SetThickness(thickness)
-            -- Line points accept one anchor point plus offsets. They do not
-            -- take the extra relative-point argument used by Region:SetPoint.
-            segment:SetStartPoint("CENTER", texture, startX, startY)
-            segment:SetEndPoint("CENTER", texture, endX, endY)
-            self:SetOwnedTextureColor(segment, unpack(borderColor))
-            segment:SetShown(shown)
+        local outset = self:SnapToPhysicalPixel(texture,
+            ((tonumber(data.borderSize) or 0)
+                + (tonumber(data.borderPadding) or 0)) * pixel)
+        local backing = data.shapeBorderBacking
+        backing:ClearAllPoints()
+        backing:SetPoint("TOPLEFT", texture, "TOPLEFT", -outset, outset)
+        backing:SetPoint(
+            "BOTTOMRIGHT", texture, "BOTTOMRIGHT", outset, -outset)
+        local shapeSize = math.min(
+            texture.GetWidth and texture:GetWidth() or 0,
+            texture.GetHeight and texture:GetHeight() or 0) + outset * 2
+        if ConfigureIconShapeMask(
+            data.shapeBorderMask, data.shape, backing, shapeSize)
+        then
+            self:SetOwnedTextureColor(backing, unpack(borderColor))
+            backing:SetShown(shown)
         end
     end
     return true
