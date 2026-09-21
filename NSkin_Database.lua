@@ -153,6 +153,7 @@ NSkin.baseAppearance = {
         zoom = 0.06,
         crop = 1,
         shape = "square",
+        shapeMode = "DEFAULT",
     },
 
     editBox = {

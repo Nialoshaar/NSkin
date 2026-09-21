@@ -699,6 +699,8 @@ Important invariants:
 - functional Blizzard overlays/state must be preserved
 - direct `SkinIcon()` callers remain supported
 - grouped/generated icon collections still use canonical ICON behavior
+- adapters may declare `defaultShape`; it applies while the owning ICON has no
+  custom shape choice, and does not prevent a later element appearance override
 - icons that use Blizzard sprite-sheet coordinates may opt into
   `preserveTexCoords` while still using shared ICON geometry and lifecycle
 - `size` is the canonical square dimension; legacy adapter-provided `width`

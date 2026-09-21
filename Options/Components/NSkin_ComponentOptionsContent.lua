@@ -197,6 +197,31 @@ local function GetIconAppearanceSize(style)
     return 0
 end
 
+local VALID_ICON_SHAPES = {
+    square = true,
+    circle = true,
+    hexagon = true,
+    octagon = true,
+}
+
+local function GetEffectiveIconShape(style, defaultShape)
+    local shape = string.lower(tostring(style and style.shape or "square"))
+    if not VALID_ICON_SHAPES[shape] then shape = "square" end
+    local baseShape = NSkin.baseAppearance and NSkin.baseAppearance.icon
+        and NSkin.baseAppearance.icon.shape or "square"
+    if (style and style.shapeMode == "CUSTOM") or shape ~= baseShape then
+        return shape
+    end
+    defaultShape = defaultShape
+        and string.lower(tostring(defaultShape)) or nil
+    return VALID_ICON_SHAPES[defaultShape] and defaultShape or shape
+end
+
+local function GetIconDefaultShape(context)
+    return context and (context.defaultShape
+        or context.skinOptions and context.skinOptions.defaultShape)
+end
+
 NSkin:RegisterOptionGroup("appearance.icon", {
     controls = iconAppearanceControls,
     get = function()
@@ -235,17 +260,28 @@ NSkin:RegisterOptionGroup("shared.iconAppearance", {
             size = GetIconAppearanceSize(style),
             zoom = style.zoom,
             crop = style.crop,
-            shape = style.shape,
+            shape = GetEffectiveIconShape(style, GetIconDefaultShape(context)),
         }
     end,
     set = function(context, values)
         local changed = false
         for _, key in ipairs({ "border", "borderMode", "borderSize",
-            "borderPadding", "size", "zoom", "crop", "shape" }) do
+            "borderPadding", "size", "zoom", "crop" }) do
             if values[key] ~= nil then
                 changed = SetElementValue(
                     context, "icon." .. key, values[key]) or changed
             end
+        end
+        local style = NSkin:GetAppearanceStyle(
+            "icon", GetAppearanceWindowID(context), context.id)
+        if values.shape ~= nil
+            and values.shape ~= GetEffectiveIconShape(
+                style, GetIconDefaultShape(context))
+        then
+            changed = SetElementValue(
+                context, "icon.shape", values.shape) or changed
+            changed = SetElementValue(
+                context, "icon.shapeMode", "CUSTOM") or changed
         end
         return changed == true
     end,
@@ -253,7 +289,7 @@ NSkin:RegisterOptionGroup("shared.iconAppearance", {
         return ResetElementPaths(context, {
             "icon.border", "icon.borderMode", "icon.borderSize",
             "icon.borderPadding", "icon.size", "icon.width", "icon.height",
-            "icon.zoom", "icon.crop", "icon.shape",
+            "icon.zoom", "icon.crop", "icon.shape", "icon.shapeMode",
         })
     end,
 })

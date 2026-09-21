@@ -1710,6 +1710,27 @@ local ICON_SHAPES = {
     },
 }
 
+local function ResolveIconShape(style, options)
+    local explicitShape = options.shape
+    if explicitShape ~= nil then
+        explicitShape = string.lower(tostring(explicitShape))
+        return ICON_SHAPES[explicitShape] and explicitShape or "square"
+    end
+    local styleShape = string.lower(tostring(style.shape or "square"))
+    if not ICON_SHAPES[styleShape] then styleShape = "square" end
+    local baseShape = NSkin.baseAppearance and NSkin.baseAppearance.icon
+        and NSkin.baseAppearance.icon.shape or "square"
+    if style.shapeMode == "CUSTOM" or styleShape ~= baseShape then
+        return styleShape
+    end
+    local defaultShape = options.defaultShape
+    if defaultShape ~= nil then
+        defaultShape = string.lower(tostring(defaultShape))
+        if ICON_SHAPES[defaultShape] then return defaultShape end
+    end
+    return styleShape
+end
+
 local function ClearIconShapeMask(data)
     if data.shapeIconMaskAdded and data.texture
         and data.texture.RemoveMaskTexture
@@ -2386,9 +2407,7 @@ function NSkin:SkinIcon(target, options)
 
     local style = options.style or self:GetStyle("icon")
     if not style then return false end
-    local shape = string.lower(tostring(
-        options.shape or style.shape or "square"))
-    if not ICON_SHAPES[shape] then shape = "square" end
+    local shape = ResolveIconShape(style, options)
 
     if data.texture and data.texture ~= texture then
         ClearIconShapeMask(data)
