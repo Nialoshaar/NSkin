@@ -685,7 +685,7 @@ ICON may support shared controls such as:
 - crop
 - zoom
 - border
-- shape (`square` by default, or a masked circular presentation)
+- shape (`square` by default, plus `circle`, `hexagon`, and `octagon`)
 - quality presentation
 
 Important invariants:
@@ -701,10 +701,15 @@ Important invariants:
 - grouped/generated icon collections still use canonical ICON behavior
 - icons that use Blizzard sprite-sheet coordinates may opt into
   `preserveTexCoords` while still using shared ICON geometry and lifecycle
+- `size` is the canonical square dimension; legacy adapter-provided `width`
+  and `height` remain supported for non-square layout contracts
+- square borders use the shared pixel-border primitive; circle, hexagon, and
+  octagon borders use NSkin-owned, physical-pixel-snapped outlines around the
+  clipped presentation texture
 - native icon masks remain Blizzard-owned. An adapter may opt into suppressing
   an explicitly named native mask relationship; shared ICON records whether
   it removed that relationship and restores it on reset. NSkin removes only
-  its own circle mask on reset or a switch back to square
+  its own shape mask on reset or a switch back to square
 - texture-backed ICON interaction may use a mouse-disabled presentation
   overlay while a Blizzard Button retains click and spell-cast ownership
 - textured glow borders are shared NSkin-owned primitives; adapters decide

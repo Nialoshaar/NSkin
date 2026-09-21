@@ -1684,16 +1684,45 @@ local ICON_SHAPES = {
             texture:SetTexCoord(NSkin:GetIconTexCoords(
                 width, height, zoom))
         end,
+        segmentCount = 32,
+        angleOffset = math.pi / 2,
+        configureMask = function(mask)
+            mask:SetAtlas("talents-node-circle-mask", false)
+        end,
+    },
+    hexagon = {
+        applyTexCoords = function(texture, width, height, zoom)
+            texture:SetTexCoord(NSkin:GetIconTexCoords(
+                width, height, zoom))
+        end,
+        segmentCount = 6,
+        angleOffset = math.pi / 2,
+        configureMask = function(mask)
+            mask:SetTexture(
+                "Interface\\AddOns\\NSkin\\Media\\icon-mask-hexagon.tga")
+        end,
+    },
+    octagon = {
+        applyTexCoords = function(texture, width, height, zoom)
+            texture:SetTexCoord(NSkin:GetIconTexCoords(
+                width, height, zoom))
+        end,
+        segmentCount = 8,
+        angleOffset = math.pi / 8,
+        configureMask = function(mask)
+            mask:SetTexture(
+                "Interface\\AddOns\\NSkin\\Media\\icon-mask-octagon.tga")
+        end,
     },
 }
 
-local function ClearCircleIconMask(data)
-    if data.circleIconMaskAdded and data.texture
+local function ClearIconShapeMask(data)
+    if data.shapeIconMaskAdded and data.texture
         and data.texture.RemoveMaskTexture
     then
-        data.texture:RemoveMaskTexture(data.circleIconMask)
+        data.texture:RemoveMaskTexture(data.shapeIconMask)
     end
-    data.circleIconMaskAdded = nil
+    data.shapeIconMaskAdded = nil
 end
 
 local function HasIconMask(texture, mask)
@@ -1723,41 +1752,73 @@ local function ApplyIconNativeMask(data)
     end
 end
 
-local function EnsureCircleIconPresentation(self, data, owner, texture)
+local function ConfigureIconShapeMask(mask, shape, anchor)
+    local definition = ICON_SHAPES[shape]
+    if not mask or not definition or not definition.configureMask
+        or not anchor or not anchor.GetWidth or not anchor.GetHeight
+    then return false end
+    local size = math.min(anchor:GetWidth() or 0, anchor:GetHeight() or 0)
+    if size <= 0 then return false end
+    mask:ClearAllPoints()
+    mask:SetPoint("CENTER", anchor, "CENTER", 0, 0)
+    mask:SetSize(size, size)
+    definition.configureMask(mask)
+    return true
+end
+
+local function EnsureIconShapeMask(self, data, owner, texture)
+    if data.shape == "square" then return true end
     if not owner.CreateMaskTexture or not texture.AddMaskTexture then
         return false
     end
-    if data.circleBorderOwner and data.circleBorderOwner ~= owner then
-        if data.circleBorder then data.circleBorder:Hide() end
-        data.circleBorder = nil
-        data.circleBorderMask = nil
-        data.circleIconMask = nil
+    if data.shapeIconMaskOwner ~= owner then
+        ClearIconShapeMask(data)
+        data.shapeIconMasksByOwner = data.shapeIconMasksByOwner
+            or setmetatable({}, { __mode = "k" })
+        data.shapeIconMask = data.shapeIconMasksByOwner[owner]
+        data.shapeIconMaskOwner = owner
     end
-    if not data.circleBorder then
-        local border = owner:CreateTexture(nil, "ARTWORK", nil, -2)
-        local mask = owner:CreateMaskTexture(nil, "ARTWORK")
-        mask:SetAtlas("talents-node-circle-mask", false)
-        mask:SetAllPoints(border)
-        border:AddMaskTexture(mask)
-        self:ConfigureOwnedPixelTexture(border)
-        data.circleBorder = border
-        data.circleBorderMask = mask
-        data.circleBorderOwner = owner
-    end
-    if not data.circleIconMaskAdded
-        and (not texture.GetNumMaskTextures
-            or texture:GetNumMaskTextures() == 0)
-    then
-        local mask = data.circleIconMask
+    if not data.shapeIconMaskAdded then
+        local mask = data.shapeIconMask
         if not mask then
             mask = owner:CreateMaskTexture(nil, "ARTWORK")
-            mask:SetAtlas("talents-node-circle-mask", false)
-            data.circleIconMask = mask
+            data.shapeIconMask = mask
+            data.shapeIconMasksByOwner[owner] = mask
         end
-        mask:ClearAllPoints()
-        mask:SetAllPoints(texture)
+        if not ConfigureIconShapeMask(mask, data.shape, texture) then
+            return false
+        end
         texture:AddMaskTexture(mask)
-        data.circleIconMaskAdded = true
+        data.shapeIconMaskAdded = true
+    else
+        ConfigureIconShapeMask(data.shapeIconMask, data.shape, texture)
+    end
+    return true
+end
+
+local function HideIconShapeBorder(data)
+    for i = 1, #(data.shapeBorderSegments or {}) do
+        data.shapeBorderSegments[i]:Hide()
+    end
+end
+
+local function EnsureIconShapeBorder(data, frame)
+    if not frame or not frame.CreateLine then return false end
+    data.shapeBorderSets = data.shapeBorderSets
+        or setmetatable({}, { __mode = "k" })
+    if data.shapeBorderFrame ~= frame then
+        HideIconShapeBorder(data)
+        data.shapeBorderSegments = data.shapeBorderSets[frame]
+        data.shapeBorderFrame = frame
+    end
+    if not data.shapeBorderSegments then
+        data.shapeBorderSegments = {}
+        for i = 1, 32 do
+            local segment = frame:CreateLine(nil, "OVERLAY", nil, 7)
+            NSkin:ConfigureOwnedPixelTexture(segment)
+            data.shapeBorderSegments[i] = segment
+        end
+        data.shapeBorderSets[frame] = data.shapeBorderSegments
     end
     return true
 end
@@ -2035,16 +2096,13 @@ local function ApplyIconInteraction(self, data, target, texture, options)
     glow:SetPoint("TOPLEFT", texture, "TOPLEFT", 1, -1)
     glow:SetPoint("BOTTOMRIGHT", texture, "BOTTOMRIGHT", -1, 1)
     data.interactionGlow = glow
-    if data.shape == "circle" and glow.AddMaskTexture then
+    if data.shape ~= "square" and glow.AddMaskTexture then
         local mask = data.interactionGlowMask
         if not mask and glowOwner.CreateMaskTexture then
             mask = glowOwner:CreateMaskTexture(nil, "OVERLAY")
-            mask:SetAtlas("talents-node-circle-mask", false)
             data.interactionGlowMask = mask
         end
-        if mask then
-            mask:ClearAllPoints()
-            mask:SetAllPoints(glow)
+        if mask and ConfigureIconShapeMask(mask, data.shape, glow) then
             if not data.interactionGlowMasked then
                 glow:AddMaskTexture(mask)
                 data.interactionGlowMasked = true
@@ -2191,23 +2249,42 @@ local function ApplyIconBorderAppearance(self, data, target)
         and (not data.texture or not data.texture.IsShown
             or data.texture:IsShown())
     self:SetPixelBorderColor(border, unpack(borderColor))
-    self:SetPixelBorderShown(border, shown and data.shape ~= "circle")
-    if data.circleBorder then
-        if data.shape == "circle" then
-            local texture = data.texture
-            local outset = ((tonumber(data.borderSize) or 1)
-                + (tonumber(data.borderPadding) or 0))
-                * self:GetPhysicalPixelSize(texture)
-            data.circleBorder:ClearAllPoints()
-            data.circleBorder:SetPoint("TOPLEFT", texture, "TOPLEFT",
-                -outset, outset)
-            data.circleBorder:SetPoint("BOTTOMRIGHT", texture,
-                "BOTTOMRIGHT", outset, -outset)
-            self:SetOwnedTextureColor(data.circleBorder,
-                unpack(borderColor))
-            data.circleBorder:SetShown(shown)
-        else
-            data.circleBorder:Hide()
+    self:SetPixelBorderShown(border, shown and data.shape == "square")
+    HideIconShapeBorder(data)
+    local definition = ICON_SHAPES[data.shape]
+    if data.shape ~= "square" and definition
+        and EnsureIconShapeBorder(data, data.borderFrame)
+    then
+        local texture = data.texture
+        local pixel = self:GetPhysicalPixelSize(texture)
+        local thickness = math.max(1,
+            tonumber(data.borderSize) or 1) * pixel
+        local padding = (tonumber(data.borderPadding) or 0) * pixel
+        local width = texture.GetWidth and texture:GetWidth() or 0
+        local height = texture.GetHeight and texture:GetHeight() or 0
+        -- Pixel-border edges sit inside their anchor at zero padding. Center
+        -- the segment half a thickness inward to preserve that contract.
+        local radius = self:SnapToPhysicalPixel(texture, math.max(0,
+            math.min(width, height) / 2 + padding - thickness / 2))
+        local count = definition.segmentCount or 0
+        local angleOffset = definition.angleOffset or 0
+        for i = 1, count do
+            local startAngle = angleOffset
+                + ((i - 1) / count) * math.pi * 2
+            local endAngle = angleOffset
+                + (i / count) * math.pi * 2
+            local startX = math.cos(startAngle) * radius
+            local startY = math.sin(startAngle) * radius
+            local endX = math.cos(endAngle) * radius
+            local endY = math.sin(endAngle) * radius
+            local segment = data.shapeBorderSegments[i]
+            segment:SetThickness(thickness)
+            -- Line points accept one anchor point plus offsets. They do not
+            -- take the extra relative-point argument used by Region:SetPoint.
+            segment:SetStartPoint("CENTER", texture, startX, startY)
+            segment:SetEndPoint("CENTER", texture, endX, endY)
+            self:SetOwnedTextureColor(segment, unpack(borderColor))
+            segment:SetShown(shown)
         end
     end
     return true
@@ -2217,11 +2294,11 @@ local function RefreshActiveIconPresentation(target)
     local data = NSkin:GetSkinData(target, ICON_COMPONENT_STATE, false)
     if not data or not data.active then return end
     ApplyIconGeometry(target)
-    if data.circleIconMaskAdded then ClearCircleIconMask(data) end
+    if data.shapeIconMaskAdded then ClearIconShapeMask(data) end
     ApplyIconNativeMask(data)
     ApplyIconTexCoords(target)
-    if data.shape == "circle" then
-        EnsureCircleIconPresentation(NSkin, data, data.borderOwner,
+    if data.shape ~= "square" then
+        EnsureIconShapeMask(NSkin, data, data.borderOwner,
             data.texture)
     end
     ApplyIconBorderAppearance(NSkin, data, target)
@@ -2261,9 +2338,9 @@ function NSkin:SkinIcon(target, options)
     end
     if options.reset == true then
         data.active = nil
-        ClearCircleIconMask(data)
+        ClearIconShapeMask(data)
         data.suppressNativeMask = nil
-        if data.circleBorder then data.circleBorder:Hide() end
+        HideIconShapeBorder(data)
         self:RestoreComponentBaseline(textureData.baselineID, {
             size = true,
             points = true,
@@ -2282,7 +2359,16 @@ function NSkin:SkinIcon(target, options)
         for _, state in pairs(data.interactionRegionStates or {}) do
             if state.active then RestoreIconInteractionRegion(state) end
         end
-        if data.interactionGlow then data.interactionGlow:Hide() end
+        if data.interactionGlow then
+            data.interactionGlow:Hide()
+            if data.interactionGlowMasked
+                and data.interactionGlow.RemoveMaskTexture
+            then
+                data.interactionGlow:RemoveMaskTexture(
+                    data.interactionGlowMask)
+                data.interactionGlowMasked = nil
+            end
+        end
         data.borderStyle = nil
         data.configuredBorderColor = nil
         data.borderMode = nil
@@ -2298,7 +2384,7 @@ function NSkin:SkinIcon(target, options)
     if not ICON_SHAPES[shape] then shape = "square" end
 
     if data.texture and data.texture ~= texture then
-        ClearCircleIconMask(data)
+        ClearIconShapeMask(data)
         data.suppressNativeMask = nil
         ApplyIconNativeMask(data)
         data.nativeMask = nil
@@ -2314,7 +2400,7 @@ function NSkin:SkinIcon(target, options)
     data.preserveTexCoords = options.preserveTexCoords == true
     data.preserveAtlasTexCoords = options.preserveAtlasTexCoords == true
     data.shape = shape
-    ClearCircleIconMask(data)
+    ClearIconShapeMask(data)
     if data.nativeMask ~= options.nativeMask then
         data.suppressNativeMask = nil
         ApplyIconNativeMask(data)
@@ -2328,8 +2414,10 @@ function NSkin:SkinIcon(target, options)
         or tonumber(style.crop) or 1
     data.crop = math.max(0.01, math.min(1, data.crop))
 
-    local width = tonumber(options.width) or tonumber(style.width)
-    local height = tonumber(options.height) or tonumber(style.height)
+    local size = tonumber(options.size) or tonumber(style.size)
+    size = size and size > 0 and size or nil
+    local width = tonumber(options.width) or size or tonumber(style.width)
+    local height = tonumber(options.height) or size or tonumber(style.height)
     width = width and width > 0 and width or nil
     height = height and height > 0 and height or nil
     local baseline = self:GetComponentBaseline(textureData.baselineID)
@@ -2386,8 +2474,8 @@ function NSkin:SkinIcon(target, options)
         end
     end
     ApplyIconTexCoords(target)
-    if shape == "circle" then
-        if not EnsureCircleIconPresentation(self, data, owner, texture) then
+    if shape ~= "square" then
+        if not EnsureIconShapeMask(self, data, owner, texture) then
             data.shape = "square"
         end
     end
@@ -2499,8 +2587,15 @@ function NSkin:SkinIcon(target, options)
     end
     if not data.sizeHooked and sizeWatchTarget then
         sizeWatchTarget:HookScript("OnSizeChanged", function()
-            ApplyIconTexCoords(target)
+            RefreshActiveIconPresentation(target)
         end)
+        if _G.hooksecurefunc
+            and type(sizeWatchTarget.SetScale) == "function"
+        then
+            pcall(_G.hooksecurefunc, sizeWatchTarget, "SetScale", function()
+                RefreshActiveIconPresentation(target)
+            end)
+        end
         data.sizeHooked = true
     end
     textureData.appearanceTargets = textureData.appearanceTargets

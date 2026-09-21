@@ -475,7 +475,8 @@ local function SetAppearanceOverride(scope, id, windowID, path, value)
     local currentValue = styleOverrides
         and GetPath(styleOverrides, relativePath, false) or nil
     local isBlizzardGeometrySentinel = value == 0
-        and (path:match("%.width$") or path:match("%.height$")
+        and (path:match("%.size$") or path:match("%.width$")
+            or path:match("%.height$")
             or path:match("%.textSize$") or path:match("%.iconSize$"))
     local newValue = (isBlizzardGeometrySentinel
         or (parentValue ~= nil and TablesEqual(value, parentValue)))
@@ -2897,7 +2898,7 @@ local SHARED_SKIN_ADAPTERS = {
         for _, key in ipairs({
             "texture", "quality", "qualityProvider", "borderColor", "borderMode",
             "borderSize", "borderPadding", "borderKey", "borderOwner",
-            "outside", "showBorder", "width", "height", "zoom", "crop",
+            "outside", "showBorder", "size", "width", "height", "zoom", "crop",
             "shape", "preserveTexCoords", "nativeMask",
             "suppressNativeMask", "nativeDecorationRegions",
             "nativeBorderRegions",
@@ -3017,7 +3018,7 @@ local TYPED_SKIN_FIELDS_BY_TYPE = {
         "iconTarget", "iconTextureBaselineID",
         "texture", "quality", "qualityProvider", "borderColor", "borderMode",
         "borderSize", "borderPadding", "borderKey", "borderOwner", "outside",
-        "showBorder", "width", "height", "zoom", "crop", "shape",
+        "showBorder", "size", "width", "height", "zoom", "crop", "shape",
         "preserveTexCoords", "nativeMask", "suppressNativeMask",
         "nativeDecorationRegions", "nativeBorderRegions",
         "hoverRegion", "hoverRegions", "selectedRegion",

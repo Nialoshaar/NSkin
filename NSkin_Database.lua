@@ -147,6 +147,7 @@ NSkin.baseAppearance = {
         borderMode = "quality",
         borderSize = 1,
         borderPadding = 0,
+        size = 0,
         width = 0,
         height = 0,
         zoom = 0.06,

@@ -24,6 +24,9 @@ local IDs = {
         ApplyButton = "SpellBook.Talents.ApplyButton",
         SearchBox = "SpellBook.Talents.SearchBox",
         LoadoutDropdown = "SpellBook.Talents.LoadoutDropdown",
+        PvPLabel = "SpellBook.Talents.PvPLabel",
+        ResetButton = "SpellBook.Talents.ResetButton",
+        UndoButton = "SpellBook.Talents.UndoButton",
     },
     Specializations = {
         Window = "SpellBook.Specializations.Window",
@@ -583,12 +586,31 @@ local function IsTalentControlVisible(talents, control)
     return talents and control and talents:IsVisible() and control:IsVisible()
 end
 
+local function ApplyTalentPresentationCleanup(talents)
+    if not talents then return end
+
+    -- BottomBar is decorative artwork only; keep the functional controls
+    -- anchored to it while removing the Blizzard bar presentation.
+    if talents.BottomBar then talents.BottomBar:SetAlpha(0) end
+
+    local tray = talents.PvPTalentSlotTray
+    if tray and type(tray.Slots) == "table" then
+        for _, slot in ipairs(tray.Slots) do
+            if slot and slot.Border then
+                slot.Border:SetAlpha(0)
+            end
+        end
+    end
+end
+
 local function RegisterTalentControls(playerSpells)
     local talents = playerSpells and playerSpells.TalentsFrame
     local loadSystem = talents and talents.LoadSystem
     local loadoutDropdown = loadSystem and loadSystem.GetDropdown
         and loadSystem:GetDropdown() or (loadSystem and loadSystem.Dropdown)
     if not talents then return false end
+
+    ApplyTalentPresentationCleanup(talents)
 
     -- The PlayerSpellsFrame is shared by Spellbook and Talents. Reapply the
     -- same registered window chrome here so opening either tab has identical
@@ -651,6 +673,59 @@ local function RegisterTalentControls(playerSpells)
             return IsTalentControlVisible(talents, loadoutDropdown)
         end,
     }) ~= nil or applied
+
+    local pvpTray = talents.PvPTalentSlotTray
+    local pvpLabel = pvpTray and pvpTray.Label
+    applied = NSkin:RegisterTextElement({
+        id = IDs.Talents.PvPLabel,
+        module = "SpellBook",
+        appearanceWindowID = IDs.AppearanceWindow,
+        label = "PvP talents label",
+        window = playerSpells,
+        target = pvpLabel,
+        priority = 74,
+        highlightRegions = { pvpLabel },
+        isEditable = function()
+            return IsTalentControlVisible(talents, pvpLabel)
+        end,
+    }) ~= nil or applied
+
+    applied = NSkin:RegisterDropdown({
+        id = IDs.Talents.ResetButton,
+        module = "SpellBook",
+        appearanceWindowID = IDs.AppearanceWindow,
+        label = "Reset talents button",
+        window = playerSpells,
+        target = talents.ResetButton,
+        menus = { "MENU_CLASS_TALENT_FRAME_RESET" },
+        skinOptions = {
+            showArrow = false,
+            showBackground = false,
+            showBorder = false,
+            preserveMenuAnchor = true,
+        },
+        priority = 75,
+        highlightRegions = { talents.ResetButton },
+        isEditable = function()
+            return IsTalentControlVisible(talents, talents.ResetButton)
+        end,
+    }) ~= nil or applied
+
+    applied = NSkin:RegisterIcon({
+        id = IDs.Talents.UndoButton,
+        module = "SpellBook",
+        appearanceWindowID = IDs.AppearanceWindow,
+        label = "Undo talent changes button",
+        window = playerSpells,
+        target = talents.UndoButton,
+        texture = talents.UndoButton and talents.UndoButton.Icon,
+        priority = 76,
+        highlightRegions = { talents.UndoButton and talents.UndoButton.Icon },
+        isEditable = function()
+            return IsTalentControlVisible(talents, talents.UndoButton)
+        end,
+    }) ~= nil or applied
+
     return applied
 end
 
