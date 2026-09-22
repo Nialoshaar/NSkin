@@ -237,41 +237,34 @@ local function GetRoleIconTexture(roleButton)
     return texture or roleButton.Icon or roleButton.icon
 end
 
-local ROLE_ICON_CROP = {
-    TANK = 0.16,
-    HEALER = 0.22,
-    DAMAGER = 0.16,
-    GUIDE = 0.24,
+local ROLE_ICON_MEDIA = {
+    TANK = "Role Icons\\role-tank.png",
+    HEALER = "Role Icons\\role-healer.png",
+    DAMAGER = "Role Icons\\role-dps.png",
+    GUIDE = "Role Icons\\role-leader.png",
 }
 
-local function ApplyCroppedRoleAtlas(texture, role)
-    if not texture or not role or type(_G.GetIconForRole) ~= "function"
-        or not texture.SetTexture or not texture.SetTexCoord
-    then return false end
+local function WithIconDefaults(style, defaults)
+    if not style then return style end
+    local base = NSkin.baseAppearance and NSkin.baseAppearance.icon or {}
+    local resolved = {}
+    for key, value in pairs(style) do resolved[key] = value end
 
-    local atlas = _G.GetIconForRole(role, false)
-    local textureAPI = _G.C_Texture
-    local info = atlas and textureAPI and textureAPI.GetAtlasInfo
-        and textureAPI.GetAtlasInfo(atlas)
-    if not info then return false end
-
-    local file = info.file or info.filename
-    local left = info.leftTexCoord
-    local right = info.rightTexCoord
-    local top = info.topTexCoord
-    local bottom = info.bottomTexCoord
-    if not file or left == nil or right == nil
-        or top == nil or bottom == nil
-    then return false end
-
-    local crop = ROLE_ICON_CROP[role] or 0.16
-    local horizontalInset = (right - left) * crop
-    local verticalInset = (bottom - top) * crop
-    texture:SetTexture(file)
-    texture:SetTexCoord(
-        left + horizontalInset, right - horizontalInset,
-        top + verticalInset, bottom - verticalInset)
-    return true
+    if defaults.zoom ~= nil then
+        local current = tonumber(style.zoom)
+        local baseZoom = tonumber(base.zoom)
+        if current == nil or current == baseZoom then
+            resolved.zoom = defaults.zoom
+        end
+    end
+    if defaults.size ~= nil then
+        local current = tonumber(style.size)
+        local baseSize = tonumber(base.size)
+        if current == nil or current == baseSize then
+            resolved.size = defaults.size
+        end
+    end
+    return resolved
 end
 
 local function GetRolePresentation(roleButton)
@@ -300,18 +293,26 @@ local function RegisterRoleComposite(
         ConcealTexture(roleButton.EdgePulse)
 
         local role = roleButton.role
-        ApplyCroppedRoleAtlas(icon, role)
+        if not role and roleButton.GetID and roleButton:GetID() == 4 then
+            role = "GUIDE"
+        end
+        local mediaFile = role and ROLE_ICON_MEDIA[role]
+        if mediaFile then
+            icon:SetTexture(NSkin.mediaPath .. mediaFile)
+            icon:SetTexCoord(0, 1, 0, 1)
+        end
         if icon.SetDesaturated and roleButton.IsEnabled then
             icon:SetDesaturated(not roleButton:IsEnabled())
         end
 
-        local iconStyle = NSkin:GetAppearanceStyle("icon", scopeID, id)
+        local iconStyle = WithIconDefaults(
+            NSkin:GetAppearanceStyle("icon", scopeID, groupID),
+            { zoom = 0.14 })
         NSkin:SkinIcon(icon, {
             texture = icon,
             borderOwner = roleButton,
             style = iconStyle,
             defaultShape = "circle",
-            preserveTexCoords = true,
             nativeDecorationRegions = {
                 nativeIcon,
                 roleButton.background,
@@ -321,7 +322,7 @@ local function RegisterRoleComposite(
             },
         })
         NSkin:SkinCheckButton(checkButton, {
-            style = NSkin:GetAppearanceStyle("button", scopeID, id),
+            style = NSkin:GetAppearanceStyle("button", scopeID, groupID),
         })
         NSkin:NotifySkinningElementBoundsChanged(id)
         return true
@@ -338,7 +339,7 @@ local function RegisterRoleComposite(
         draggable = false,
         anchorGroupID = groupID,
         anchorGroupLabel = groupLabel,
-        anchorGroupAppearanceSource = id,
+        anchorGroupAppearanceSource = groupID,
         composition = {
             mode = "COMPOSITE",
             movementOwner = roleButton,
@@ -1628,6 +1629,18 @@ local function RegisterFinderNavigationIcon(
             suppressNativeMask = true,
             nativeDecorationRegions = { button.ring },
         },
+        skinAdapter = function(self, _, style, borderColor, definition)
+            local options = {}
+            for key, value in pairs(definition.skinOptions or {}) do
+                options[key] = value
+            end
+            options.style = WithIconDefaults(style, { size = 55 })
+            options.texture = definition.texture
+            options.borderOwner = definition.borderOwner
+            options.borderColor = borderColor
+            options.baselineID = definition.iconTextureBaselineID
+            self:SkinIcon(definition.iconTarget or definition.target, options)
+        end,
         isEditable = function()
             return frame:IsVisible() and button:IsVisible()
         end,
