@@ -273,6 +273,7 @@ local function RefreshAnchorGroup(group)
     virtual.label = group.label or group.id
     virtual.window = group.window
     virtual.appearanceWindowID = group.appearanceWindowID
+    virtual.defaultShape = group.defaultShape
     virtual.target = nil
     virtual.priority = group.priority or 0
     virtual.anchorGroupMembers = members
@@ -324,6 +325,9 @@ function NSkin:InitializeElementAnchorGroup(element)
         or element.appearanceWindowID
     group.appearanceSourceID = element.anchorGroupAppearanceSource
         or group.appearanceSourceID
+    group.defaultShape = element.defaultShape
+        or (element.skinOptions and element.skinOptions.defaultShape)
+        or group.defaultShape
     group.priority = math.max(group.priority or 0, element.priority or 0)
     local newMember = group.membersByID[element.id] == nil
     group.membersByID[element.id] = element

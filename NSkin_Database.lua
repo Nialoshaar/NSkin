@@ -87,6 +87,9 @@ NSkin.baseAppearance = {
         text = { 1, 1, 1, 1 },
         disabledText = { 0.45, 0.45, 0.45, 1 },
         hoverAlpha = 0.10,
+        checkboxShape = "square",
+        checkboxSize = 14,
+        checkboxCheckedSize = 8,
     },
 
     windowHeaderButton = {

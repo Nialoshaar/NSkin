@@ -159,30 +159,32 @@ NSkin:RegisterOptionGroup("appearance.progress", {
     end,
 })
 
+local ICON_SHAPE_OPTIONS = {
+    { value = "square", label = "Square" },
+    { value = "circle", label = "Circle" },
+    { value = "hexagon", label = "Hexagon" },
+    { value = "octagon", label = "Octagon" },
+}
+
 local iconAppearanceControls = {
-    { type = "COLOR", key = "border", label = "Icon border", order = 1 },
-    { type = "DROPDOWN", key = "borderMode", label = "Border mode",
-        order = 2, values = {
-            { value = "custom", label = "Custom" },
-            { value = "quality", label = "Item quality" },
-            { value = "automatic", label = "Automatic state" },
-        } },
-    { type = "SLIDER", key = "borderSize", label = "Border thickness",
-        min = 0, max = 8, step = 1, decimals = 0, suffix = " px", order = 3 },
-    { type = "SLIDER", key = "borderPadding", label = "Border padding",
-        min = -8, max = 16, step = 1, decimals = 0, suffix = " px", order = 4 },
-    { type = "SLIDER", key = "size", label = "Size",
-        min = 0, max = 256, step = 1, decimals = 0, suffix = " px", order = 5 },
-    { type = "SLIDER", key = "zoom", label = "Edge zoom",
-        min = 0, max = 0.45, step = 0.01, decimals = 2, order = 6 },
-    { type = "SLIDER", key = "crop", label = "Crop ratio",
-        min = 0.1, max = 1, step = 0.01, decimals = 2, order = 7 },
-    { type = "DROPDOWN", key = "shape", label = "Shape", order = 8,
-        values = { { value = "square", label = "Square" },
-            { value = "circle", label = "Circle" },
-            { value = "hexagon", label = "Hexagon" },
-            { value = "octagon", label = "Octagon" } } },
-    { type = "RESET", label = "Reset Icons" },
+    { type = "MIXED_PAIR", order = 1,
+        left = { type = "DROPDOWN", key = "shape", label = "Shape",
+            values = ICON_SHAPE_OPTIONS },
+        right = { type = "COLOR", key = "border", modeKey = "borderMode",
+            label = "Border color", allowDefaultAlways = true,
+            allowItemQuality = true } },
+    { type = "SLIDER_PAIR", order = 2,
+        left = { key = "borderSize", label = "Border size",
+            min = 0, max = 8, step = 1, decimals = 0, suffix = " px" },
+        right = { key = "borderPadding", label = "Border padding",
+            min = -8, max = 16, step = 1, decimals = 0, suffix = " px" } },
+    { type = "SLIDER_PAIR", order = 3,
+        left = { key = "size", label = "Icon size",
+            min = 0, max = 256, step = 1, decimals = 0, suffix = " px" },
+        right = { key = "crop", label = "Crop ratio",
+            min = 0.1, max = 1, step = 0.01, decimals = 2 } },
+    { type = "SLIDER", key = "zoom", label = "Zoom",
+        min = 0, max = 0.45, step = 0.01, decimals = 2, order = 4 },
 }
 
 local function GetIconAppearanceSize(style)
@@ -223,22 +225,53 @@ local function GetIconDefaultShape(context)
         or context.skinOptions and context.skinOptions.defaultShape)
 end
 
+local function NormalizeIconBorderMode(mode)
+    mode = string.upper(tostring(mode or "DEFAULT"))
+    if mode == "QUALITY" or mode == "CLASS" or mode == "ACCENT"
+        or mode == "CUSTOM" or mode == "DEFAULT"
+    then
+        return mode
+    end
+    return "DEFAULT"
+end
+
+local iconResetPaths = {
+    border = { "icon.border", "icon.borderMode" },
+    borderMode = { "icon.border", "icon.borderMode" },
+    borderSize = "icon.borderSize",
+    borderPadding = "icon.borderPadding",
+    size = { "icon.size", "icon.width", "icon.height" },
+    crop = "icon.crop",
+    zoom = "icon.zoom",
+    shape = { "icon.shape", "icon.shapeMode" },
+}
+
 NSkin:RegisterOptionGroup("appearance.icon", {
     controls = iconAppearanceControls,
     get = function()
         local style = NSkin:GetStyle("icon")
         return { border = CopyColor(style.border),
-            borderMode = style.borderMode, borderSize = style.borderSize,
+            borderMode = NormalizeIconBorderMode(style.borderMode),
+            borderSize = style.borderSize,
             borderPadding = style.borderPadding,
             size = GetIconAppearanceSize(style),
             zoom = style.zoom, crop = style.crop, shape = style.shape }
     end,
     set = function(_, values)
         local style = NSkin:GetStyle("icon")
-        local changed = SetColor("icon.border", style.border, values.border, values.border[4])
+        local changed
+        if values.borderMode == "DEFAULT" then
+            changed = ResetPaths({ "icon.border" }) or changed
+        elseif values.border ~= nil then
+            changed = SetColor("icon.border", style.border,
+                values.border, values.border[4]) or changed
+        end
         for _, key in ipairs({ "borderMode", "borderSize", "borderPadding",
             "size", "zoom", "crop", "shape" }) do
-            changed = SetScalar("icon." .. key, style[key], values[key]) or changed
+            if values[key] ~= nil then
+                changed = SetScalar("icon." .. key, style[key], values[key])
+                    or changed
+            end
         end
         return changed == true
     end,
@@ -246,6 +279,20 @@ NSkin:RegisterOptionGroup("appearance.icon", {
         return ResetPaths({ "icon.border", "icon.borderMode", "icon.borderSize",
             "icon.borderPadding", "icon.size", "icon.width", "icon.height",
             "icon.zoom", "icon.crop", "icon.shape" })
+    end,
+    resetSubset = function(_, keys)
+        local paths, seen = {}, {}
+        for key in pairs(keys or {}) do
+            local mapped = iconResetPaths[key]
+            if type(mapped) == "string" then mapped = { mapped } end
+            for _, path in ipairs(mapped or {}) do
+                if not seen[path] then
+                    seen[path] = true
+                    paths[#paths + 1] = path
+                end
+            end
+        end
+        return #paths > 0 and ResetPaths(paths) or false
     end,
 })
 NSkin:RegisterOptionGroup("shared.iconAppearance", {
@@ -255,7 +302,7 @@ NSkin:RegisterOptionGroup("shared.iconAppearance", {
             "icon", GetAppearanceWindowID(context), context.id)
         return {
             border = CopyColor(style.border),
-            borderMode = style.borderMode,
+            borderMode = NormalizeIconBorderMode(style.borderMode),
             borderSize = style.borderSize,
             borderPadding = style.borderPadding,
             size = GetIconAppearanceSize(style),
@@ -266,7 +313,13 @@ NSkin:RegisterOptionGroup("shared.iconAppearance", {
     end,
     set = function(context, values)
         local changed = false
-        for _, key in ipairs({ "border", "borderMode", "borderSize",
+        if values.borderMode == "DEFAULT" then
+            changed = ResetElementPaths(context, { "icon.border" }) or changed
+        elseif values.border ~= nil then
+            changed = SetElementValue(
+                context, "icon.border", values.border) or changed
+        end
+        for _, key in ipairs({ "borderMode", "borderSize",
             "borderPadding", "size", "zoom", "crop" }) do
             if values[key] ~= nil then
                 changed = SetElementValue(
@@ -292,6 +345,9 @@ NSkin:RegisterOptionGroup("shared.iconAppearance", {
             "icon.borderPadding", "icon.size", "icon.width", "icon.height",
             "icon.zoom", "icon.crop", "icon.shape", "icon.shapeMode",
         })
+    end,
+    resetSubset = function(context, keys)
+        return ResetMappedElementKeys(context, keys, iconResetPaths)
     end,
 })
 local textAppearanceControls = {}

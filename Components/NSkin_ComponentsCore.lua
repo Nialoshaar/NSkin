@@ -988,16 +988,43 @@ local function ContainsAppearanceValue(values, expected)
     return false
 end
 
-local function ChangeMatchesSharedType(change, element, sharedType, allowStyleFamily)
-    if change.typeID and element.kind ~= change.typeID
-        and not ContainsAppearanceValue(
-            element.appearanceTypeIDs, change.typeID)
+local function ElementExposesRefreshType(element, typeID)
+    if not element or not typeID then return false end
+    if element.kind == typeID
+        or ContainsAppearanceValue(element.appearanceTypeIDs, typeID)
     then
+        return true
+    end
+    local composition = element.composition
+    if composition and composition.mode == "COMPOSITE" then
+        for _, member in ipairs(composition.members or {}) do
+            if member.kind == typeID then return true end
+        end
+    end
+    return false
+end
+
+local function ChangeMatchesSharedType(change, element, sharedType, allowStyleFamily)
+    if change.typeID and not ElementExposesRefreshType(element, change.typeID) then
         return false
     end
-    local styles = { sharedType.style }
+    local styles, seenStyles = {}, {}
+    local function AddStyle(styleName)
+        if styleName and not seenStyles[styleName] then
+            seenStyles[styleName] = true
+            styles[#styles + 1] = styleName
+        end
+    end
+    AddStyle(sharedType.style)
     for i = 1, #(element.appearanceStyles or {}) do
-        styles[#styles + 1] = element.appearanceStyles[i]
+        AddStyle(element.appearanceStyles[i])
+    end
+    local composition = element.composition
+    if composition and composition.mode == "COMPOSITE" then
+        for _, member in ipairs(composition.members or {}) do
+            local memberType = member.kind and NSkin:GetSharedElementType(member.kind)
+            AddStyle(memberType and memberType.style)
+        end
     end
     if allowStyleFamily and (change.style or change.changes) then
         for i = 1, #styles do

@@ -27,47 +27,78 @@ RegisterColorAppearanceGroup("appearance.button", "button", {
 })
 NSkin:RegisterOptionGroup("shared.checkboxAppearance", {
     controls = {
-        { type = "COLOR_PAIR",
-            left = { type = "COLOR", key = "background",
-                label = "Background" },
-            right = { type = "COLOR", key = "border", label = "Border" } },
-        { type = "CONTROL_PAIR",
+        { type = "MIXED_PAIR", order = 1,
+            left = { type = "DROPDOWN", key = "shape", label = "Shape",
+                values = {
+                    { value = "square", label = "Square" },
+                    { value = "circle", label = "Circle" },
+                } },
+            right = { type = "SLIDER", key = "size", label = "Size",
+                min = 8, max = 32, step = 1, decimals = 0,
+                suffix = " px" } },
+        { type = "MIXED_PAIR", order = 2,
             left = { type = "COLOR", key = "checked",
-                label = "Checked" },
-            right = { type = "SLIDER", key = "hoverAlpha",
-                label = "Hover opacity", min = 0, max = 0.5,
-                step = 0.01, decimals = 2 } },
-        { type = "RESET", label = "Reset Checkbox" },
+                label = "Checkmark color" },
+            right = { type = "SLIDER", key = "checkedSize",
+                label = "Checkmark size", min = 2, max = 30,
+                step = 1, decimals = 0, suffix = " px" } },
+        { type = "COLOR_PAIR", order = 3,
+            left = { type = "COLOR", key = "background",
+                label = "Background color" },
+            right = { type = "COLOR", key = "border",
+                label = "Border color" } },
     },
     get = function(context)
         local style = NSkin:GetAppearanceStyle(
             "button", GetAppearanceWindowID(context), context.id)
         return {
+            shape = style.checkboxShape or "square",
+            size = tonumber(style.checkboxSize) or 14,
+            checked = CopyColor(style.checked or NSkin:GetSharedBorderColor()),
+            checkedSize = tonumber(style.checkboxCheckedSize) or 8,
             background = CopyColor(style.background),
             border = CopyColor(NSkin:GetAppearanceBorderColor(
                 "button", style, GetAppearanceWindowID(context), context.id)),
-            checked = CopyColor(style.checked or NSkin:GetSharedBorderColor()),
-            hoverAlpha = style.hoverAlpha,
         }
     end,
     set = function(context, values)
         local changed
-        for _, key in ipairs({ "background", "border", "checked",
-            "hoverAlpha" }) do
+        local mapping = {
+            shape = "checkboxShape",
+            size = "checkboxSize",
+            checked = "checked",
+            checkedSize = "checkboxCheckedSize",
+            background = "background",
+            border = "border",
+        }
+        for key, path in pairs(mapping) do
             if values[key] ~= nil then
                 changed = SetElementValue(
-                    context, "button." .. key, values[key]) or changed
+                    context, "button." .. path, values[key]) or changed
             end
         end
         return changed == true
     end,
     reset = function(context)
         return ResetElementPaths(context, {
-            "button.background", "button.border", "button.checked",
-            "button.hoverAlpha",
+            "button.checkboxShape", "button.checkboxSize",
+            "button.checked", "button.checkboxCheckedSize",
+            "button.background", "button.border", "button.hoverAlpha",
         })
     end,
+    resetSubset = function(context, keys)
+        local mapping = {
+            shape = "button.checkboxShape",
+            size = "button.checkboxSize",
+            checked = "button.checked",
+            checkedSize = "button.checkboxCheckedSize",
+            background = "button.background",
+            border = "button.border",
+        }
+        return ResetMappedElementKeys(context, keys, mapping)
+    end,
 })
+
 NSkin:RegisterOptionGroup("shared.sliderAppearance", {
     controls = {
         { type = "COLOR_PAIR", order = 1,

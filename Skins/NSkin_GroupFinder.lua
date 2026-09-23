@@ -263,13 +263,28 @@ end
 
 local function GetRolePresentation(roleButton)
     local data = NSkin:GetSkinData(roleButton, "groupFinderRolePresentation")
+    if not data.clipFrame then
+        local clipFrame = _G.CreateFrame("Frame", nil, roleButton)
+        clipFrame:SetPoint("CENTER", roleButton, "CENTER", 0, 0)
+        clipFrame:SetSize(roleButton:GetWidth(), roleButton:GetHeight())
+        clipFrame:EnableMouse(false)
+        if clipFrame.SetClipsChildren then clipFrame:SetClipsChildren(true) end
+        data.clipFrame = clipFrame
+    end
+    if not data.borderFrame then
+        local borderFrame = _G.CreateFrame("Frame", nil, roleButton)
+        borderFrame:SetPoint("CENTER", roleButton, "CENTER", 0, 0)
+        borderFrame:SetSize(roleButton:GetWidth(), roleButton:GetHeight())
+        borderFrame:EnableMouse(false)
+        data.borderFrame = borderFrame
+    end
     if not data.texture then
-        local texture = roleButton:CreateTexture(nil, "ARTWORK", nil, 1)
-        texture:SetPoint("CENTER", roleButton, "CENTER", 0, 0)
+        local texture = data.clipFrame:CreateTexture(nil, "ARTWORK", nil, 1)
+        texture:SetPoint("CENTER", data.clipFrame, "CENTER", 0, 0)
         texture:SetSize(roleButton:GetWidth(), roleButton:GetHeight())
         data.texture = texture
     end
-    return data.texture
+    return data.texture, data
 end
 
 local function RegisterRoleComposite(
@@ -277,7 +292,7 @@ local function RegisterRoleComposite(
     local checkButton = roleButton and roleButton.checkButton
     local nativeIcon = GetRoleIconTexture(roleButton)
     if not roleButton or not checkButton or not nativeIcon then return false end
-    local icon = GetRolePresentation(roleButton)
+    local icon, rolePresentation = GetRolePresentation(roleButton)
 
     local function Refresh()
         ConcealTexture(nativeIcon)
@@ -302,10 +317,47 @@ local function RegisterRoleComposite(
         local iconStyle = WithIconDefaults(
             NSkin:GetAppearanceStyle("icon", scopeID, groupID),
             { zoom = 0.14 })
+
+        -- Role icons use an NSkin-owned presentation texture. Crop its visible
+        -- canvas instead of masking that texture directly: intersecting the
+        -- generic crop mask with the circular shape mask makes the role artwork
+        -- appear to scale down before the vertical crop is applied.
+        local crop = math.max(0.01, math.min(1,
+            tonumber(iconStyle.crop) or 1))
+        local customSize = tonumber(iconStyle.size)
+        customSize = customSize and customSize > 0 and customSize or nil
+        local width = customSize or roleButton:GetWidth()
+        local height = customSize or roleButton:GetHeight()
+        local clipFrame = rolePresentation.clipFrame
+        local borderFrame = rolePresentation.borderFrame
+        clipFrame:ClearAllPoints()
+        clipFrame:SetPoint("CENTER", roleButton, "CENTER", 0, 0)
+        clipFrame:SetSize(width, height * crop)
+        clipFrame:SetFrameLevel(roleButton:GetFrameLevel() + 1)
+        borderFrame:ClearAllPoints()
+        borderFrame:SetPoint("CENTER", roleButton, "CENTER", 0, 0)
+        borderFrame:SetSize(width, height)
+        borderFrame:SetFrameLevel(clipFrame:GetFrameLevel() + 1)
+        -- The role icon outline intentionally sits above the icon artwork, but
+        -- the checkbox is a separate secondary control and must remain above
+        -- that outline.
+        if checkButton.SetFrameLevel then
+            checkButton:SetFrameLevel(borderFrame:GetFrameLevel() + 1)
+        end
+        icon:ClearAllPoints()
+        icon:SetPoint("CENTER", clipFrame, "CENTER", 0, 0)
+        icon:SetSize(width, height)
+
         NSkin:SkinIcon(icon, {
             texture = icon,
-            borderOwner = roleButton,
+            borderOwner = borderFrame,
+            shapeMaskOwner = clipFrame,
             style = iconStyle,
+            crop = 1,
+            borderCrop = crop,
+            borderColor = NSkin:GetResolvedAppearanceColor(
+                iconStyle, "border"),
+            borderMode = iconStyle.borderMode,
             defaultShape = "circle",
             nativeDecorationRegions = {
                 nativeIcon,
@@ -331,6 +383,7 @@ local function RegisterRoleComposite(
         target = roleButton,
         priority = 82,
         draggable = false,
+        defaultShape = "circle",
         anchorGroupID = groupID,
         anchorGroupLabel = groupLabel,
         anchorGroupAppearanceSource = groupID,

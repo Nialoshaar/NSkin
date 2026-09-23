@@ -429,6 +429,8 @@ local function CreateCheckbox(view, control, y)
     return 42
 end
 
+local AddCompactOptionResetMenu
+
 local function CreateDropdownPairItem(view, control, x, width, y, mirrored)
     if not control then return end
     local labelWidth = view.presentation == "COMPACT"
@@ -443,6 +445,8 @@ local function CreateDropdownPairItem(view, control, x, width, y, mirrored)
     label:SetJustifyV("MIDDLE")
     label:SetText(control.label)
     AddCompactGridControlDivider(view, label, mirrored)
+    AddCompactOptionResetMenu(view, label, control.label,
+        { control.key, control.modeKey }, mirrored)
     local dropdown = CreateOwnedDropdown(view)
     local dropdownReduction = control.dropdownReduction
     if dropdownReduction == nil then
@@ -540,7 +544,7 @@ local function ResetCompactOption(view, keys)
     return changed
 end
 
-local function AddCompactOptionResetMenu(view, label, optionLabel, keys, mirrored)
+AddCompactOptionResetMenu = function(view, label, optionLabel, keys, mirrored)
     if not label or view.presentation ~= "COMPACT"
         or type(view.definition.resetSubset) ~= "function"
     then
@@ -878,6 +882,8 @@ local function ResolveColorModeFill(values, control, mode)
     if mode == "DEFAULT" then
         return values and values.defaultColor or values and values[control.key]
             or { 1, 1, 1, 1 }
+    elseif mode == "QUALITY" then
+        return values and values[control.key] or { 1, 1, 1, 1 }
     elseif mode == "CLASS" then
         local _, class = UnitClass("player")
         local classColor = class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
@@ -955,7 +961,7 @@ CreateColor = function(view, control, y, layout)
     if layout.inline then
         AddCompactGridControlDivider(view, label, layout.mirrored)
         AddCompactOptionResetMenu(view, label,
-            control.label, { control.key }, layout.mirrored)
+            control.label, { control.key, control.modeKey }, layout.mirrored)
     end
     local dropdown = CreateOwnedDropdown(view)
     local controlWidth = math.max(80, width - inlineLabelWidth - 10)
@@ -1011,8 +1017,14 @@ CreateColor = function(view, control, y, layout)
         } or {
             { value = "CUSTOM", label = "Custom" },
         }
-        if control.allowDefault and current
-            and type(current.defaultColor) == "table" then
+        if control.allowItemQuality and hasColorMode then
+            table.insert(modes, 1,
+                { value = "QUALITY", label = "Item Quality" })
+        end
+        if control.allowDefaultAlways
+            or (control.allowDefault and current
+                and type(current.defaultColor) == "table")
+        then
             table.insert(modes, 1, { value = "DEFAULT", label = "Default" })
         end
         for i = 1, #modes do
@@ -1058,8 +1070,8 @@ local function RefreshColorControl(view, control, values)
     local dropdown = view.colorByKey[control.key]
     local modeKey = view.colorModeByKey[control.key]
     local mode = modeKey and values[modeKey] or "CUSTOM"
-    local labels = { DEFAULT = "Default", CLASS = "Class",
-        ACCENT = "Accent", CUSTOM = "Custom" }
+    local labels = { DEFAULT = "Default", QUALITY = "Item Quality",
+        CLASS = "Class", ACCENT = "Accent", CUSTOM = "Custom" }
     FillColorDropdown(dropdown, ResolveColorModeFill(values, control, mode))
     dropdown:SetDefaultText(labels[mode] or "Custom")
     if dropdown.GenerateMenu then dropdown:GenerateMenu() end
@@ -1275,6 +1287,34 @@ local function CreateSliderDropdownPair(view, control, y)
             width - COMPACT_GRID_PADDING * 2,
             y - COMPACT_GRID_HEIGHT / 2, true)
     end
+    return COMPACT_GRID_HEIGHT - 1
+end
+
+local function CreateMixedPairItem(view, definition, x, width, y, mirrored, cell)
+    if not definition then return end
+    if definition.type == "DROPDOWN" then
+        CreateDropdownPairItem(view, definition, x, width,
+            y - COMPACT_GRID_HEIGHT / 2, mirrored)
+    elseif definition.type == "SLIDER" then
+        CreateSliderPairItem(view, definition, 0, width, 0,
+            mirrored and "RIGHT" or "LEFT", cell)
+    elseif definition.type == "COLOR" then
+        CreateColor(view, definition, y, {
+            x = x, width = width, inline = true, mirrored = mirrored,
+        })
+    end
+end
+
+local function CreateMixedPair(view, control, y)
+    local width, gap, row = CreateTwoColumnGridRow(view, y, COMPACT_GRID_HEIGHT)
+    local compactWidth = width - COMPACT_GRID_PADDING * 2
+    CreateMixedPairItem(view, control.left, COMPACT_GRID_PADDING,
+        control.left and control.left.type == "SLIDER" and width or compactWidth,
+        y, false, row.left)
+    CreateMixedPairItem(view, control.right,
+        width + gap + COMPACT_GRID_PADDING,
+        control.right and control.right.type == "SLIDER" and width or compactWidth,
+        y, true, row.right)
     return COMPACT_GRID_HEIGHT - 1
 end
 
@@ -1532,6 +1572,8 @@ function NSkin:CreateOptionGroupView(parent, id, layout, context)
             height = CreateSliderPair(view, control, y)
         elseif control.type == "SLIDER_DROPDOWN_PAIR" then
             height = CreateSliderDropdownPair(view, control, y)
+        elseif control.type == "MIXED_PAIR" then
+            height = CreateMixedPair(view, control, y)
         elseif control.type == "RESET" then
             height = CreateReset(view, control, y)
         end
@@ -1694,6 +1736,37 @@ function NSkin:CreateOptionGroupView(parent, id, layout, context)
                 local dropdown = self.controlByKey[dropdownDefinition.key]
                 dropdown:SetDefaultText(text)
                 if dropdown.GenerateMenu then dropdown:GenerateMenu() end
+            elseif control.type == "MIXED_PAIR" then
+                for _, definition in ipairs({ control.left, control.right }) do
+                    if definition then
+                        local selected = values and values[definition.key]
+                        if definition.type == "DROPDOWN" then
+                            local text = definition.label
+                            local choices = ResolveOptionValues(definition.values)
+                            for j = 1, #choices do
+                                if choices[j].value == selected then
+                                    text = choices[j].label
+                                    break
+                                end
+                            end
+                            local dropdown = self.controlByKey[definition.key]
+                            dropdown:SetDefaultText(text)
+                            if dropdown.GenerateMenu then dropdown:GenerateMenu() end
+                        elseif definition.type == "SLIDER" then
+                            if selected ~= nil then
+                                self.controlByKey[definition.key]:SetValue(selected)
+                            end
+                            local decimals = tonumber(definition.decimals) or 0
+                            self.valueByKey[definition.key]:SetText(selected ~= nil
+                                and string.format("%." .. decimals .. "f", selected)
+                                or "-")
+                        elseif definition.type == "COLOR"
+                            and type(selected) == "table"
+                        then
+                            RefreshColorControl(self, definition, values)
+                        end
+                    end
+                end
             end
         end
         self.refreshing = false

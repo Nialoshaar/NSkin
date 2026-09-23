@@ -1653,11 +1653,10 @@ end
 local ICON_COMPONENT_STATE = "iconComponent"
 local ICON_BORDER_KEY = "NSkinIconBorder"
 
-function NSkin:GetIconTexCoords(width, height, zoom, crop)
+function NSkin:GetIconTexCoords(width, height, zoom)
     width = math.max(tonumber(width) or 1, 0.001)
     height = math.max(tonumber(height) or 1, 0.001)
     zoom = math.max(0, math.min(0.49, tonumber(zoom) or 0))
-    crop = math.max(0.01, math.min(1, tonumber(crop) or 1))
 
     local visibleSpan = 1 - (zoom * 2)
     local horizontalSpan, verticalSpan = visibleSpan, visibleSpan
@@ -1667,10 +1666,6 @@ function NSkin:GetIconTexCoords(width, height, zoom, crop)
     elseif aspect < 1 then
         horizontalSpan = visibleSpan * aspect
     end
-    -- Crop the sampled square artwork, never the rendered texture geometry.
-    -- Scaling both UV spans preserves the image aspect ratio.
-    horizontalSpan = horizontalSpan * crop
-    verticalSpan = verticalSpan * crop
 
     local left = (1 - horizontalSpan) / 2
     local top = (1 - verticalSpan) / 2
@@ -1756,6 +1751,68 @@ local function HasIconMask(texture, mask)
     return false
 end
 
+local function ClearIconCropMask(data)
+    local texture = data and data.cropMaskTexture
+    local mask = data and data.cropMask
+    if texture and mask and texture.RemoveMaskTexture
+        and HasIconMask(texture, mask)
+    then
+        texture:RemoveMaskTexture(mask)
+    end
+    if data then
+        data.cropMaskAdded = nil
+        data.cropMaskTexture = nil
+    end
+end
+
+local function ApplyIconCropMask(data, owner, texture)
+    if not data or not owner or not texture then return false end
+    local crop = math.max(0.01, math.min(1, tonumber(data.crop) or 1))
+    if crop >= 0.9999 then
+        ClearIconCropMask(data)
+        return true
+    end
+    if not owner.CreateMaskTexture or not texture.AddMaskTexture then
+        return false
+    end
+
+    if data.cropMaskOwner ~= owner then
+        ClearIconCropMask(data)
+        data.cropMasksByOwner = data.cropMasksByOwner
+            or setmetatable({}, { __mode = "k" })
+        data.cropMask = data.cropMasksByOwner[owner]
+        data.cropMaskOwner = owner
+    end
+    local mask = data.cropMask
+    if not mask then
+        mask = owner:CreateMaskTexture(nil, "ARTWORK")
+        data.cropMask = mask
+        data.cropMasksByOwner[owner] = mask
+    end
+    -- Solid rectangular masks must clamp to transparent outside their own
+    -- bounds. Without CLAMPTOBLACKADDITIVE, WHITE8X8 can sample its opaque
+    -- edge indefinitely and the mask effectively covers the full icon.
+    mask:SetTexture("Interface\\Buttons\\WHITE8X8",
+        "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+    if mask.SetTexelSnappingBias then mask:SetTexelSnappingBias(0) end
+    if mask.SetSnapToPixelGrid then mask:SetSnapToPixelGrid(false) end
+    mask:Show()
+
+    local width = texture.GetWidth and texture:GetWidth() or 0
+    local height = texture.GetHeight and texture:GetHeight() or 0
+    if width <= 0 or height <= 0 then return false end
+    mask:ClearAllPoints()
+    mask:SetPoint("CENTER", texture, "CENTER", 0, 0)
+    mask:SetSize(width, height * crop)
+
+    if not HasIconMask(texture, mask) then
+        texture:AddMaskTexture(mask)
+    end
+    data.cropMaskAdded = true
+    data.cropMaskTexture = texture
+    return true
+end
+
 local function ClearIconShapeMask(data)
     -- A reused ICON can change both its texture and its border owner. Remove
     -- every NSkin-created mask from either presentation texture before reuse.
@@ -1793,11 +1850,15 @@ local function DeactivateIconShape(data)
             end
             border.backing:SetRotation(0)
             border.backing:SetTexture(nil)
-            -- SetOwnedTextureColor caches the last circle fill. Clearing the
-            -- texture must invalidate that cache before circle is reused.
             local colorState = NSkin:GetSkinData(
                 border.backing, "ownedTextureColor", false)
             if colorState then colorState.color = nil end
+        end
+        for _, segment in ipairs(border.segments or {}) do
+            segment:Hide()
+            if border.cropMask and HasIconMask(segment, border.cropMask) then
+                segment:RemoveMaskTexture(border.cropMask)
+            end
         end
     end
     data.activeShape = nil
@@ -1868,54 +1929,174 @@ end
 
 local function HideIconShapeBorder(data)
     if data.shapeBorderBacking then data.shapeBorderBacking:Hide() end
-end
-
-local LOWER_ICON_DRAW_LAYER = {
-    HIGHLIGHT = "OVERLAY",
-    OVERLAY = "ARTWORK",
-    ARTWORK = "BORDER",
-    BORDER = "BACKGROUND",
-}
-
-local function SetIconShapeBorderLayer(backing, texture, above)
-    if not backing or not backing.SetDrawLayer
-        or not texture or not texture.GetDrawLayer
-    then return end
-    local layer, subLevel = texture:GetDrawLayer()
-    subLevel = tonumber(subLevel) or 0
-    if above then
-        backing:SetDrawLayer(layer or "ARTWORK", math.min(7, subLevel + 1))
-    elseif subLevel > -8 then
-        backing:SetDrawLayer(layer or "ARTWORK", subLevel - 1)
-    else
-        backing:SetDrawLayer(
-            LOWER_ICON_DRAW_LAYER[layer] or layer or "BACKGROUND", 7)
+    local set = data.shapeBorderSets
+        and data.shapeBorderSets[data.shapeBorderOwner]
+    for _, segment in ipairs(set and set.segments or {}) do
+        segment:Hide()
     end
 end
 
-local function EnsureIconShapeBorder(data, owner, texture, above)
-    if not owner or not owner.CreateTexture or not owner.CreateMaskTexture
-        or not texture
-    then return false end
+local ICON_SHAPE_EDGE_SCALE = {
+    -- Measured from the shipped 256x256 alpha masks.
+    hexagon = { x = 0.859375, y = 1 },
+    octagon = { x = 0.921875, y = 0.921875 },
+}
+
+local function GetIconShapeBorderVertices(shape, halfWidth, halfHeight, padding)
+    local scale = ICON_SHAPE_EDGE_SCALE[shape]
+    halfWidth = halfWidth * (scale and scale.x or 1) + (padding or 0)
+    halfHeight = halfHeight * (scale and scale.y or 1) + (padding or 0)
+    if shape == "square" then
+        return {
+            { -halfWidth, -halfHeight },
+            { halfWidth, -halfHeight },
+            { halfWidth, halfHeight },
+            { -halfWidth, halfHeight },
+        }
+    elseif shape == "hexagon" then
+        return {
+            { 0, -halfHeight },
+            { halfWidth, -halfHeight * 0.5 },
+            { halfWidth, halfHeight * 0.5 },
+            { 0, halfHeight },
+            { -halfWidth, halfHeight * 0.5 },
+            { -halfWidth, -halfHeight * 0.5 },
+        }
+    elseif shape == "octagon" then
+        local corner = math.sqrt(2) - 1
+        return {
+            { -halfWidth * corner, -halfHeight },
+            { halfWidth * corner, -halfHeight },
+            { halfWidth, -halfHeight * corner },
+            { halfWidth, halfHeight * corner },
+            { halfWidth * corner, halfHeight },
+            { -halfWidth * corner, halfHeight },
+            { -halfWidth, halfHeight * corner },
+            { -halfWidth, -halfHeight * corner },
+        }
+    end
+
+    -- 24 segments are visually smooth at icon scale while avoiding the
+    -- per-slider-frame cost of the previous 48-segment circle.
+    local vertices = {}
+    local segments = 24
+    for index = 0, segments - 1 do
+        local angle = -math.pi / 2 + index * math.pi * 2 / segments
+        vertices[#vertices + 1] = {
+            math.cos(angle) * halfWidth,
+            math.sin(angle) * halfHeight,
+        }
+    end
+    return vertices
+end
+
+local function ClipIconBorderPolygonY(vertices, minY, maxY)
+    local function ClipEdge(input, boundary, keepAbove)
+        local output = {}
+        if #input == 0 then return output end
+        local previous = input[#input]
+        local previousInside = (keepAbove and previous[2] >= boundary)
+            or (not keepAbove and previous[2] <= boundary)
+        for _, current in ipairs(input) do
+            local currentInside = (keepAbove and current[2] >= boundary)
+                or (not keepAbove and current[2] <= boundary)
+            if currentInside ~= previousInside then
+                local dy = current[2] - previous[2]
+                local ratio = dy ~= 0 and (boundary - previous[2]) / dy or 0
+                output[#output + 1] = {
+                    previous[1] + (current[1] - previous[1]) * ratio,
+                    boundary,
+                }
+            end
+            if currentInside then
+                output[#output + 1] = { current[1], current[2] }
+            end
+            previous = current
+            previousInside = currentInside
+        end
+        return output
+    end
+
+    vertices = ClipEdge(vertices, minY, true)
+    return ClipEdge(vertices, maxY, false)
+end
+
+local function EnsureIconShapeBorder(data, owner, texture)
+    if not owner or not owner.CreateTexture or not texture then return false end
     data.shapeBorderSets = data.shapeBorderSets
         or setmetatable({}, { __mode = "k" })
     if data.shapeBorderOwner ~= owner then
         HideIconShapeBorder(data)
-        local border = data.shapeBorderSets[owner]
-        data.shapeBorderBacking = border and border.backing
-        data.shapeBorderMask = border and border.mask
         data.shapeBorderOwner = owner
     end
-    if not data.shapeBorderBacking then
-        local backing = owner:CreateTexture(nil, "ARTWORK", nil, -1)
-        local mask = owner:CreateMaskTexture(nil, "ARTWORK")
-        backing:AddMaskTexture(mask)
-        NSkin:ConfigureOwnedPixelTexture(backing)
-        data.shapeBorderBacking = backing
-        data.shapeBorderMask = mask
-        data.shapeBorderSets[owner] = { backing = backing, mask = mask }
+    local set = data.shapeBorderSets[owner]
+    if not set then
+        set = { segments = {} }
+        data.shapeBorderSets[owner] = set
     end
-    SetIconShapeBorderLayer(data.shapeBorderBacking, texture, above)
+    data.shapeBorderSegments = set.segments
+    return true
+end
+
+local function ApplyIconShapeBorderGeometry(self, data, texture, shown, color)
+    local owner = data.shapeBorderOwner
+    local set = owner and data.shapeBorderSets
+        and data.shapeBorderSets[owner]
+    if not set or not texture then return false end
+
+    local pixel = self:GetPhysicalPixelSize(texture)
+    local borderSize = math.max(1, tonumber(data.borderSize) or 1)
+    local thickness = self:SnapToPhysicalPixel(
+        texture, borderSize * pixel)
+    local padding = self:SnapToPhysicalPixel(
+        texture, (tonumber(data.borderPadding) or 0) * pixel)
+    local width = texture.GetWidth and texture:GetWidth() or 0
+    local height = texture.GetHeight and texture:GetHeight() or 0
+    if width <= 0 or height <= 0 then return false end
+
+    local vertices = GetIconShapeBorderVertices(
+        data.shape, width / 2, height / 2, padding)
+    local crop = math.max(0.01, math.min(1,
+        tonumber(data.borderCrop) or tonumber(data.crop) or 1))
+    local edgeScale = ICON_SHAPE_EDGE_SCALE[data.shape]
+    local baseHalfHeight = height / 2 * (edgeScale and edgeScale.y or 1)
+    local cropHalfHeight = baseHalfHeight * crop + padding
+    vertices = ClipIconBorderPolygonY(
+        vertices, -cropHalfHeight, cropHalfHeight)
+    local needed = #vertices
+
+    for index = 1, needed do
+        local segment = set.segments[index]
+        if not segment then
+            segment = owner:CreateTexture(nil, "OVERLAY", nil, 7)
+            self:ConfigureOwnedPixelTexture(segment)
+            set.segments[index] = segment
+        end
+
+        local first = vertices[index]
+        local second = vertices[index % needed + 1]
+        local dx, dy = second[1] - first[1], second[2] - first[2]
+        local length = math.sqrt(dx * dx + dy * dy)
+        if length > 0 then
+            local midpointX = (first[1] + second[1]) / 2
+            local midpointY = (first[2] + second[2]) / 2
+            segment:ClearAllPoints()
+            segment:SetPoint("CENTER", texture, "CENTER",
+                midpointX, midpointY)
+            -- Border size is centered on the shape edge so it grows equally
+            -- inward and outward. The small length overlap prevents pinholes
+            -- at polygon corners without changing the path itself.
+            segment:SetSize(length + thickness * 0.35, thickness)
+            segment:SetRotation(math.atan2(dy, dx))
+            self:SetOwnedTextureColor(segment, unpack(color))
+            segment:SetShown(shown)
+        else
+            segment:Hide()
+        end
+    end
+    for index = needed + 1, #set.segments do
+        set.segments[index]:Hide()
+    end
     return true
 end
 
@@ -2298,7 +2479,7 @@ local function ApplyIconTexCoords(target)
                 NSkin:MarkComponentGeometryModified(
                     data.textureBaselineID, "texCoords", true)
             end
-            shape.applyTexCoords(texture, width, height, data.zoom, data.crop)
+            shape.applyTexCoords(texture, width, height, data.zoom)
         end)
     data.applyingTexCoords = nil
 end
@@ -2378,49 +2559,14 @@ local function ApplyIconBorderAppearance(self, data, target)
         and (not data.texture or not data.texture.IsShown
             or data.texture:IsShown())
     self:SetPixelBorderColor(border, unpack(borderColor))
-    self:SetPixelBorderShown(border, shown and data.shape == "square")
+    self:SetPixelBorderShown(border, false)
     HideIconShapeBorder(data)
     local definition = ICON_SHAPES[data.shape]
-    if data.shape ~= "square" and definition
-        and EnsureIconShapeBorder(data, data.borderOwner, data.texture,
-            definition.borderTexture ~= nil)
+    if definition
+        and EnsureIconShapeBorder(data, data.borderOwner, data.texture)
     then
-        local texture = data.texture
-        local pixel = self:GetPhysicalPixelSize(texture)
-        local outset = self:SnapToPhysicalPixel(texture,
-            ((tonumber(data.borderSize) or 0)
-                + (tonumber(data.borderPadding) or 0)) * pixel)
-        local backing = data.shapeBorderBacking
-        local shapeSize = math.min(
-            texture.GetWidth and texture:GetWidth() or 0,
-            texture.GetHeight and texture:GetHeight() or 0)
-        backing:ClearAllPoints()
-        backing:SetPoint("CENTER", texture, "CENTER")
-        -- The mask and outline share the icon's square canvas. Snap only the
-        -- final square; independent X/Y coverage corrections distort edges.
-        local borderSquare = self:SnapToPhysicalPixel(texture,
-            shapeSize + outset * 2)
-        backing:SetSize(borderSquare, borderSquare)
-        if definition.borderTexture then
-            if HasIconMask(backing, data.shapeBorderMask) then
-                backing:RemoveMaskTexture(data.shapeBorderMask)
-            end
-            backing:SetTexture(definition.borderTexture)
-            backing:SetRotation(0)
-            backing:SetVertexColor(unpack(borderColor))
-            backing:SetShown(shown)
-        else
-            if not HasIconMask(backing, data.shapeBorderMask) then
-                backing:AddMaskTexture(data.shapeBorderMask)
-            end
-            backing:SetRotation(0)
-            if ConfigureIconShapeMask(
-                data.shapeBorderMask, data.shape, backing, shapeSize + outset * 2)
-            then
-                self:SetOwnedTextureColor(backing, unpack(borderColor))
-                backing:SetShown(shown)
-            end
-        end
+        ApplyIconShapeBorderGeometry(
+            self, data, data.texture, shown, borderColor)
     end
     return true
 end
@@ -2434,9 +2580,10 @@ local function RefreshActiveIconPresentation(target)
     if data.shapeIconMaskAdded then ClearIconShapeMask(data) end
     ApplyIconNativeMask(data)
     ApplyIconTexCoords(target)
+    ApplyIconCropMask(data, data.maskOwner or data.borderOwner, data.texture)
     if data.shape ~= "square" then
-        if EnsureIconShapeMask(NSkin, data, data.borderOwner,
-            data.texture) then
+        if EnsureIconShapeMask(NSkin, data,
+            data.maskOwner or data.borderOwner, data.texture) then
             data.activeShape = data.shape
         else
             DeactivateIconShape(data)
@@ -2474,8 +2621,11 @@ local function SkinSingleIconPresentation(self, target, options, secondary)
         or (target.GetObjectType and target:GetObjectType() ~= "Texture"
             and target)
         or (texture.GetParent and texture:GetParent())
+    local maskOwner = options.shapeMaskOwner or owner
     if not owner or not owner.CreateTexture
         or not CanModifyIconPresentation(owner)
+        or not maskOwner or not maskOwner.CreateMaskTexture
+        or not CanModifyIconPresentation(maskOwner)
     then return false end
 
     local data = self:GetSkinData(target, ICON_COMPONENT_STATE)
@@ -2486,6 +2636,7 @@ local function SkinSingleIconPresentation(self, target, options, secondary)
         or (ICON_BORDER_KEY .. ":" .. tostring(texture)))
     if options.reset == true then
         data.active = nil
+        ClearIconCropMask(data)
         DeactivateIconShape(data)
         data.suppressNativeMask = nil
         self:RestoreComponentBaseline(textureData.baselineID, {
@@ -2534,13 +2685,14 @@ local function SkinSingleIconPresentation(self, target, options, secondary)
     -- Treat clipping and border as one shape presentation. Clear the old
     -- pair before either resource can be configured for a different shape.
     if data.shape ~= shape or (data.texture and data.texture ~= texture)
-        or (data.shapeIconMaskOwner and data.shapeIconMaskOwner ~= owner) then
+        or (data.shapeIconMaskOwner and data.shapeIconMaskOwner ~= maskOwner) then
         DeactivateIconShape(data)
     else
         ClearIconShapeMask(data)
     end
 
     if data.texture and data.texture ~= texture then
+        ClearIconCropMask(data)
         data.suppressNativeMask = nil
         ApplyIconNativeMask(data)
         data.nativeMask = nil
@@ -2552,6 +2704,7 @@ local function SkinSingleIconPresentation(self, target, options, secondary)
     end
     data.active = true
     data.texture = texture
+    data.maskOwner = maskOwner
     data.textureBaselineID = textureData.baselineID
     data.preserveTexCoords = options.preserveTexCoords == true
     data.nativeMasks = options.nativeMasks
@@ -2570,6 +2723,9 @@ local function SkinSingleIconPresentation(self, target, options, secondary)
     data.crop = tonumber(options.crop)
         or tonumber(style.crop) or 1
     data.crop = math.max(0.01, math.min(1, data.crop))
+    data.borderCrop = tonumber(options.borderCrop)
+        or tonumber(style.crop) or data.crop
+    data.borderCrop = math.max(0.01, math.min(1, data.borderCrop))
 
     local size = tonumber(options.size) or tonumber(style.size)
     size = size and size > 0 and size or nil
@@ -2628,8 +2784,9 @@ local function SkinSingleIconPresentation(self, target, options, secondary)
         end
     end
     ApplyIconTexCoords(target)
+    ApplyIconCropMask(data, maskOwner, texture)
     if shape ~= "square" then
-        if not EnsureIconShapeMask(self, data, owner, texture) then
+        if not EnsureIconShapeMask(self, data, maskOwner, texture) then
             DeactivateIconShape(data)
             data.shape = "square"
         else

@@ -442,11 +442,109 @@ local function SuppressCheckButtonNativeChecks(checkButton)
         SuppressCheckButtonNativeTexture(
             checkButton, data, checkButton:GetDisabledCheckedTexture())
     end
+    -- Several Blizzard checkbox-like controls expose their state texture as a
+    -- named region rather than through GetCheckedTexture(). Keep those native
+    -- regions suppressed as well so only the centered NSkin indicator is shown.
+    for _, texture in ipairs({
+        checkButton.CheckMark,
+        checkButton.Checkmark,
+        checkButton.CheckedTexture,
+        checkButton.DisabledCheckedTexture,
+    }) do
+        SuppressCheckButtonNativeTexture(checkButton, data, texture)
+    end
 end
 
 local function RefreshCheckButtonState(checkButton)
     SuppressCheckButtonNativeChecks(checkButton)
     RefreshCheckButtonVisual(checkButton)
+end
+
+local function HasCheckButtonMask(texture, mask)
+    if not texture or not mask or not texture.GetNumMaskTextures
+        or not texture.GetMaskTexture
+    then return false end
+    for index = 1, texture:GetNumMaskTextures() do
+        if texture:GetMaskTexture(index) == mask then return true end
+    end
+    return false
+end
+
+local function ConfigureCheckButtonCircleMask(mask, anchor, size)
+    if not mask or not anchor then return false end
+    mask:ClearAllPoints()
+    mask:SetPoint("CENTER", anchor, "CENTER")
+    mask:SetSize(size, size)
+    mask:SetAtlas("talents-node-circle-mask", false)
+    return true
+end
+
+local function SetCheckButtonMask(texture, mask, enabled)
+    if not texture or not mask then return end
+    local attached = HasCheckButtonMask(texture, mask)
+    if enabled and not attached and texture.AddMaskTexture then
+        texture:AddMaskTexture(mask)
+    elseif not enabled and attached and texture.RemoveMaskTexture then
+        texture:RemoveMaskTexture(mask)
+    end
+end
+
+local function ApplyCheckButtonShape(self, checkButton, data, visual, border,
+    glow, visualSize, shape, borderColor)
+    local circle = shape == "circle"
+    data.checkButtonShape = circle and "circle" or "square"
+
+    if not data.checkButtonVisualMask and checkButton.CreateMaskTexture then
+        data.checkButtonVisualMask = checkButton:CreateMaskTexture(nil, "BACKGROUND")
+    end
+    local visualMask = data.checkButtonVisualMask
+    if visualMask then
+        ConfigureCheckButtonCircleMask(visualMask, visual, visualSize)
+        SetCheckButtonMask(visual, visualMask, circle)
+    end
+
+    if glow then
+        if not data.checkButtonGlowMask and checkButton.CreateMaskTexture then
+            data.checkButtonGlowMask = checkButton:CreateMaskTexture(nil, "HIGHLIGHT")
+        end
+        local glowMask = data.checkButtonGlowMask
+        if glowMask then
+            ConfigureCheckButtonCircleMask(glowMask, visual, visualSize)
+            SetCheckButtonMask(glow, glowMask, circle)
+        end
+    end
+
+    if circle then
+        local backing = data.checkButtonCircleBorder
+        if not backing then
+            backing = checkButton:CreateTexture(nil, "BACKGROUND", nil, 6)
+            self:ConfigureOwnedPixelTexture(backing)
+            data.checkButtonCircleBorder = backing
+        end
+        local mask = data.checkButtonCircleBorderMask
+        if not mask and checkButton.CreateMaskTexture then
+            mask = checkButton:CreateMaskTexture(nil, "BACKGROUND")
+            data.checkButtonCircleBorderMask = mask
+        end
+        local pixel = self:GetPhysicalPixelSize(checkButton)
+        local borderSize = self:SnapToPhysicalPixel(
+            checkButton, visualSize + pixel * 2)
+        backing:ClearAllPoints()
+        backing:SetPoint("CENTER", visual, "CENTER")
+        backing:SetSize(borderSize, borderSize)
+        self:SetOwnedTextureColor(backing, unpack(borderColor))
+        if mask then
+            ConfigureCheckButtonCircleMask(mask, backing, borderSize)
+            SetCheckButtonMask(backing, mask, true)
+        end
+        backing:Show()
+        if border then self:SetPixelBorderShown(border, false) end
+    else
+        if data.checkButtonCircleBorder then
+            data.checkButtonCircleBorder:Hide()
+        end
+        if border then self:SetPixelBorderShown(border, true) end
+    end
 end
 
 function NSkin:SkinCheckButton(checkButton, options)
@@ -468,7 +566,8 @@ function NSkin:SkinCheckButton(checkButton, options)
         options.border or self:GetComponentBorderColor("button", style))
     if not visual then return false end
     local visualSize = self:SnapToPhysicalPixel(checkButton,
-        math.max(1, tonumber(options.visualSize) or 14))
+        math.max(1, tonumber(options.visualSize)
+            or tonumber(style.checkboxSize) or 14))
     local visualOffset = self:SnapToPhysicalPixel(checkButton, 0)
     visual:ClearAllPoints()
     visual:SetSize(visualSize, visualSize)
@@ -490,18 +589,27 @@ function NSkin:SkinCheckButton(checkButton, options)
 
     local checked = data.checkButtonCheckedTexture
     if not checked then
-        checked = checkButton:CreateTexture(nil, "ARTWORK")
+        checked = checkButton:CreateTexture(nil, "OVERLAY", nil, 7)
         self:ConfigureOwnedPixelTexture(checked)
         data.checkButtonCheckedTexture = checked
     end
-    local checkedInset = self:SnapToPhysicalPixel(checkButton, 3)
+    if checked.SetDrawLayer then checked:SetDrawLayer("OVERLAY", 7) end
+    local checkedSize = self:SnapToPhysicalPixel(checkButton,
+        math.max(1, tonumber(options.checkedSize)
+            or tonumber(style.checkboxCheckedSize) or 8))
+    checkedSize = math.min(visualSize, checkedSize)
     checked:ClearAllPoints()
-    checked:SetPoint("TOPLEFT", visual, "TOPLEFT",
-        checkedInset, -checkedInset)
-    checked:SetPoint("BOTTOMRIGHT", visual, "BOTTOMRIGHT",
-        -checkedInset, checkedInset)
+    checked:SetPoint("CENTER", visual, "CENTER", 0, 0)
+    checked:SetSize(checkedSize, checkedSize)
     self:SetOwnedTextureColor(checked, unpack(
-        options.checked or self:GetSharedBorderColor()))
+        options.checked or style.checked or self:GetSharedBorderColor()))
+
+    local shape = string.lower(tostring(
+        options.shape or style.checkboxShape or "square"))
+    if shape ~= "circle" then shape = "square" end
+    ApplyCheckButtonShape(self, checkButton, data, visual, border,
+        glow, visualSize, shape,
+        options.border or self:GetComponentBorderColor("button", style))
     if not data.checkButtonStateHooked then
         if _G.hooksecurefunc then
             for _, method in ipairs({
