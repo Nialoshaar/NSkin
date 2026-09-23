@@ -627,16 +627,18 @@ local function CreateDropdownReset(view, control, y)
         reset:SetPoint("LEFT", view, "TOPLEFT",
             COMPACT_GRID_PADDING + labelWidth + dropdownWidth + 6, y - 24)
     end
-    local icon = reset:CreateTexture(nil, "ARTWORK")
-    icon:SetSize(16, 16)
-    icon:SetPoint("CENTER")
-    icon:SetTexture(control.resetIcon)
+    local icon = NSkin:CreateCenteredButtonGlyph(
+        reset, "dropdownReset", {
+            texture = control.resetIcon,
+            size = 16,
+        })
     reset:SetScript("OnClick", function()
         if view.refreshing then return end
         ResetValues(view)
     end)
     reset:SetScript("OnEnter", function(self)
-        icon:SetVertexColor(unpack(NSkin:GetAccentColor()))
+        NSkin:SetCenteredButtonGlyphColor(
+            icon, NSkin:GetAccentColor())
         if control.resetTooltip and GameTooltip then
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
             GameTooltip:SetText(control.resetTooltip)
@@ -644,7 +646,8 @@ local function CreateDropdownReset(view, control, y)
         end
     end)
     reset:SetScript("OnLeave", function()
-        icon:SetVertexColor(1, 1, 1, 1)
+        NSkin:SetCenteredButtonGlyphColor(
+            icon, { 1, 1, 1, 1 })
         if GameTooltip then GameTooltip:Hide() end
     end)
     view.controls[#view.controls + 1] = reset
@@ -1205,10 +1208,11 @@ local function CreateSliderPair(view, control, y)
         local reset = CreateFrame("Button", nil, center)
         reset:SetSize(24, 24)
         reset:SetPoint("CENTER")
-        local icon = reset:CreateTexture(nil, "ARTWORK")
-        icon:SetSize(16, 16)
-        icon:SetPoint("CENTER")
-        icon:SetTexture("Interface\\AddOns\\NSkin\\Media\\rotate-right.png")
+        local icon = NSkin:CreateCenteredButtonGlyph(
+            reset, "sliderPairReset", {
+                texture = "Interface\\AddOns\\NSkin\\Media\\rotate-right.png",
+                size = 16,
+            })
         reset:SetScript("OnClick", function()
             if view.refreshing or not view.context then return end
             if control.resetGroup and type(view.definition.reset) == "function" then
@@ -1232,7 +1236,8 @@ local function CreateSliderPair(view, control, y)
             CommitValues(view, values)
         end)
         reset:SetScript("OnEnter", function(self)
-            icon:SetVertexColor(unpack(NSkin:GetAccentColor()))
+            NSkin:SetCenteredButtonGlyphColor(
+                icon, NSkin:GetAccentColor())
             if GameTooltip then
                 GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
                 GameTooltip:SetText(control.resetTooltip or "Reset offsets")
@@ -1240,7 +1245,8 @@ local function CreateSliderPair(view, control, y)
             end
         end)
         reset:SetScript("OnLeave", function()
-            icon:SetVertexColor(1, 1, 1, 1)
+            NSkin:SetCenteredButtonGlyphColor(
+                icon, { 1, 1, 1, 1 })
             if GameTooltip then GameTooltip:Hide() end
         end)
         view.controls[#view.controls + 1] = reset
@@ -1278,12 +1284,14 @@ local function CreateReset(view, control, y)
         CreateTwoColumnGridRow(view, y, COMPACT_GRID_HEIGHT)
         button:SetSize(24, 24)
         button:SetPoint("TOP", view, "TOP", 0, y - 12)
-        local icon = button:CreateTexture(nil, "ARTWORK")
-        icon:SetSize(16, 16)
-        icon:SetPoint("CENTER")
-        icon:SetTexture("Interface\\AddOns\\NSkin\\Media\\rotate-right.png")
+        local icon = NSkin:CreateCenteredButtonGlyph(
+            button, "compactReset", {
+                texture = "Interface\\AddOns\\NSkin\\Media\\rotate-right.png",
+                size = 16,
+            })
         button:SetScript("OnEnter", function(self)
-            icon:SetVertexColor(unpack(NSkin:GetAccentColor()))
+            NSkin:SetCenteredButtonGlyphColor(
+                icon, NSkin:GetAccentColor())
             if GameTooltip then
                 GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
                 GameTooltip:SetText(control.label or "Reset")
@@ -1291,7 +1299,8 @@ local function CreateReset(view, control, y)
             end
         end)
         button:SetScript("OnLeave", function()
-            icon:SetVertexColor(1, 1, 1, 1)
+            NSkin:SetCenteredButtonGlyphColor(
+                icon, { 1, 1, 1, 1 })
             if GameTooltip then GameTooltip:Hide() end
         end)
     else

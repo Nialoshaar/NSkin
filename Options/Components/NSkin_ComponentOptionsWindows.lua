@@ -67,7 +67,7 @@ local windowHeaderControlsAppearance = {
             max = 64, step = 1, decimals = 0, suffix = " px" },
     },
     {
-        type = "SLIDER", key = "textSize", label = "Text size",
+        type = "SLIDER", key = "textSize", label = "Glyph size",
         min = 8, max = 32, step = 1, decimals = 0, suffix = " px",
         order = 2,
     },

@@ -48,6 +48,162 @@ function NSkin:CreateFlatButtonGlow(button, alpha, managed)
     return glow
 end
 
+local CENTERED_BUTTON_GLYPHS = {
+    close = {
+        { rotation = math.pi / 4 },
+        { rotation = -math.pi / 4 },
+    },
+    plus = {
+        {},
+        { vertical = true },
+    },
+    minus = {
+        {},
+    },
+    square = {
+        { edge = "TOP" },
+        { edge = "BOTTOM" },
+        { edge = "LEFT" },
+        { edge = "RIGHT" },
+    },
+}
+
+local function HideCenteredButtonGlyph(state)
+    if not state then return end
+    if state.icon then state.icon:Hide() end
+    for _, region in ipairs(state.glyphRegions or {}) do region:Hide() end
+    state.activeRegions = nil
+end
+
+function NSkin:SetCenteredButtonGlyphColor(state, color)
+    if not state or type(color) ~= "table" then return false end
+    for _, region in ipairs(state.activeRegions or {}) do
+        region:SetVertexColor(
+            color[1] or 1, color[2] or 1, color[3] or 1, color[4] or 1)
+    end
+    return true
+end
+
+function NSkin:SetCenteredButtonGlyphShown(state, shown)
+    if not state then return false end
+    for _, region in ipairs(state.activeRegions or {}) do
+        region:SetShown(shown == true)
+    end
+    return true
+end
+
+local function ResolveCenteredButtonGlyphSize(self, button, requested, fallback)
+    local width = button.GetWidth and tonumber(button:GetWidth())
+    local height = button.GetHeight and tonumber(button:GetHeight())
+    local minimum = width and height and math.min(width, height)
+    local resolved = tonumber(requested)
+    if not resolved then
+        resolved = minimum and minimum * 0.55 or fallback or 10
+    end
+    if minimum and minimum > 0 then
+        resolved = math.min(resolved, math.max(1, minimum - 6))
+    end
+    return self:SnapToPhysicalPixel(button, math.max(1, resolved))
+end
+
+function NSkin:CreateCenteredButtonGlyph(button, key, definition)
+    if not button or not button.CreateTexture
+        or type(definition) ~= "table"
+    then
+        return nil
+    end
+
+    local data = self:GetSkinData(button, COMPONENT_STATE)
+    data.centeredButtonGlyphs = data.centeredButtonGlyphs or {}
+    key = key or "default"
+    local state = data.centeredButtonGlyphs[key]
+    if not state then
+        state = { glyphRegions = {} }
+        data.centeredButtonGlyphs[key] = state
+    end
+    HideCenteredButtonGlyph(state)
+
+    local offsetX = self:SnapToPhysicalPixel(
+        button, tonumber(definition.offsetX) or 0)
+    local offsetY = self:SnapToPhysicalPixel(
+        button, tonumber(definition.offsetY) or 0)
+    if definition.texture or definition.atlas then
+        local icon = state.icon
+        if not icon then
+            icon = button:CreateTexture(nil, "OVERLAY", nil, 1)
+            self:ConfigureOwnedPixelTexture(icon)
+            state.icon = icon
+        end
+        icon:ClearAllPoints()
+        icon:SetPoint("CENTER", button, "CENTER", offsetX, offsetY)
+        local size = ResolveCenteredButtonGlyphSize(
+            self, button, definition.size, 14)
+        icon:SetSize(size, size)
+        if definition.atlas and icon.SetAtlas then
+            icon:SetAtlas(definition.atlas, false)
+        else
+            icon:SetTexture(definition.texture)
+        end
+        if icon.SetRotation then
+            icon:SetRotation(tonumber(definition.rotation) or 0)
+        end
+        icon:SetAlpha(1)
+        icon:Show()
+        state.activeRegions = { icon }
+    else
+        local segments = CENTERED_BUTTON_GLYPHS[definition.glyph]
+        if not segments then return nil end
+
+        local size = ResolveCenteredButtonGlyphSize(
+            self, button, definition.size, 10)
+        local thickness = self:SnapToPhysicalPixel(
+            button, math.max(1, tonumber(definition.thickness) or 1))
+        local edgeOffset = (size - thickness) / 2
+        local active = {}
+
+        for index, segment in ipairs(segments) do
+            local region = state.glyphRegions[index]
+            if not region then
+                region = button:CreateTexture(nil, "OVERLAY", nil, 1)
+                self:ConfigureOwnedPixelTexture(region)
+                region:SetColorTexture(1, 1, 1, 1)
+                state.glyphRegions[index] = region
+            end
+            region:ClearAllPoints()
+
+            local x, y = offsetX, offsetY
+            local width, height = size, thickness
+            if segment.vertical then
+                width, height = thickness, size
+            elseif segment.edge == "TOP" then
+                y, width, height = y + edgeOffset, size, thickness
+            elseif segment.edge == "BOTTOM" then
+                y, width, height = y - edgeOffset, size, thickness
+            elseif segment.edge == "LEFT" then
+                x, width, height = x - edgeOffset, thickness, size
+            elseif segment.edge == "RIGHT" then
+                x, width, height = x + edgeOffset, thickness, size
+            end
+
+            region:SetPoint("CENTER", button, "CENTER", x, y)
+            region:SetSize(width, height)
+            if region.SetRotation then
+                region:SetRotation(segment.rotation or 0)
+            end
+            region:Show()
+            active[#active + 1] = region
+        end
+        for index = #segments + 1, #state.glyphRegions do
+            state.glyphRegions[index]:Hide()
+        end
+        state.activeRegions = active
+    end
+
+    self:SetCenteredButtonGlyphColor(
+        state, definition.color or { 1, 1, 1, 1 })
+    return state
+end
+
 function NSkin:SetFlatButtonLabel(button, label, size, offsetX, offsetY)
     if not button or not button.CreateFontString then return nil end
 
@@ -357,10 +513,18 @@ function NSkin:SkinCheckButton(checkButton, options)
             end
         end
         if checkButton.HookScript then
-            for _, script in ipairs({
-                "OnClick", "OnShow", "OnEnable", "OnDisable",
-            }) do
-                checkButton:HookScript(script, RefreshCheckButtonState)
+            -- Some Blizzard "checkboxes" are plain Frames with a CheckMark
+            -- texture rather than Button/CheckButton objects. Frame does not
+            -- support OnClick/OnEnable/OnDisable, so only attach button-only
+            -- scripts when the target really is a button object.
+            local isButton = checkButton.IsObjectType
+                and (checkButton:IsObjectType("Button")
+                    or checkButton:IsObjectType("CheckButton"))
+            checkButton:HookScript("OnShow", RefreshCheckButtonState)
+            if isButton then
+                checkButton:HookScript("OnClick", RefreshCheckButtonState)
+                checkButton:HookScript("OnEnable", RefreshCheckButtonState)
+                checkButton:HookScript("OnDisable", RefreshCheckButtonState)
             end
         end
         data.checkButtonStateHooked = true
@@ -402,15 +566,16 @@ end
 
 local function RefreshDropdownStepper(button)
     local data = NSkin:GetSkinData(button, COMPONENT_STATE, false)
-    local arrow = data and data.dropdownStepperArrow
-    if not arrow then return end
+    local glyph = data and data.dropdownStepperGlyph
+    if not glyph then return end
     local enabled = not button.IsEnabled or button:IsEnabled()
     local color = enabled and data.dropdownStepperEnabledColor
         or data.dropdownStepperDisabledColor
     color = color or (enabled and { 1, 1, 1, 1 }
         or { 0.45, 0.45, 0.45, 1 })
-    arrow:SetVertexColor(unpack(color))
-    arrow:SetShown(not button.IsShown or button:IsShown())
+    NSkin:SetCenteredButtonGlyphColor(glyph, color)
+    NSkin:SetCenteredButtonGlyphShown(
+        glyph, not button.IsShown or button:IsShown())
 end
 
 local function SkinDropdownStepper(button, rotation, background, border,
@@ -420,15 +585,12 @@ local function SkinDropdownStepper(button, rotation, background, border,
     NSkin:SetPixelBorderSize(NSkin:GetPixelBorder(
         button, "NSkinFlatBackgroundBorder"), 1)
     local data = NSkin:GetSkinData(button, COMPONENT_STATE)
-    if not data.dropdownStepperArrow then
-        local arrow = button:CreateTexture(nil, "OVERLAY")
-        arrow:SetSize(14, 14)
-        arrow:SetPoint("CENTER")
-        arrow:SetTexture(NSkin.mediaPath .. "angle-small-down.png")
-        arrow:SetRotation(rotation)
-        NSkin:ConfigureOwnedPixelTexture(arrow)
-        data.dropdownStepperArrow = arrow
-    end
+    data.dropdownStepperGlyph = NSkin:CreateCenteredButtonGlyph(
+        button, "dropdownStepper", {
+            texture = NSkin.mediaPath .. "angle-small-down.png",
+            size = 14,
+            rotation = rotation,
+        })
     data.dropdownStepperEnabledColor = { 1, 1, 1, 1 }
     data.dropdownStepperDisabledColor = disabledColor
     if not data.dropdownStepperStateHooked and button.HookScript then
@@ -656,28 +818,26 @@ end
 
 local function RefreshSliderStepper(button)
     local data = NSkin:GetSkinData(button, SLIDER_COMPONENT_STATE, false)
-    local arrow = data and data.sliderArrow
-    if not arrow then return end
+    local glyph = data and data.sliderGlyph
+    if not glyph then return end
     local enabled = not button.IsEnabled or button:IsEnabled()
     local color = enabled and data.enabledColor or data.disabledColor
     color = color or (enabled and { 1, 1, 1, 1 }
         or { 0.40, 0.40, 0.40, 1 })
-    arrow:SetVertexColor(unpack(color))
-    arrow:SetShown(not button.IsShown or button:IsShown())
+    NSkin:SetCenteredButtonGlyphColor(glyph, color)
+    NSkin:SetCenteredButtonGlyphShown(
+        glyph, not button.IsShown or button:IsShown())
 end
 
 local function SkinSliderStepper(button, rotation, enabledColor, disabledColor)
     if not button or not button.CreateTexture then return nil end
     local data = NSkin:GetSkinData(button, SLIDER_COMPONENT_STATE)
-    if not data.sliderArrow then
-        local arrow = button:CreateTexture(nil, "OVERLAY")
-        arrow:SetSize(14, 14)
-        arrow:SetPoint("CENTER")
-        arrow:SetTexture(NSkin.mediaPath .. "angle-small-down.png")
-        arrow:SetRotation(rotation)
-        NSkin:ConfigureOwnedPixelTexture(arrow)
-        data.sliderArrow = arrow
-    end
+    data.sliderGlyph = NSkin:CreateCenteredButtonGlyph(
+        button, "sliderStepper", {
+            texture = NSkin.mediaPath .. "angle-small-down.png",
+            size = 14,
+            rotation = rotation,
+        })
     data.enabledColor = enabledColor
     data.disabledColor = disabledColor
     if not data.sliderArrowHooked and button.HookScript then

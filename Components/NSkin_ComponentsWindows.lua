@@ -192,10 +192,10 @@ function NSkin:SkinWindowHeader(frame, style, owner, defaultHeight, anchor)
 end
 
 local STANDARD_WINDOW_HEADER_GLYPHS = {
-    close = { text = "X", offsetX = 0, offsetY = 0 },
-    maximize = { text = "+", offsetX = 0, offsetY = 0 },
-    minimize = { text = "-", offsetX = 0, offsetY = 0 },
-    fullscreen = { text = "□", offsetX = 0, offsetY = 0 },
+    close = { glyph = "close" },
+    maximize = { glyph = "plus" },
+    minimize = { glyph = "minus" },
+    fullscreen = { glyph = "square" },
 }
 
 local function RefreshWindowHeaderButtonAppearance(button)
@@ -206,13 +206,10 @@ local function RefreshWindowHeaderButtonAppearance(button)
     local enabled = not button.IsEnabled or button:IsEnabled()
     local alpha = enabled and 1 or state.disabledAlpha
     local color = state.contentColor
-    if state.text then
-        NSkin:SetFontStringColor(state.text,
-            color[1], color[2], color[3], (color[4] or 1) * alpha)
-    end
-    if state.icon then
-        state.icon:SetVertexColor(
-            color[1], color[2], color[3], (color[4] or 1) * alpha)
+    if state.centeredGlyph then
+        NSkin:SetCenteredButtonGlyphColor(state.centeredGlyph, {
+            color[1], color[2], color[3], (color[4] or 1) * alpha,
+        })
     end
     if not enabled and data.hoverGlow then data.hoverGlow:Hide() end
 end
@@ -241,46 +238,26 @@ function NSkin:SkinWindowHeaderButton(button, content, options)
     local glyph = content.glyph
         and STANDARD_WINDOW_HEADER_GLYPHS[content.glyph]
     if glyph then
-        local text = state.text
-        if not text then
-            text = button:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-            state.text = text
-        end
-        text:ClearAllPoints()
-        text:SetPoint("CENTER", button, "CENTER",
-            glyph.offsetX or 0, glyph.offsetY or 0)
-        text:SetText(glyph.text)
-        self:ApplyResolvedTypography(text, self:GetStyle("text"))
-        local font, _, flags = text:GetFont()
-        if font then
-            text:SetFont(font, tonumber(style.textSize) or 20, flags)
-        end
-        text:SetAlpha(1)
-        text:Show()
-        if state.icon then state.icon:Hide() end
+        state.centeredGlyph = self:CreateCenteredButtonGlyph(
+            button, "windowHeader", {
+                glyph = glyph.glyph,
+                size = tonumber(content.size) or tonumber(style.textSize),
+                thickness = tonumber(content.thickness),
+                offsetX = tonumber(content.offsetX) or 0,
+                offsetY = tonumber(content.offsetY) or 0,
+            })
     elseif content.icon then
         local iconDefinition = type(content.icon) == "table"
             and content.icon or { texture = content.icon }
-        local icon = state.icon
-        if not icon then
-            icon = button:CreateTexture(nil, "OVERLAY", nil, 1)
-            self:ConfigureOwnedPixelTexture(icon)
-            state.icon = icon
-        end
-        icon:ClearAllPoints()
-        icon:SetPoint("CENTER", button, "CENTER",
-            tonumber(iconDefinition.offsetX) or 0,
-            tonumber(iconDefinition.offsetY) or 0)
-        local iconSize = tonumber(iconDefinition.size) or 14
-        icon:SetSize(iconSize, iconSize)
-        if iconDefinition.atlas and icon.SetAtlas then
-            icon:SetAtlas(iconDefinition.atlas, false)
-        else
-            icon:SetTexture(iconDefinition.texture)
-        end
-        icon:SetAlpha(1)
-        icon:Show()
-        if state.text then state.text:Hide() end
+        state.centeredGlyph = self:CreateCenteredButtonGlyph(
+            button, "windowHeader", {
+                texture = iconDefinition.texture,
+                atlas = iconDefinition.atlas,
+                size = tonumber(iconDefinition.size) or tonumber(style.textSize),
+                rotation = tonumber(iconDefinition.rotation) or 0,
+                offsetX = tonumber(iconDefinition.offsetX) or 0,
+                offsetY = tonumber(iconDefinition.offsetY) or 0,
+            })
     else
         return nil
     end
@@ -319,9 +296,11 @@ function NSkin:SkinStandardCloseButton(window, closeButton, options)
     if options.preserveGeometry ~= true then
         closeButton:ClearAllPoints()
         closeButton:SetPoint("TOPRIGHT", window, "TOPRIGHT", 0, 0)
-        if width and height and closeButton.SetSize then
-            closeButton:SetSize(width, height)
-        end
+    end
+    -- PreserveGeometry protects Blizzard's anchor relationship, not a user
+    -- requested size override. Size remains independently customizable.
+    if width and height and closeButton.SetSize then
+        closeButton:SetSize(width, height)
     end
 
     self:SkinWindowHeaderButton(closeButton, { glyph = "close" }, {
@@ -536,35 +515,34 @@ function NSkin:SkinStandardWindowChrome(definition)
             buttonHeight = buttonHeight,
             borderSize = style.borderSize,
         })
-        if not self:GetSkinningElement(headerControlsID) then
-            self:RegisterSkinningElement(headerControlsID, {
-                label = definition.headerControlsLabel
-                    or "Window header buttons",
-                kind = "WINDOW_HEADER_CONTROLS",
-                appearanceWindowID = appearanceWindowID,
-                window = frame,
-                target = closeButton,
-                priority = 95,
-                draggable = false,
-                highlightRegions = function()
-                    return NSkin:GetWindowHeaderControlRegions(
-                        frame, headerControlsID)
-                end,
-                isEditable = function()
-                    return frame:IsVisible() and closeButton:IsVisible()
-                end,
-                refreshAppearance = function()
-                    return NSkin:RefreshStandardWindowChromeElement({ target = frame })
-                end,
-                refreshLayout = function()
-                    local applied = NSkin:RefreshStandardWindowChromeElement({ target = frame })
-                    NSkin:NotifySkinningElementBoundsChanged(headerControlsID)
-                    return applied
-                end,
-            })
-        else
-            self:NotifySkinningElementBoundsChanged(headerControlsID)
-        end
+        -- Register on every chrome application so an existing runtime element
+        -- keeps the current direct chrome definition and refresh contract.
+        -- RegisterSkinningElement updates existing definitions in place.
+        self:RegisterSkinningElement(headerControlsID, {
+            label = definition.headerControlsLabel
+                or "Window header buttons",
+            kind = "WINDOW_HEADER_CONTROLS",
+            appearanceWindowID = appearanceWindowID,
+            window = frame,
+            target = closeButton,
+            chromeDefinition = definition,
+            priority = 95,
+            draggable = false,
+            highlightRegions = function()
+                return NSkin:GetWindowHeaderControlRegions(
+                    frame, headerControlsID)
+            end,
+            isEditable = function()
+                return frame:IsVisible() and closeButton:IsVisible()
+            end,
+            refreshAppearance = function(_, element)
+                return NSkin:RefreshWindowHeaderControlsElement(element)
+            end,
+            refreshLayout = function(_, element)
+                return NSkin:RefreshWindowHeaderControlsElement(element)
+            end,
+        })
+        self:NotifySkinningElementBoundsChanged(headerControlsID)
     end
 
     return {
@@ -582,6 +560,75 @@ function NSkin:RefreshStandardWindowChromeElement(element)
     local data = frame and self:GetSkinData(frame, COMPONENT_STATE, false)
     local definition = data and data.standardWindowChromeDefinition
     if not definition or not self:SkinStandardWindowChrome(definition) then return false end
+    self:ResnapPixelBordersForElement(element)
+    return true
+end
+
+function NSkin:RefreshWindowHeaderControlsElement(element)
+    if not element or not element.window then return false end
+    local definition = element.chromeDefinition
+    if not definition then
+        local data = self:GetSkinData(element.window, COMPONENT_STATE, false)
+        definition = data and data.standardWindowChromeDefinition
+    end
+    if type(definition) ~= "table" or not definition.frame then return false end
+
+    local frame = definition.frame
+    local closeButton = definition.closeButton
+    if closeButton == nil then closeButton = frame.CloseButton end
+    if not closeButton or definition.skinCloseButton == false then return false end
+
+    local appearanceWindowID = definition.appearanceWindowID
+    local elementID = definition.elementID
+    local headerControlsID = definition.headerControlsID
+        or (elementID .. ".HeaderControls")
+    local windowStyle = definition.style or self:GetAppearanceStyle(
+        "window", appearanceWindowID, elementID)
+    local headerButtonStyle = self:GetAppearanceStyle(
+        "windowHeaderButton", appearanceWindowID, headerControlsID)
+    if not windowStyle or not headerButtonStyle then return false end
+
+    local headerButtonBorder = self:GetAppearanceBorderColor(
+        "windowHeaderButton", headerButtonStyle,
+        appearanceWindowID, headerControlsID)
+    local buttonWidth = tonumber(headerButtonStyle.width)
+    local buttonHeight = tonumber(headerButtonStyle.height)
+    buttonWidth = buttonWidth and buttonWidth > 0 and buttonWidth or nil
+    buttonHeight = buttonHeight and buttonHeight > 0 and buttonHeight or nil
+
+    self:SkinStandardCloseButton(frame, closeButton, {
+        style = headerButtonStyle,
+        background = definition.closeButtonBackground,
+        border = definition.closeButtonBorder or headerButtonBorder,
+        borderSize = windowStyle.borderSize,
+        width = buttonWidth,
+        height = buttonHeight,
+        preserveGeometry = definition.preserveCloseButtonGeometry,
+    })
+
+    for _, controlDefinition in ipairs(definition.headerControls or {}) do
+        for _, resolved in ipairs(
+            ResolveWindowHeaderControlTargets(controlDefinition))
+        do
+            self:SkinWindowHeaderButton(resolved.target, resolved.content, {
+                style = headerButtonStyle,
+                border = headerButtonBorder,
+            })
+        end
+    end
+
+    self:RegisterWindowHeaderControls({
+        id = headerControlsID,
+        window = frame,
+        closeButton = closeButton,
+        controls = definition.headerControls,
+        spacing = definition.headerControlSpacing,
+        buttonWidth = buttonWidth,
+        buttonHeight = buttonHeight,
+        borderSize = windowStyle.borderSize,
+    })
+
+    self:NotifySkinningElementBoundsChanged(element.id)
     self:ResnapPixelBordersForElement(element)
     return true
 end

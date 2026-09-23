@@ -1164,24 +1164,12 @@ local function SkinDungeonCollapseButton(choice)
         NSkin:SetPixelBorderShown(border, true)
     end
 
-    if not data.horizontal then
-        data.horizontal = button:CreateTexture(nil, "OVERLAY", nil, 3)
-        NSkin:ConfigureOwnedPixelTexture(data.horizontal)
-        data.horizontal:SetPoint("LEFT", button, "LEFT", 3, 0)
-        data.horizontal:SetPoint("RIGHT", button, "RIGHT", -3, 0)
-        data.horizontal:SetHeight(1)
-    end
-    if not data.vertical then
-        data.vertical = button:CreateTexture(nil, "OVERLAY", nil, 3)
-        NSkin:ConfigureOwnedPixelTexture(data.vertical)
-        data.vertical:SetPoint("TOP", button, "TOP", 0, -3)
-        data.vertical:SetPoint("BOTTOM", button, "BOTTOM", 0, 3)
-        data.vertical:SetWidth(1)
-    end
-    NSkin:SetOwnedTextureColor(data.horizontal, 1, 1, 1, 1)
-    NSkin:SetOwnedTextureColor(data.vertical, 1, 1, 1, 1)
-    data.horizontal:Show()
-    data.vertical:SetShown(choice.isCollapsed == true)
+    data.collapseGlyph = NSkin:CreateCenteredButtonGlyph(
+        button, "dungeonCollapse", {
+            glyph = choice.isCollapsed == true and "plus" or "minus",
+            size = 8,
+            color = { 1, 1, 1, 1 },
+        })
 
     if not data.hooked then
         if button.HookScript then

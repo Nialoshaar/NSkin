@@ -114,6 +114,14 @@ explicit overrides. Reset removes the override and returns to the native color.
 
 Likewise, CHECKBOX, ICON, EDIT_BOX, ROW, and other shared types should each have one canonical shared implementation.
 
+Square icon/glyph buttons follow one shared centering rule. The Blizzard Button remains the
+interaction and geometry owner; `CreateCenteredButtonGlyph` creates only NSkin-owned
+presentation regions anchored `CENTER` to that Button. Native font baselines, texture
+padding, and inherited texture offsets must not determine the visual center. Close,
+plus/minus, reset, arrow-only, and similar square controls should reuse this primitive
+rather than recreate local glyph geometry. The helper must not replace click behavior,
+hit rectangles, enabled state, protection, or dimensions.
+
 A new option added to a shared component should normally become available everywhere that component is used without modifying individual window files.
 
 `BUTTON` and `ACTION_BUTTON` are visually related but semantically distinct:

@@ -235,11 +235,11 @@ local function LoadEditorOptions(element)
                 section.reset = CreateFrame("Button", nil, section)
                 section.reset:SetSize(24, 24)
                 section.reset:SetPoint("RIGHT", section.icon, "LEFT", -4, 0)
-                section.reset.icon = section.reset:CreateTexture(nil, "ARTWORK")
-                section.reset.icon:SetSize(16, 16)
-                section.reset.icon:SetPoint("CENTER")
-                section.reset.icon:SetTexture(
-                    "Interface\\AddOns\\NSkin\\Media\\rotate-right.png")
+                section.reset.icon = NSkin:CreateCenteredButtonGlyph(
+                    section.reset, "sectionReset", {
+                        texture = "Interface\\AddOns\\NSkin\\Media\\rotate-right.png",
+                        size = 16,
+                    })
                 section.reset:SetScript("OnClick", function(self)
                     if self.optionGroupID and self.context then
                         StaticPopup_Show(RESET_CONFIRMATION_DIALOG,
@@ -250,7 +250,8 @@ local function LoadEditorOptions(element)
                     end
                 end)
                 section.reset:SetScript("OnEnter", function(self)
-                    self.icon:SetVertexColor(unpack(NSkin:GetAccentColor()))
+                    NSkin:SetCenteredButtonGlyphColor(
+                        self.icon, NSkin:GetAccentColor())
                     if GameTooltip then
                         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
                         GameTooltip:SetText(self.tooltip or "Reset to window defaults")
@@ -258,7 +259,8 @@ local function LoadEditorOptions(element)
                     end
                 end)
                 section.reset:SetScript("OnLeave", function(self)
-                    self.icon:SetVertexColor(1, 1, 1, 1)
+                    NSkin:SetCenteredButtonGlyphColor(
+                        self.icon, { 1, 1, 1, 1 })
                     if GameTooltip then GameTooltip:Hide() end
                 end)
                 NSkin:CreateFlatBackground(section, nil,
@@ -502,23 +504,28 @@ function NSkin:CreateDockedWindow(owner)
     state.inspectorDragRegion = dragRegion
 
     CreateLabel(inspector, "Skinning Mode", "TOPLEFT", inspector, "TOPLEFT", 12, -5)
-    local close = CreateButton(inspector, "x", 22, function()
+    local close = CreateButton(inspector, "", 22, function()
         NSkin:SetSkinningModeEnabled(false)
     end)
+    NSkin:CreateCenteredButtonGlyph(close, "inspectorClose", {
+        glyph = "close",
+    })
     close:SetFrameLevel(dragRegion:GetFrameLevel() + 1)
     close:SetPoint("TOPRIGHT", inspector, "TOPRIGHT", 0, 0)
     local gridToggle = CreateFrame("Button", nil, inspector)
     gridToggle:SetFrameLevel(dragRegion:GetFrameLevel() + 1)
     gridToggle:SetSize(22, 22)
     gridToggle:SetPoint("RIGHT", close, "LEFT", -4, 0)
-    gridToggle.icon = gridToggle:CreateTexture(nil, "ARTWORK")
-    gridToggle.icon:SetSize(16, 16)
-    gridToggle.icon:SetPoint("CENTER")
-    gridToggle.icon:SetTexture("Interface\\AddOns\\NSkin\\Media\\grid-alt.png")
+    gridToggle.icon = NSkin:CreateCenteredButtonGlyph(
+        gridToggle, "gridToggle", {
+            texture = "Interface\\AddOns\\NSkin\\Media\\grid-alt.png",
+            size = 16,
+        })
     local function RefreshGridToggle()
-        gridToggle.icon:SetVertexColor(unpack(
+        NSkin:SetCenteredButtonGlyphColor(
+            gridToggle.icon,
             NSkin:IsCompactGridDebugEnabled() and NSkin:GetAccentColor()
-                or { 1, 1, 1, 1 }))
+                or { 1, 1, 1, 1 })
     end
     gridToggle.RefreshState = RefreshGridToggle
     gridToggle:SetScript("OnClick", function()
@@ -527,7 +534,8 @@ function NSkin:CreateDockedWindow(owner)
         RefreshGridToggle()
     end)
     gridToggle:SetScript("OnEnter", function(self)
-        self.icon:SetVertexColor(unpack(NSkin:GetAccentColor()))
+        NSkin:SetCenteredButtonGlyphColor(
+            self.icon, NSkin:GetAccentColor())
         if GameTooltip then
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
             GameTooltip:SetText("Toggle layout grid")

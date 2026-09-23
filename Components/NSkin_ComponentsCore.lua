@@ -1034,7 +1034,9 @@ local function RefreshElementForChange(self, element, change, allowStyleFamily)
     if requirement == "structural" then return false, "structural_change" end
     if element.requiresStructuralRefresh then return false, "structural_element" end
     if module and module.requiresStructuralRefresh then return false, "structural_module" end
-    if not self:IsModuleEnabled(element.module) then return false, "module_disabled" end
+    if element.module and not self:IsModuleEnabled(element.module) then
+        return false, "module_disabled"
+    end
     if not sharedType then return false, "unknown_component_type" end
     if not ChangeMatchesSharedType(change, element, sharedType, allowStyleFamily) then
         return false, "style_mismatch"
