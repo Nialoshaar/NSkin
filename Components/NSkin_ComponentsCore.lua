@@ -2595,6 +2595,182 @@ local function ClearSavedMovablePlacement(element)
     return true
 end
 
+-- Skinning Mode treats movement as an editor capability rather than an
+-- opt-in draggable flag. Explicit component registrations still own their
+-- native placement contracts; this helper supplies a minimal relative OFFSET
+-- contract only for semantic registrations that otherwise have no movement.
+function NSkin:EnsureSkinningElementMovable(element)
+    if not element or element.kind == "WINDOW" or element.isAnchorGroup then
+        return false
+    end
+    if type(element.getPlacement) == "function"
+        and type(element.applyPlacement) == "function"
+        and type(element.setPlacement) == "function"
+    then
+        return true
+    end
+    if type(element.module) ~= "string" or element.module == "" then
+        return false
+    end
+
+    local state = {
+        roots = {},
+        byTarget = setmetatable({}, { __mode = "k" }),
+    }
+
+    local function ResolveSemanticTargets(current)
+        local targets, seen = {}, {}
+        local function Add(target)
+            if target and not seen[target]
+                and target.GetNumPoints and target.ClearAllPoints
+                and target.SetPoint
+            then
+                seen[target] = true
+                targets[#targets + 1] = target
+            end
+        end
+
+        -- Composition ownership is explicit and always wins.
+        if current.compositionParentID then
+            Add(current.target)
+            return targets
+        end
+        local composition = current.composition
+        local compositionOwner = NSkin:GetCompositionMovementOwner(current)
+        if composition and composition.mode ~= "STANDALONE"
+            and compositionOwner
+        then
+            Add(compositionOwner)
+            return targets
+        end
+
+        -- Semantic registrations often use a broad owner only as their
+        -- lifecycle target (for example a ScrollBox/queue frame) while their
+        -- actual editor bounds come from highlightRegions. Move those semantic
+        -- regions instead of translating the broad lifecycle owner.
+        local regions = current.highlightRegions
+        if type(regions) == "function" then
+            local ok, resolved = pcall(regions, current)
+            regions = ok and resolved or nil
+        end
+        if type(regions) == "table" then
+            for _, target in ipairs(regions) do Add(target) end
+        end
+        if #targets == 0 then Add(current.target) end
+
+        -- If one semantic target is anchored to another target in the same
+        -- element, only move the root. The dependent target follows its
+        -- Blizzard anchor relationship and must not receive the offset twice.
+        if #targets > 1 then
+            local set = {}
+            for _, target in ipairs(targets) do set[target] = true end
+            local roots = {}
+            for _, target in ipairs(targets) do
+                local dependent
+                for pointIndex = 1, target:GetNumPoints() do
+                    local _, relativeTo = target:GetPoint(pointIndex)
+                    if relativeTo and relativeTo ~= target and set[relativeTo] then
+                        dependent = true
+                        break
+                    end
+                end
+                if not dependent then roots[#roots + 1] = target end
+            end
+            if #roots > 0 then targets = roots end
+        end
+        return targets
+    end
+
+    local function EnsureRoots(current)
+        local resolved = ResolveSemanticTargets(current)
+        for _, target in ipairs(resolved) do
+            if not state.byTarget[target] then
+                local baselineID = current.id .. ":EditorMove:"
+                    .. tostring(target)
+                NSkin:CaptureComponentBaseline(baselineID, target, {
+                    points = true,
+                    canCapture = function(frame)
+                        return frame.GetNumPoints and frame:GetNumPoints() > 0
+                    end,
+                })
+                local baseline = NSkin:GetComponentBaseline(baselineID)
+                if baseline and type(baseline.points) == "table"
+                    and #baseline.points > 0
+                then
+                    local root = { target = target, baselineID = baselineID }
+                    state.byTarget[target] = root
+                    state.roots[#state.roots + 1] = root
+                end
+            end
+        end
+        return #state.roots > 0
+    end
+
+    if not EnsureRoots(element) then return false end
+
+    element.getPlacement = function(current)
+        local saved = GetSavedMovablePlacement(current)
+        if saved then return CopyPlacement(saved) end
+        return { mode = "OFFSET", alongOffset = 0, edgeOffset = 0 }
+    end
+    element.applyPlacement = function(current, placement, applyOptions)
+        if _G.InCombatLockdown and _G.InCombatLockdown() then return false end
+        EnsureRoots(current)
+        local offsetX = tonumber(placement.alongOffset or placement.x) or 0
+        local offsetY = tonumber(placement.edgeOffset or placement.y) or 0
+        local applied
+        for _, root in ipairs(state.roots) do
+            local target = root.target
+            local original = NSkin:GetComponentBaseline(root.baselineID)
+            local points = original and original.points
+            if target and type(points) == "table" and #points > 0
+                and target.ClearAllPoints and target.SetPoint
+            then
+                target:ClearAllPoints()
+                for i = 1, #points do
+                    local point = points[i]
+                    target:SetPoint(point[1], point[2], point[3],
+                        (tonumber(point[4]) or 0) + offsetX,
+                        (tonumber(point[5]) or 0) + offsetY)
+                end
+                applied = true
+            end
+        end
+        if applied and not (applyOptions and applyOptions.suppressNotify) then
+            NSkin:NotifySkinningElementBoundsChanged(current.id)
+        end
+        return applied == true
+    end
+    element.setPlacement = function(current, placement)
+        if not current.applyPlacement(current, placement) then return false end
+        local options = NSkin:GetModuleOptions(current.module, true)
+        options.movablePlacements = options.movablePlacements or {}
+        options.movablePlacements[current.id] = {
+            mode = "OFFSET",
+            alongOffset = tonumber(placement.alongOffset or placement.x) or 0,
+            edgeOffset = tonumber(placement.edgeOffset or placement.y) or 0,
+        }
+        for _, root in ipairs(state.roots) do
+            NSkin:MarkComponentGeometryModified(root.baselineID, "points", true)
+        end
+        EnsureMovableWatcher(current.window)
+        return true
+    end
+    element.resetPlacement = function(current)
+        local restored
+        for _, root in ipairs(state.roots) do
+            restored = NSkin:RestoreComponentBaseline(root.baselineID) or restored
+        end
+        ClearSavedMovablePlacement(current)
+        if restored then
+            NSkin:NotifySkinningElementBoundsChanged(current.id)
+        end
+        return restored == true
+    end
+    element.movable = true
+    return true
+end
+
 function NSkin:RegisterMovableElement(definition)
     if type(definition) ~= "table" or type(definition.id) ~= "string"
         or type(definition.module) ~= "string" or not definition.window

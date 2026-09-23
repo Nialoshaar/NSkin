@@ -10,6 +10,8 @@ local HideGrid
 local RefreshModalInputOwnership
 local RefreshWindowFallbackAppearance
 local SelectElement
+local BeginDrag
+local CanShiftDragElement
 
 function NSkin:GetSkinningGridSize()
     local profile = self:GetProfile()
@@ -351,8 +353,27 @@ local function RefreshAnchorGroupOverlay(element)
                 RefreshWindowFallbackAppearance(element.window)
             end
         end)
-        inputTarget:SetScript("OnMouseDown", RefreshGroupInput)
+        inputTarget:SetScript("OnMouseDown", function(self, button)
+            if button ~= "LeftButton" then
+                RefreshGroupInput(self)
+                return
+            end
+            if not RefreshGroupInput(self) then return end
+            if not (_G.IsShiftKeyDown and _G.IsShiftKeyDown()) then return end
+            SelectElement(element)
+            if CanShiftDragElement and CanShiftDragElement(element)
+                and BeginDrag
+            then
+                BeginDrag(element)
+            end
+        end)
+        inputTarget:SetScript("OnMouseUp", function(_, button)
+            if button == "LeftButton" and controller.dragging then
+                StopDrag(true)
+            end
+        end)
         inputTarget:SetScript("OnClick", function(self)
+            if controller.dragging then return end
             if not RefreshGroupInput(self) then return end
             SelectElement(element)
         end)
@@ -741,18 +762,17 @@ local function UpdateDrag()
     local cursorX, cursorY = GetCursorPositionForWindow(window)
     local localX = cursorX - controller.grabOffsetX - window:GetLeft()
     local localY = cursorY + controller.grabOffsetY - window:GetTop()
-    if not IsShiftKeyDown() then
-        local size = NSkin:GetSkinningGridSize()
-        local width, height = window:GetWidth(), window:GetHeight()
-        local ghostWidth, ghostHeight = controller.dragWidth, controller.dragHeight
-        local threshold = math.max(6, size)
-        local snappedX, borderSnappedX = SnapToNearest(localX, threshold,
-            0, -ghostWidth, (width - ghostWidth) / 2, width, width - ghostWidth)
-        local snappedY, borderSnappedY = SnapToNearest(localY, threshold,
-            0, ghostHeight, -height, -height + ghostHeight)
-        localX = borderSnappedX and snappedX or RoundToGrid(localX, size)
-        localY = borderSnappedY and snappedY or RoundToGrid(localY, size)
-    end
+    local size = NSkin:GetSkinningGridSize()
+    local width, height = window:GetWidth(), window:GetHeight()
+    local ghostWidth, ghostHeight = controller.dragWidth, controller.dragHeight
+    local threshold = math.max(6, size)
+    local snappedX, borderSnappedX = SnapToNearest(localX, threshold,
+        0, -ghostWidth, (width - ghostWidth) / 2, width, width - ghostWidth)
+    local snappedY, borderSnappedY = SnapToNearest(localY, threshold,
+        0, ghostHeight, -height, -height + ghostHeight)
+    localX = borderSnappedX and snappedX or RoundToGrid(localX, size)
+    localY = borderSnappedY and snappedY or RoundToGrid(localY, size)
+
     controller.gridX, controller.gridY = localX, localY
     local centerX = localX + controller.dragWidth / 2
     local alignmentIndex = centerX < window:GetWidth() / 3 and 1
@@ -761,8 +781,17 @@ local function UpdateDrag()
     if localX == controller.previewX and localY == controller.previewY then return end
     controller.previewX, controller.previewY = localX, localY
     local placement = controller.previewPlacement
-    SetSemanticPlacementFromLocal(placement, window, localX, localY,
-        controller.dragWidth, controller.dragHeight, alignmentIndex)
+    if controller.dragUsesRelativeOffset then
+        local original = controller.originalPlacement
+        local deltaX = cursorX - (controller.dragStartCursorX or cursorX)
+        local deltaY = cursorY - (controller.dragStartCursorY or cursorY)
+        placement.mode = "OFFSET"
+        placement.alongOffset = (tonumber(original.alongOffset) or 0) + deltaX
+        placement.edgeOffset = (tonumber(original.edgeOffset) or 0) + deltaY
+    else
+        SetSemanticPlacementFromLocal(placement, window, localX, localY,
+            controller.dragWidth, controller.dragHeight, alignmentIndex)
+    end
     RefreshDragInspectorOffsets(element, placement)
     if element.livePreview ~= false
         and ApplyElementPlacement(element, placement, controller.previewOptions)
@@ -783,13 +812,37 @@ local function UpdateDrag()
     end
 end
 
-local function BeginDrag(element)
-    if not element or (element.kind ~= "TAB_GROUP" and not element.draggable)
-        or not NSkin:GetCompositionMovementOwner(element)
-        or controller.dragging then return end
+local function GetEditorMovementOwner(element)
+    if not element then return nil end
+    if element.compositionParentID then return element.target end
+    return NSkin:GetCompositionMovementOwner(element)
+end
+
+CanShiftDragElement = function(element)
+    if not element then return false end
+    if element.isAnchorGroup then
+        return type(element.getPlacement) == "function"
+            and type(element.applyPlacement) == "function"
+            and type(element.setPlacement) == "function"
+    end
+    if type(element.getPlacement) ~= "function"
+        or type(element.applyPlacement) ~= "function"
+        or type(element.setPlacement) ~= "function"
+    then
+        if not NSkin.EnsureSkinningElementMovable
+            or not NSkin:EnsureSkinningElementMovable(element)
+        then
+            return false
+        end
+    end
+    return true
+end
+
+BeginDrag = function(element)
+    if not CanShiftDragElement(element) or controller.dragging then return end
     controller.dragging = true
     local overlay = controller.overlays[element.id]
-    local movementOwner = NSkin:GetCompositionMovementOwner(element)
+    local movementOwner = GetEditorMovementOwner(element)
     local composite = element.composition
         and element.composition.mode == "COMPOSITE"
     local coordinateScale = 1
@@ -824,6 +877,8 @@ local function BeginDrag(element)
     controller.ghost:Hide()
     controller.originalPlacement = CopyPlacement(GetElementPlacement(element))
     controller.previewPlacement = CopyPlacement(controller.originalPlacement)
+    controller.dragUsesRelativeOffset =
+        controller.originalPlacement.mode == "OFFSET"
     controller.previewX, controller.previewY = nil, nil
     if overlay then
         overlay.hovered = nil
@@ -831,6 +886,7 @@ local function BeginDrag(element)
     end
     RefreshAllOverlayAppearances()
     local cursorX, cursorY = GetCursorPositionForWindow(element.window)
+    controller.dragStartCursorX, controller.dragStartCursorY = cursorX, cursorY
     local left = composite and ownerLeft or overlay and overlay:GetLeft()
     local top = composite and ownerTop or overlay and overlay:GetTop()
     left = left and left * coordinateScale or cursorX
@@ -867,9 +923,13 @@ StopDrag = function(apply)
     local overlay = element and controller.overlays[element.id]
     if apply and gridX and gridY and element then
         local placement = controller.previewPlacement
-        SetSemanticPlacementFromLocal(placement, element.window, gridX, gridY,
-            controller.dragWidth, controller.dragHeight,
-            controller.dropAlignmentIndex or 1)
+        if controller.dragUsesRelativeOffset then
+            placement.mode = "OFFSET"
+        else
+            SetSemanticPlacementFromLocal(placement, element.window, gridX, gridY,
+                controller.dragWidth, controller.dragHeight,
+                controller.dropAlignmentIndex or 1)
+        end
         placement.alongOffset = RoundOne(placement.alongOffset)
         placement.edgeOffset = RoundOne(placement.edgeOffset)
         local persisted = type(element.setPlacement) == "function"
@@ -901,6 +961,8 @@ StopDrag = function(apply)
     end
     controller.originalPlacement = nil
     controller.previewPlacement = nil
+    controller.dragUsesRelativeOffset = nil
+    controller.dragStartCursorX, controller.dragStartCursorY = nil, nil
     controller.dropAlignmentIndex = nil
     controller.previewApplied = nil
     controller.previewX, controller.previewY = nil, nil
@@ -1105,27 +1167,28 @@ local function CreateOverlay(element)
         return best or element
     end
 
-    inputTarget:SetScript("OnMouseDown", function(self)
-        RefreshInputEligibility(self)
+    inputTarget:SetScript("OnMouseDown", function(self, button)
+        if button ~= "LeftButton" then return end
+        if not RefreshInputEligibility(self) then return end
+        if not (_G.IsShiftKeyDown and _G.IsShiftKeyDown()) then return end
+        local pointerElement = ResolvePointerElement()
+        SelectElement(pointerElement)
+        if GetEditorElement(pointerElement) == pointerElement
+            and CanShiftDragElement(pointerElement)
+        then
+            BeginDrag(pointerElement)
+        end
+    end)
+    inputTarget:SetScript("OnMouseUp", function(_, button)
+        if button == "LeftButton" and controller.dragging then
+            StopDrag(true)
+        end
     end)
     inputTarget:SetScript("OnClick", function(self)
+        if controller.dragging then return end
         if not RefreshInputEligibility(self) then return end
         SelectElement(ResolvePointerElement())
     end)
-    if element.kind == "TAB_GROUP" or element.draggable then
-        inputTarget:RegisterForDrag("LeftButton")
-        inputTarget:SetScript("OnDragStart", function(self)
-            if not RefreshInputEligibility(self) then return end
-            local pointerElement = ResolvePointerElement()
-            SelectElement(pointerElement)
-            if GetEditorElement(pointerElement) == pointerElement
-                and (pointerElement.kind == "TAB_GROUP" or pointerElement.draggable)
-            then
-                BeginDrag(pointerElement)
-            end
-        end)
-        inputTarget:SetScript("OnDragStop", function() StopDrag(true) end)
-    end
 
     overlay:SetScript("OnShow", function(self)
         if not controller.activatingOverlays then

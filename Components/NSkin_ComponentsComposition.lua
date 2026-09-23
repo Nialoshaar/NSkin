@@ -132,6 +132,133 @@ local function MigrateAnchorGroupOverrides(group)
     end
 end
 
+local function GetAnchorGroupMovementRoots(group)
+    local candidates, candidateSet = {}, {}
+    for _, member in ipairs(GetSortedGroupMembers(group)) do
+        local target = NSkin:GetCompositionMovementOwner(member) or member.target
+        if target and target.GetNumPoints and target.ClearAllPoints
+            and target.SetPoint and not candidateSet[target]
+        then
+            candidates[#candidates + 1] = target
+            candidateSet[target] = true
+        end
+    end
+
+    local roots = {}
+    for _, target in ipairs(candidates) do
+        local anchoredToMember
+        for pointIndex = 1, target:GetNumPoints() do
+            local _, relativeTo = target:GetPoint(pointIndex)
+            if relativeTo and relativeTo ~= target and candidateSet[relativeTo] then
+                anchoredToMember = true
+                break
+            end
+        end
+        if not anchoredToMember then roots[#roots + 1] = target end
+    end
+    if #roots == 0 then roots = candidates end
+    return roots
+end
+
+local function RefreshAnchorGroupMovementContract(group, virtual)
+    local members = GetSortedGroupMembers(group)
+    virtual.module = virtual.module or (members[1] and members[1].module)
+    if type(virtual.module) ~= "string" or virtual.module == "" then return end
+
+    local roots = GetAnchorGroupMovementRoots(group)
+    virtual.anchorGroupMovementRoots = {}
+    for index, target in ipairs(roots) do
+        local baselineID = virtual.id .. ":MovementRoot:" .. index
+        NSkin:CaptureComponentBaseline(baselineID, target, {
+            points = true,
+            canCapture = function(frame)
+                return frame.GetNumPoints and frame:GetNumPoints() > 0
+            end,
+        })
+        local baseline = NSkin:GetComponentBaseline(baselineID)
+        if baseline and type(baseline.points) == "table"
+            and #baseline.points > 0
+        then
+            virtual.anchorGroupMovementRoots[#virtual.anchorGroupMovementRoots + 1] = {
+                target = target,
+                baselineID = baselineID,
+            }
+        end
+    end
+    if #virtual.anchorGroupMovementRoots == 0 then return end
+
+    virtual.getPlacement = function(element)
+        local options = NSkin:GetModuleOptions(element.module, false)
+        local saved = options and options.movablePlacements
+            and options.movablePlacements[element.id]
+        if saved then return CopyTable(saved) end
+        return { mode = "OFFSET", alongOffset = 0, edgeOffset = 0 }
+    end
+    virtual.applyPlacement = function(element, placement, applyOptions)
+        if _G.InCombatLockdown and _G.InCombatLockdown() then return false end
+        local offsetX = tonumber(placement.alongOffset or placement.x) or 0
+        local offsetY = tonumber(placement.edgeOffset or placement.y) or 0
+        local applied
+        for _, root in ipairs(element.anchorGroupMovementRoots or {}) do
+            local target = root.target
+            local baseline = NSkin:GetComponentBaseline(root.baselineID)
+            local points = baseline and baseline.points
+            if target and type(points) == "table" and #points > 0
+                and target.ClearAllPoints and target.SetPoint
+            then
+                target:ClearAllPoints()
+                for i = 1, #points do
+                    local point = points[i]
+                    target:SetPoint(point[1], point[2], point[3],
+                        (tonumber(point[4]) or 0) + offsetX,
+                        (tonumber(point[5]) or 0) + offsetY)
+                end
+                applied = true
+            end
+        end
+        if applied and not (applyOptions and applyOptions.suppressNotify) then
+            for _, member in ipairs(NSkin:GetAnchorGroupMembers(element) or {}) do
+                NSkin:NotifySkinningElementBoundsChanged(member.id)
+            end
+        end
+        return applied == true
+    end
+    virtual.setPlacement = function(element, placement)
+        if not element.applyPlacement(element, placement) then return false end
+        local options = NSkin:GetModuleOptions(element.module, true)
+        options.movablePlacements = options.movablePlacements or {}
+        options.movablePlacements[element.id] = {
+            mode = "OFFSET",
+            alongOffset = tonumber(placement.alongOffset or placement.x) or 0,
+            edgeOffset = tonumber(placement.edgeOffset or placement.y) or 0,
+        }
+        for _, root in ipairs(element.anchorGroupMovementRoots or {}) do
+            NSkin:MarkComponentGeometryModified(root.baselineID, "points", true)
+        end
+        return true
+    end
+    virtual.resetPlacement = function(element)
+        local restored
+        for _, root in ipairs(element.anchorGroupMovementRoots or {}) do
+            restored = NSkin:RestoreComponentBaseline(root.baselineID) or restored
+        end
+        local options = NSkin:GetModuleOptions(element.module, false)
+        if options and options.movablePlacements then
+            options.movablePlacements[element.id] = nil
+            if not next(options.movablePlacements) then
+                options.movablePlacements = nil
+            end
+        end
+        if restored then
+            for _, member in ipairs(NSkin:GetAnchorGroupMembers(element) or {}) do
+                NSkin:NotifySkinningElementBoundsChanged(member.id)
+            end
+        end
+        return restored == true
+    end
+    virtual.movable = true
+end
+
 local function RefreshAnchorGroup(group)
     local members = GetSortedGroupMembers(group)
     local virtual = group.editorElement
@@ -171,6 +298,7 @@ local function RefreshAnchorGroup(group)
         return left, right, bottom, top
     end
     virtual.highlightBoundsAreNormalized = true
+    RefreshAnchorGroupMovementContract(group, virtual)
 end
 
 function NSkin:InitializeElementAnchorGroup(element)

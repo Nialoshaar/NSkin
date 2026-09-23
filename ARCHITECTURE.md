@@ -1004,10 +1004,20 @@ disable Skinning Mode hit targets while a modal popup is shown, rather than
 merely rejecting a click after NSkin has already intercepted it. This rule is
 event/lifecycle-driven; do not add `OnUpdate` polling for occlusion.
 
-Occlusion and structural selection policy remain separate concerns. A future
-Shift/drill-down/group-selection policy may change which eligible editor element
-is selected, but it must not weaken the modal/window occlusion rule or move
-input ownership into window adapters.
+Occlusion, selection policy, and movement activation remain separate concerns.
+Normal click/drag interaction selects and inspects without modifying geometry.
+Every editor element is movement-enabled by default when it can expose a safe
+placement contract. Explicit component contracts remain authoritative; semantic
+registrations without one receive a shared relative OFFSET contract lazily when
+movement is first requested. Movement availability is not determined by the
+legacy `draggable` flag. Shift held at drag start unlocks geometry movement.
+Without Shift, dragging remains selection-only. Composition children with their
+relative OFFSET placement contract may be Shift-dragged inside their owning
+composition without acquiring parent/group movement ownership. Shift is reserved
+for movement activation and must not change group-vs-element selection. Any
+future Element/Group selection policy should be a separate persistent editor
+mode and must not weaken the modal/window occlusion rule or move input ownership
+into window adapters.
 
 For Composite elements:
 
@@ -1306,9 +1316,12 @@ individual key. A deterministic migration may copy an existing member's real
 local override into an empty group namespace, but must not materialize inherited
 values or erase the original member override.
 
-Anchor Groups are visual/editor-only in this phase. They do not own movement,
-dragging, placement, Blizzard anchors, or `SetPoint()` calls, and they are not a
-new component or composition mode.
+Anchor Groups remain editor-only and are not a new component or composition
+mode. In Skinning Mode they may own one shared relative movement offset for the
+explicit member set. The shared composition layer resolves movement roots from
+member anchor relationships, captures those roots before mutation, and applies
+the same offset without changing group membership or canonical member IDs.
+Individual member movement remains independent when that member is selected.
 
 ---
 
