@@ -971,9 +971,43 @@ logical composition
 movement ownership
 selection policy
 window/container membership
+input ownership / occlusion
 ```
 
 Do not couple these concepts unnecessarily.
+
+Skinning Mode highlight presentation and Skinning Mode input ownership are
+separate surfaces. A highlight may stay in a high, mouse-disabled editor layer
+so Blizzard child frames cannot bury it. Selection/drag input uses a separate
+editor-owned hit target.
+
+The central interaction rule is:
+
+> An editor element is interactive only when its underlying Blizzard element
+> is the topmost valid UI target at the pointer.
+
+The input target may sit above local Blizzard children so the entire semantic
+element remains selectable, but it must propagate mouse motion and expose the
+real focus stack beneath it. `IsSkinningOverlayInteractive` resolves that
+underlying stack and rejects hidden/non-editable elements, points outside the
+active hit target, visible modal StaticPopups, and unrelated UI surfaces above
+the edited window. If the underlying topmost real focus belongs to the same
+edited window, Skinning Mode may consume the click for selection. If another
+window owns the point, click propagation remains enabled so NSkin does not
+steal that interaction.
+
+Overlapping elements in the same semantic window may still use the Skinning
+Mode selection resolver to choose the most specific registered element.
+
+Modal interaction always wins over Skinning Mode. StaticPopup lifecycle hooks
+disable Skinning Mode hit targets while a modal popup is shown, rather than
+merely rejecting a click after NSkin has already intercepted it. This rule is
+event/lifecycle-driven; do not add `OnUpdate` polling for occlusion.
+
+Occlusion and structural selection policy remain separate concerns. A future
+Shift/drill-down/group-selection policy may change which eligible editor element
+is selected, but it must not weaken the modal/window occlusion rule or move
+input ownership into window adapters.
 
 For Composite elements:
 

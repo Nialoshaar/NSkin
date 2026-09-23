@@ -7,6 +7,9 @@ local TRANSPARENT = { 0, 0, 0, 0 }
 local StopDrag
 local RefreshGrid
 local HideGrid
+local RefreshModalInputOwnership
+local RefreshWindowFallbackAppearance
+local SelectElement
 
 function NSkin:GetSkinningGridSize()
     local profile = self:GetProfile()
@@ -91,14 +94,210 @@ local function EditorElementBelongsToParent(element, parent)
     return false
 end
 
+local FRAME_STRATA_ORDER = {
+    BACKGROUND = 1,
+    LOW = 2,
+    MEDIUM = 3,
+    HIGH = 4,
+    DIALOG = 5,
+    FULLSCREEN = 6,
+    FULLSCREEN_DIALOG = 7,
+    TOOLTIP = 8,
+}
+
+local function GetFrameOrder(frame)
+    if not frame then return 0, 0 end
+    local strata = "MEDIUM"
+    local level = 0
+    if type(frame.GetFrameStrata) == "function" then
+        local ok, value = pcall(frame.GetFrameStrata, frame)
+        if ok and type(value) == "string" then strata = value end
+    end
+    if type(frame.GetFrameLevel) == "function" then
+        local ok, value = pcall(frame.GetFrameLevel, frame)
+        if ok and tonumber(value) then level = tonumber(value) end
+    end
+    return FRAME_STRATA_ORDER[strata] or 3, level
+end
+
+local function IsFrameWithin(frame, ancestor)
+    if not frame or not ancestor then return false end
+    local current = frame
+    for _ = 1, 32 do
+        if current == ancestor then return true end
+        if type(current.GetParent) ~= "function" then break end
+        local ok, parent = pcall(current.GetParent, current)
+        if not ok or not parent or parent == current then break end
+        current = parent
+    end
+    return false
+end
+
+local function GetMouseFociSafe()
+    local result = {}
+    if type(_G.GetMouseFoci) == "function" then
+        local packed = { pcall(_G.GetMouseFoci) }
+        if packed[1] then
+            if type(packed[2]) == "table" then
+                for _, focus in ipairs(packed[2]) do
+                    result[#result + 1] = focus
+                end
+            else
+                for i = 2, #packed do
+                    if packed[i] then result[#result + 1] = packed[i] end
+                end
+            end
+        end
+    elseif type(_G.GetMouseFocus) == "function" then
+        local ok, focus = pcall(_G.GetMouseFocus)
+        if ok and focus then result[1] = focus end
+    end
+    return result
+end
+
+local function IsAnyStaticPopupShown()
+    local count = tonumber(_G.STATICPOPUP_NUMDIALOGS) or 4
+    for index = 1, count do
+        local popup = _G["StaticPopup" .. index]
+        if popup and popup.IsShown and popup:IsShown() then return true end
+    end
+    return false
+end
+
+local function IsCursorOverStaticPopup()
+    local count = tonumber(_G.STATICPOPUP_NUMDIALOGS) or 4
+    for index = 1, count do
+        local popup = _G["StaticPopup" .. index]
+        if popup and popup.IsShown and popup:IsShown()
+            and popup.IsMouseOver and popup:IsMouseOver()
+        then
+            return true
+        end
+    end
+    return false
+end
+
+local function GetOverlayOrderSource(element)
+    local target = element and element.target
+    if target and type(target.GetFrameStrata) == "function"
+        and type(target.GetFrameLevel) == "function"
+    then
+        return target
+    end
+    return element and element.window
+end
+
+local function ConfigureVisualOverlayStacking(frame, element)
+    if not frame then return end
+    frame:SetFrameStrata("FULLSCREEN_DIALOG")
+    frame:SetFrameLevel(math.max(1,
+        100 + (tonumber(element and element.priority) or 0)
+            + (element and element.compositionParentID and 1000 or 0)))
+end
+
+local function ConfigureVisualOverlayBelowModal(frame)
+    if not frame then return end
+    local bestPopup, bestStrata, bestLevel
+    local count = tonumber(_G.STATICPOPUP_NUMDIALOGS) or 4
+    for index = 1, count do
+        local popup = _G["StaticPopup" .. index]
+        if popup and popup.IsShown and popup:IsShown() then
+            local strata, level = GetFrameOrder(popup)
+            if not bestPopup or strata > bestStrata
+                or (strata == bestStrata and level > bestLevel)
+            then
+                bestPopup, bestStrata, bestLevel = popup, strata, level
+            end
+        end
+    end
+    if not bestPopup then return false end
+    local strataName = bestPopup.GetFrameStrata
+        and bestPopup:GetFrameStrata() or "DIALOG"
+    frame:SetFrameStrata(strataName)
+    frame:SetFrameLevel(math.max(1, (bestLevel or 1) - 1))
+    return true
+end
+
+local function ConfigureInputOverlayStacking(frame, element)
+    if not frame then return end
+    frame:SetFrameStrata("FULLSCREEN_DIALOG")
+    local level
+    if element and element.kind == "WINDOW" then
+        -- Window selection is the fallback editor hit surface. Keep it below
+        -- every registered child/semantic hit target so empty window areas
+        -- select the window without stealing child selection.
+        level = 1
+    else
+        level = 50 + (tonumber(element and element.priority) or 0)
+            + (element and element.compositionParentID and 1000 or 0)
+            + (element and element.isAnchorGroup and 2000 or 0)
+    end
+    frame:SetFrameLevel(math.max(1, level))
+end
+
+local function GetTopUnderlyingMouseFocus(inputTarget)
+    for _, focus in ipairs(GetMouseFociSafe()) do
+        if focus and focus ~= inputTarget
+            and not focus.nskinSkinningInput
+            and not focus.nskinSkinningOverlay
+            and not IsFrameWithin(focus, inputTarget)
+            and not IsFrameWithin(inputTarget, focus)
+        then
+            return focus
+        end
+    end
+end
+
+function NSkin:IsSkinningOverlayInteractive(element, inputTarget)
+    if not controller or not controller.enabled or controller.dragging
+        or controller.modalInputBlocked
+        or not element or not inputTarget
+        or not element.window or not element.window:IsShown()
+        or not self:IsSkinningElementEditable(element)
+    then
+        return false
+    end
+    if inputTarget.IsShown and not inputTarget:IsShown() then return false end
+    if inputTarget.IsMouseOver and not inputTarget:IsMouseOver() then return false end
+    if IsCursorOverStaticPopup() then return false end
+
+    local underlying = GetTopUnderlyingMouseFocus(inputTarget)
+    if not underlying or underlying == _G.WorldFrame
+        or underlying == UIParent
+    then
+        return true
+    end
+    return IsFrameWithin(underlying, element.window)
+        or IsFrameWithin(element.window, underlying)
+end
+
+local function SetElementOverlayShown(overlay, shown)
+    if not overlay then return end
+    overlay:SetShown(shown == true)
+    if overlay.inputTarget then
+        overlay.inputTarget:SetShown(shown == true)
+        overlay.inputTarget:EnableMouse(
+            shown == true and not (controller and controller.modalInputBlocked))
+    end
+end
+
+local function IsPointerWithinElementBounds(element)
+    if not element or not _G.GetCursorPosition then return false end
+    local left, right, bottom, top = GetElementBounds(element)
+    if not left then return false end
+    local scale = UIParent and UIParent:GetEffectiveScale() or 1
+    if not scale or scale == 0 then return false end
+    local x, y = _G.GetCursorPosition()
+    x, y = x / scale, y / scale
+    return x >= left and x <= right and y >= bottom and y <= top
+end
+
 local function RefreshAnchorGroupOverlay(element)
     if not controller or not element or not element.isAnchorGroup then return end
     local overlay = controller.anchorGroupOverlays[element.id]
     if not overlay then
         overlay = CreateFrame("Frame", nil, UIParent)
-        overlay:SetFrameStrata("FULLSCREEN_DIALOG")
-        overlay:SetFrameLevel(math.max(1,
-            (element.window:GetFrameLevel() or 0) + 1010 + (element.priority or 0)))
+        ConfigureVisualOverlayStacking(overlay, element)
         overlay:EnableMouse(false)
         overlay.texture = overlay:CreateTexture(nil, "BACKGROUND")
         overlay.texture:SetAllPoints()
@@ -106,18 +305,89 @@ local function RefreshAnchorGroupOverlay(element)
             overlay, "NSkinSkinningModeAnchorGroupHighlight", 1,
             NSkin:GetStyle("skinningMode").hover, false, overlay)
         overlay.element = element
+
+        local inputTarget = CreateFrame("Button", nil, UIParent)
+        inputTarget.nskinSkinningInput = true
+        inputTarget.nskinSkinningElement = element
+        inputTarget:RegisterForClicks("LeftButtonUp")
+        if inputTarget.SetPropagateMouseMotion then
+            inputTarget:SetPropagateMouseMotion(true)
+        end
+        if inputTarget.SetPropagateMouseClicks then
+            inputTarget:SetPropagateMouseClicks(true)
+        end
+        ConfigureInputOverlayStacking(inputTarget, element)
+        inputTarget:SetAllPoints(overlay)
+        overlay.inputTarget = inputTarget
+
+        local function RefreshGroupInput(self)
+            ConfigureInputOverlayStacking(self, element)
+            ConfigureVisualOverlayStacking(overlay, element)
+            local interactive = NSkin:IsSkinningOverlayInteractive(element, self)
+            if self.SetPropagateMouseClicks then
+                self:SetPropagateMouseClicks(not interactive)
+            end
+            if interactive then
+                controller.hoveredElement = element
+            elseif controller.hoveredElement == element then
+                controller.hoveredElement = nil
+            end
+            RefreshAnchorGroupOverlay(element)
+            if RefreshWindowFallbackAppearance then
+                RefreshWindowFallbackAppearance(element.window)
+            end
+            return interactive
+        end
+
+        inputTarget:SetScript("OnEnter", RefreshGroupInput)
+        inputTarget:SetScript("OnLeave", function()
+            if controller.hoveredElement == element
+                and not IsPointerWithinElementBounds(element)
+            then
+                controller.hoveredElement = nil
+            end
+            RefreshAnchorGroupOverlay(element)
+            if RefreshWindowFallbackAppearance then
+                RefreshWindowFallbackAppearance(element.window)
+            end
+        end)
+        inputTarget:SetScript("OnMouseDown", RefreshGroupInput)
+        inputTarget:SetScript("OnClick", function(self)
+            if not RefreshGroupInput(self) then return end
+            SelectElement(element)
+        end)
+
         controller.anchorGroupOverlays[element.id] = overlay
     end
+
     local style = NSkin:GetStyle("skinningMode")
-    local visible = controller.enabled and element.window:IsShown()
+    local eligible = controller.enabled and element.window:IsShown()
         and NSkin:IsSkinningElementEditable(element)
-        and (controller.selectedElement == element
-            or (not controller.dragging and controller.hoveredElement == element))
         and AnchorOverlay(overlay, element)
+    local selected = controller.selectedElement == element
+    local visible = eligible
+        and (selected
+            or (not controller.modalInputBlocked
+                and not controller.dragging
+                and controller.hoveredElement == element))
+
     overlay.texture:SetColorTexture(unpack(visible and style.highlight or TRANSPARENT))
     NSkin:SetPixelBorderColor(overlay.border, unpack(style.hover))
     NSkin:SetPixelBorderShown(overlay.border, visible)
-    overlay:SetShown(visible == true)
+    overlay:SetShown(eligible == true)
+    overlay:SetAlpha(controller.modalInputBlocked and not selected and 0 or 1)
+
+    local inputTarget = overlay.inputTarget
+    if inputTarget then
+        inputTarget:SetShown(eligible == true)
+        inputTarget:EnableMouse(
+            eligible == true and not controller.modalInputBlocked)
+        if controller.modalInputBlocked
+            and inputTarget.SetPropagateMouseClicks
+        then
+            inputTarget:SetPropagateMouseClicks(true)
+        end
+    end
 end
 
 local function RefreshOverlayAppearance(element)
@@ -144,16 +414,90 @@ local function RefreshOverlayAppearance(element)
     local hovered = controller.hoveredElement
     if hovered and (EditorElementBelongsToParent(hovered, element)
         or EditorElementBelongsToParent(element, hovered))
-    then visible = false end
+    then
+        visible = false
+    elseif element.kind == "WINDOW" then
+        local selectedElement = controller.selectedElement
+        local childHovered = hovered and hovered ~= element
+            and hovered.window == element.window
+        local childSelected = selectedElement and selectedElement ~= element
+            and selectedElement.window == element.window
+        if childHovered
+            or (childSelected and overlay.hovered ~= true)
+        then
+            visible = false
+        end
+    end
     overlay.texture:SetColorTexture(unpack(visible and style.highlight or TRANSPARENT))
     NSkin:SetPixelBorderColor(overlay.border, unpack(style.hover))
     NSkin:SetPixelBorderShown(overlay.border, visible)
+end
+
+RefreshWindowFallbackAppearance = function(window)
+    if not controller or not window then return end
+    for _, candidate in pairs(controller.overlayElements) do
+        if candidate.window == window and candidate.kind == "WINDOW" then
+            RefreshOverlayAppearance(candidate)
+            return
+        end
+    end
 end
 
 local function RefreshAllOverlayAppearances()
     for _, element in pairs(controller.overlayElements) do
         RefreshOverlayAppearance(element)
     end
+end
+
+RefreshModalInputOwnership = function()
+    if not controller then return end
+    local blocked = IsAnyStaticPopupShown()
+    controller.modalInputBlocked = blocked
+
+    for id, overlay in pairs(controller.overlays) do
+        local element = controller.overlayElements[id]
+        local selected = element and controller.selectedElement == element
+        local inputTarget = overlay.inputTarget
+        if inputTarget then
+            inputTarget:EnableMouse(
+                controller.enabled and overlay:IsShown() and not blocked)
+            if inputTarget.SetPropagateMouseClicks then
+                inputTarget:SetPropagateMouseClicks(true)
+            end
+        end
+        if blocked and selected then
+            ConfigureVisualOverlayBelowModal(overlay)
+            overlay:SetAlpha(1)
+        else
+            ConfigureVisualOverlayStacking(overlay, element)
+            overlay:SetAlpha(blocked and 0 or 1)
+        end
+        if blocked and overlay.hovered then overlay.hovered = nil end
+    end
+
+    for _, overlay in pairs(controller.anchorGroupOverlays) do
+        local element = overlay.element
+        local selected = element and controller.selectedElement == element
+        if blocked and selected then
+            ConfigureVisualOverlayBelowModal(overlay)
+            overlay:SetAlpha(1)
+        else
+            ConfigureVisualOverlayStacking(overlay, element)
+            overlay:SetAlpha(blocked and 0 or 1)
+        end
+        if overlay.inputTarget then
+            overlay.inputTarget:EnableMouse(
+                controller.enabled and overlay:IsShown() and not blocked)
+            if overlay.inputTarget.SetPropagateMouseClicks then
+                overlay.inputTarget:SetPropagateMouseClicks(true)
+            end
+        end
+    end
+
+    if blocked then
+        controller.hoveredElement = nil
+    end
+    RefreshAllOverlayAppearances()
 end
 
 local function RefreshInspector()
@@ -191,7 +535,7 @@ local function DockWithoutSelection(excludedWindow)
     RefreshInspector()
 end
 
-local function SelectElement(element)
+SelectElement = function(element)
     if not element then return end
     local clickedElement = element
     element = GetEditorElement(element)
@@ -202,6 +546,7 @@ local function SelectElement(element)
     if previous ~= element then controller.dockedWindow:ResetScroll() end
     if previous and previous ~= element then RefreshOverlayAppearance(previous) end
     RefreshOverlayAppearance(element)
+    RefreshWindowFallbackAppearance(element.window)
     DockInspector(element)
     RefreshInspector()
 end
@@ -563,18 +908,22 @@ StopDrag = function(apply)
     RefreshAllOverlayAppearances()
 end
 
-local function RefreshAbsoluteWindowOverlays(window)
+local function RefreshWindowOverlays(window)
     if not controller.enabled or not window:IsShown() then return end
     local selectionLost
     for id, element in pairs(controller.overlayElements) do
         local overlay = controller.overlays[id]
-        if element.window == window and overlay and overlay.usesAbsoluteBounds then
+        if element.window == window and overlay then
+            ConfigureVisualOverlayStacking(overlay, element)
+            if overlay.inputTarget then
+                ConfigureInputOverlayStacking(overlay.inputTarget, element)
+            end
             if NSkin:IsSkinningElementEditable(element)
                 and AnchorOverlay(overlay, element)
             then
-                overlay:Show()
+                SetElementOverlayShown(overlay, true)
             else
-                overlay:Hide()
+                SetElementOverlayShown(overlay, false)
                 if controller.selectedElement == element then selectionLost = true end
             end
         end
@@ -585,29 +934,48 @@ local function RefreshAbsoluteWindowOverlays(window)
             RefreshAnchorGroupOverlay(group)
         end
     end
-    if selectionLost then DockWithoutSelection() end
+    if selectionLost then DockWithoutSelection(window) end
 end
 
 local function EnsureAbsoluteWindowLifecycle(window)
     if controller.absoluteWindowLifecycles[window] then return end
     local watcher = CreateFrame("Frame", nil, window)
-    watcher:SetScript("OnShow", function() RefreshAbsoluteWindowOverlays(window) end)
+    watcher:SetScript("OnShow", function() RefreshWindowOverlays(window) end)
     watcher:SetScript("OnHide", function()
         for id, element in pairs(controller.overlayElements) do
             local overlay = controller.overlays[id]
-            if element.window == window and overlay and overlay.usesAbsoluteBounds then
-                overlay:Hide()
+            if element.window == window and overlay then
+                SetElementOverlayShown(overlay, false)
+                overlay.hovered = nil
             end
         end
         for _, overlay in pairs(controller.anchorGroupOverlays) do
             local group = overlay.element
-            if group and group.window == window then overlay:Hide() end
+            if group and group.window == window then
+                overlay:Hide()
+                if overlay.inputTarget then overlay.inputTarget:Hide() end
+            end
+        end
+        if controller.hoveredElement
+            and controller.hoveredElement.window == window
+        then
+            controller.hoveredElement = nil
+        end
+        if controller.selectedElement
+            and controller.selectedElement.window == window
+        then
+            StopDrag(false)
+            DockWithoutSelection(window)
+        else
+            RefreshAllOverlayAppearances()
         end
     end)
     watcher:Show()
     controller.absoluteWindowLifecycles[window] = watcher
-    local refresh = function() RefreshAbsoluteWindowOverlays(window) end
-    for _, method in ipairs({ "SetPoint", "SetScale", "SetSize", "StopMovingOrSizing" }) do
+    local refresh = function() RefreshWindowOverlays(window) end
+    for _, method in ipairs({
+        "SetPoint", "SetScale", "SetSize", "StopMovingOrSizing",
+    }) do
         if type(window[method]) == "function" then hooksecurefunc(window, method, refresh) end
     end
 end
@@ -623,22 +991,16 @@ local function CreateOverlay(element)
         parent = element.target and element.target.GetParent
             and element.target:GetParent() or element.window
     end
-    local overlay = CreateFrame("Button", nil, parent)
+
+    -- Visual presentation and interaction ownership are intentionally split.
+    -- The highlight follows the element's real frame order but never owns the
+    -- mouse. A separate input target lives in the element's native window tree,
+    -- so Blizzard dialogs and unrelated windows can occlude it normally.
+    local overlay = CreateFrame("Frame", nil, parent)
     overlay.usesAbsoluteBounds = usesAbsoluteBounds
-    -- A full-window hit target must never eclipse its registered children.
-    -- Frame levels are only reliably comparable within the same frame strata,
-    -- especially when overlays have different parents, so element overlays use
-    -- a dedicated higher strata instead of relying on priority alone.
-    overlay:SetFrameStrata(element.kind == "WINDOW"
-        and "DIALOG" or "FULLSCREEN_DIALOG")
-    -- The full-window overlay is visual only. If it owns the mouse it receives
-    -- MouseDown before child overlays in some Blizzard parent trees, which
-    -- prevents their drag handlers from ever starting.
-    overlay:EnableMouse(element.kind ~= "WINDOW")
-    overlay:SetFrameLevel(math.max(1,
-        (element.window:GetFrameLevel() or 0) + 10 + (element.priority or 0)
-            + (element.compositionParentID and 1000 or 0)))
-    overlay:RegisterForClicks("LeftButtonUp")
+    overlay.nskinSkinningOverlay = true
+    overlay:EnableMouse(false)
+    ConfigureVisualOverlayStacking(overlay, element)
     overlay.texture = overlay:CreateTexture(nil, "BACKGROUND")
     overlay.texture:SetAllPoints()
     overlay.texture:SetColorTexture(unpack(TRANSPARENT))
@@ -647,29 +1009,62 @@ local function CreateOverlay(element)
         NSkin:GetStyle("skinningMode").hover, false, overlay
     )
     NSkin:SetPixelBorderShown(overlay.border, false)
-    overlay:SetScript("OnEnter", function(self)
-        self.hovered = true
-        controller.hoveredElement = GetEditorElement(element)
+
+    local inputTarget = CreateFrame("Button", nil, UIParent)
+    inputTarget.nskinSkinningInput = true
+    inputTarget.nskinSkinningElement = element
+    inputTarget:RegisterForClicks("LeftButtonUp")
+    inputTarget:EnableMouse(not controller.modalInputBlocked)
+    if inputTarget.SetPropagateMouseMotion then
+        inputTarget:SetPropagateMouseMotion(true)
+    end
+    if inputTarget.SetPropagateMouseClicks then
+        inputTarget:SetPropagateMouseClicks(true)
+    end
+    ConfigureInputOverlayStacking(inputTarget, element)
+    -- Every semantic element, including WINDOW, owns its complete editor
+    -- bounds. Registered child hit targets sit above the WINDOW fallback.
+    inputTarget:SetAllPoints(overlay)
+    overlay.inputTarget = inputTarget
+
+    local function SetHovered(hovered)
+        local editorElement = GetEditorElement(element)
+        overlay.hovered = hovered == true or nil
+        if overlay.hovered then
+            controller.hoveredElement = editorElement
+        elseif controller.hoveredElement == editorElement then
+            if not (editorElement and editorElement.isAnchorGroup
+                and IsPointerWithinElementBounds(editorElement))
+            then
+                controller.hoveredElement = nil
+            end
+        end
         RefreshOverlayAppearance(element)
-        local parent = NSkin:GetCompositionParent(element)
-        if parent then RefreshOverlayAppearance(parent) end
+        RefreshWindowFallbackAppearance(element.window)
+        local parentElement = NSkin:GetCompositionParent(element)
+        if parentElement then RefreshOverlayAppearance(parentElement) end
         local selected = controller.selectedElement
         if selected and NSkin:GetCompositionParent(selected) == element then
             RefreshOverlayAppearance(selected)
         end
+    end
+
+    local function RefreshInputEligibility(self)
+        ConfigureInputOverlayStacking(self, element)
+        ConfigureVisualOverlayStacking(overlay, element)
+        local interactive = NSkin:IsSkinningOverlayInteractive(element, self)
+        if self.SetPropagateMouseClicks then
+            self:SetPropagateMouseClicks(not interactive)
+        end
+        SetHovered(interactive)
+        return interactive
+    end
+
+    inputTarget:SetScript("OnEnter", function(self)
+        RefreshInputEligibility(self)
     end)
-    overlay:SetScript("OnLeave", function(self)
-        self.hovered = nil
-        if controller.hoveredElement == GetEditorElement(element) then
-            controller.hoveredElement = nil
-        end
-        RefreshOverlayAppearance(element)
-        local parent = NSkin:GetCompositionParent(element)
-        if parent then RefreshOverlayAppearance(parent) end
-        local selected = controller.selectedElement
-        if selected and NSkin:GetCompositionParent(selected) == element then
-            RefreshOverlayAppearance(selected)
-        end
+    inputTarget:SetScript("OnLeave", function()
+        SetHovered(false)
     end)
 
     local function ResolvePointerElement()
@@ -692,7 +1087,8 @@ local function CreateOverlay(element)
                 then
                     local priority = (tonumber(candidate.priority) or 0)
                         + (candidate.compositionParentID and 1000 or 0)
-                    local area = math.max(0, right - left) * math.max(0, top - bottom)
+                    local area = math.max(0, right - left)
+                        * math.max(0, top - bottom)
                     -- Development selection policy: children win over their
                     -- Container. Structure itself makes no selection decision.
                     if not best or candidate.compositionParentID == best.id
@@ -700,7 +1096,8 @@ local function CreateOverlay(element)
                             and (priority > bestPriority
                                 or (priority == bestPriority and area < bestArea)))
                     then
-                        best, bestPriority, bestArea = candidate, priority, area
+                        best, bestPriority, bestArea =
+                            candidate, priority, area
                     end
                 end
             end
@@ -708,29 +1105,17 @@ local function CreateOverlay(element)
         return best or element
     end
 
-    overlay:SetScript("OnClick", function()
+    inputTarget:SetScript("OnMouseDown", function(self)
+        RefreshInputEligibility(self)
+    end)
+    inputTarget:SetScript("OnClick", function(self)
+        if not RefreshInputEligibility(self) then return end
         SelectElement(ResolvePointerElement())
     end)
-    if element.kind == "WINDOW" then
-        local headerHitTarget = CreateFrame("Button", nil, overlay)
-        headerHitTarget:SetPoint("TOPLEFT")
-        headerHitTarget:SetPoint("TOPRIGHT")
-        headerHitTarget:SetHeight(22)
-        headerHitTarget:RegisterForClicks("LeftButtonUp")
-        headerHitTarget:SetScript("OnClick", function() SelectElement(element) end)
-        headerHitTarget:SetScript("OnEnter", function()
-            overlay.hovered = true
-            RefreshOverlayAppearance(element)
-        end)
-        headerHitTarget:SetScript("OnLeave", function()
-            overlay.hovered = nil
-            RefreshOverlayAppearance(element)
-        end)
-        overlay.headerHitTarget = headerHitTarget
-    end
     if element.kind == "TAB_GROUP" or element.draggable then
-        overlay:RegisterForDrag("LeftButton")
-        overlay:SetScript("OnDragStart", function()
+        inputTarget:RegisterForDrag("LeftButton")
+        inputTarget:SetScript("OnDragStart", function(self)
+            if not RefreshInputEligibility(self) then return end
             local pointerElement = ResolvePointerElement()
             SelectElement(pointerElement)
             if GetEditorElement(pointerElement) == pointerElement
@@ -739,21 +1124,25 @@ local function CreateOverlay(element)
                 BeginDrag(pointerElement)
             end
         end)
-        overlay:SetScript("OnDragStop", function() StopDrag(true) end)
+        inputTarget:SetScript("OnDragStop", function() StopDrag(true) end)
     end
+
     overlay:SetScript("OnShow", function(self)
         if not controller.activatingOverlays then
             NSkin:MarkSkinningWindowActive(element.window)
         end
         AnchorOverlay(self, element)
+        ConfigureVisualOverlayStacking(self, element)
+        ConfigureInputOverlayStacking(inputTarget, element)
         RefreshOverlayAppearance(element)
     end)
     overlay:SetScript("OnHide", function()
+        inputTarget:Hide()
         if controller.hoveredElement == GetEditorElement(element) then
             controller.hoveredElement = nil
             overlay.hovered = nil
-            local parent = NSkin:GetCompositionParent(element)
-            if parent then RefreshOverlayAppearance(parent) end
+            local parentElement = NSkin:GetCompositionParent(element)
+            if parentElement then RefreshOverlayAppearance(parentElement) end
         end
         if controller.enabled and controller.selectedElement == element
             and (not element.window:IsShown()
@@ -764,9 +1153,12 @@ local function CreateOverlay(element)
             DockWithoutSelection(element.window)
         end
     end)
+
+    overlay:Hide()
+    inputTarget:Hide()
     controller.overlays[element.id] = overlay
     controller.overlayElements[element.id] = element
-    if usesAbsoluteBounds then EnsureAbsoluteWindowLifecycle(element.window) end
+    EnsureAbsoluteWindowLifecycle(element.window)
     return overlay
 end
 
@@ -774,14 +1166,14 @@ local function ShowElementOverlay(element)
     if not controller or not controller.enabled then return end
     local overlay = controller.overlays[element.id] or CreateOverlay(element)
     if not NSkin:IsSkinningElementEditable(element) then
-        overlay:Hide()
+        SetElementOverlayShown(overlay, false)
         return
     end
     local anchored = AnchorOverlay(overlay, element)
     RefreshOverlayAppearance(element)
     -- Window-parented overlays can remain logically shown and inherit window
     -- visibility. UIParent overlays must be hidden explicitly with the window.
-    overlay:SetShown(anchored
+    SetElementOverlayShown(overlay, anchored
         and (not overlay.usesAbsoluteBounds or element.window:IsShown()))
     local editorElement = GetEditorElement(element)
     if editorElement ~= element then RefreshAnchorGroupOverlay(editorElement) end
@@ -809,7 +1201,7 @@ local function HandleElementBoundsChanged(_, element)
     if not NSkin:IsSkinningElementEditable(element)
         or (overlay.usesAbsoluteBounds and not element.window:IsShown())
     then
-        overlay:Hide()
+        SetElementOverlayShown(overlay, false)
         if editorElement ~= element then
             RefreshAnchorGroupOverlay(editorElement)
         end
@@ -819,9 +1211,9 @@ local function HandleElementBoundsChanged(_, element)
         return
     end
     if AnchorOverlay(overlay, element) then
-        overlay:Show()
+        SetElementOverlayShown(overlay, true)
     else
-        overlay:Hide()
+        SetElementOverlayShown(overlay, false)
         if controller.selectedElement == element then DockWithoutSelection() end
     end
     if editorElement ~= element then RefreshAnchorGroupOverlay(editorElement) end
@@ -845,6 +1237,16 @@ local function CreateController()
     }
 
     NSkin:CreateDockedWindow(controller)
+
+    local popupCount = tonumber(_G.STATICPOPUP_NUMDIALOGS) or 4
+    for index = 1, popupCount do
+        local popup = _G["StaticPopup" .. index]
+        if popup and popup.HookScript then
+            popup:HookScript("OnShow", RefreshModalInputOwnership)
+            popup:HookScript("OnHide", RefreshModalInputOwnership)
+        end
+    end
+    RefreshModalInputOwnership()
 
     local ghost = CreateFrame("Frame", nil, UIParent)
     ghost:SetFrameStrata("TOOLTIP")
@@ -927,6 +1329,7 @@ function NSkin:SetSkinningModeEnabled(enabled)
         )
         controller.dockedWindow.frame:Show()
         DockWithoutSelection()
+        RefreshModalInputOwnership()
         controller.activatingOverlays = true
         self:ForEachRegisteredSkinningElement(ShowElementOverlay)
         controller.activatingOverlays = nil
@@ -939,8 +1342,13 @@ function NSkin:SetSkinningModeEnabled(enabled)
         if controller.pendingRollback then
             controller.eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
         end
-        for _, overlay in pairs(controller.overlays) do overlay:Hide() end
-        for _, overlay in pairs(controller.anchorGroupOverlays) do overlay:Hide() end
+        for _, overlay in pairs(controller.overlays) do
+            SetElementOverlayShown(overlay, false)
+        end
+        for _, overlay in pairs(controller.anchorGroupOverlays) do
+            overlay:Hide()
+            if overlay.inputTarget then overlay.inputTarget:Hide() end
+        end
         controller.dockedWindow.frame:Hide()
         if self.HideSkinningDebugInspector then
             self:HideSkinningDebugInspector()
