@@ -1277,6 +1277,54 @@ function NSkin:GetOptionGroupDefinition(id)
     return optionGroups[id]
 end
 
+-- Reusable horizontal navigation over canonical option-group views.
+function NSkin:CreateOptionGroupTabs(parent, entries, onResize)
+    local frame = CreateFrame("Frame", nil, parent)
+    frame:SetWidth(420)
+    frame.views, frame.buttons = {}, {}
+    function frame:Select(index)
+        self.selected = index
+        for _, views in pairs(self.views) do
+            for _, view in ipairs(views) do view:Hide() end
+        end
+        local entry = entries[index]
+        local context = entry.context
+        if type(context) == "function" then context = context() end
+        local views = self.views[index]
+        if not views then
+            views = {}
+            self.views[index] = views
+            for _, id in ipairs(entry.groups) do
+                local view = NSkin:CreateOptionGroupView(self, id, "FULL", context)
+                if view then views[#views + 1] = view end
+            end
+        end
+        local height = 36
+        for _, view in ipairs(views) do
+            view:SetContext(context)
+            view:ClearAllPoints()
+            view:SetPoint("TOPLEFT", 0, -height)
+            view:Show()
+            height = height + view:GetHeight() + 12
+        end
+        self:SetHeight(height)
+        for i, button in ipairs(self.buttons) do
+            NSkin:SkinFlatButton(button, entries[i].label)
+            button:SetAlpha(i == index and 1 or 0.6)
+        end
+        if onResize then onResize(height) end
+    end
+    for i, entry in ipairs(entries) do
+        local button = CreateFrame("Button", nil, frame)
+        button:SetSize(420 / #entries, 28)
+        button:SetPoint("TOPLEFT", (i - 1) * 420 / #entries, 0)
+        button:SetScript("OnClick", function() frame:Select(i) end)
+        frame.buttons[i] = button
+    end
+    function frame:Refresh() self:Select(self.selected or 1) end
+    return frame
+end
+
 function NSkin:ResetOptionGroup(id, context)
     local definition = optionGroups[id]
     if not definition or not context then return false end
@@ -1313,7 +1361,24 @@ function NSkin:CreateOptionGroupView(parent, id, layout, context)
     for i = 1, #definition.orderedControls do
         local control = definition.orderedControls[i].definition
         local height
-        if control.type == "DROPDOWN" then
+        if control.type == "TEXT_INPUT" then
+            local label = view:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+            label:SetPoint("TOPLEFT", 4, y - 4)
+            label:SetText(control.label)
+            local input = CreateFrame("EditBox", nil, view, "InputBoxTemplate")
+            input:SetAutoFocus(false)
+            input:SetSize(view:GetWidth() - 20, 24)
+            input:SetPoint("TOPLEFT", 10, y - 23)
+            input:SetMaxLetters(control.maxLetters or 512)
+            input:SetScript("OnEnterPressed", function(self)
+                if not view.refreshing then CommitValues(view, { [control.key] = self:GetText() }) end
+                self:ClearFocus()
+            end)
+            input:SetScript("OnEscapePressed", function(self) self:ClearFocus(); view:Refresh() end)
+            view.controlByKey[control.key] = input
+            view.controls[#view.controls + 1] = input
+            height = 56
+        elseif control.type == "DROPDOWN" then
             height = presentation == "COMPACT"
                 and CreateDropdownPair(view, { left = control }, y)
                 or CreateDropdown(view, control, y)
@@ -1382,7 +1447,9 @@ function NSkin:CreateOptionGroupView(parent, id, layout, context)
         for i = 1, #self.definition.orderedControls do
             local control = self.definition.orderedControls[i].definition
             local value = values and values[control.key]
-            if control.type == "DROPDOWN" or control.type == "DROPDOWN_RESET" then
+            if control.type == "TEXT_INPUT" then
+                self.controlByKey[control.key]:SetText(value or "")
+            elseif control.type == "DROPDOWN" or control.type == "DROPDOWN_RESET" then
                 local dropdown = self.controlByKey[control.key]
                 local text = control.label
                 local choices = ResolveOptionValues(control.values)

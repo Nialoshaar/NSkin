@@ -26,6 +26,7 @@ Options\Components\NSkin_ComponentOptionsInputs.lua
 Options\Components\NSkin_ComponentOptionsNavigation.lua
 Options\Components\NSkin_ComponentOptionsContent.lua
 Options\Components\NSkin_ComponentOptionsMenus.lua
+Skins\NSkin_Talents.lua
 Skins\NSkin_SpellBook.lua
 Skins\NSkin_Collections.lua
 Skins\NSkin_EncounterJournal.lua

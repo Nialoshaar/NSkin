@@ -2897,6 +2897,13 @@ local SHARED_SKIN_ADAPTERS = {
         options.style = style
         for _, key in ipairs({
             "texture", "quality", "qualityProvider", "borderColor", "borderMode",
+        "presentations", "nativeMasks", "allowMaskedTexCoords", "borderColorProvider",
+            "splitVisible", "splitDivider", "splitIndicator",
+            "splitIndicatorVisible", "splitIndicatorLeftRotation",
+            "splitIndicatorRightRotation", "splitIndicatorColor",
+            "splitIndicatorColorProvider", "splitIndicatorSize",
+            "splitIndicatorSpacing",
+        "cornerIndicator", "cornerVisible",
             "borderSize", "borderPadding", "borderKey", "borderOwner",
             "outside", "showBorder", "size", "width", "height", "zoom", "crop",
             "shape", "defaultShape", "preserveTexCoords", "nativeMask",
@@ -3017,6 +3024,12 @@ local TYPED_SKIN_FIELDS_BY_TYPE = {
     ICON = {
         "iconTarget", "iconTextureBaselineID",
         "texture", "quality", "qualityProvider", "borderColor", "borderMode",
+        "presentations", "nativeMasks", "allowMaskedTexCoords", "borderColorProvider",
+        "splitVisible", "splitDivider", "splitIndicator", "splitIndicatorVisible",
+        "splitIndicatorLeftRotation", "splitIndicatorRightRotation",
+        "splitIndicatorColor", "splitIndicatorColorProvider",
+        "splitIndicatorSize", "splitIndicatorSpacing",
+        "cornerIndicator", "cornerVisible",
         "borderSize", "borderPadding", "borderKey", "borderOwner", "outside",
         "showBorder", "size", "width", "height", "zoom", "crop", "shape",
         "defaultShape",
@@ -3476,6 +3489,36 @@ function NSkin:RefreshIconGroup(elementOrID)
         or self:GetSkinningElement(elementOrID)
     return element and element.iconGroup == true
         and self:SkinIconGroupChildren(element) or false
+end
+
+-- Dynamic adapters may supply the points just authored by a known native
+-- layout operation. Never call this with a snapshot of NSkin placement.
+function NSkin:ObserveMovableElementNativePoints(elementID, points)
+    local element = skinningElements[elementID]
+    if not element or type(points) ~= "table" or #points == 0 then return false end
+    local copy = {}
+    for i, point in ipairs(points) do
+        copy[i] = { point[1], point[2], point[3], point[4], point[5] }
+    end
+    movableOriginalPoints[elementID] = copy
+    local baseline = self:GetComponentBaseline(elementID)
+    if baseline then baseline.points = copy end
+    return true
+end
+
+-- A provider calls this before returning a frame to its pool. Drop the group's
+-- runtime claim before another semantic family acquires the same frame.
+function NSkin:ReleaseIconGroupChild(elementOrID, target)
+    local element = type(elementOrID) == "table" and elementOrID
+        or self:GetSkinningElement(elementOrID)
+    if not element or not target then return false end
+    local owner = element.iconStateOwner or element.target
+    local state = self:GetSkinData(owner, ICON_GROUP_COMPONENT_STATE .. element.id, false)
+    local child = state and state.children and state.children[target]
+    if not child then return false end
+    ResetIconGroupChild(self, child)
+    state.children[target] = nil
+    return true
 end
 
 function NSkin:ResetIconGroup(elementOrID)

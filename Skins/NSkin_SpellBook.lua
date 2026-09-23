@@ -21,14 +21,11 @@ local IDs = {
         Group = "SpellBook.AssistedCombat",
     },
     Talents = {
-        ApplyButton = "SpellBook.Talents.ApplyButton",
-        SearchBox = "SpellBook.Talents.SearchBox",
-        LoadoutDropdown = "SpellBook.Talents.LoadoutDropdown",
-        PvPLabel = "SpellBook.Talents.PvPLabel",
-        ResetButton = "SpellBook.Talents.ResetButton",
-        UndoButton = "SpellBook.Talents.UndoButton",
+        AppearanceWindow = "PlayerSpells.Talents",
+        Window = "SpellBook.Talents.Window",
     },
     Specializations = {
+        AppearanceWindow = "PlayerSpells.Specializations",
         Window = "SpellBook.Specializations.Window",
         ElementPrefix = "SpellBook.Specializations.Spec.",
     },
@@ -52,6 +49,10 @@ local State = {
 local Adapters = {}
 
 NSkin:RegisterAppearanceScope(IDs.AppearanceWindow, { label = "Spellbook" })
+NSkin:RegisterAppearanceScope(
+    IDs.Talents.AppearanceWindow, { label = "Talents" })
+NSkin:RegisterAppearanceScope(
+    IDs.Specializations.AppearanceWindow, { label = "Specializations" })
 
 local iconDisposition = NSkin:RegisterColumnDisposition(
     "SpellBook.Spells.Disposition", {
@@ -558,18 +559,30 @@ local function RefreshSpellBookSearchController()
     controller:Refresh()
 end
 
-local function SkinSpellBookControls()
-    local playerSpells = _G.PlayerSpellsFrame
-    local spellBook = playerSpells and playerSpells.SpellBookFrame
-    if not spellBook then return end
-    if State.paginationController then State.paginationController:Refresh() end
-    RefreshSpellBookSearchController()
-
+local function ApplyPlayerSpellsWindowAppearance(
+    playerSpells, contentFrame, appearanceWindowID, elementID)
+    if not playerSpells or not contentFrame then return false end
+    local spellBook = playerSpells.SpellBookFrame
     local resizeTargets = GetSpellBookResizeButtons(playerSpells, spellBook)
-    NSkin:SkinStandardWindowChrome({
+    local chrome = playerSpells.NSkinChromeOverlay
+    if not chrome then
+        chrome = CreateFrame("Frame", nil, playerSpells)
+        chrome:EnableMouse(false)
+        playerSpells.NSkinChromeOverlay = chrome
+    end
+    chrome:ClearAllPoints()
+    chrome:SetAllPoints(playerSpells)
+    chrome:SetFrameLevel(math.max(playerSpells:GetFrameLevel(),
+        contentFrame:GetFrameLevel()) + 10)
+    return NSkin:SkinStandardWindowChrome({
         frame = playerSpells,
-        appearanceWindowID = IDs.AppearanceWindow,
-        elementID = IDs.Window,
+        appearanceWindowID = appearanceWindowID,
+        elementID = elementID,
+        backgroundAnchor = playerSpells,
+        borderOwner = chrome,
+        borderAnchor = playerSpells,
+        headerOwner = chrome,
+        headerHeight = 24,
         headerControlsID = IDs.HeaderControls,
         headerControls = {
             {
@@ -577,156 +590,110 @@ local function SkinSpellBookControls()
                 targets = resizeTargets,
             },
         },
-    })
+    }) ~= nil
+end
+
+local function RefreshActivePlayerSpellsWindowAppearance()
+    local playerSpells = _G.PlayerSpellsFrame
+    if not playerSpells then return false end
+    local talents = playerSpells.TalentsFrame
+    local spellBook = playerSpells.SpellBookFrame
+    local specFrame = playerSpells.SpecFrame
+    local tabID = playerSpells.GetTab and playerSpells:GetTab()
+    if talents and tabID == playerSpells.talentTabID then
+        return ApplyPlayerSpellsWindowAppearance(
+            playerSpells, talents,
+            IDs.Talents.AppearanceWindow, IDs.Talents.Window)
+    end
+    if specFrame and tabID == playerSpells.specTabID then
+        return ApplyPlayerSpellsWindowAppearance(
+            playerSpells, specFrame,
+            IDs.Specializations.AppearanceWindow, IDs.Specializations.Window)
+    end
+    if spellBook and tabID == playerSpells.spellBookTabID then
+        return ApplyPlayerSpellsWindowAppearance(
+            playerSpells, spellBook, IDs.AppearanceWindow, IDs.Window)
+    end
+    return false
+end
+
+local function SkinSpellBookControls()
+    local playerSpells = _G.PlayerSpellsFrame
+    local spellBook = playerSpells and playerSpells.SpellBookFrame
+    if not spellBook then return end
+    if State.paginationController then State.paginationController:Refresh() end
+    RefreshSpellBookSearchController()
+
+    if spellBook:IsVisible() then
+        ApplyPlayerSpellsWindowAppearance(
+            playerSpells, spellBook, IDs.AppearanceWindow, IDs.Window)
+    end
     SkinSpellBookTabs()
     SkinAssistedCombat(spellBook.AssistedCombatRotationSpellFrame)
 end
 
-local function IsTalentControlVisible(talents, control)
-    return talents and control and talents:IsVisible() and control:IsVisible()
-end
-
-local function ApplyTalentPresentationCleanup(talents)
-    if not talents then return end
-
-    -- BottomBar is decorative artwork only; keep the functional controls
-    -- anchored to it while removing the Blizzard bar presentation.
-    if talents.BottomBar then talents.BottomBar:SetAlpha(0) end
-
-    local tray = talents.PvPTalentSlotTray
-    if tray and type(tray.Slots) == "table" then
-        for _, slot in ipairs(tray.Slots) do
-            if slot and slot.Border then
-                slot.Border:SetAlpha(0)
-            end
-        end
-    end
-end
-
 local function RegisterTalentControls(playerSpells)
     local talents = playerSpells and playerSpells.TalentsFrame
-    local loadSystem = talents and talents.LoadSystem
-    local loadoutDropdown = loadSystem and loadSystem.GetDropdown
-        and loadSystem:GetDropdown() or (loadSystem and loadSystem.Dropdown)
     if not talents then return false end
 
-    ApplyTalentPresentationCleanup(talents)
-
-    -- The PlayerSpellsFrame is shared by Spellbook and Talents. Reapply the
-    -- same registered window chrome here so opening either tab has identical
-    -- shared chrome without creating a second overlapping window element.
-    NSkin:SkinStandardWindowChrome({
-        frame = playerSpells,
-        appearanceWindowID = IDs.AppearanceWindow,
-        elementID = IDs.Window,
-        headerControlsID = IDs.HeaderControls,
-        headerControls = {
-            {
-                id = IDs.ExpandCollapse,
-                targets = GetSpellBookResizeButtons(
-                    playerSpells, playerSpells.SpellBookFrame),
+    if talents:IsVisible() then
+        ApplyPlayerSpellsWindowAppearance(
+            playerSpells, talents,
+            IDs.Talents.AppearanceWindow, IDs.Talents.Window)
+    end
+    if not NSkin:GetSkinningElement(IDs.Talents.Window) then
+        NSkin:RegisterSkinningElement(IDs.Talents.Window, {
+            label = "Talents window",
+            extraEditorOptions = {
+                { id = "talents.pageBackground", label = "Page background", category = "CUSTOMIZE" },
+                { id = "talents.iconFamilies", label = "Icons", category = "CUSTOMIZE",
+                    tabs = {
+                        { id = "shared.iconAppearance", label = "Active",
+                            contextID = "SpellBook.Talents.Icons.Active" },
+                        { id = "shared.iconAppearance", label = "Passive",
+                            contextID = "SpellBook.Talents.Icons.Passive" },
+                        { id = "shared.iconAppearance", label = "Choice",
+                            groups = { "shared.iconAppearance", "talents.choiceArrows" },
+                            contextID = "SpellBook.Talents.Icons.Choice" },
+                    },
+                },
+                { id = "shared.textAppearance", label = "Rank text",
+                    category = "CUSTOMIZE",
+                    contextID = "SpellBook.Talents.NodeRankText" },
+                { id = "talents.edgeArrows", label = "Edges",
+                    category = "CUSTOMIZE" },
             },
-        },
-    })
+            kind = "WINDOW",
+            module = "SpellBook",
+            appearanceWindowID = IDs.Talents.AppearanceWindow,
+            window = playerSpells,
+            target = playerSpells,
+            priority = 0,
+            draggable = false,
+            isEditable = function()
+                return talents:IsVisible()
+            end,
+            refreshAppearance = function()
+                if talents:IsVisible() then
+                    return ApplyPlayerSpellsWindowAppearance(
+                        playerSpells, talents,
+                        IDs.Talents.AppearanceWindow, IDs.Talents.Window)
+                end
+                return true
+            end,
+            refreshLayout = function(_, element)
+                if talents:IsVisible() then
+                    ApplyPlayerSpellsWindowAppearance(
+                        playerSpells, talents,
+                        IDs.Talents.AppearanceWindow, IDs.Talents.Window)
+                end
+                NSkin:NotifySkinningElementBoundsChanged(element.id)
+                return true
+            end,
+        })
+    end
 
-    local applied = NSkin:RegisterActionButton({
-        id = IDs.Talents.ApplyButton,
-        module = "SpellBook",
-        appearanceWindowID = IDs.AppearanceWindow,
-        label = "Talent apply changes button",
-        window = playerSpells,
-        target = talents.ApplyButton,
-        priority = 71,
-        highlightRegions = { talents.ApplyButton },
-        isEditable = function()
-            return IsTalentControlVisible(talents, talents.ApplyButton)
-        end,
-    }) ~= nil
-    applied = NSkin:RegisterSearchBox({
-        id = IDs.Talents.SearchBox,
-        module = "SpellBook",
-        appearanceWindowID = IDs.AppearanceWindow,
-        label = "Talent search",
-        window = playerSpells,
-        target = talents.SearchBox,
-        priority = 72,
-        highlightRegions = { talents.SearchBox },
-        isEditable = function()
-            return IsTalentControlVisible(talents, talents.SearchBox)
-        end,
-    }) ~= nil or applied
-    applied = NSkin:RegisterDropdown({
-        id = IDs.Talents.LoadoutDropdown,
-        module = "SpellBook",
-        appearanceWindowID = IDs.AppearanceWindow,
-        label = "Talent loadout dropdown",
-        window = playerSpells,
-        target = loadoutDropdown,
-        menus = { "MENU_CLASS_TALENT_PROFILE" },
-        skinOptions = {
-            preserveText = true,
-            preserveMenuAnchor = true,
-        },
-        priority = 73,
-        highlightRegions = { loadoutDropdown },
-        isEditable = function()
-            return IsTalentControlVisible(talents, loadoutDropdown)
-        end,
-    }) ~= nil or applied
-
-    local pvpTray = talents.PvPTalentSlotTray
-    local pvpLabel = pvpTray and pvpTray.Label
-    applied = NSkin:RegisterTextElement({
-        id = IDs.Talents.PvPLabel,
-        module = "SpellBook",
-        appearanceWindowID = IDs.AppearanceWindow,
-        label = "PvP talents label",
-        window = playerSpells,
-        target = pvpLabel,
-        priority = 74,
-        highlightRegions = { pvpLabel },
-        isEditable = function()
-            return IsTalentControlVisible(talents, pvpLabel)
-        end,
-    }) ~= nil or applied
-
-    applied = NSkin:RegisterDropdown({
-        id = IDs.Talents.ResetButton,
-        module = "SpellBook",
-        appearanceWindowID = IDs.AppearanceWindow,
-        label = "Reset talents button",
-        window = playerSpells,
-        target = talents.ResetButton,
-        menus = { "MENU_CLASS_TALENT_FRAME_RESET" },
-        skinOptions = {
-            showArrow = false,
-            showBackground = false,
-            showBorder = false,
-            preserveMenuAnchor = true,
-        },
-        priority = 75,
-        highlightRegions = { talents.ResetButton },
-        isEditable = function()
-            return IsTalentControlVisible(talents, talents.ResetButton)
-        end,
-    }) ~= nil or applied
-
-    applied = NSkin:RegisterIcon({
-        id = IDs.Talents.UndoButton,
-        module = "SpellBook",
-        appearanceWindowID = IDs.AppearanceWindow,
-        label = "Undo talent changes button",
-        window = playerSpells,
-        target = talents.UndoButton,
-        texture = talents.UndoButton and talents.UndoButton.Icon,
-        priority = 76,
-        highlightRegions = { talents.UndoButton and talents.UndoButton.Icon },
-        isEditable = function()
-            return IsTalentControlVisible(talents, talents.UndoButton)
-        end,
-    }) ~= nil or applied
-
-    return applied
+    return NSkin:RegisterTalentsControls(playerSpells)
 end
 
 local function GetSpecializationElementID(specID, elementName)
@@ -801,25 +768,43 @@ local function RegisterSpecializationControls(playerSpells)
     local specFrame = playerSpells and playerSpells.SpecFrame
     if not specFrame then return false end
 
-    NSkin:SkinStandardWindowChrome({
-        frame = specFrame,
-        appearanceWindowID = IDs.AppearanceWindow,
-        elementID = IDs.Specializations.Window,
-        skinCloseButton = false,
-    })
+    if specFrame:IsVisible() then
+        ApplyPlayerSpellsWindowAppearance(
+            playerSpells, specFrame,
+            IDs.Specializations.AppearanceWindow, IDs.Specializations.Window)
+    end
     if not State.specializationWindowRegistered then
         State.specializationWindowRegistered = NSkin:RegisterSkinningElement(
             IDs.Specializations.Window, {
                 label = "Specializations window",
                 kind = "WINDOW",
                 module = "SpellBook",
-                appearanceWindowID = IDs.AppearanceWindow,
+                appearanceWindowID = IDs.Specializations.AppearanceWindow,
                 window = specFrame,
                 target = specFrame,
                 priority = 1,
                 draggable = false,
                 isEditable = function()
                     return specFrame:IsVisible()
+                end,
+                refreshAppearance = function()
+                    if specFrame:IsVisible() then
+                        return ApplyPlayerSpellsWindowAppearance(
+                            playerSpells, specFrame,
+                            IDs.Specializations.AppearanceWindow,
+                            IDs.Specializations.Window)
+                    end
+                    return true
+                end,
+                refreshLayout = function(_, element)
+                    if specFrame:IsVisible() then
+                        ApplyPlayerSpellsWindowAppearance(
+                            playerSpells, specFrame,
+                            IDs.Specializations.AppearanceWindow,
+                            IDs.Specializations.Window)
+                    end
+                    NSkin:NotifySkinningElementBoundsChanged(element.id)
+                    return true
                 end,
             }) == true
     end
@@ -1307,7 +1292,14 @@ function SpellBookSkin:Initialize()
         _G.hooksecurefunc(mixin, "OnIconMouseUp", RefreshSpellIconHover)
     end
     if type(playerSpells.UpdateTabs) == "function" then
-        _G.hooksecurefunc(playerSpells, "UpdateTabs", SkinSpellBookTabs)
+        _G.hooksecurefunc(playerSpells, "UpdateTabs", function()
+            SkinSpellBookTabs()
+            RefreshActivePlayerSpellsWindowAppearance()
+        end)
+    end
+    if type(playerSpells.SetTab) == "function" then
+        _G.hooksecurefunc(playerSpells, "SetTab",
+            RefreshActivePlayerSpellsWindowAppearance)
     end
     if type(spellBook.UpdateAllSpellData) == "function" then
         _G.hooksecurefunc(spellBook, "UpdateAllSpellData", SkinSpellBookTabs)
@@ -1372,6 +1364,24 @@ function SpellBookSkin:Initialize()
         window = playerSpells,
         target = playerSpells,
         priority = 0,
+        isEditable = function()
+            return spellBook:IsVisible()
+        end,
+        refreshAppearance = function()
+            if spellBook:IsVisible() then
+                return ApplyPlayerSpellsWindowAppearance(
+                    playerSpells, spellBook, IDs.AppearanceWindow, IDs.Window)
+            end
+            return true
+        end,
+        refreshLayout = function(_, element)
+            if spellBook:IsVisible() then
+                ApplyPlayerSpellsWindowAppearance(
+                    playerSpells, spellBook, IDs.AppearanceWindow, IDs.Window)
+            end
+            NSkin:NotifySkinningElementBoundsChanged(element.id)
+            return true
+        end,
         extraEditorOptions = {
             { id = "spellbook.iconDisposition", label = "Spellbook",
                 presentation = "INLINE", category = "SPECIFIC" },
@@ -1484,6 +1494,7 @@ function SpellBookSkin:Initialize()
     end
 
     RemoveSpellBookBackground()
+    RefreshActivePlayerSpellsWindowAppearance()
     self:ApplyIconDisposition()
     SkinActiveSpellBookItems()
     State.initialized = true
@@ -1495,6 +1506,7 @@ function SpellBookSkin:RefreshAppearance()
         SkinSpellBookControls()
         RegisterTalentControls(_G.PlayerSpellsFrame)
         RegisterSpecializationControls(_G.PlayerSpellsFrame)
+        RefreshActivePlayerSpellsWindowAppearance()
         local playerSpells = _G.PlayerSpellsFrame
         if playerSpells and playerSpells.SpellBookFrame then
             RegisterSpellBookContentFamilies(

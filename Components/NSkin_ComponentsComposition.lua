@@ -419,3 +419,149 @@ function NSkin:GetCompositionEditorOptions(element)
     end
     return options
 end
+
+local function CanModifyCompositionRoot(target)
+    return target and not (target.IsForbidden and target:IsForbidden())
+        and not (target.IsProtected and target:IsProtected() and InCombatLockdown())
+end
+
+local function CaptureOffsetRootPoints(target)
+    local points = {}
+    for i = 1, target:GetNumPoints() do points[i] = { target:GetPoint(i) } end
+    return points
+end
+
+local function ApplyOffsetRoot(state, target, points)
+    if not CanModifyCompositionRoot(target) or InCombatLockdown() then return end
+    local scale = state.frame:GetEffectiveScale() / target:GetEffectiveScale()
+    target:ClearAllPoints()
+    for _, point in ipairs(points) do
+        target:SetPoint(point[1], point[2], point[3],
+            (point[4] or 0) + state.x * scale,
+            (point[5] or 0) + state.y * scale)
+    end
+end
+
+-- Use only after an adapter's audited Blizzard positioning method has completed.
+-- This is a fresh native layout, not a snapshot of an NSkin offset.
+function NSkin:ObserveOffsetContainerLayout(id, target)
+    local element = self:GetSkinningElement(id)
+    local state = element and element.offsetContainer
+    if not state or not CanModifyCompositionRoot(target) or InCombatLockdown() then return end
+    local points = CaptureOffsetRootPoints(target)
+    state.roots[target] = points
+    ApplyOffsetRoot(state, target, points)
+end
+
+-- Call before a provider releases a root, or after native layout transfers it
+-- to a different owner. Never restore stale anchors onto a recycled frame.
+function NSkin:ReleaseOffsetContainerRoot(id, target, restore)
+    local element = self:GetSkinningElement(id)
+    local state = element and element.offsetContainer
+    local points = state and state.roots[target]
+    if not points then return end
+    if restore then
+        local x, y = state.x, state.y
+        state.x, state.y = 0, 0
+        ApplyOffsetRoot(state, target, points)
+        state.x, state.y = x, y
+    end
+    state.roots[target] = nil
+end
+
+function NSkin:RefreshOffsetContainer(elementOrID)
+    local element = type(elementOrID) == "table" and elementOrID
+        or self:GetSkinningElement(elementOrID)
+    local state = element and element.offsetContainer
+    if not state or InCombatLockdown() then return false end
+    local current, left, right, bottom, top = {}, nil, nil, nil, nil
+    for _, target in ipairs(element.composition.roots() or {}) do
+        if CanModifyCompositionRoot(target) and target.GetNumPoints then
+            current[target] = true
+            local points = state.roots[target]
+            if not points then
+                points = CaptureOffsetRootPoints(target)
+                state.roots[target] = points
+                ApplyOffsetRoot(state, target, points)
+            end
+            if not target.IsVisible or target:IsVisible() then
+                local l, r, b, t = self:GetUIParentNormalizedBounds(target)
+                if l then
+                    left, right = math.min(left or l, l), math.max(right or r, r)
+                    bottom, top = math.min(bottom or b, b), math.max(top or t, t)
+                end
+            end
+        end
+    end
+    for target, points in pairs(state.roots) do
+        if not current[target] then
+            local x, y = state.x, state.y
+            state.x, state.y = 0, 0
+            ApplyOffsetRoot(state, target, points)
+            state.x, state.y = x, y
+            state.roots[target] = nil
+        end
+    end
+    if not left then return false end
+    local scale = UIParent:GetEffectiveScale() / state.frame:GetEffectiveScale()
+    local windowLeft, _, _, windowTop = self:GetUIParentNormalizedBounds(element.window)
+    if not windowLeft then return false end
+    state.baseX = (left - windowLeft) * scale - state.x
+    state.baseY = (top - windowTop) * scale - state.y
+    state.frame:SetSize((right - left) * scale, (top - bottom) * scale)
+    state.frame:ClearAllPoints()
+    state.frame:SetPoint("TOPLEFT", element.window, "TOPLEFT",
+        state.baseX + state.x, state.baseY + state.y)
+    self:NotifySkinningElementBoundsChanged(element.id)
+    return true
+end
+
+-- A virtual movement owner for semantic roots which share a Blizzard parent.
+-- Roots retain parents and native relative anchors; edges anchored to roots follow.
+function NSkin:RegisterOffsetContainer(definition)
+    if type(definition) ~= "table" or not definition.composition
+        or definition.composition.mode ~= "CONTAINER"
+        or definition.composition.movementStrategy ~= "OFFSET_ROOTS"
+        or type(definition.composition.roots) ~= "function"
+    then return nil end
+    local existing = self:GetSkinningElement(definition.id)
+    if existing then self:RefreshOffsetContainer(existing); return existing end
+    local frame = CreateFrame("Frame", nil, definition.layoutParent or definition.window)
+    frame:EnableMouse(false)
+    frame:SetSize(1, 1)
+    frame:SetPoint("TOPLEFT", definition.window, "TOPLEFT")
+    local state = { frame = frame, roots = setmetatable({}, { __mode = "k" }),
+        x = 0, y = 0, baseX = 0, baseY = 0 }
+    definition.target, definition.kind = frame, "MOVABLE"
+    definition.offsetContainer = state
+    definition.composition.movementOwner = frame
+    definition.applyPlacement = function(element, placement, options)
+        if InCombatLockdown() then return false end
+        if not NSkin:LayoutWindowElement(element, placement, { suppressNotify = true }) then return false end
+        local left, _, _, top = NSkin:GetUIParentNormalizedBounds(frame)
+        local windowLeft, _, _, windowTop = NSkin:GetUIParentNormalizedBounds(element.window)
+        if not left or not windowLeft then return false end
+        local scale = UIParent:GetEffectiveScale() / frame:GetEffectiveScale()
+        state.x = (left - windowLeft) * scale - state.baseX
+        state.y = (top - windowTop) * scale - state.baseY
+        for target, points in pairs(state.roots) do ApplyOffsetRoot(state, target, points) end
+        if element.onLayoutChanged then element.onLayoutChanged(element) end
+        if not (options and options.suppressNotify) then
+            NSkin:NotifySkinningElementBoundsChanged(element.id)
+        end
+        return true
+    end
+    definition.resetPlacement = function(element)
+        if InCombatLockdown() then return false end
+        state.x, state.y = 0, 0
+        for target, points in pairs(state.roots) do ApplyOffsetRoot(state, target, points) end
+        local options = NSkin:GetModuleOptions(element.module, false)
+        if options and options.movablePlacements then options.movablePlacements[element.id] = nil end
+        local result = NSkin:RefreshOffsetContainer(element)
+        if element.onLayoutChanged then element.onLayoutChanged(element) end
+        return result
+    end
+    -- Resolve the base bounds before RegisterMovableElement reapplies saved placement.
+    self:RefreshOffsetContainer(definition)
+    return self:RegisterSimpleMovableElement(definition)
+end
