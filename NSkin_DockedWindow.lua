@@ -84,9 +84,7 @@ local function ResetElementCustomizations(element)
 
     -- Clear anything not represented by the visible compact subsets too.
     NSkin:ResetElementAppearanceOverride(element.id)
-    if element.compositionParentID then
-        -- Appearance reset must not acquire child geometry ownership.
-    elseif type(element.resetPlacement) == "function" then
+    if type(element.resetPlacement) == "function" then
         element.resetPlacement(element)
     elseif type(element.restoreGeometry) == "function" then
         element.restoreGeometry(element)
@@ -146,7 +144,40 @@ local function LoadEditorOptions(element)
     elseif type(editorOptions) == "table" then
         groups = editorOptions
     end
-    if not groups or #groups == 0 then
+    if not groups then groups = {} end
+
+    local canEditPlacement = element
+        and type(element.getPlacement) == "function"
+        and type(element.setPlacement) == "function"
+        and type(element.resetPlacement) == "function"
+    if canEditPlacement then
+        local hasMovable
+        for i = 1, #groups do
+            local definition = groups[i]
+            local id = type(definition) == "table"
+                and definition.id or definition
+            if id == "shared.movable" then
+                hasMovable = true
+                break
+            end
+        end
+        if not hasMovable then
+            local withPlacement = {
+                {
+                    id = "shared.movable",
+                    label = "Position",
+                    presentation = "INLINE",
+                    category = "POSITION",
+                },
+            }
+            for i = 1, #groups do
+                withPlacement[#withPlacement + 1] = groups[i]
+            end
+            groups = withPlacement
+        end
+    end
+
+    if #groups == 0 then
         ResizeInspector(nil)
         return
     end
@@ -376,6 +407,7 @@ end
 
 function DockedWindow:Dock(window)
     local inspector = state.inspector
+    if state.inspectorManuallyPositioned then return end
     inspector:ClearAllPoints()
     if not window then
         inspector:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
@@ -449,14 +481,34 @@ function NSkin:CreateDockedWindow(owner)
     inspector.nskinOwnedGeometry = true
     inspector:SetSize(520, 130)
     inspector:SetFrameStrata("DIALOG")
+    inspector:SetMovable(true)
+    inspector:SetClampedToScreen(true)
     NSkin:SkinWindow(inspector)
     NSkin:SkinWindowHeader(inspector)
+
+    local dragRegion = CreateFrame("Frame", nil, inspector)
+    dragRegion:SetPoint("TOPLEFT", inspector, "TOPLEFT", 1, -1)
+    dragRegion:SetPoint("TOPRIGHT", inspector, "TOPRIGHT", -1, -1)
+    dragRegion:SetHeight(22)
+    dragRegion:EnableMouse(true)
+    dragRegion:RegisterForDrag("LeftButton")
+    dragRegion:SetScript("OnDragStart", function()
+        inspector:StartMoving()
+    end)
+    dragRegion:SetScript("OnDragStop", function()
+        inspector:StopMovingOrSizing()
+        state.inspectorManuallyPositioned = true
+    end)
+    state.inspectorDragRegion = dragRegion
+
     CreateLabel(inspector, "Skinning Mode", "TOPLEFT", inspector, "TOPLEFT", 12, -5)
     local close = CreateButton(inspector, "x", 22, function()
         NSkin:SetSkinningModeEnabled(false)
     end)
+    close:SetFrameLevel(dragRegion:GetFrameLevel() + 1)
     close:SetPoint("TOPRIGHT", inspector, "TOPRIGHT", 0, 0)
     local gridToggle = CreateFrame("Button", nil, inspector)
+    gridToggle:SetFrameLevel(dragRegion:GetFrameLevel() + 1)
     gridToggle:SetSize(22, 22)
     gridToggle:SetPoint("RIGHT", close, "LEFT", -4, 0)
     gridToggle.icon = gridToggle:CreateTexture(nil, "ARTWORK")
@@ -489,6 +541,7 @@ function NSkin:CreateDockedWindow(owner)
     RefreshGridToggle()
     state.gridToggle = gridToggle
     local debugToggle = CreateFrame("Button", nil, inspector)
+    debugToggle:SetFrameLevel(dragRegion:GetFrameLevel() + 1)
     debugToggle:SetSize(52, 22)
     debugToggle:SetPoint("RIGHT", close, "LEFT", -4, 0)
     gridToggle:ClearAllPoints()

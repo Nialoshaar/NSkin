@@ -540,16 +540,31 @@ local function ResetCompactOption(view, keys)
     return changed
 end
 
-local function AddCompactOptionResetMenu(view, label, optionLabel, keys)
+local function AddCompactOptionResetMenu(view, label, optionLabel, keys, mirrored)
     if not label or view.presentation ~= "COMPACT"
         or type(view.definition.resetSubset) ~= "function"
     then
         return
     end
     local target = CreateFrame("Button", nil, view)
-    target:SetAllPoints(label)
+    if mirrored then
+        target:SetPoint("TOPLEFT", label, "TOPLEFT", 0, 4)
+        target:SetPoint("BOTTOMRIGHT", label, "BOTTOMRIGHT",
+            COMPACT_GRID_PADDING, -4)
+    else
+        target:SetPoint("TOPLEFT", label, "TOPLEFT", -COMPACT_GRID_PADDING, 4)
+        target:SetPoint("BOTTOMRIGHT", label, "BOTTOMRIGHT", 0, -4)
+    end
     target:RegisterForClicks("RightButtonUp")
     target:SetFrameLevel(view:GetFrameLevel() + 5)
+
+    local glow = view:CreateTexture(nil, "BACKGROUND")
+    glow:SetAllPoints(target)
+    local accent = NSkin:GetAccentColor()
+    glow:SetColorTexture(accent[1], accent[2], accent[3], 0.16)
+    glow:Hide()
+
+    NSkin:HookDropdownMenuSkin(target, nil, true)
     target:SetScript("OnClick", function(self, button)
         if button ~= "RightButton" then return end
         local function Reset()
@@ -560,11 +575,24 @@ local function AddCompactOptionResetMenu(view, label, optionLabel, keys)
                 rootDescription:CreateButton(
                     "Reset " .. (optionLabel or "option"), Reset)
             end)
+            C_Timer.After(0, function()
+                local manager = Menu and Menu.GetManager
+                    and Menu.GetManager()
+                local menu = manager and manager.GetOpenMenu
+                    and manager:GetOpenMenu()
+                if menu and menu:IsShown() then
+                    NSkin:SkinDropdownMenu(menu)
+                end
+            end)
         else
             Reset()
         end
     end)
     target:SetScript("OnEnter", function(self)
+        local currentAccent = NSkin:GetAccentColor()
+        glow:SetColorTexture(
+            currentAccent[1], currentAccent[2], currentAccent[3], 0.16)
+        glow:Show()
         if GameTooltip then
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
             GameTooltip:SetText(optionLabel or "Option")
@@ -574,6 +602,7 @@ local function AddCompactOptionResetMenu(view, label, optionLabel, keys)
         end
     end)
     target:SetScript("OnLeave", function()
+        glow:Hide()
         if GameTooltip then GameTooltip:Hide() end
     end)
     view.controls[#view.controls + 1] = target
@@ -688,7 +717,7 @@ local function CreateTypographyDropdown(view, control, key, values, width, x, y,
     if inline then
         AddCompactGridControlDivider(view, label, mirrored)
         AddCompactOptionResetMenu(view, label,
-            control[key .. "Label"], { control[key .. "Key"] })
+            control[key .. "Label"], { control[key .. "Key"] }, mirrored)
     end
     local dropdown = CreateOwnedDropdown(view)
     local labelWidth = inline and COMPACT_GRID_LABEL_WIDTH or 0
@@ -923,7 +952,7 @@ CreateColor = function(view, control, y, layout)
     if layout.inline then
         AddCompactGridControlDivider(view, label, layout.mirrored)
         AddCompactOptionResetMenu(view, label,
-            control.label, { control.key })
+            control.label, { control.key }, layout.mirrored)
     end
     local dropdown = CreateOwnedDropdown(view)
     local controlWidth = math.max(80, width - inlineLabelWidth - 10)
@@ -1088,6 +1117,8 @@ local function CreateSliderPairItem(view, definition, x, width, y, mirroredSide,
     label:SetText(definition.label)
     if mirroredSide then
         AddCompactGridControlDivider(parent, label, mirroredSide == "RIGHT")
+        AddCompactOptionResetMenu(view, label, definition.label,
+            { definition.key }, mirroredSide == "RIGHT")
     end
     local valueLabel = CreateFrame("EditBox", nil, parent)
     valueLabel:SetSize(38, 22)
@@ -2054,9 +2085,7 @@ end
 
 function NSkin:CreateSharedPlacementControls(extra)
     local controls = {
-        { type = "SLIDER_PAIR", order = 1, centerReset = true,
-            resetGroup = true,
-            resetTooltip = "Reset X and Y offsets",
+        { type = "SLIDER_PAIR", order = 1,
             left = { key = "alongOffset", label = "X offset", min = -200,
                 max = 200, step = 0.1, decimals = 1, suffix = " px" },
             right = { key = "edgeOffset", label = "Y offset", min = -200,
@@ -2073,6 +2102,16 @@ function NSkin:NormalizeSharedPlacementValues(context, values)
     return values
 end
 
+local function ResetSharedPlacementSubset(context, keys)
+    local values = context.getPlacement(context)
+    values = NSkin:NormalizeGridPlacementForEditor(context, values)
+    if not values then return false end
+    if keys.alongOffset then values.alongOffset = 0 end
+    if keys.edgeOffset then values.edgeOffset = 0 end
+    return context.setPlacement(context,
+        NSkin:NormalizeSharedPlacementValues(context, values))
+end
+
 NSkin:RegisterOptionGroup("shared.movable", {
     controls = NSkin:CreateSharedPlacementControls(),
     get = function(context)
@@ -2085,6 +2124,7 @@ NSkin:RegisterOptionGroup("shared.movable", {
     reset = function(context)
         return context.resetPlacement(context)
     end,
+    resetSubset = ResetSharedPlacementSubset,
 })
 
 NSkin:RegisterOptionGroup("shared.paginationPosition", {
@@ -2098,6 +2138,7 @@ NSkin:RegisterOptionGroup("shared.paginationPosition", {
             NSkin:NormalizeSharedPlacementValues(context, values))
     end,
     reset = function(context) return context.resetPlacement(context) end,
+    resetSubset = ResetSharedPlacementSubset,
 })
 
 NSkin:RegisterOptionGroup("shared.paginationLayout", {
@@ -2151,6 +2192,7 @@ NSkin:RegisterOptionGroup("shared.searchPosition", {
             NSkin:NormalizeSharedPlacementValues(context, values))
     end,
     reset = function(context) return context.resetPlacement(context) end,
+    resetSubset = ResetSharedPlacementSubset,
 })
 
 local GLOBAL_VALUE = "__NSKIN_GLOBAL__"

@@ -257,7 +257,6 @@ function NSkin:InitializeElementComposition(element)
     element.composition = element.composition or { mode = "STANDALONE" }
     if element.compositionParentID then
         element.draggable, element.movable = false, false
-        element.applyPlacement, element.setPlacement, element.resetPlacement = nil, nil, nil
     end
     if element.composition.mode ~= "COMPOSITE" then return end
     element.compositionHookedTargets = element.compositionHookedTargets
@@ -365,8 +364,7 @@ function NSkin:GetCompositionEditorOptions(element)
                     or type(context.resetPlacement) ~= "function")
             if not seen[option.id]
                 and not lacksPlacementContract
-                and not ((element.compositionParentID or member
-                    or element.isAnchorGroup)
+                and not ((member or element.isAnchorGroup)
                     and (option.category == "POSITION" or option.id == "shared.movable"))
             then
                 local copy = {}

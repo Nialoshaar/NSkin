@@ -2602,14 +2602,83 @@ function NSkin:RegisterMovableElement(definition)
         or not definition.target
     then return false end
     local id = definition.id
-    -- Container membership removes geometry ownership, not component identity.
+    -- Composition children remain attached to their parent layout, but expose
+    -- an independent X/Y translation relative to their captured Blizzard
+    -- anchors. They are not draggable geometry owners.
     if definition.compositionParentID then
+        local movementOwner = definition.target
+        if not movementOwner or not movementOwner.GetNumPoints then return false end
+        self:CaptureComponentBaseline(id, movementOwner, {
+            points = true,
+            canCapture = definition.canCaptureBaseline,
+        })
         definition.draggable = false
         definition.movable = false
-        definition.applyPlacement = nil
-        definition.setPlacement = nil
-        definition.resetPlacement = nil
-        return self:RegisterSkinningElement(id, definition)
+        definition.getPlacement = definition.getPlacement or function(element)
+            local saved = GetSavedMovablePlacement(element)
+            if saved then return CopyPlacement(saved) end
+            return { mode = "OFFSET", alongOffset = 0, edgeOffset = 0 }
+        end
+        definition.applyPlacement = definition.applyPlacement or function(element, placement, applyOptions)
+            local baseline = NSkin:GetComponentBaseline(element.id)
+            local points = baseline and baseline.points
+            local target = element.target
+            if not target or type(points) ~= "table" or #points == 0
+                or not target.ClearAllPoints or not target.SetPoint
+            then return false end
+            local offsetX = tonumber(placement.alongOffset or placement.x) or 0
+            local offsetY = tonumber(placement.edgeOffset or placement.y) or 0
+            target:ClearAllPoints()
+            for i = 1, #points do
+                local point = points[i]
+                target:SetPoint(point[1], point[2], point[3],
+                    (tonumber(point[4]) or 0) + offsetX,
+                    (tonumber(point[5]) or 0) + offsetY)
+            end
+            if not (applyOptions and applyOptions.suppressNotify) then
+                NSkin:NotifySkinningElementBoundsChanged(element.id)
+            end
+            return true
+        end
+        definition.setPlacement = definition.setPlacement or function(element, placement)
+            if not element.applyPlacement(element, placement) then return false end
+            local options = NSkin:GetModuleOptions(element.module, true)
+            options.movablePlacements = options.movablePlacements or {}
+            options.movablePlacements[element.id] = {
+                mode = "OFFSET",
+                alongOffset = tonumber(placement.alongOffset or placement.x) or 0,
+                edgeOffset = tonumber(placement.edgeOffset or placement.y) or 0,
+            }
+            NSkin:MarkComponentGeometryModified(element.id, "points", true)
+            EnsureMovableWatcher(element.window)
+            return true
+        end
+        definition.resetPlacement = definition.resetPlacement or function(element)
+            local restored = NSkin:RestoreComponentBaseline(element.id)
+            ClearSavedMovablePlacement(element)
+            if restored then
+                NSkin:NotifySkinningElementBoundsChanged(element.id)
+            end
+            return restored == true
+        end
+        self:RegisterSkinningElement(id, definition)
+        local element = skinningElements[id]
+        local elements = movableElementsByWindow[element.window]
+        if not elements then
+            elements = {}
+            movableElementsByWindow[element.window] = elements
+        end
+        local alreadyRegistered
+        for i = 1, #elements do
+            if elements[i] == element then alreadyRegistered = true break end
+        end
+        if not alreadyRegistered then elements[#elements + 1] = element end
+        local saved = GetSavedMovablePlacement(element)
+        if saved and self:IsSkinningElementEditable(element) then
+            element.applyPlacement(element, saved, SUPPRESS_NOTIFICATION)
+            EnsureMovableWatcher(element.window)
+        end
+        return true
     end
     local movementOwner = self:GetCompositionMovementOwner(definition)
     if not movementOwner or not movementOwner.GetNumPoints then return false end
