@@ -46,6 +46,13 @@ end
 
 local RefreshInspector
 
+local function ResolveEditorContext(definition, element)
+    if definition.contextID then
+        return NSkin:GetSkinningElement(definition.contextID)
+    end
+    return definition.context or element
+end
+
 local function ResetElementCustomizations(element)
     if not element then return false end
     local resetGroups = {}
@@ -56,9 +63,18 @@ local function ResetElementCustomizations(element)
         for i = 1, #editorOptions do
             local definition = editorOptions[i]
             local id = type(definition) == "table" and definition.id or definition
-            if type(id) == "string" then
+            if type(definition) == "table" and type(definition.tabs) == "table" then
+                for _, tab in ipairs(definition.tabs) do
+                    local context = ResolveEditorContext(tab, element)
+                    for _, groupID in ipairs(tab.groups or { tab.id }) do
+                        if type(groupID) == "string" and context then
+                            NSkin:ResetOptionGroup(groupID, context)
+                        end
+                    end
+                end
+            elseif type(id) == "string" then
                 resetGroups[id] = type(definition) == "table"
-                    and definition.context or element
+                    and ResolveEditorContext(definition, element) or element
             end
         end
     end
@@ -116,6 +132,7 @@ local function LoadEditorOptions(element)
     for i = 1, #state.editorSections do
         local section = state.editorSections[i]
         section:Hide()
+        if section.tabBar then section.tabBar:Hide() end
     end
 
     local editorOptions = NSkin:GetCompositionEditorOptions(element)
@@ -141,7 +158,7 @@ local function LoadEditorOptions(element)
         local label = type(definition) == "table" and definition.label
         local id = type(definition) == "table" and definition.id or definition
         local optionContext = type(definition) == "table"
-            and definition.context or element
+            and ResolveEditorContext(definition, element) or element
         local inline = IsInlineEditorDefinition(definition)
         if type(id) == "string" and inline then
             local view = state.optionViews[id]
@@ -168,7 +185,7 @@ local function LoadEditorOptions(element)
         local label = type(definition) == "table" and definition.label
         local id = type(definition) == "table" and definition.id or definition
         local optionContext = type(definition) == "table"
-            and definition.context or element
+            and ResolveEditorContext(definition, element) or element
         local inline = IsInlineEditorDefinition(definition)
         if type(id) == "string" and not inline then
             sectionIndex = sectionIndex + 1
@@ -250,21 +267,67 @@ local function LoadEditorOptions(element)
             y = SnapInspectorOffset(y + 47)
 
             if expanded then
-                local view = state.optionViews[id]
-                if not view then
-                    view = NSkin:CreateOptionGroupView(
-                        state.scrollChild, id, "COMPACT", optionContext)
-                    state.optionViews[id] = view
-                else
-                    view:SetContext(optionContext)
-                end
-                if view then
-                    view.isSkinningModeInspector = true
-                    view:ClearAllPoints()
-                    view:SetPoint("TOPLEFT", state.scrollChild, "TOPLEFT",
+                local tabs = type(definition) == "table" and definition.tabs
+                local viewIDs, viewContext = { id }, optionContext
+                if type(tabs) == "table" and #tabs > 0 then
+                    local selected = state.selectedEditorSubtabs[key] or 1
+                    selected = math.min(selected, #tabs)
+                    state.selectedEditorSubtabs[key] = selected
+                    local tab = tabs[selected]
+                    viewIDs = tab.groups or { tab.id }
+                    viewContext = ResolveEditorContext(tab, element)
+                    local bar = section.tabBar
+                    if not bar then
+                        bar = CreateFrame("Frame", nil, state.scrollChild)
+                        section.tabBar = bar
+                        bar.buttons = {}
+                    end
+                    bar:ClearAllPoints()
+                    bar:SetPoint("TOPLEFT", state.scrollChild, "TOPLEFT",
                         SnapInspectorOffset(8), -SnapInspectorOffset(y))
-                    view:Show()
-                    y = SnapInspectorOffset(y + view:GetHeight() - 1)
+                    bar:SetSize(math.max(1, state.scrollChild:GetWidth() - 16), 24)
+                    for tabIndex, tabDefinition in ipairs(tabs) do
+                        local button = bar.buttons[tabIndex]
+                        if not button then
+                            button = CreateButton(bar, tabDefinition.label, 80,
+                                function(self)
+                                    state.selectedEditorSubtabs[self.sectionKey] = self.tabIndex
+                                    RefreshInspector()
+                                end)
+                            bar.buttons[tabIndex] = button
+                        end
+                        button.sectionKey, button.tabIndex = key, tabIndex
+                        button:ClearAllPoints()
+                        button:SetPoint("TOPLEFT", bar, "TOPLEFT",
+                            (tabIndex - 1) * 84, 0)
+                        button:Show()
+                        button:SetAlpha(tabIndex == selected and 1 or 0.65)
+                    end
+                    for tabIndex = #tabs + 1, #bar.buttons do
+                        bar.buttons[tabIndex]:Hide()
+                    end
+                    bar:Show()
+                    y = SnapInspectorOffset(y + 27)
+                end
+                for _, viewID in ipairs(viewIDs) do
+                    local view = viewContext and state.optionViews[viewID]
+                    if not view then
+                        if viewContext then
+                            view = NSkin:CreateOptionGroupView(
+                                state.scrollChild, viewID, "COMPACT", viewContext)
+                            state.optionViews[viewID] = view
+                        end
+                    else
+                        view:SetContext(viewContext)
+                    end
+                    if view then
+                        view.isSkinningModeInspector = true
+                        view:ClearAllPoints()
+                        view:SetPoint("TOPLEFT", state.scrollChild, "TOPLEFT",
+                            SnapInspectorOffset(8), -SnapInspectorOffset(y))
+                        view:Show()
+                        y = SnapInspectorOffset(y + view:GetHeight() - 1)
+                    end
                 end
             end
         end
@@ -347,6 +410,7 @@ function NSkin:CreateDockedWindow(owner)
     state.optionViews = state.optionViews or {}
     state.editorSections = state.editorSections or {}
     state.expandedEditorSections = state.expandedEditorSections or {}
+    state.selectedEditorSubtabs = state.selectedEditorSubtabs or {}
     if not StaticPopupDialogs[RESET_CONFIRMATION_DIALOG] then
         StaticPopupDialogs[RESET_CONFIRMATION_DIALOG] = {
             text = "Reset %s to window defaults?",

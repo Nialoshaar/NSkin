@@ -165,6 +165,7 @@ local iconAppearanceControls = {
         order = 2, values = {
             { value = "custom", label = "Custom" },
             { value = "quality", label = "Item quality" },
+            { value = "automatic", label = "Automatic state" },
         } },
     { type = "SLIDER", key = "borderSize", label = "Border thickness",
         min = 0, max = 8, step = 1, decimals = 0, suffix = " px", order = 3 },
