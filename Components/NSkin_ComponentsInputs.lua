@@ -231,6 +231,68 @@ function NSkin:SkinActionButton(button, options)
     RefreshActionButton(button)
 end
 
+local function RefreshCheckButtonVisual(checkButton)
+    local data = NSkin:GetSkinData(checkButton, COMPONENT_STATE, false)
+    if not data or not data.checkButtonActive then return end
+    local checked
+    if type(data.checkButtonGetChecked) == "function" then
+        local ok, value = pcall(data.checkButtonGetChecked, checkButton)
+        if ok and type(value) == "boolean" then checked = value end
+    end
+    if checked == nil and checkButton.GetChecked then
+        checked = checkButton:GetChecked() == true
+    end
+    if data.checkButtonCheckedTexture then
+        data.checkButtonCheckedTexture:SetShown(checked == true)
+    end
+end
+
+local function SuppressCheckButtonNativeTexture(checkButton, data, texture)
+    if not texture or texture == data.checkButtonCheckedTexture
+        or not texture.SetAlpha
+        or (texture.IsForbidden and texture:IsForbidden())
+    then return end
+    if not data.checkButtonNativeCheckHooks[texture] and _G.hooksecurefunc then
+        data.checkButtonNativeCheckHooks[texture] = true
+        hooksecurefunc(texture, "SetAlpha", function(_, alpha)
+            local state = NSkin:GetSkinData(
+                checkButton, COMPONENT_STATE, false)
+            if state and state.checkButtonActive
+                and alpha ~= 0 and not state.suppressingNativeCheck
+            then
+                state.suppressingNativeCheck = true
+                texture:SetAlpha(0)
+                state.suppressingNativeCheck = nil
+            end
+        end)
+    end
+    if texture:GetAlpha() ~= 0 then
+        data.suppressingNativeCheck = true
+        texture:SetAlpha(0)
+        data.suppressingNativeCheck = nil
+    end
+end
+
+local function SuppressCheckButtonNativeChecks(checkButton)
+    local data = NSkin:GetSkinData(checkButton, COMPONENT_STATE, false)
+    if not data or not data.checkButtonActive then return end
+    data.checkButtonNativeCheckHooks = data.checkButtonNativeCheckHooks
+        or setmetatable({}, { __mode = "k" })
+    if checkButton.GetCheckedTexture then
+        SuppressCheckButtonNativeTexture(
+            checkButton, data, checkButton:GetCheckedTexture())
+    end
+    if checkButton.GetDisabledCheckedTexture then
+        SuppressCheckButtonNativeTexture(
+            checkButton, data, checkButton:GetDisabledCheckedTexture())
+    end
+end
+
+local function RefreshCheckButtonState(checkButton)
+    SuppressCheckButtonNativeChecks(checkButton)
+    RefreshCheckButtonVisual(checkButton)
+end
+
 function NSkin:SkinCheckButton(checkButton, options)
     if not checkButton or not checkButton.CreateTexture then return false end
     options = options or {}
@@ -238,11 +300,8 @@ function NSkin:SkinCheckButton(checkButton, options)
         or (options.background and options.text and options)
         or self:GetStyle("button")
     local data = self:GetSkinData(checkButton, COMPONENT_STATE)
-    local checkedState
-    if type(options.getChecked) == "function" then
-        local ok, value = pcall(options.getChecked, checkButton)
-        if ok and type(value) == "boolean" then checkedState = value end
-    end
+    data.checkButtonActive = true
+    data.checkButtonGetChecked = options.getChecked
 
     if not data.checkButtonArtworkSuppressed then
         self:HideTextureRegions(checkButton)
@@ -287,13 +346,26 @@ function NSkin:SkinCheckButton(checkButton, options)
         -checkedInset, checkedInset)
     self:SetOwnedTextureColor(checked, unpack(
         options.checked or self:GetSharedBorderColor()))
-    if checkButton.SetCheckedTexture then
-        checkButton:SetCheckedTexture(checked)
-    elseif checkedState ~= nil then
-        checked:SetShown(checkedState)
-    else
-        checked:Hide()
+    if not data.checkButtonStateHooked then
+        if _G.hooksecurefunc then
+            for _, method in ipairs({
+                "SetChecked", "SetCheckedTexture", "SetDisabledCheckedTexture",
+            }) do
+                if type(checkButton[method]) == "function" then
+                    hooksecurefunc(checkButton, method, RefreshCheckButtonState)
+                end
+            end
+        end
+        if checkButton.HookScript then
+            for _, script in ipairs({
+                "OnClick", "OnShow", "OnEnable", "OnDisable",
+            }) do
+                checkButton:HookScript(script, RefreshCheckButtonState)
+            end
+        end
+        data.checkButtonStateHooked = true
     end
+    RefreshCheckButtonState(checkButton)
 
     local label = options.text or checkButton.Text or checkButton.text
     if label then

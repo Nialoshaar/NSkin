@@ -307,6 +307,10 @@ local function RestoreRowButtonColumn(columnState)
     local button = columnState.target
     local data = NSkin:GetSkinData(button, COMPONENT_STATE, false)
     if columnState.kind == "CHECKBOX" then
+        if data then
+            data.checkButtonActive = nil
+            data.checkButtonGetChecked = nil
+        end
         if columnState.checkboxLabel then
             NSkin:SkinText(columnState.checkboxLabel, nil, { reset = true })
         end

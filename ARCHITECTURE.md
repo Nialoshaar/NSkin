@@ -1060,6 +1060,10 @@ pixel-snapped visual square (14 by default, configurable with `visualSize`).
 The owned background, border, checked mark, and hover surface follow that
 square; an attached label may anchor to its right edge while its original
 points remain available for reset.
+The checked mark is an independent NSkin texture driven by the Blizzard
+CheckButton's checked state (or an explicit state provider). CHECKBOX suppresses
+native checked/disabled-checked artwork without replacing Blizzard's checked
+texture assignments or changing its interaction owner.
 
 Do not broadly scan arbitrary FontStrings.
 

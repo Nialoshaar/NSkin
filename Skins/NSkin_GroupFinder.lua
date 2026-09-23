@@ -32,12 +32,6 @@ local IDs = {
         ScenarioFinder = "GroupFinder.Navigation.ScenarioFinder",
         RaidFinder = "GroupFinder.Navigation.RaidFinder",
         PremadeGroups = "GroupFinder.Navigation.PremadeGroups",
-        Icons = {
-            DungeonFinder = "GroupFinder.Navigation.DungeonFinder.Icon",
-            ScenarioFinder = "GroupFinder.Navigation.ScenarioFinder.Icon",
-            RaidFinder = "GroupFinder.Navigation.RaidFinder.Icon",
-            PremadeGroups = "GroupFinder.Navigation.PremadeGroups.Icon",
-        },
     },
     TypeDropdown = "GroupFinder.DungeonFinder.TypeDropdown",
     FindGroupButton = "GroupFinder.DungeonFinder.FindGroupButton",
@@ -1155,41 +1149,14 @@ local function GetVisibleDungeonRows(wantHeaders)
     return result
 end
 
-local function SkinDungeonCheckButton(checkButton, styleID)
+local function ApplyDungeonCheckboxComponent(choice, styleID)
+    local checkButton = choice and choice.enableButton
     if not checkButton then return false end
-    local data = NSkin:GetSkinData(checkButton, "groupFinderDungeonCheckbox")
-
-    local function ApplySkin()
-        if data.applying then return end
-        data.applying = true
-        NSkin:SkinCheckButton(checkButton, {
-            style = NSkin:GetAppearanceStyle(
-                "button", IDs.DungeonFinder.Scope, styleID),
-        })
-        data.applying = nil
-    end
-
-    if not data.hooked and _G.hooksecurefunc then
-        for _, method in ipairs({
-            "SetCheckedTexture",
-            "SetDisabledCheckedTexture",
-        }) do
-            if type(checkButton[method]) == "function" then
-                hooksecurefunc(checkButton, method, function()
-                    if data.applying or data.pending then return end
-                    data.pending = true
-                    C_Timer.After(0, function()
-                        data.pending = nil
-                        ApplySkin()
-                    end)
-                end)
-            end
-        end
-        data.hooked = true
-    end
-
-    ApplySkin()
-    return true
+    return NSkin:SkinTypedElement("CHECKBOX", {
+        id = styleID,
+        appearanceWindowID = IDs.DungeonFinder.Scope,
+        target = checkButton,
+    })
 end
 
 local function SkinDungeonCollapseButton(choice)
@@ -1263,9 +1230,49 @@ local function SkinDungeonCollapseButton(choice)
     end
 end
 
+local function ApplyDungeonChoiceIndent(choice, isHeader)
+    if not choice then return end
+    local data = NSkin:GetSkinData(choice, "groupFinderDungeonIndent")
+    local lockedIndicator = choice.lockedIndicator
+    local instanceName = choice.instanceName
+
+    local function CapturePoints(region, key)
+        if not region or data[key] then return end
+        local points = {}
+        for index = 1, region:GetNumPoints() do
+            points[index] = { region:GetPoint(index) }
+        end
+        data[key] = points
+    end
+
+    local function RestoreWithOffset(region, points, offsetX)
+        if not region or not points then return end
+        region:ClearAllPoints()
+        for index = 1, #points do
+            local point = points[index]
+            region:SetPoint(
+                point[1], point[2], point[3],
+                (tonumber(point[4]) or 0) + offsetX,
+                tonumber(point[5]) or 0)
+        end
+    end
+
+    CapturePoints(lockedIndicator, "lockedIndicatorPoints")
+    CapturePoints(instanceName, "instanceNamePoints")
+
+    local indent = 0
+    if not isHeader and choice.expandOrCollapseButton then
+        indent = tonumber(choice.expandOrCollapseButton:GetWidth()) or 0
+    end
+    RestoreWithOffset(lockedIndicator, data.lockedIndicatorPoints, indent)
+    RestoreWithOffset(instanceName, data.instanceNamePoints, indent)
+end
+
 function PVESkin:StyleDungeonChoice(_, _, choice)
     if not choice or not choice.id then return false end
     local id, isHeader = GetDungeonRowFamilyID(choice)
+
+    ApplyDungeonChoiceIndent(choice, isHeader)
 
     if isHeader then
         local sectionStyle = NSkin:GetAppearanceStyle(
@@ -1287,9 +1294,7 @@ function PVESkin:StyleDungeonChoice(_, _, choice)
             elementID = id,
             appearanceWindowID = IDs.DungeonFinder.Scope,
         })
-        if choice.enableButton then
-            SkinDungeonCheckButton(choice.enableButton, id)
-        end
+        ApplyDungeonCheckboxComponent(choice, id)
         SkinDungeonCollapseButton(choice)
         return true
     end
@@ -1315,9 +1320,7 @@ function PVESkin:StyleDungeonChoice(_, _, choice)
         elementID = id,
         appearanceWindowID = IDs.DungeonFinder.Scope,
     })
-    if choice.enableButton then
-        SkinDungeonCheckButton(choice.enableButton, id)
-    end
+    ApplyDungeonCheckboxComponent(choice, id)
     local rowBorder = NSkin:GetPixelBorder(
         choice, "NSkinRowBackgroundBorder")
     if rowBorder then NSkin:SetPixelBorderShown(rowBorder, false) end
@@ -1341,11 +1344,15 @@ function PVESkin:RegisterDungeonRows()
             target = queueFrame,
             priority = 82,
             draggable = false,
+            extraEditorOptions = {
+                { id = "shared.checkboxAppearance", label = "Checkbox",
+                    presentation = "INLINE", category = "CUSTOMIZE" },
+            },
             appearanceStyles = wantHeaders
-                and { "sectionRow", "text" }
+                and { "sectionRow", "text", "button" }
                 or { "row", "text", "button" },
             appearanceTypeIDs = wantHeaders
-                and { "SECTION_ROW", "TEXT" }
+                and { "SECTION_ROW", "TEXT", "CHECKBOX" }
                 or { "ROW", "TEXT", "BUTTON", "CHECKBOX" },
             highlightRegions = function()
                 return GetVisibleDungeonRows(wantHeaders)
@@ -1581,73 +1588,48 @@ local function GetFinderNavigationDefinitions()
     then
         return {
             { IDs.Navigation.DungeonFinder,
-                IDs.Navigation.Icons.DungeonFinder,
                 "Dungeon Finder", finder.groupButton1 },
             { IDs.Navigation.ScenarioFinder,
-                IDs.Navigation.Icons.ScenarioFinder,
                 "Scenario Finder", finder.groupButton2 },
             { IDs.Navigation.RaidFinder,
-                IDs.Navigation.Icons.RaidFinder,
                 "Raid Finder", finder.groupButton3 },
             { IDs.Navigation.PremadeGroups,
-                IDs.Navigation.Icons.PremadeGroups,
                 "Premade Groups", finder.groupButton4 },
         }
     end
     return {
         { IDs.Navigation.DungeonFinder,
-            IDs.Navigation.Icons.DungeonFinder,
             "Dungeon Finder", finder.groupButton1 },
         { IDs.Navigation.RaidFinder,
-            IDs.Navigation.Icons.RaidFinder,
             "Raid Finder", finder.groupButton2 },
         { IDs.Navigation.PremadeGroups,
-            IDs.Navigation.Icons.PremadeGroups,
             "Premade Groups", finder.groupButton3 },
     }
 end
 
-local function RegisterFinderNavigationIcon(
-    frame, button, iconID, label)
-    if not button or not button.icon then return nil end
-    return NSkin:RegisterIcon({
-        id = iconID,
-        module = "GroupFinder",
-        appearanceWindowID = IDs.Scope,
-        label = label .. " icon",
-        window = frame,
-        target = button,
+local function SkinFinderNavigationIcon(button)
+    if not button or not button.icon then return false end
+
+    local iconStyle = WithIconDefaults(
+        NSkin:GetAppearanceStyle("icon", IDs.Scope, IDs.Navigation.Group),
+        { size = 55 })
+    local borderColor = NSkin:GetAppearanceBorderColor(
+        "icon", iconStyle, IDs.Scope, IDs.Navigation.Group)
+
+    NSkin:SkinIcon(button.icon, {
         texture = button.icon,
         borderOwner = button,
-        priority = 62,
-        draggable = false,
-        highlightRegions = { button.icon },
-        pixelBorderTargets = { button.icon },
-        skinOptions = {
-            defaultShape = "circle",
-            nativeMask = button.CircleMask,
-            suppressNativeMask = true,
-            nativeDecorationRegions = { button.ring },
-        },
-        skinAdapter = function(self, _, style, borderColor, definition)
-            local options = {}
-            for key, value in pairs(definition.skinOptions or {}) do
-                options[key] = value
-            end
-            options.style = WithIconDefaults(style, { size = 55 })
-            options.texture = definition.texture
-            options.borderOwner = definition.borderOwner
-            options.borderColor = borderColor
-            options.baselineID = definition.iconTextureBaselineID
-            self:SkinIcon(definition.iconTarget or definition.target, options)
-        end,
-        isEditable = function()
-            return frame:IsVisible() and button:IsVisible()
-        end,
+        style = iconStyle,
+        borderColor = borderColor,
+        defaultShape = "circle",
+        nativeMask = button.CircleMask,
+        suppressNativeMask = true,
+        nativeDecorationRegions = { button.ring },
     })
+    return true
 end
 
-local function SkinFinderNavigationButton(frame, button, id, iconID, label)
+local function SkinFinderNavigationButton(frame, button, id, label)
     if not button or not button.icon then return false end
     ConcealTexture(button.bg)
     ConcealTexture(button.ring)
@@ -1677,7 +1659,7 @@ local function SkinFinderNavigationButton(frame, button, id, iconID, label)
     end
     NSkin:CreateFlatButtonGlow(button, sideStyle.hoverAlpha)
 
-    RegisterFinderNavigationIcon(frame, button, iconID, label)
+    SkinFinderNavigationIcon(button)
     if button.name then
         NSkin:SkinText(button.name,
             NSkin:GetAppearanceStyle(
@@ -1695,11 +1677,11 @@ function PVESkin:ApplyFinderNavigation()
     local visible = {}
     local applied = false
     for _, definition in ipairs(definitions) do
-        local id, iconID, label, button =
-            definition[1], definition[2], definition[3], definition[4]
+        local id, label, button =
+            definition[1], definition[2], definition[3]
         if button then
             applied = SkinFinderNavigationButton(
-                frame, button, id, iconID, label) or applied
+                frame, button, id, label) or applied
             visible[#visible + 1] = button
         end
     end
@@ -1715,12 +1697,16 @@ function PVESkin:ApplyFinderNavigation()
                 target = visible[1],
                 priority = 60,
                 draggable = false,
-                appearanceStyles = { "sideTab", "text" },
-                appearanceTypeIDs = { "SIDE_TAB", "TEXT" },
+                extraEditorOptions = {
+                    { id = "shared.iconAppearance", label = "Icon",
+                        presentation = "TAB", category = "CUSTOMIZE" },
+                },
+                appearanceStyles = { "sideTab", "icon", "text" },
+                appearanceTypeIDs = { "SIDE_TAB", "ICON", "TEXT" },
                 highlightRegions = function()
                     local regions = {}
                     for _, entry in ipairs(GetFinderNavigationDefinitions()) do
-                        local button = entry[4]
+                        local button = entry[3]
                         if button and button:IsVisible() then
                             regions[#regions + 1] = button
                         end
@@ -1730,7 +1716,7 @@ function PVESkin:ApplyFinderNavigation()
                 pixelBorderTargets = function()
                     local regions = {}
                     for _, entry in ipairs(GetFinderNavigationDefinitions()) do
-                        local button = entry[4]
+                        local button = entry[3]
                         if button and button:IsVisible() then
                             regions[#regions + 1] = button
                         end
