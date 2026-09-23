@@ -2152,7 +2152,7 @@ local EDITOR_PRESETS = {
     },
     TEXT = {
         { id = "shared.textAppearance", label = "Text",
-            category = "CUSTOMIZE" },
+            presentation = "INLINE", category = "CUSTOMIZE" },
     },
 }
 

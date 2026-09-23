@@ -299,12 +299,26 @@ AddTypographyControls(textAppearanceControls,
     { useGlobal = "useGlobal", font = "font", size = "textSize", outline = "outline" },
     "Text", 1, { type = "COLOR", key = "color", modeKey = "colorMode",
         label = "Color", allowDefault = true })
+textAppearanceControls[#textAppearanceControls].hideHeading = true
 NSkin:RegisterOptionGroup("shared.textAppearance", {
     controls = textAppearanceControls,
     get = function(context)
         local style = NSkin:GetAppearanceStyle(
             "text", GetAppearanceWindowID(context), context.id)
         local values = { color = CopyColor(style.color) }
+        if context.target then
+            local typographyState = NSkin:GetSkinData(
+                context.target, "resolvedTypography", false)
+            local originalFont = typographyState and typographyState.originalFont
+            local nativeSize = originalFont and tonumber(originalFont[2])
+            if not nativeSize and context.target.GetFont then
+                local _, currentSize = context.target:GetFont()
+                nativeSize = tonumber(currentSize)
+            end
+            if nativeSize then
+                values._display = { textSize = nativeSize }
+            end
+        end
         if type(context.defaultColor) == "table" then
             values.defaultColor = CopyColor(context.defaultColor)
         elseif type(context.defaultColor) == "function" then
@@ -339,6 +353,15 @@ NSkin:RegisterOptionGroup("shared.textAppearance", {
             changed = SetElementValue(context, "text.colorMode", values.colorMode) or changed
         end
         return changed == true
+    end,
+    resetSubset = function(context, keys)
+        return ResetMappedElementKeys(context, keys, {
+            font = { "text.font", "text.fontMode" },
+            textSize = { "text.textSize", "text.sizeMode" },
+            outline = { "text.outline", "text.outlineMode" },
+            color = { "text.color", "text.colorMode" },
+            colorMode = { "text.color", "text.colorMode" },
+        })
     end,
     reset = function(context)
         return ResetElementPaths(context, { "text.fontMode", "text.sizeMode",

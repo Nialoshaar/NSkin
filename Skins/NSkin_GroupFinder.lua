@@ -1329,10 +1329,6 @@ function PVESkin:RegisterDungeonRows()
                     end
                 end
             end,
-            extraEditorOptions = {
-                { id = "shared.checkboxAppearance", label = "Checkbox",
-                    presentation = "INLINE", category = "CUSTOMIZE" },
-            },
             appearanceStyles = wantHeaders
                 and { "sectionRow", "text", "button" }
                 or { "row", "text", "button" },
@@ -1465,7 +1461,6 @@ local function RegisterPVPRoleGroup(frame, honorFrame)
             target = pvpRoleGroupAnchor,
             priority = 82,
             draggable = false,
-            editorOptions = NSkin:CreateEditorOptionsPreset("MOVABLE"),
             highlightRegions = GetPVPRoleGroupRegions,
             isEditable = function()
                 return frame:IsVisible() and honorFrame:IsVisible()
@@ -1682,10 +1677,6 @@ function PVESkin:ApplyFinderNavigation()
                 target = visible[1],
                 priority = 60,
                 draggable = false,
-                extraEditorOptions = {
-                    { id = "shared.iconAppearance", label = "Icon",
-                        presentation = "TAB", category = "CUSTOMIZE" },
-                },
                 appearanceStyles = { "sideTab", "icon", "text" },
                 appearanceTypeIDs = { "SIDE_TAB", "ICON", "TEXT" },
                 highlightRegions = function()

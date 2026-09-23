@@ -492,7 +492,7 @@ local function CreateDropdownPairItem(view, control, x, width, y, mirrored)
 end
 
 local function CreateTwoColumnGridRow(view, y, height, requestedGap)
-    local gap = requestedGap == nil and COMPACT_GRID_CENTER_WIDTH
+    local gap = requestedGap == nil and 0
         or (tonumber(requestedGap) or 0)
     gap = NSkin:SnapToPhysicalPixel(view, gap)
     height = NSkin:SnapToPhysicalPixel(view, height)
@@ -502,6 +502,12 @@ local function CreateTwoColumnGridRow(view, y, height, requestedGap)
     local row = CreateFrame("Frame", nil, view)
     row:SetPoint("TOPLEFT", view, "TOPLEFT", 0, y)
     row:SetSize(view:GetWidth(), height)
+    view.gridRows = view.gridRows or {}
+    local rowIndex = #view.gridRows + 1
+    row.background = row:CreateTexture(nil, "BACKGROUND")
+    row.background:SetAllPoints()
+    row.background:SetColorTexture(1, 1, 1,
+        rowIndex % 2 == 1 and 0.035 or 0)
     row.left = CreateFrame("Frame", nil, row)
     row.left:SetPoint("TOPLEFT")
     row.left:SetSize(width, height)
@@ -510,9 +516,67 @@ local function CreateTwoColumnGridRow(view, y, height, requestedGap)
     row.right:SetPoint("TOPLEFT", row, "TOPLEFT", width + gap, 0)
     row.right:SetSize(width, height)
     AddCompactGridCellBorder(row.right)
-    view.gridRows = view.gridRows or {}
     view.gridRows[#view.gridRows + 1] = row
     return width, gap, row
+end
+
+local function ResetCompactOption(view, keys)
+    if not view or not view.context
+        or type(view.definition.resetSubset) ~= "function"
+    then
+        return false
+    end
+    local subset = {}
+    for _, key in ipairs(keys or {}) do
+        if type(key) == "string" and key ~= "" then subset[key] = true end
+    end
+    if not next(subset) then return false end
+    local changed = view.definition.resetSubset(view.context, subset) == true
+    if changed then
+        NSkin:NotifyOptionGroupChanged(view.id)
+    else
+        view:Refresh()
+    end
+    return changed
+end
+
+local function AddCompactOptionResetMenu(view, label, optionLabel, keys)
+    if not label or view.presentation ~= "COMPACT"
+        or type(view.definition.resetSubset) ~= "function"
+    then
+        return
+    end
+    local target = CreateFrame("Button", nil, view)
+    target:SetAllPoints(label)
+    target:RegisterForClicks("RightButtonUp")
+    target:SetFrameLevel(view:GetFrameLevel() + 5)
+    target:SetScript("OnClick", function(self, button)
+        if button ~= "RightButton" then return end
+        local function Reset()
+            ResetCompactOption(view, keys)
+        end
+        if MenuUtil and MenuUtil.CreateContextMenu then
+            MenuUtil.CreateContextMenu(self, function(_, rootDescription)
+                rootDescription:CreateButton(
+                    "Reset " .. (optionLabel or "option"), Reset)
+            end)
+        else
+            Reset()
+        end
+    end)
+    target:SetScript("OnEnter", function(self)
+        if GameTooltip then
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetText(optionLabel or "Option")
+            GameTooltip:AddLine("Right-click to reset this option.",
+                1, 1, 1, true)
+            GameTooltip:Show()
+        end
+    end)
+    target:SetScript("OnLeave", function()
+        if GameTooltip then GameTooltip:Hide() end
+    end)
+    view.controls[#view.controls + 1] = target
 end
 
 local function CreateDropdownReset(view, control, y)
@@ -621,7 +685,11 @@ local function CreateTypographyDropdown(view, control, key, values, width, x, y,
         label:SetPoint("TOPLEFT", view, "TOPLEFT", x, y)
     end
     label:SetText(control[key .. "Label"])
-    if inline then AddCompactGridControlDivider(view, label, mirrored) end
+    if inline then
+        AddCompactGridControlDivider(view, label, mirrored)
+        AddCompactOptionResetMenu(view, label,
+            control[key .. "Label"], { control[key .. "Key"] })
+    end
     local dropdown = CreateOwnedDropdown(view)
     local labelWidth = inline and COMPACT_GRID_LABEL_WIDTH or 0
     dropdown:SetSize(width - labelWidth
@@ -684,6 +752,8 @@ local function CreateTypographySizeSlider(view, control, parent)
     label:SetJustifyV("MIDDLE")
     label:SetText(definition.label)
     AddCompactGridControlDivider(parent, label, false)
+    AddCompactOptionResetMenu(view, label,
+        definition.label, { definition.key })
     local valueLabel = CreateFrame("EditBox", nil, parent)
     valueLabel:SetSize(38, 22)
     local labelDelta = COMPACT_GRID_LABEL_WIDTH - 56
@@ -852,6 +922,8 @@ CreateColor = function(view, control, y, layout)
     label:SetText(control.label)
     if layout.inline then
         AddCompactGridControlDivider(view, label, layout.mirrored)
+        AddCompactOptionResetMenu(view, label,
+            control.label, { control.key })
     end
     local dropdown = CreateOwnedDropdown(view)
     local controlWidth = math.max(80, width - inlineLabelWidth - 10)
@@ -1536,6 +1608,10 @@ function NSkin:CreateOptionGroupView(parent, id, layout, context)
                 local selectedSize = values and values[control.sizeKey]
                 if selectedSize == "__NSKIN_GLOBAL__" then
                     selectedSize = NSkin:GetStyle("typography").size
+                elseif selectedSize == nil and values
+                    and type(values._display) == "table"
+                then
+                    selectedSize = values._display[control.sizeKey]
                 end
                 selectedSize = tonumber(selectedSize)
                 if selectedSize then
