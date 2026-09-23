@@ -996,6 +996,13 @@ edited window, Skinning Mode may consume the click for selection. If another
 window owns the point, click propagation remains enabled so NSkin does not
 steal that interaction.
 
+Multi-region semantic elements may declare `highlightMode = "REGIONS"`.
+Their logical bounds remain the union of all visible regions for movement and
+geometry, but Skinning Mode renders and hit-tests each region independently.
+Hovering any one region highlights every active region belonging to that same
+logical editor element; empty space between disjoint regions is not part of the
+highlight or hit surface. The default remains one union-bounds highlight.
+
 Overlapping elements in the same semantic window may still use the Skinning
 Mode selection resolver to choose the most specific registered element.
 

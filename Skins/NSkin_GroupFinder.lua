@@ -1306,6 +1306,7 @@ function PVESkin:RegisterDungeonRows()
             target = queueFrame,
             priority = 82,
             draggable = false,
+            highlightMode = "REGIONS",
             defaultColor = function()
                 local rows = GetVisibleDungeonRows(wantHeaders)
                 for i = 1, #rows do

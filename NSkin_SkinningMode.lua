@@ -81,6 +81,40 @@ local function AnchorOverlay(overlay, element)
     return true
 end
 
+local function GetElementHighlightRegions(element)
+    if not element then return nil end
+    local regions = NSkin:GetCompositionHighlightRegions(element)
+    if type(regions) == "function" then
+        local ok, resolved = pcall(regions, element)
+        regions = ok and resolved or nil
+    end
+    return type(regions) == "table" and regions or nil
+end
+
+local function GetNormalizedRegionBounds(region, padding)
+    if not region or (region.IsShown and not region:IsShown()) then return end
+    local left, right, bottom, top = NSkin:GetUIParentNormalizedBounds(region)
+    if not left then return end
+    padding = tonumber(padding) or 0
+    return left - padding, right + padding, bottom - padding, top + padding
+end
+
+local function IsPointWithinElementHitArea(element, x, y)
+    if not element or not x or not y then return false end
+    if element.highlightMode == "REGIONS" then
+        for _, region in ipairs(GetElementHighlightRegions(element) or {}) do
+            local left, right, bottom, top =
+                GetNormalizedRegionBounds(region, element.highlightPadding)
+            if left and x >= left and x <= right and y >= bottom and y <= top then
+                return true
+            end
+        end
+        return false
+    end
+    local left, right, bottom, top = GetElementBounds(element)
+    return left and x >= left and x <= right and y >= bottom and y <= top
+end
+
 local function GetEditorElement(element)
     return element and NSkin.GetSkinningEditorElement
         and NSkin:GetSkinningEditorElement(element) or element
@@ -273,14 +307,28 @@ function NSkin:IsSkinningOverlayInteractive(element, inputTarget)
         or IsFrameWithin(element.window, underlying)
 end
 
+local function SetOverlayInputEnabled(overlay, enabled)
+    if not overlay then return end
+    enabled = enabled == true
+    if overlay.inputTarget then
+        overlay.inputTarget:EnableMouse(
+            enabled and overlay.highlightMode ~= "REGIONS")
+    end
+    for _, surface in ipairs(overlay.regionSurfaces or {}) do
+        if surface.input then
+            surface.input:EnableMouse(enabled and surface.active == true)
+        end
+    end
+end
+
 local function SetElementOverlayShown(overlay, shown)
     if not overlay then return end
-    overlay:SetShown(shown == true)
-    if overlay.inputTarget then
-        overlay.inputTarget:SetShown(shown == true)
-        overlay.inputTarget:EnableMouse(
-            shown == true and not (controller and controller.modalInputBlocked))
-    end
+    shown = shown == true
+    overlay:SetShown(shown)
+    if overlay.inputTarget then overlay.inputTarget:SetShown(shown) end
+    if overlay.refreshRegionSurfaces then overlay:refreshRegionSurfaces() end
+    SetOverlayInputEnabled(overlay,
+        shown and not (controller and controller.modalInputBlocked))
 end
 
 local function IsPointerWithinElementBounds(element)
@@ -449,9 +497,26 @@ local function RefreshOverlayAppearance(element)
             visible = false
         end
     end
-    overlay.texture:SetColorTexture(unpack(visible and style.highlight or TRANSPARENT))
-    NSkin:SetPixelBorderColor(overlay.border, unpack(style.hover))
-    NSkin:SetPixelBorderShown(overlay.border, visible)
+    if overlay.highlightMode == "REGIONS" then
+        if overlay.refreshRegionSurfaces then overlay:refreshRegionSurfaces() end
+        overlay.texture:SetColorTexture(unpack(TRANSPARENT))
+        NSkin:SetPixelBorderShown(overlay.border, false)
+        for _, surface in ipairs(overlay.regionSurfaces or {}) do
+            if surface.visual then
+                surface.visual.texture:SetColorTexture(
+                    unpack(visible and style.highlight or TRANSPARENT))
+                NSkin:SetPixelBorderColor(
+                    surface.visual.border, unpack(style.hover))
+                NSkin:SetPixelBorderShown(
+                    surface.visual.border, visible and surface.active == true)
+            end
+        end
+    else
+        overlay.texture:SetColorTexture(
+            unpack(visible and style.highlight or TRANSPARENT))
+        NSkin:SetPixelBorderColor(overlay.border, unpack(style.hover))
+        NSkin:SetPixelBorderShown(overlay.border, visible)
+    end
 end
 
 RefreshWindowFallbackAppearance = function(window)
@@ -479,11 +544,14 @@ RefreshModalInputOwnership = function()
         local element = controller.overlayElements[id]
         local selected = element and controller.selectedElement == element
         local inputTarget = overlay.inputTarget
-        if inputTarget then
-            inputTarget:EnableMouse(
-                controller.enabled and overlay:IsShown() and not blocked)
-            if inputTarget.SetPropagateMouseClicks then
-                inputTarget:SetPropagateMouseClicks(true)
+        SetOverlayInputEnabled(overlay,
+            controller.enabled and overlay:IsShown() and not blocked)
+        if inputTarget and inputTarget.SetPropagateMouseClicks then
+            inputTarget:SetPropagateMouseClicks(true)
+        end
+        for _, surface in ipairs(overlay.regionSurfaces or {}) do
+            if surface.input and surface.input.SetPropagateMouseClicks then
+                surface.input:SetPropagateMouseClicks(true)
             end
         end
         if blocked and selected then
@@ -1060,6 +1128,7 @@ local function CreateOverlay(element)
     -- so Blizzard dialogs and unrelated windows can occlude it normally.
     local overlay = CreateFrame("Frame", nil, parent)
     overlay.usesAbsoluteBounds = usesAbsoluteBounds
+    overlay.highlightMode = element.highlightMode
     overlay.nskinSkinningOverlay = true
     overlay:EnableMouse(false)
     ConfigureVisualOverlayStacking(overlay, element)
@@ -1076,7 +1145,8 @@ local function CreateOverlay(element)
     inputTarget.nskinSkinningInput = true
     inputTarget.nskinSkinningElement = element
     inputTarget:RegisterForClicks("LeftButtonUp")
-    inputTarget:EnableMouse(not controller.modalInputBlocked)
+    inputTarget:EnableMouse(
+        element.highlightMode ~= "REGIONS" and not controller.modalInputBlocked)
     if inputTarget.SetPropagateMouseMotion then
         inputTarget:SetPropagateMouseMotion(true)
     end
@@ -1126,6 +1196,15 @@ local function CreateOverlay(element)
         RefreshInputEligibility(self)
     end)
     inputTarget:SetScript("OnLeave", function()
+        if element.highlightMode == "REGIONS" and _G.GetCursorPosition then
+            local x, y = _G.GetCursorPosition()
+            local scale = UIParent and UIParent:GetEffectiveScale() or 1
+            if scale and scale ~= 0
+                and IsPointWithinElementHitArea(element, x / scale, y / scale)
+            then
+                return
+            end
+        end
         SetHovered(false)
     end)
 
@@ -1144,8 +1223,8 @@ local function CreateOverlay(element)
             then
                 local left, right, bottom, top =
                     NSkin:GetSkinningElementBounds(candidate)
-                if left and cursorX >= left and cursorX <= right
-                    and cursorY >= bottom and cursorY <= top
+                if left and IsPointWithinElementHitArea(
+                    candidate, cursorX, cursorY)
                 then
                     local priority = (tonumber(candidate.priority) or 0)
                         + (candidate.compositionParentID and 1000 or 0)
@@ -1165,6 +1244,120 @@ local function CreateOverlay(element)
             end
         end
         return best or element
+    end
+
+    if element.highlightMode == "REGIONS" then
+        overlay.regionSurfaces = {}
+
+        local function AnchorRegionSurface(frame, region)
+            frame:ClearAllPoints()
+            local left, right, bottom, top =
+                GetNormalizedRegionBounds(region, element.highlightPadding)
+            if not left then
+                frame:Hide()
+                return false
+            end
+            frame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top)
+            frame:SetPoint("BOTTOMRIGHT", UIParent, "BOTTOMLEFT", right, bottom)
+            frame:Show()
+            return true
+        end
+
+        local function CreateRegionSurface(index)
+            local visual = CreateFrame("Frame", nil, overlay)
+            visual:EnableMouse(false)
+            visual:SetFrameLevel(overlay:GetFrameLevel() + 1)
+            visual.texture = visual:CreateTexture(nil, "BACKGROUND")
+            visual.texture:SetAllPoints()
+            visual.texture:SetColorTexture(unpack(TRANSPARENT))
+            visual.border = NSkin:CreatePixelBorder(
+                visual, "NSkinSkinningModeRegionHighlight", 1,
+                NSkin:GetStyle("skinningMode").hover, false, visual)
+            NSkin:SetPixelBorderShown(visual.border, false)
+
+            local input = CreateFrame("Button", nil, inputTarget)
+            input.nskinSkinningInput = true
+            input.nskinSkinningElement = element
+            input:RegisterForClicks("LeftButtonUp")
+            input:SetFrameLevel(inputTarget:GetFrameLevel() + 1)
+            if input.SetPropagateMouseMotion then
+                input:SetPropagateMouseMotion(true)
+            end
+            if input.SetPropagateMouseClicks then
+                input:SetPropagateMouseClicks(true)
+            end
+            input:SetScript("OnEnter", function(self)
+                RefreshInputEligibility(self)
+            end)
+            input:SetScript("OnLeave", function()
+                if _G.GetCursorPosition then
+                    local x, y = _G.GetCursorPosition()
+                    local scale = UIParent and UIParent:GetEffectiveScale() or 1
+                    if scale and scale ~= 0
+                        and IsPointWithinElementHitArea(
+                            element, x / scale, y / scale)
+                    then
+                        return
+                    end
+                end
+                SetHovered(false)
+            end)
+            input:SetScript("OnMouseDown", function(self, button)
+                if button ~= "LeftButton" then return end
+                if not RefreshInputEligibility(self) then return end
+                if not (_G.IsShiftKeyDown and _G.IsShiftKeyDown()) then return end
+                local pointerElement = ResolvePointerElement()
+                SelectElement(pointerElement)
+                if GetEditorElement(pointerElement) == pointerElement
+                    and CanShiftDragElement(pointerElement)
+                then
+                    BeginDrag(pointerElement)
+                end
+            end)
+            input:SetScript("OnMouseUp", function(_, button)
+                if button == "LeftButton" and controller.dragging then
+                    StopDrag(true)
+                end
+            end)
+            input:SetScript("OnClick", function(self)
+                if controller.dragging then return end
+                if not RefreshInputEligibility(self) then return end
+                SelectElement(ResolvePointerElement())
+            end)
+
+            local surface = { visual = visual, input = input, index = index }
+            overlay.regionSurfaces[index] = surface
+            return surface
+        end
+
+        overlay.refreshRegionSurfaces = function(self)
+            local regions = GetElementHighlightRegions(element) or {}
+            for index, region in ipairs(regions) do
+                local surface = self.regionSurfaces[index]
+                    or CreateRegionSurface(index)
+                surface.region = region
+                surface.active = AnchorRegionSurface(surface.visual, region)
+                if surface.active then
+                    AnchorRegionSurface(surface.input, region)
+                    surface.input:SetShown(self:IsShown())
+                    surface.input:EnableMouse(
+                        self:IsShown() and not controller.modalInputBlocked)
+                else
+                    surface.input:Hide()
+                    surface.input:EnableMouse(false)
+                end
+            end
+            for index = #regions + 1, #self.regionSurfaces do
+                local surface = self.regionSurfaces[index]
+                surface.active = nil
+                surface.region = nil
+                surface.visual:Hide()
+                surface.input:Hide()
+                surface.input:EnableMouse(false)
+                NSkin:SetPixelBorderShown(surface.visual.border, false)
+            end
+        end
+        overlay:refreshRegionSurfaces()
     end
 
     inputTarget:SetScript("OnMouseDown", function(self, button)
@@ -1197,6 +1390,7 @@ local function CreateOverlay(element)
         AnchorOverlay(self, element)
         ConfigureVisualOverlayStacking(self, element)
         ConfigureInputOverlayStacking(inputTarget, element)
+        if self.refreshRegionSurfaces then self:refreshRegionSurfaces() end
         RefreshOverlayAppearance(element)
     end)
     overlay:SetScript("OnHide", function()
