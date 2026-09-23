@@ -773,7 +773,10 @@ local function CreateTypography(view, control, y)
 end
 
 local function ResolveColorModeFill(values, control, mode)
-    if mode == "CLASS" then
+    if mode == "DEFAULT" then
+        return values and values.defaultColor or values and values[control.key]
+            or { 1, 1, 1, 1 }
+    elseif mode == "CLASS" then
         local _, class = UnitClass("player")
         local classColor = class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
         if classColor then
@@ -904,6 +907,10 @@ CreateColor = function(view, control, y, layout)
         } or {
             { value = "CUSTOM", label = "Custom" },
         }
+        if control.allowDefault and current
+            and type(current.defaultColor) == "table" then
+            table.insert(modes, 1, { value = "DEFAULT", label = "Default" })
+        end
         for i = 1, #modes do
             local mode = modes[i]
             local description = rootDescription:CreateRadio(mode.label,
@@ -947,7 +954,8 @@ local function RefreshColorControl(view, control, values)
     local dropdown = view.colorByKey[control.key]
     local modeKey = view.colorModeByKey[control.key]
     local mode = modeKey and values[modeKey] or "CUSTOM"
-    local labels = { CLASS = "Class", ACCENT = "Accent", CUSTOM = "Custom" }
+    local labels = { DEFAULT = "Default", CLASS = "Class",
+        ACCENT = "Accent", CUSTOM = "Custom" }
     FillColorDropdown(dropdown, ResolveColorModeFill(values, control, mode))
     dropdown:SetDefaultText(labels[mode] or "Custom")
     if dropdown.GenerateMenu then dropdown:GenerateMenu() end
@@ -1583,7 +1591,8 @@ function NSkin:CreateOptionGroupView(parent, id, layout, context)
             local mode = modeKey and values and values[modeKey] or "CUSTOM"
             local control = self.colorDefinitionByKey[key]
             local labels = {
-                CLASS = "Class", ACCENT = "Accent", CUSTOM = "Custom",
+                DEFAULT = "Default", CLASS = "Class",
+                ACCENT = "Accent", CUSTOM = "Custom",
             }
             if control then
                 FillColorDropdown(dropdown,

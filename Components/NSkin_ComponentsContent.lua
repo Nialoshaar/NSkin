@@ -515,7 +515,8 @@ RefreshRowContentAppearance = function(target)
     for _, regionState in pairs(state.contentRegionStates or {}) do
         if regionState.active then
             regionState.applying = true
-            NSkin:SkinText(regionState.region, state.contentStyle)
+            NSkin:SkinText(regionState.region, state.contentStyle,
+                state.contentTextOptions)
             regionState.applying = nil
         end
     end
@@ -664,6 +665,7 @@ function NSkin:SkinRow(target, options)
     state.getHovered = options.getHovered
     state.getSelected = options.getSelected
     state.contentStyle = options.contentStyle
+    state.contentTextOptions = options.contentTextOptions
     local visualRegion = ResolveContentValue(options.visualRegion, target)
     if not (visualRegion and visualRegion.GetObjectType) then
         visualRegion = target
@@ -797,7 +799,8 @@ local function RefreshSectionRowContentAppearance(target)
     for _, regionState in pairs(state.contentRegionStates or {}) do
         if regionState.active then
             regionState.applying = true
-            NSkin:SkinText(regionState.region, state.contentStyle)
+            NSkin:SkinText(regionState.region, state.contentStyle,
+                state.contentTextOptions)
             regionState.applying = nil
         end
     end
@@ -967,6 +970,7 @@ function NSkin:SkinSectionRow(target, options)
     state.hoverEventsManaged = type(options.getHovered) == "function"
     state.pointerHovered = false
     state.contentStyle = options.contentStyle
+    state.contentTextOptions = options.contentTextOptions
     local visualRegion = ResolveContentValue(options.visualRegion, target)
     if not (visualRegion and visualRegion.GetObjectType) then
         visualRegion = target

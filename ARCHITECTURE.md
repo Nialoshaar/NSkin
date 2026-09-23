@@ -106,6 +106,12 @@ row child TEXT
 generated TEXT
 ```
 
+Shared TEXT captures the FontString's native color before its first mutation.
+The shared color control starts in Default mode when that color is available,
+and tracks subsequent Blizzard color changes. Registrations may explicitly
+supply `defaultColor` as a color or callback. Accent, Class, and Custom remain
+explicit overrides. Reset removes the override and returns to the native color.
+
 Likewise, CHECKBOX, ICON, EDIT_BOX, ROW, and other shared types should each have one canonical shared implementation.
 
 A new option added to a shared component should normally become available everywhere that component is used without modifying individual window files.

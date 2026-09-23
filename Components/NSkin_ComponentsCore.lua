@@ -255,10 +255,22 @@ function NSkin:GetResolvedTypography(style, prefix)
         style[outlineKey] or global.outline
 end
 
-function NSkin:SkinTextColor(fontString, style)
+function NSkin:GetTextAppearanceColorMode(style, elementID, defaultColor)
+    if not defaultColor then return style and style.colorMode end
+    local profile = self:GetProfile()
+    local overrides = profile.appearanceOverrides
+    local elements = overrides and overrides.elements
+    local override = elements and elements[elementID]
+        and elements[elementID].text
+    return override and override.colorMode or "DEFAULT"
+end
+
+function NSkin:SkinTextColor(fontString, style, options)
     if not fontString or not fontString.GetFont then return false end
     style = style or self:GetStyle("text")
-    local color = self:GetResolvedAppearanceColor(style, "color")
+    local mode = options and options.colorMode or style.colorMode
+    local color = mode == "DEFAULT" and options and options.defaultColor
+        or self:GetResolvedAppearanceColor(style, "color")
     if color then self:SetFontStringColor(fontString, unpack(color)) end
     return true
 end
@@ -372,23 +384,42 @@ function NSkin:SkinText(fontString, style, options)
     if not state.originalColor and fontString.GetTextColor then
         state.originalColor = { fontString:GetTextColor() }
     end
+    state.nativeColorEnabled = options.defaultColor == nil
+        or options.defaultColor == true
+    if state.nativeColorEnabled then
+        state.nativeColor = state.nativeColor or state.originalColor
+        state.defaultColor = state.nativeColor
+    elseif type(options.defaultColor) == "table" then
+        state.defaultColor = options.defaultColor
+    elseif type(options.defaultColor) == "function" then
+        local ok, color = pcall(options.defaultColor, fontString)
+        state.defaultColor = ok and type(color) == "table" and color or nil
+    else
+        state.defaultColor = nil
+    end
     state.style = style
+    state.colorMode = self:GetTextAppearanceColorMode(
+        style, options.elementID, state.defaultColor)
     if not state.colorHooked and _G.hooksecurefunc
         and type(fontString.SetTextColor) == "function"
     then
-        _G.hooksecurefunc(fontString, "SetTextColor", function()
+        _G.hooksecurefunc(fontString, "SetTextColor", function(_, red, green, blue, alpha)
             local current = NSkin:GetSkinData(
                 fontString, "sharedTextAppearance", false)
             if not current or not current.active or current.applying then return end
+            if current.nativeColorEnabled then
+                current.nativeColor = { red, green, blue, alpha or 1 }
+                current.defaultColor = current.nativeColor
+            end
             current.applying = true
-            NSkin:SkinTextColor(fontString, current.style)
+            NSkin:SkinTextColor(fontString, current.style, current)
             current.applying = nil
         end)
         state.colorHooked = true
     end
     state.active = true
     state.applying = true
-    local colored = self:SkinTextColor(fontString, style)
+    local colored = self:SkinTextColor(fontString, style, state)
     state.applying = nil
     if not colored then return false end
     self:ApplyResolvedTypography(fontString, style)
@@ -478,8 +509,13 @@ local function SetAppearanceOverride(scope, id, windowID, path, value)
         and (path:match("%.size$") or path:match("%.width$")
             or path:match("%.height$")
             or path:match("%.textSize$") or path:match("%.iconSize$"))
+    local element = scope == "elements" and NSkin:GetSkinningElement(id)
+    local nativeTextCustom = path == "text.colorMode"
+        and value == "CUSTOM" and element
+        and (element.kind == "TEXT" or element.defaultColor)
     local newValue = (isBlizzardGeometrySentinel
-        or (parentValue ~= nil and TablesEqual(value, parentValue)))
+        or (not nativeTextCustom and parentValue ~= nil
+            and TablesEqual(value, parentValue)))
         and nil or value
     if TablesEqual(currentValue, newValue) then return false end
 
@@ -2923,6 +2959,8 @@ local SHARED_SKIN_ADAPTERS = {
         skinMethod(self, target, style, {
             numberFormat = definition.numberFormat,
             suffixIcon = definition.suffixIcon,
+            defaultColor = definition.defaultColor,
+            elementID = definition.id,
         })
     end,
 }
@@ -3039,7 +3077,7 @@ local TYPED_SKIN_FIELDS_BY_TYPE = {
         "getHovered", "getSelected",
         "interactionAlpha", "interactionOwner", "reset",
     },
-    TEXT = { "numberFormat", "suffixIcon" },
+    TEXT = { "numberFormat", "suffixIcon", "defaultColor" },
 }
 
 local function TypedSkinValuesEqual(left, right, visited)

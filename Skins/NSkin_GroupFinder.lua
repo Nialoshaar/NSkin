@@ -501,39 +501,6 @@ function PVESkin:ApplyDungeonScrollBars()
     return applied
 end
 
-local function RegisterDefaultColorTextElement(definition)
-    local target = definition and definition.target
-    if not target then return nil end
-    local function Refresh()
-        local style = NSkin:GetAppearanceStyle(
-            "text", definition.appearanceWindowID, definition.id)
-        NSkin:ApplyResolvedTypography(target, style)
-        NSkin:NotifySkinningElementBoundsChanged(definition.id)
-        return true
-    end
-    local element = NSkin:RegisterSkinningElement(definition.id, {
-        module = "GroupFinder",
-        appearanceWindowID = definition.appearanceWindowID,
-        label = definition.label,
-        kind = "TEXT",
-        window = definition.window,
-        target = target,
-        priority = definition.priority or 80,
-        anchorGroupID = definition.anchorGroupID,
-        anchorGroupLabel = definition.anchorGroupLabel,
-        anchorGroupAppearanceSource = definition.anchorGroupAppearanceSource,
-        compositionParentID = definition.compositionParentID,
-        appearanceStyles = { "text" },
-        appearanceTypeIDs = { "TEXT" },
-        highlightRegions = { target },
-        refreshAppearance = Refresh,
-        refreshLayout = Refresh,
-        isEditable = definition.isEditable,
-    })
-    Refresh()
-    return element
-end
-
 local function RegisterCompositeParent(definition)
     if not definition or not definition.id or not definition.target then
         return nil
@@ -596,12 +563,14 @@ function PVESkin:ApplyFollowerTexts()
             "Follower dungeon description", description },
     }) do
         local id, label, target = unpack(definition)
-        applied = RegisterDefaultColorTextElement({
+        applied = NSkin:RegisterTextElement({
             id = id,
+            module = "GroupFinder",
             appearanceWindowID = IDs.DungeonFinder.Scope,
             label = label,
             window = frame,
             target = target,
+            highlightRegions = { target },
             priority = 81,
             compositionParentID = IDs.DungeonFinder.FollowerHeader,
             isEditable = function()
@@ -716,12 +685,14 @@ function PVESkin:ApplyRandomDungeonContent()
     }) do
         local id, label, target = unpack(definition)
         if target then
-            applied = RegisterDefaultColorTextElement({
+            applied = NSkin:RegisterTextElement({
                 id = id,
+                module = "GroupFinder",
                 appearanceWindowID = IDs.DungeonFinder.Scope,
                 label = label,
                 window = frame,
                 target = target,
+                highlightRegions = { target },
                 priority = 83,
                 compositionParentID = IDs.DungeonFinder.RandomHeader,
                 isEditable = function()
@@ -826,12 +797,14 @@ function PVESkin:ApplyRandomDungeonContent()
     }) do
         local id, label, target = unpack(definition)
         if target then
-            applied = RegisterDefaultColorTextElement({
+            applied = NSkin:RegisterTextElement({
                 id = id,
+                module = "GroupFinder",
                 appearanceWindowID = IDs.DungeonFinder.Scope,
                 label = label,
                 window = frame,
                 target = target,
+                highlightRegions = { target },
                 priority = 84,
                 compositionParentID = IDs.DungeonFinder.RandomRewards,
                 isEditable = function()
@@ -1282,6 +1255,7 @@ function PVESkin:StyleDungeonChoice(_, _, choice)
         NSkin:SkinSectionRow(choice, {
             style = sectionStyle,
             contentStyle = textStyle,
+            contentTextOptions = { elementID = id },
             collapseButton = choice.expandOrCollapseButton,
             contentRegions = {
                 choice.instanceName,
@@ -1344,6 +1318,17 @@ function PVESkin:RegisterDungeonRows()
             target = queueFrame,
             priority = 82,
             draggable = false,
+            defaultColor = function()
+                local rows = GetVisibleDungeonRows(wantHeaders)
+                for i = 1, #rows do
+                    local text = rows[i].instanceName
+                    local state = text and NSkin:GetSkinData(
+                        text, "sharedTextAppearance", false)
+                    if state and state.defaultColor then
+                        return state.defaultColor
+                    end
+                end
+            end,
             extraEditorOptions = {
                 { id = "shared.checkboxAppearance", label = "Checkbox",
                     presentation = "INLINE", category = "CUSTOMIZE" },

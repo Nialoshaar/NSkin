@@ -298,13 +298,33 @@ local textAppearanceControls = {}
 AddTypographyControls(textAppearanceControls,
     { useGlobal = "useGlobal", font = "font", size = "textSize", outline = "outline" },
     "Text", 1, { type = "COLOR", key = "color", modeKey = "colorMode",
-        label = "Color" })
+        label = "Color", allowDefault = true })
 NSkin:RegisterOptionGroup("shared.textAppearance", {
     controls = textAppearanceControls,
     get = function(context)
         local style = NSkin:GetAppearanceStyle(
             "text", GetAppearanceWindowID(context), context.id)
-        local values = { color = CopyColor(style.color), colorMode = style.colorMode }
+        local values = { color = CopyColor(style.color) }
+        if type(context.defaultColor) == "table" then
+            values.defaultColor = CopyColor(context.defaultColor)
+        elseif type(context.defaultColor) == "function" then
+            local ok, color = pcall(context.defaultColor, context)
+            if ok and type(color) == "table" then
+                values.defaultColor = CopyColor(color)
+            end
+        end
+        if not values.defaultColor and context.target then
+            local state = NSkin:GetSkinData(
+                context.target, "sharedTextAppearance", false)
+            values.defaultColor = state and state.defaultColor
+            if not values.defaultColor and context.kind == "TEXT"
+                and context.target.GetTextColor
+            then
+                values.defaultColor = { context.target:GetTextColor() }
+            end
+        end
+        values.colorMode = NSkin:GetTextAppearanceColorMode(
+            style, context.id, values.defaultColor)
         GetTypographyValues(values, style,
             { useGlobal = "useGlobal", font = "font", size = "textSize", outline = "outline" })
         return values
