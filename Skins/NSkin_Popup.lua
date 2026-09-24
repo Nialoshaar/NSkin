@@ -65,6 +65,8 @@ local IDs = {
 }
 
 local LFG_ARTWORK_TOP_INSET = 11
+local SPLASH_CHROME_INSET_X = 10
+local SPLASH_CHROME_INSET_Y = 9
 
 local initialized = false
 local showHooked = false
@@ -787,6 +789,22 @@ function PopupSkin:ApplyRolePoll()
     return applied
 end
 
+local function GetSplashChromeAnchor(frame)
+    local data = NSkin:GetSkinData(frame, "splash")
+    local anchor = data.chromeAnchor
+    if not anchor then
+        anchor = _G.CreateFrame("Frame", nil, frame)
+        anchor:EnableMouse(false)
+        data.chromeAnchor = anchor
+    end
+    anchor:ClearAllPoints()
+    anchor:SetPoint("TOPLEFT", frame, "TOPLEFT",
+        SPLASH_CHROME_INSET_X, -SPLASH_CHROME_INSET_Y)
+    anchor:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT",
+        -SPLASH_CHROME_INSET_X, SPLASH_CHROME_INSET_Y)
+    return anchor
+end
+
 function PopupSkin:ApplySplash()
     local frame = _G.SplashFrame
     if not CanSkinReadyCheckTarget(frame) then return false end
@@ -812,23 +830,34 @@ function PopupSkin:ApplySplash()
         if not CanSkinReadyCheckTarget(definition[4]) then return false end
     end
     if not CanSkinReadyCheckTarget(right.StartQuestButton.Text) then return false end
+    local chromeAnchor = GetSplashChromeAnchor(frame)
     local chrome = NSkin:SkinStandardWindowChrome({
         frame = frame, appearanceWindowID = IDs.Splash.Scope,
         elementID = IDs.Splash.Window, title = false,
+        backgroundAnchor = chromeAnchor,
+        borderOwner = chromeAnchor,
+        borderAnchor = chromeAnchor,
+        headerAnchor = chromeAnchor,
         closeButton = frame.TopCloseButton,
         headerControlsID = IDs.Splash.TopCloseButton,
         headerControlsLabel = "Splash top close button",
         preserveCloseButtonGeometry = true,
     })
     if not chrome then return false end
+    frame.TopCloseButton:ClearAllPoints()
+    frame.TopCloseButton:SetPoint(
+        "TOPRIGHT", chromeAnchor, "TOPRIGHT", 0, 0)
     -- Preserve the patch-specific Left/Right/BottomTexture and BottomLine.
-    -- Keep shared chrome behind that artwork, including on local WINDOW edits.
+    -- Keep shared chrome behind that artwork. The native splash atlases carry
+    -- transparent padding around their visible edge, so the NSkin border uses
+    -- a small inset anchor instead of the full 882x584 layout frame.
     if chrome.background then chrome.background:SetDrawLayer("BACKGROUND", -8) end
     if chrome.header then chrome.header:SetDrawLayer("BACKGROUND", -7) end
     local applied = NSkin:RegisterSkinningElement(IDs.Splash.Window, {
         label = "Splash window", kind = "WINDOW", module = "Popup",
         appearanceWindowID = IDs.Splash.Scope,
         window = frame, target = frame, priority = 0, draggable = false,
+        pixelBorderTargets = { chromeAnchor },
     }) == true
     for index, definition in ipairs(definitions) do
         local id, kind, label, target = unpack(definition)
