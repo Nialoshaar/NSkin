@@ -1201,28 +1201,17 @@ local function SkinDungeonCollapseButton(choice)
         "button", IDs.DungeonFinder.Scope, IDs.DungeonSections)
     local borderColor = NSkin:GetAppearanceBorderColor(
         "button", style, IDs.DungeonFinder.Scope, IDs.DungeonSections)
-    local backgroundColor = NSkin:GetResolvedAppearanceColor(
-        style, "background")
-    local background = NSkin:CreateFlatBackground(
-        button, "NSkinDungeonCollapseBackground",
-        backgroundColor, borderColor)
-    if background then background:Show() end
-
-    local border = NSkin:GetPixelBorder(
-        button, "NSkinDungeonCollapseBackgroundBorder")
-    if border then
-        NSkin:SetPixelBorderColor(border, unpack(borderColor))
-        NSkin:SetPixelBorderSize(border, 1)
-        NSkin:SetPixelBorderPadding(border, 0)
-        NSkin:SetPixelBorderShown(border, true)
-    end
-
-    data.collapseGlyph = NSkin:CreateCenteredButtonGlyph(
-        button, "dungeonCollapse", {
-            glyph = choice.isCollapsed == true and "plus" or "minus",
-            size = 8,
-            color = { 1, 1, 1, 1 },
-        })
+    local glyphState = NSkin:SkinGlyphButton(button, {
+        style = style,
+        border = borderColor,
+        backgroundKey = "NSkinDungeonCollapseBackground",
+        glyphKey = "dungeonCollapse",
+        glyph = choice.isCollapsed == true and "plus" or "minus",
+        size = 8,
+        borderSize = 1,
+        borderPadding = 0,
+    })
+    data.collapseGlyph = glyphState and glyphState.centeredGlyph
 
     if not data.hooked then
         if button.HookScript then

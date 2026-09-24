@@ -72,14 +72,20 @@ local function HideCenteredButtonGlyph(state)
     if not state then return end
     if state.icon then state.icon:Hide() end
     for _, region in ipairs(state.glyphRegions or {}) do region:Hide() end
+    for _, line in ipairs(state.glyphLines or {}) do line:Hide() end
     state.activeRegions = nil
 end
 
 function NSkin:SetCenteredButtonGlyphColor(state, color)
     if not state or type(color) ~= "table" then return false end
+    local r, g, b, a = color[1] or 1, color[2] or 1,
+        color[3] or 1, color[4] or 1
     for _, region in ipairs(state.activeRegions or {}) do
-        region:SetVertexColor(
-            color[1] or 1, color[2] or 1, color[3] or 1, color[4] or 1)
+        if region.SetVertexColor then
+            region:SetVertexColor(r, g, b, a)
+        elseif region.SetColorTexture then
+            region:SetColorTexture(r, g, b, a)
+        end
     end
     return true
 end
@@ -139,10 +145,19 @@ function NSkin:CreateCenteredButtonGlyph(button, key, definition)
     state.definition = definition
     HideCenteredButtonGlyph(state)
 
+    local placementAnchor = definition.anchor or button
     local offsetX = self:SnapToPhysicalPixel(
         button, tonumber(definition.offsetX) or 0)
     local offsetY = self:SnapToPhysicalPixel(
         button, tonumber(definition.offsetY) or 0)
+    local providedCenterX, providedCenterY
+    if type(definition.centerProvider) == "function" then
+        local ok, centerX, centerY = pcall(definition.centerProvider, button)
+        if ok and tonumber(centerX) and tonumber(centerY) then
+            providedCenterX = tonumber(centerX)
+            providedCenterY = tonumber(centerY)
+        end
+    end
     if definition.texture or definition.atlas then
         local icon = state.icon
         if not icon then
@@ -152,10 +167,18 @@ function NSkin:CreateCenteredButtonGlyph(button, key, definition)
         end
         local size = ResolveCenteredButtonGlyphSize(
             self, button, definition.size, 14)
-        local alignedX, alignedY = self:AlignCenteredOffsetToPhysicalPixels(
-            button, offsetX, offsetY, size, size)
+        local alignedX, alignedY
+        if providedCenterX ~= nil then
+            alignedX = providedCenterX + offsetX
+            alignedY = providedCenterY + offsetY
+        elseif placementAnchor ~= button then
+            alignedX, alignedY = offsetX, offsetY
+        else
+            alignedX, alignedY = self:AlignCenteredOffsetToPhysicalPixels(
+                button, offsetX, offsetY, size, size)
+        end
         icon:ClearAllPoints()
-        icon:SetPoint("CENTER", button, "CENTER", alignedX, alignedY)
+        icon:SetPoint("CENTER", placementAnchor, "CENTER", alignedX, alignedY)
         icon:SetSize(size, size)
         if definition.atlas and icon.SetAtlas then
             icon:SetAtlas(definition.atlas, false)
@@ -174,9 +197,40 @@ function NSkin:CreateCenteredButtonGlyph(button, key, definition)
 
         local size = ResolveCenteredButtonGlyphSize(
             self, button, definition.size, 10)
-        local thickness = self:SnapToPhysicalPixel(
-            button, math.max(1, tonumber(definition.thickness) or 1))
+        local pixel = self:GetPhysicalPixelSize(button)
+        local sizePixels = math.max(1,
+            math.floor(size / pixel + 0.5))
+        local thicknessPixels = math.max(1,
+            math.floor((tonumber(definition.thickness) or 1) + 0.5))
+        thicknessPixels = math.min(thicknessPixels, sizePixels)
+
+        -- Keep the glyph span and stroke on compatible physical-pixel parity.
+        -- This gives every procedural glyph a real shared pixel center instead
+        -- of letting horizontal/vertical segments snap to different centers.
+        if definition.glyph ~= "close"
+            and sizePixels % 2 ~= thicknessPixels % 2
+            and sizePixels > thicknessPixels
+        then
+            sizePixels = sizePixels - 1
+        end
+
+        size = sizePixels * pixel
+        local thickness = thicknessPixels * pixel
         local edgeOffset = (size - thickness) / 2
+
+        -- Use the exact visual center derived from the button's snapped bounds.
+        -- Do not shift that center again for glyph parity: equal arm lengths are
+        -- already guaranteed by the shared size, and exact centering takes priority.
+        local centerX, centerY
+        if providedCenterX ~= nil then
+            centerX = providedCenterX + offsetX
+            centerY = providedCenterY + offsetY
+        elseif placementAnchor ~= button then
+            centerX, centerY = offsetX, offsetY
+        else
+            centerX, centerY = self:AlignCenteredOffsetToSnappedBounds(
+                button, offsetX, offsetY)
+        end
         local active = {}
 
         for index, segment in ipairs(segments) do
@@ -189,9 +243,15 @@ function NSkin:CreateCenteredButtonGlyph(button, key, definition)
             end
             region:ClearAllPoints()
 
-            local x, y = offsetX, offsetY
+            local x, y = centerX, centerY
             local width, height = size, thickness
-            if segment.vertical then
+            if definition.glyph == "close" then
+                -- Rotated one-pixel rectangles can alternate between a faint
+                -- antialiased diagonal and a visually bold one at adjacent
+                -- effective scales. Give the diagonal a stable two-pixel
+                -- raster footprint while keeping its requested span/center.
+                height = math.max(thickness, pixel * 2)
+            elseif segment.vertical then
                 width, height = thickness, size
             elseif segment.edge == "TOP" then
                 y, width, height = y + edgeOffset, size, thickness
@@ -203,9 +263,7 @@ function NSkin:CreateCenteredButtonGlyph(button, key, definition)
                 x, width, height = x + edgeOffset, thickness, size
             end
 
-            x, y = self:AlignCenteredOffsetToPhysicalPixels(
-                button, x, y, width, height)
-            region:SetPoint("CENTER", button, "CENTER", x, y)
+            region:SetPoint("CENTER", placementAnchor, "CENTER", x, y)
             region:SetSize(width, height)
             if region.SetRotation then
                 region:SetRotation(segment.rotation or 0)
@@ -215,6 +273,9 @@ function NSkin:CreateCenteredButtonGlyph(button, key, definition)
         end
         for index = #segments + 1, #state.glyphRegions do
             state.glyphRegions[index]:Hide()
+        end
+        for _, line in ipairs(state.glyphLines or {}) do
+            line:Hide()
         end
         state.activeRegions = active
     end

@@ -1388,6 +1388,56 @@ function NSkin:AlignCenteredOffsetToPhysicalPixels(anchor, offsetX, offsetY,
         AlignAxis(centerY, offsetY, height)
 end
 
+function NSkin:AlignCenteredOffsetToSnappedBounds(anchor, offsetX, offsetY,
+    width, height)
+    if not anchor or not anchor.GetCenter or not anchor.GetLeft
+        or not anchor.GetRight or not anchor.GetTop or not anchor.GetBottom
+    then
+        return tonumber(offsetX) or 0, tonumber(offsetY) or 0
+    end
+
+    local centerX, centerY = anchor:GetCenter()
+    local left, right = anchor:GetLeft(), anchor:GetRight()
+    local top, bottom = anchor:GetTop(), anchor:GetBottom()
+    if not centerX or not centerY or not left or not right
+        or not top or not bottom
+    then
+        return tonumber(offsetX) or 0, tonumber(offsetY) or 0
+    end
+
+    local pixel = self:GetPhysicalPixelSize(anchor)
+    local snappedLeft = SnapScalarToPixel(left, pixel)
+    local snappedRight = SnapScalarToPixel(right, pixel)
+    local snappedTop = SnapScalarToPixel(top, pixel)
+    local snappedBottom = SnapScalarToPixel(bottom, pixel)
+    local visualCenterX = (snappedLeft + snappedRight) / 2
+    local visualCenterY = (snappedTop + snappedBottom) / 2
+
+    local function AlignAxis(frameCenter, visualCenter, offset, dimension)
+        offset = tonumber(offset) or 0
+        if not dimension then
+            return visualCenter + offset - frameCenter
+        end
+
+        dimension = math.max(pixel, tonumber(dimension) or pixel)
+        local pixels = math.max(1, math.floor(dimension / pixel + 0.5))
+        local halfPixelCenter = pixels % 2 == 1
+        local centerUnits = (visualCenter + offset) / pixel
+        local targetUnits = halfPixelCenter and centerUnits - 0.5 or centerUnits
+        local snapped
+        if targetUnits >= 0 then
+            snapped = math.floor(targetUnits + 0.5)
+        else
+            snapped = math.ceil(targetUnits - 0.5)
+        end
+        if halfPixelCenter then snapped = snapped + 0.5 end
+        return snapped * pixel - frameCenter
+    end
+
+    return AlignAxis(centerX, visualCenterX, offsetX, width),
+        AlignAxis(centerY, visualCenterY, offsetY, height)
+end
+
 local function QueuePhysicalPixelDependentRefresh(data)
     if not data or data.pending then return end
     data.pending = true
@@ -2406,6 +2456,8 @@ local SHARED_TYPE_DEFINITIONS = {
         appearanceControls = "shared.sideTabAppearance",
         editorPreset = "SIDE_TAB" },
     BUTTON = { style = "button", skin = "SkinFlatButton", editorPreset = "MOVABLE" },
+    GLYPH_BUTTON = { style = "button", skin = "SkinGlyphButton",
+        editorPreset = "MOVABLE" },
     ACTION_BUTTON = { style = "button", skin = "SkinActionButton",
         editorPreset = "MOVABLE" },
     CHECKBOX = { style = "button", skin = "SkinCheckButton",
@@ -3250,6 +3302,23 @@ local SHARED_SKIN_ADAPTERS = {
             "background", "visualRegion", "preserveTextLayout",
             "hoverRegion", "selectedRegion", "getHovered", "getSelected",
             "showBackground", "presentationOwner", "reset",
+        }) do
+            if options[key] == nil then options[key] = definition[key] end
+        end
+        skinMethod(self, target, options)
+    end,
+    GLYPH_BUTTON = function(self, skinMethod, target, style, borderColor,
+        definition)
+        local options = {}
+        for key, value in pairs(definition.skinOptions or {}) do
+            options[key] = value
+        end
+        options.style = style
+        if options.border == nil then options.border = borderColor end
+        for _, key in ipairs({
+            "glyph", "icon", "size", "thickness", "offsetX", "offsetY",
+            "background", "borderSize", "borderPadding", "backgroundKey",
+            "glyphKey",
         }) do
             if options[key] == nil then options[key] = definition[key] end
         end

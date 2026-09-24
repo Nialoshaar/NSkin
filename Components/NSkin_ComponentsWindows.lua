@@ -191,6 +191,117 @@ function NSkin:SkinWindowHeader(frame, style, owner, defaultHeight, anchor)
     return background
 end
 
+local function RefreshGlyphButtonAppearance(button)
+    local data = NSkin:GetSkinData(button, COMPONENT_STATE, false)
+    local state = data and data.glyphButton
+    if not state or not state.centeredGlyph then return end
+
+    local enabled = not button.IsEnabled or button:IsEnabled()
+    local alpha = enabled and 1 or state.disabledAlpha
+    local color = state.contentColor
+    NSkin:SetCenteredButtonGlyphColor(state.centeredGlyph, {
+        color[1], color[2], color[3], (color[4] or 1) * alpha,
+    })
+    if not enabled and data.hoverGlow then data.hoverGlow:Hide() end
+end
+
+local function GetGlyphButtonBorderCenterOffset(button, border)
+    if not button or not border or not border.left or not border.right
+        or not border.top or not border.bottom
+    then
+        return nil
+    end
+
+    -- Border refresh callbacks and glyph refresh callbacks share the same
+    -- ancestor lifecycle. Resnap here so the coordinates below always describe
+    -- the current rendered border, regardless of callback iteration order.
+    NSkin:ResnapPixelBorder(border)
+
+    local centerX, centerY = button:GetCenter()
+    local left = border.left:GetRight()
+    local right = border.right:GetLeft()
+    local top = border.top:GetBottom()
+    local bottom = border.bottom:GetTop()
+    if not centerX or not centerY or not left or not right
+        or not top or not bottom
+    then
+        return nil
+    end
+
+    return (left + right) / 2 - centerX,
+        (top + bottom) / 2 - centerY
+end
+
+function NSkin:SkinGlyphButton(button, options)
+    if not button or not button.CreateTexture then return nil end
+    options = options or {}
+
+    local style = options.style or self:GetStyle("button")
+    local backgroundKey = options.backgroundKey or "NSkinFlatBackground"
+    local background = self:GetFlatBackground(button, backgroundKey)
+    if not background then self:HideTextureRegions(button) end
+    self:CreateFlatBackground(
+        button, backgroundKey,
+        options.background
+            or self:GetResolvedAppearanceColor(style, "background")
+            or style.background,
+        options.border or self:GetComponentBorderColor("button", style))
+    self:CreateFlatButtonGlow(button, style.hoverAlpha)
+
+    local border = self:GetPixelBorder(button, backgroundKey .. "Border")
+    if border then
+        self:SetPixelBorderSize(border, options.borderSize or 1)
+        self:SetPixelBorderPadding(border, options.borderPadding or 0)
+        self:SetPixelBorderShown(border, true)
+    end
+
+    local data = self:GetSkinData(button, COMPONENT_STATE)
+    local state = data.glyphButton or {}
+    data.glyphButton = state
+    state.border = border
+    state.contentColor = self:GetResolvedAppearanceColor(style, "text")
+        or style.text or self:GetStyle("text").color
+    state.disabledAlpha = tonumber(style.disabledTextAlpha) or 0.45
+
+    local definition = {
+        centerProvider = function(target)
+            return GetGlyphButtonBorderCenterOffset(target, border)
+        end,
+        size = tonumber(options.size) or tonumber(style.textSize),
+        thickness = tonumber(options.thickness),
+        offsetX = tonumber(options.offsetX) or 0,
+        offsetY = tonumber(options.offsetY) or 0,
+    }
+    if options.glyph then
+        definition.glyph = options.glyph
+    elseif options.icon then
+        local iconDefinition = type(options.icon) == "table"
+            and options.icon or { texture = options.icon }
+        definition.texture = iconDefinition.texture
+        definition.atlas = iconDefinition.atlas
+        definition.size = tonumber(iconDefinition.size) or definition.size
+        definition.rotation = tonumber(iconDefinition.rotation) or 0
+        definition.offsetX = tonumber(iconDefinition.offsetX)
+            or definition.offsetX
+        definition.offsetY = tonumber(iconDefinition.offsetY)
+            or definition.offsetY
+    else
+        return nil
+    end
+
+    state.centeredGlyph = self:CreateCenteredButtonGlyph(
+        button, options.glyphKey or "glyphButton", definition)
+
+    if not state.stateHooked and button.HookScript then
+        button:HookScript("OnEnable", RefreshGlyphButtonAppearance)
+        button:HookScript("OnDisable", RefreshGlyphButtonAppearance)
+        button:HookScript("OnShow", RefreshGlyphButtonAppearance)
+        state.stateHooked = true
+    end
+    RefreshGlyphButtonAppearance(button)
+    return state
+end
+
 local STANDARD_WINDOW_HEADER_GLYPHS = {
     close = { glyph = "close" },
     maximize = { glyph = "plus" },
@@ -218,57 +329,31 @@ function NSkin:SkinWindowHeaderButton(button, content, options)
     if not button or type(content) ~= "table" then return nil end
     options = options or {}
 
-    local style = options.style or self:GetStyle("button")
-    local background = self:GetFlatBackground(button)
-    if not background then self:HideTextureRegions(button) end
-    self:CreateFlatBackground(
-        button, nil, options.background
-            or self:GetResolvedAppearanceColor(style, "background")
-            or style.background,
-        options.border or self:GetComponentBorderColor("button", style))
-    self:CreateFlatButtonGlow(button, style.hoverAlpha)
-
-    local data = self:GetSkinData(button, COMPONENT_STATE)
-    local state = data.windowHeaderButton or {}
-    data.windowHeaderButton = state
-    state.contentColor = self:GetResolvedAppearanceColor(style, "text")
-        or style.text or self:GetStyle("text").color
-    state.disabledAlpha = tonumber(style.disabledTextAlpha) or 0.45
-
     local glyph = content.glyph
         and STANDARD_WINDOW_HEADER_GLYPHS[content.glyph]
+    local glyphOptions = {
+        style = options.style,
+        background = options.background,
+        border = options.border,
+        borderSize = options.borderSize,
+        borderPadding = options.borderPadding,
+        size = tonumber(content.size),
+        thickness = tonumber(content.thickness),
+        offsetX = tonumber(content.offsetX) or 0,
+        offsetY = tonumber(content.offsetY) or 0,
+        glyphKey = "windowHeader",
+    }
     if glyph then
-        state.centeredGlyph = self:CreateCenteredButtonGlyph(
-            button, "windowHeader", {
-                glyph = glyph.glyph,
-                size = tonumber(content.size) or tonumber(style.textSize),
-                thickness = tonumber(content.thickness),
-                offsetX = tonumber(content.offsetX) or 0,
-                offsetY = tonumber(content.offsetY) or 0,
-            })
+        glyphOptions.glyph = glyph.glyph
     elseif content.icon then
-        local iconDefinition = type(content.icon) == "table"
-            and content.icon or { texture = content.icon }
-        state.centeredGlyph = self:CreateCenteredButtonGlyph(
-            button, "windowHeader", {
-                texture = iconDefinition.texture,
-                atlas = iconDefinition.atlas,
-                size = tonumber(iconDefinition.size) or tonumber(style.textSize),
-                rotation = tonumber(iconDefinition.rotation) or 0,
-                offsetX = tonumber(iconDefinition.offsetX) or 0,
-                offsetY = tonumber(iconDefinition.offsetY) or 0,
-            })
+        glyphOptions.icon = content.icon
     else
         return nil
     end
 
-    if not state.stateHooked and button.HookScript then
-        button:HookScript("OnEnable", RefreshWindowHeaderButtonAppearance)
-        button:HookScript("OnDisable", RefreshWindowHeaderButtonAppearance)
-        button:HookScript("OnShow", RefreshWindowHeaderButtonAppearance)
-        state.stateHooked = true
-    end
-    RefreshWindowHeaderButtonAppearance(button)
+    local state = self:SkinGlyphButton(button, glyphOptions)
+    local data = self:GetSkinData(button, COMPONENT_STATE)
+    data.windowHeaderButton = state
     return state
 end
 
