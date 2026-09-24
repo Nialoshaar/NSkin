@@ -39,8 +39,8 @@ NSkin:RegisterOptionGroup("shared.checkboxAppearance", {
         { type = "MIXED_PAIR", order = 2,
             left = { type = "COLOR", key = "checked",
                 label = "Checkmark color" },
-            right = { type = "SLIDER", key = "checkedSize",
-                label = "Checkmark size", min = 2, max = 30,
+            right = { type = "SLIDER", key = "checkedInset",
+                label = "Checkmark inset", min = 0, max = 15,
                 step = 1, decimals = 0, suffix = " px" } },
         { type = "COLOR_PAIR", order = 3,
             left = { type = "COLOR", key = "background",
@@ -55,7 +55,9 @@ NSkin:RegisterOptionGroup("shared.checkboxAppearance", {
             shape = style.checkboxShape or "square",
             size = tonumber(style.checkboxSize) or 14,
             checked = CopyColor(style.checked or NSkin:GetSharedBorderColor()),
-            checkedSize = tonumber(style.checkboxCheckedSize) or 8,
+            checkedInset = tonumber(style.checkboxCheckedInset)
+                or math.max(0, ((tonumber(style.checkboxSize) or 14)
+                    - (tonumber(style.checkboxCheckedSize) or 8)) / 2),
             background = CopyColor(style.background),
             border = CopyColor(NSkin:GetAppearanceBorderColor(
                 "button", style, GetAppearanceWindowID(context), context.id)),
@@ -67,7 +69,7 @@ NSkin:RegisterOptionGroup("shared.checkboxAppearance", {
             shape = "checkboxShape",
             size = "checkboxSize",
             checked = "checked",
-            checkedSize = "checkboxCheckedSize",
+            checkedInset = "checkboxCheckedInset",
             background = "background",
             border = "border",
         }
@@ -82,7 +84,8 @@ NSkin:RegisterOptionGroup("shared.checkboxAppearance", {
     reset = function(context)
         return ResetElementPaths(context, {
             "button.checkboxShape", "button.checkboxSize",
-            "button.checked", "button.checkboxCheckedSize",
+            "button.checked", "button.checkboxCheckedInset",
+            "button.checkboxCheckedSize",
             "button.background", "button.border", "button.hoverAlpha",
         })
     end,
@@ -91,7 +94,7 @@ NSkin:RegisterOptionGroup("shared.checkboxAppearance", {
             shape = "button.checkboxShape",
             size = "button.checkboxSize",
             checked = "button.checked",
-            checkedSize = "button.checkboxCheckedSize",
+            checkedInset = "button.checkboxCheckedInset",
             background = "button.background",
             border = "button.border",
         }

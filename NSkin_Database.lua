@@ -89,7 +89,7 @@ NSkin.baseAppearance = {
         hoverAlpha = 0.10,
         checkboxShape = "square",
         checkboxSize = 14,
-        checkboxCheckedSize = 8,
+        checkboxCheckedInset = 3,
     },
 
     windowHeaderButton = {

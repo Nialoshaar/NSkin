@@ -1327,12 +1327,120 @@ function NSkin:GetPhysicalPixelSize(frame)
     return (768 / math.max(1, physicalHeight)) / scale
 end
 
-function NSkin:SnapToPhysicalPixel(frame, value)
+local function SnapScalarToPixel(value, pixel)
     value = tonumber(value) or 0
-    local pixel = self:GetPhysicalPixelSize(frame)
     local scaled = value / pixel
     if scaled >= 0 then return math.floor(scaled + 0.5) * pixel end
     return math.ceil(scaled - 0.5) * pixel
+end
+
+function NSkin:SnapToPhysicalPixel(frame, value)
+    return SnapScalarToPixel(value, self:GetPhysicalPixelSize(frame))
+end
+
+function NSkin:GetPhysicalPixelEdgeOffsets(anchor)
+    if not anchor or not anchor.GetLeft or not anchor.GetRight
+        or not anchor.GetTop or not anchor.GetBottom
+    then
+        return 0, 0, 0, 0
+    end
+    local left, right = anchor:GetLeft(), anchor:GetRight()
+    local top, bottom = anchor:GetTop(), anchor:GetBottom()
+    if not left or not right or not top or not bottom then
+        return 0, 0, 0, 0
+    end
+    local pixel = self:GetPhysicalPixelSize(anchor)
+    return SnapScalarToPixel(left, pixel) - left,
+        SnapScalarToPixel(right, pixel) - right,
+        SnapScalarToPixel(top, pixel) - top,
+        SnapScalarToPixel(bottom, pixel) - bottom
+end
+
+function NSkin:AlignCenteredOffsetToPhysicalPixels(anchor, offsetX, offsetY,
+    width, height)
+    if not anchor or not anchor.GetCenter then
+        return tonumber(offsetX) or 0, tonumber(offsetY) or 0
+    end
+    local centerX, centerY = anchor:GetCenter()
+    if not centerX or not centerY then
+        return tonumber(offsetX) or 0, tonumber(offsetY) or 0
+    end
+
+    local pixel = self:GetPhysicalPixelSize(anchor)
+    local function AlignAxis(center, offset, dimension)
+        offset = tonumber(offset) or 0
+        dimension = math.max(pixel, tonumber(dimension) or pixel)
+        local pixels = math.max(1, math.floor(dimension / pixel + 0.5))
+        local halfPixelCenter = pixels % 2 == 1
+        local centerUnits = (center + offset) / pixel
+        local targetUnits = halfPixelCenter and centerUnits - 0.5 or centerUnits
+        local snapped
+        if targetUnits >= 0 then
+            snapped = math.floor(targetUnits + 0.5)
+        else
+            snapped = math.ceil(targetUnits - 0.5)
+        end
+        if halfPixelCenter then snapped = snapped + 0.5 end
+        return snapped * pixel - center
+    end
+
+    return AlignAxis(centerX, offsetX, width),
+        AlignAxis(centerY, offsetY, height)
+end
+
+local function QueuePhysicalPixelDependentRefresh(data)
+    if not data or data.pending then return end
+    data.pending = true
+    local function Refresh()
+        data.pending = nil
+        for target in pairs(data.targets or {}) do
+            local targetData = NSkin:GetSkinData(
+                target, "physicalPixelRefresh", false)
+            for _, callback in pairs(targetData and targetData.callbacks or {}) do
+                callback(target)
+            end
+        end
+    end
+    if C_Timer and C_Timer.After then C_Timer.After(0, Refresh) else Refresh() end
+end
+
+function NSkin:RegisterPhysicalPixelRefresh(target, key, callback)
+    if not target or type(key) ~= "string" or key == ""
+        or type(callback) ~= "function"
+    then
+        return false
+    end
+
+    local targetData = self:GetSkinData(target, "physicalPixelRefresh")
+    targetData.callbacks = targetData.callbacks or {}
+    targetData.callbacks[key] = callback
+
+    local ancestor = target
+    while ancestor do
+        local canObserve = ancestor.HookScript
+            or (_G.hooksecurefunc and type(ancestor.SetScale) == "function")
+        if canObserve then
+            local data = self:GetSkinData(ancestor, "physicalPixelDependents")
+            data.targets = data.targets or setmetatable({}, { __mode = "k" })
+            data.targets[target] = true
+            if not data.hooked then
+                local function QueueRefresh()
+                    QueuePhysicalPixelDependentRefresh(data)
+                end
+                if ancestor.HookScript then
+                    ancestor:HookScript("OnSizeChanged", QueueRefresh)
+                    ancestor:HookScript("OnShow", QueueRefresh)
+                end
+                if _G.hooksecurefunc and type(ancestor.SetScale) == "function" then
+                    pcall(_G.hooksecurefunc, ancestor, "SetScale", QueueRefresh)
+                end
+                data.hooked = true
+            end
+        end
+        if ancestor == UIParent then break end
+        ancestor = ancestor.GetParent and ancestor:GetParent()
+    end
+    return true
 end
 
 function NSkin:ConfigureOwnedPixelTexture(texture)
@@ -1388,6 +1496,8 @@ local function ApplyPixelBorderGeometry(border)
     local thickness = requestedSize * pixel
     local requestedPadding = tonumber(border.requestedPadding)
     local padding = requestedPadding and requestedPadding * pixel or 0
+    local leftOffset, rightOffset, topOffset, bottomOffset =
+        NSkin:GetPhysicalPixelEdgeOffsets(anchor)
     border.pixelSize = pixel
     border.effectiveSize = thickness
     border.effectivePadding = padding
@@ -1401,37 +1511,53 @@ local function ApplyPixelBorderGeometry(border)
     end
     if border.outside and requestedPadding == nil then
         if border.top then
-            border.top:SetPoint("BOTTOMLEFT", anchor, "TOPLEFT", -thickness, 0)
-            border.top:SetPoint("BOTTOMRIGHT", anchor, "TOPRIGHT", thickness, 0)
+            border.top:SetPoint("BOTTOMLEFT", anchor, "TOPLEFT",
+                -thickness + leftOffset, topOffset)
+            border.top:SetPoint("BOTTOMRIGHT", anchor, "TOPRIGHT",
+                thickness + rightOffset, topOffset)
         end
         if border.bottom then
-            border.bottom:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", -thickness, 0)
-            border.bottom:SetPoint("TOPRIGHT", anchor, "BOTTOMRIGHT", thickness, 0)
+            border.bottom:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT",
+                -thickness + leftOffset, bottomOffset)
+            border.bottom:SetPoint("TOPRIGHT", anchor, "BOTTOMRIGHT",
+                thickness + rightOffset, bottomOffset)
         end
         if border.left then
-            border.left:SetPoint("TOPRIGHT", anchor, "TOPLEFT", 0, thickness)
-            border.left:SetPoint("BOTTOMRIGHT", anchor, "BOTTOMLEFT", 0, -thickness)
+            border.left:SetPoint("TOPRIGHT", anchor, "TOPLEFT",
+                leftOffset, thickness + topOffset)
+            border.left:SetPoint("BOTTOMRIGHT", anchor, "BOTTOMLEFT",
+                leftOffset, -thickness + bottomOffset)
         end
         if border.right then
-            border.right:SetPoint("TOPLEFT", anchor, "TOPRIGHT", 0, thickness)
-            border.right:SetPoint("BOTTOMLEFT", anchor, "BOTTOMRIGHT", 0, -thickness)
+            border.right:SetPoint("TOPLEFT", anchor, "TOPRIGHT",
+                rightOffset, thickness + topOffset)
+            border.right:SetPoint("BOTTOMLEFT", anchor, "BOTTOMRIGHT",
+                rightOffset, -thickness + bottomOffset)
         end
     else
         if border.top then
-            border.top:SetPoint("TOPLEFT", anchor, "TOPLEFT", -padding, padding)
-            border.top:SetPoint("TOPRIGHT", anchor, "TOPRIGHT", padding, padding)
+            border.top:SetPoint("TOPLEFT", anchor, "TOPLEFT",
+                -padding + leftOffset, padding + topOffset)
+            border.top:SetPoint("TOPRIGHT", anchor, "TOPRIGHT",
+                padding + rightOffset, padding + topOffset)
         end
         if border.bottom then
-            border.bottom:SetPoint("BOTTOMLEFT", anchor, "BOTTOMLEFT", -padding, -padding)
-            border.bottom:SetPoint("BOTTOMRIGHT", anchor, "BOTTOMRIGHT", padding, -padding)
+            border.bottom:SetPoint("BOTTOMLEFT", anchor, "BOTTOMLEFT",
+                -padding + leftOffset, -padding + bottomOffset)
+            border.bottom:SetPoint("BOTTOMRIGHT", anchor, "BOTTOMRIGHT",
+                padding + rightOffset, -padding + bottomOffset)
         end
         if border.left then
-            border.left:SetPoint("TOPLEFT", anchor, "TOPLEFT", -padding, padding)
-            border.left:SetPoint("BOTTOMLEFT", anchor, "BOTTOMLEFT", -padding, -padding)
+            border.left:SetPoint("TOPLEFT", anchor, "TOPLEFT",
+                -padding + leftOffset, padding + topOffset)
+            border.left:SetPoint("BOTTOMLEFT", anchor, "BOTTOMLEFT",
+                -padding + leftOffset, -padding + bottomOffset)
         end
         if border.right then
-            border.right:SetPoint("TOPRIGHT", anchor, "TOPRIGHT", padding, padding)
-            border.right:SetPoint("BOTTOMRIGHT", anchor, "BOTTOMRIGHT", padding, -padding)
+            border.right:SetPoint("TOPRIGHT", anchor, "TOPRIGHT",
+                padding + rightOffset, padding + topOffset)
+            border.right:SetPoint("BOTTOMRIGHT", anchor, "BOTTOMRIGHT",
+                padding + rightOffset, -padding + bottomOffset)
         end
     end
     if border.top then border.top:SetHeight(thickness) end
@@ -1483,6 +1609,13 @@ function NSkin:GetSkinData(object, namespace, create)
     return scoped
 end
 
+local function RefreshTrackedPixelBorders(owner)
+    local data = NSkin:GetSkinData(owner, "physicalPixels", false)
+    for border in pairs(data and data.borders or {}) do
+        ApplyPixelBorderGeometry(border)
+    end
+end
+
 local function TrackPixelBorderOwner(border, frame, anchor)
     local owner = anchor
     if not (owner and owner.IsObjectType and owner:IsObjectType("Frame")) then
@@ -1494,21 +1627,8 @@ local function TrackPixelBorderOwner(border, frame, anchor)
     ownerData.borders = ownerData.borders
         or setmetatable({}, { __mode = "k" })
     ownerData.borders[border] = true
-    if ownerData.resnapHooked then return end
-    ownerData.resnapHooked = true
-    if owner.HookScript then
-        owner:HookScript("OnSizeChanged", function()
-            QueueBorderSetResnap(ownerData)
-        end)
-        owner:HookScript("OnShow", function()
-            QueueBorderSetResnap(ownerData)
-        end)
-    end
-    if _G.hooksecurefunc and owner.SetScale then
-        pcall(_G.hooksecurefunc, owner, "SetScale", function()
-            QueueBorderSetResnap(ownerData)
-        end)
-    end
+    NSkin:RegisterPhysicalPixelRefresh(
+        owner, "pixelBorders", RefreshTrackedPixelBorders)
 end
 
 function NSkin:ResnapPixelBordersForTarget(target)
@@ -1744,7 +1864,28 @@ function NSkin:HideTextureRegions(frame, textureToKeep)
     end
 end
 
-function NSkin:CreateFlatBackground(frame, key, color, borderColor)
+local function LayoutFlatBackground(frame, background)
+    local inset = NSkin:GetPhysicalPixelSize(frame)
+    local leftOffset, rightOffset, topOffset, bottomOffset =
+        NSkin:GetPhysicalPixelEdgeOffsets(frame)
+    background:ClearAllPoints()
+    background:SetPoint("TOPLEFT", frame, "TOPLEFT",
+        inset + leftOffset, topOffset - inset)
+    background:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT",
+        rightOffset - inset, bottomOffset + inset)
+end
+
+local function RefreshFlatBackgroundPixelGeometry(frame)
+    local data = NSkin:GetSkinData(frame, "primitives", false)
+    for _, background in pairs(data and data.backgrounds or {}) do
+        local state = NSkin:GetSkinData(background, "flatBackground", false)
+        if state and state.defaultPixelGeometry then
+            LayoutFlatBackground(frame, background)
+        end
+    end
+end
+
+function NSkin:CreateFlatBackground(frame, key, color, borderColor, customGeometry)
     if not frame or not frame.CreateTexture or not color or not borderColor then return nil end
 
     key = key or "NSkinFlatBackground"
@@ -1754,13 +1895,17 @@ function NSkin:CreateFlatBackground(frame, key, color, borderColor)
     if not background then
         background = frame:CreateTexture(nil, "BACKGROUND", nil, 7)
         if not background then return nil end
-        background:SetPoint("TOPLEFT", 1, -1)
-        background:SetPoint("BOTTOMRIGHT", -1, 1)
         data.backgrounds[key] = background
+    end
+    local backgroundState = self:GetSkinData(background, "flatBackground")
+    backgroundState.defaultPixelGeometry = customGeometry ~= true
+    if backgroundState.defaultPixelGeometry then
+        LayoutFlatBackground(frame, background)
+        self:RegisterPhysicalPixelRefresh(
+            frame, "flatBackgrounds", RefreshFlatBackgroundPixelGeometry)
     end
     self:SetOwnedTextureColor(background, unpack(color))
     self:ConfigureOwnedPixelTexture(background)
-    local backgroundState = self:GetSkinData(background, "flatBackground")
     if not backgroundState.shown
         or (background.IsShown and not background:IsShown())
     then

@@ -106,6 +106,21 @@ local function ResolveCenteredButtonGlyphSize(self, button, requested, fallback)
     return self:SnapToPhysicalPixel(button, math.max(1, resolved))
 end
 
+local function RefreshCenteredButtonGlyphPixelGeometry(button)
+    local data = NSkin:GetSkinData(button, COMPONENT_STATE, false)
+    for key, state in pairs(data and data.centeredButtonGlyphs or {}) do
+        if state.definition then
+            local first = state.activeRegions and state.activeRegions[1]
+            local color = first and first.GetVertexColor
+                and { first:GetVertexColor() } or nil
+            local shown = first and first.IsShown and first:IsShown()
+            NSkin:CreateCenteredButtonGlyph(button, key, state.definition)
+            if color then NSkin:SetCenteredButtonGlyphColor(state, color) end
+            if shown ~= nil then NSkin:SetCenteredButtonGlyphShown(state, shown) end
+        end
+    end
+end
+
 function NSkin:CreateCenteredButtonGlyph(button, key, definition)
     if not button or not button.CreateTexture
         or type(definition) ~= "table"
@@ -121,6 +136,7 @@ function NSkin:CreateCenteredButtonGlyph(button, key, definition)
         state = { glyphRegions = {} }
         data.centeredButtonGlyphs[key] = state
     end
+    state.definition = definition
     HideCenteredButtonGlyph(state)
 
     local offsetX = self:SnapToPhysicalPixel(
@@ -134,10 +150,12 @@ function NSkin:CreateCenteredButtonGlyph(button, key, definition)
             self:ConfigureOwnedPixelTexture(icon)
             state.icon = icon
         end
-        icon:ClearAllPoints()
-        icon:SetPoint("CENTER", button, "CENTER", offsetX, offsetY)
         local size = ResolveCenteredButtonGlyphSize(
             self, button, definition.size, 14)
+        local alignedX, alignedY = self:AlignCenteredOffsetToPhysicalPixels(
+            button, offsetX, offsetY, size, size)
+        icon:ClearAllPoints()
+        icon:SetPoint("CENTER", button, "CENTER", alignedX, alignedY)
         icon:SetSize(size, size)
         if definition.atlas and icon.SetAtlas then
             icon:SetAtlas(definition.atlas, false)
@@ -185,6 +203,8 @@ function NSkin:CreateCenteredButtonGlyph(button, key, definition)
                 x, width, height = x + edgeOffset, thickness, size
             end
 
+            x, y = self:AlignCenteredOffsetToPhysicalPixels(
+                button, x, y, width, height)
             region:SetPoint("CENTER", button, "CENTER", x, y)
             region:SetSize(width, height)
             if region.SetRotation then
@@ -201,6 +221,8 @@ function NSkin:CreateCenteredButtonGlyph(button, key, definition)
 
     self:SetCenteredButtonGlyphColor(
         state, definition.color or { 1, 1, 1, 1 })
+    self:RegisterPhysicalPixelRefresh(
+        button, "centeredButtonGlyphs", RefreshCenteredButtonGlyphPixelGeometry)
     return state
 end
 
@@ -547,6 +569,67 @@ local function ApplyCheckButtonShape(self, checkButton, data, visual, border,
     end
 end
 
+local function RefreshCheckButtonPixelGeometry(checkButton)
+    local data = NSkin:GetSkinData(checkButton, COMPONENT_STATE, false)
+    local visual = data and data.checkButtonVisual
+    local checked = data and data.checkButtonCheckedTexture
+    if not data or not data.checkButtonActive or not visual or not checked then
+        return false
+    end
+
+    local pixel = NSkin:GetPhysicalPixelSize(checkButton)
+    local requestedVisualSize = math.max(1,
+        data.checkButtonRequestedVisualSize or 14)
+    local visualSize = NSkin:SnapToPhysicalPixel(
+        checkButton, requestedVisualSize)
+    local visualPixels = math.max(1,
+        math.floor(visualSize / pixel + 0.5))
+    local visualOffsetX, visualOffsetY =
+        NSkin:AlignCenteredOffsetToPhysicalPixels(
+            checkButton, 0, 0, visualSize, visualSize)
+    visual:ClearAllPoints()
+    visual:SetSize(visualSize, visualSize)
+    visual:SetPoint("CENTER", checkButton, "CENTER",
+        visualOffsetX, visualOffsetY)
+
+    local border = data.checkButtonBorder
+    if border then
+        border.anchor = visual
+        NSkin:ResnapPixelBorder(border)
+    end
+
+    local glow = data.checkButtonGlow
+    if glow then
+        local inset = NSkin:GetPhysicalPixelSize(checkButton)
+        glow:ClearAllPoints()
+        glow:SetPoint("TOPLEFT", visual, "TOPLEFT", inset, -inset)
+        glow:SetPoint("BOTTOMRIGHT", visual, "BOTTOMRIGHT", -inset, inset)
+    end
+
+    local requestedInset = math.max(0,
+        tonumber(data.checkButtonRequestedCheckedInset) or 3)
+    local insetPixels = math.max(0,
+        math.floor(requestedInset + 0.5))
+    insetPixels = math.min(insetPixels,
+        math.floor((visualPixels - 1) / 2))
+    local checkedPixels = math.max(1,
+        visualPixels - insetPixels * 2)
+    local checkedSize = checkedPixels * pixel
+
+    local checkedOffsetX, checkedOffsetY =
+        NSkin:AlignCenteredOffsetToPhysicalPixels(
+            visual, 0, 0, checkedSize, checkedSize)
+    checked:ClearAllPoints()
+    checked:SetPoint("CENTER", visual, "CENTER",
+        checkedOffsetX, checkedOffsetY)
+    checked:SetSize(checkedSize, checkedSize)
+
+    ApplyCheckButtonShape(NSkin, checkButton, data, visual, border,
+        glow, visualSize, data.checkButtonShape or "square",
+        data.checkButtonBorderColor or NSkin:GetSharedBorderColor())
+    return true
+end
+
 function NSkin:SkinCheckButton(checkButton, options)
     if not checkButton or not checkButton.CreateTexture then return false end
     options = options or {}
@@ -561,31 +644,14 @@ function NSkin:SkinCheckButton(checkButton, options)
         self:HideTextureRegions(checkButton)
         data.checkButtonArtworkSuppressed = true
     end
+    local borderColor = options.border
+        or self:GetComponentBorderColor("button", style)
     local visual = self:CreateFlatBackground(checkButton, nil,
-        options.background or style.background,
-        options.border or self:GetComponentBorderColor("button", style))
+        options.background or style.background, borderColor, true)
     if not visual then return false end
-    local visualSize = self:SnapToPhysicalPixel(checkButton,
-        math.max(1, tonumber(options.visualSize)
-            or tonumber(style.checkboxSize) or 14))
-    local visualOffset = self:SnapToPhysicalPixel(checkButton, 0)
-    visual:ClearAllPoints()
-    visual:SetSize(visualSize, visualSize)
-    visual:SetPoint("CENTER", checkButton, "CENTER",
-        visualOffset, visualOffset)
     local border = self:GetPixelBorder(checkButton,
         "NSkinFlatBackgroundBorder")
-    if border then
-        border.anchor = visual
-        self:ResnapPixelBorder(border)
-    end
     local glow = self:CreateFlatButtonGlow(checkButton, style.hoverAlpha)
-    if glow then
-        local inset = self:GetPhysicalPixelSize(checkButton)
-        glow:ClearAllPoints()
-        glow:SetPoint("TOPLEFT", visual, "TOPLEFT", inset, -inset)
-        glow:SetPoint("BOTTOMRIGHT", visual, "BOTTOMRIGHT", -inset, inset)
-    end
 
     local checked = data.checkButtonCheckedTexture
     if not checked then
@@ -594,22 +660,35 @@ function NSkin:SkinCheckButton(checkButton, options)
         data.checkButtonCheckedTexture = checked
     end
     if checked.SetDrawLayer then checked:SetDrawLayer("OVERLAY", 7) end
-    local checkedSize = self:SnapToPhysicalPixel(checkButton,
-        math.max(1, tonumber(options.checkedSize)
-            or tonumber(style.checkboxCheckedSize) or 8))
-    checkedSize = math.min(visualSize, checkedSize)
-    checked:ClearAllPoints()
-    checked:SetPoint("CENTER", visual, "CENTER", 0, 0)
-    checked:SetSize(checkedSize, checkedSize)
     self:SetOwnedTextureColor(checked, unpack(
         options.checked or style.checked or self:GetSharedBorderColor()))
 
     local shape = string.lower(tostring(
         options.shape or style.checkboxShape or "square"))
     if shape ~= "circle" then shape = "square" end
-    ApplyCheckButtonShape(self, checkButton, data, visual, border,
-        glow, visualSize, shape,
-        options.border or self:GetComponentBorderColor("button", style))
+
+    data.checkButtonVisual = visual
+    data.checkButtonBorder = border
+    data.checkButtonGlow = glow
+    data.checkButtonRequestedVisualSize = math.max(1,
+        tonumber(options.visualSize) or tonumber(style.checkboxSize) or 14)
+    local checkedInset = tonumber(options.checkedInset)
+        or tonumber(style.checkboxCheckedInset)
+    if checkedInset == nil then
+        local legacyCheckedSize = tonumber(options.checkedSize)
+            or tonumber(style.checkboxCheckedSize)
+        if legacyCheckedSize ~= nil then
+            checkedInset = math.max(0,
+                (data.checkButtonRequestedVisualSize - legacyCheckedSize) / 2)
+        end
+    end
+    data.checkButtonRequestedCheckedInset = math.max(
+        0, tonumber(checkedInset) or 3)
+    data.checkButtonShape = shape
+    data.checkButtonBorderColor = borderColor
+    self:RegisterPhysicalPixelRefresh(
+        checkButton, "checkButton", RefreshCheckButtonPixelGeometry)
+    RefreshCheckButtonPixelGeometry(checkButton)
     if not data.checkButtonStateHooked then
         if _G.hooksecurefunc then
             for _, method in ipairs({
