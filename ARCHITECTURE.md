@@ -70,6 +70,7 @@ WINDOW_HEADER_CONTROLS
 TAB_GROUP
 SIDE_TAB
 BUTTON
+GLYPH_BUTTON
 ACTION_BUTTON
 CHECKBOX
 DROPDOWN
@@ -114,13 +115,18 @@ explicit overrides. Reset removes the override and returns to the native color.
 
 Likewise, CHECKBOX, ICON, EDIT_BOX, ROW, and other shared types should each have one canonical shared implementation.
 
-Square icon/glyph buttons follow one shared centering rule. The Blizzard Button remains the
-interaction and geometry owner; `CreateCenteredButtonGlyph` creates only NSkin-owned
-presentation regions anchored `CENTER` to that Button. Native font baselines, texture
-padding, and inherited texture offsets must not determine the visual center. Close,
-plus/minus, reset, arrow-only, and similar square controls should reuse this primitive
-rather than recreate local glyph geometry. The helper must not replace click behavior,
-hit rectangles, enabled state, protection, or dimensions.
+`GLYPH_BUTTON` is the canonical shared component for icon-only or procedural-glyph
+buttons such as close, plus/minus, reset, arrow-only, and similar controls. The
+Blizzard Button remains the interaction and geometry owner; the shared component owns
+only presentation such as background, pixel border, hover treatment, and glyph regions.
+Header controls and equivalent glyph buttons in window content should reuse this
+component rather than rebuild button surfaces or glyph geometry locally.
+
+Glyph placement should be derived from the component's resolved visible geometry. When
+a pixel border is present, its rendered edges are the source of truth for visual
+centering. Glyph stroke/detail may use physical-pixel semantics while the Blizzard
+button itself continues to follow native layout and scaling. Shared glyph helpers must
+not replace click behavior, hit rectangles, enabled state, protection, or dimensions.
 
 A new option added to a shared component should normally become available everywhere that component is used without modifying individual window files.
 
@@ -936,6 +942,12 @@ Window adapters may still provide exceptional menu anchors or state where requir
 # 23. Window Chrome
 
 Standard window chrome should use shared window/chrome components.
+
+Window backgrounds, headers, borders, and attached chrome controls that visually share
+an edge must resolve from the same physical-pixel geometry. Do not independently anchor
+adjacent owned surfaces to unsnapped Blizzard edges when the corresponding border is
+pixel-snapped; shared edge geometry should be refreshed when effective scale changes so
+fractional coordinates cannot expose seams or double-thickness rows.
 
 Standard chrome owns conventional inset presentation cleanup. It may suppress
 named inset backgrounds, NineSlice containers, edges, and corners, but must not

@@ -1,27 +1,72 @@
 local _, NSkin = ...
 
 local COMPONENT_STATE = "components"
+
+local function GetWindowPixelEdgeOffsets(anchor)
+    if not anchor then return 0, 0, 0, 0 end
+    return NSkin:GetPhysicalPixelEdgeOffsets(anchor)
+end
+
+local function LayoutWindowHeaderBackground(frame, data, anchor)
+    local background = data and data.windowHeaderBackground
+    if not background or not anchor then return end
+
+    local leftOffset, rightOffset, topOffset =
+        GetWindowPixelEdgeOffsets(anchor)
+    local requestedHeight = tonumber(data.windowHeaderRequestedHeight)
+        or tonumber(data.windowHeaderHeight) or 0
+    local height = requestedHeight > 0
+        and NSkin:SnapToPhysicalPixel(frame, requestedHeight) or 0
+
+    background:ClearAllPoints()
+    background:SetPoint("TOPLEFT", anchor, "TOPLEFT",
+        leftOffset, topOffset)
+    background:SetPoint("TOPRIGHT", anchor, "TOPRIGHT",
+        rightOffset, topOffset)
+    if height > 0 then background:SetHeight(height) end
+
+    data.windowHeaderHeight = height
+    data.windowHeaderAnchor = anchor
+end
+
 local function LayoutWindowBackground(frame, data, anchor)
     local background = data and data.windowBackground
     if not background or not anchor then return end
+
+    local leftOffset, rightOffset, topOffset, bottomOffset =
+        GetWindowPixelEdgeOffsets(anchor)
     local headerHeight = tonumber(data.windowHeaderHeight) or 0
     local insetHeader = anchor == frame and headerHeight > 0
-    if data.windowBackgroundLayoutAnchor == anchor
-        and data.windowBackgroundInsetHeader == insetHeader
-        and data.windowBackgroundLayoutHeight == headerHeight
-    then
-        return
-    end
+
     background:ClearAllPoints()
     if insetHeader then
-        background:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -headerHeight)
-        background:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
+        background:SetPoint("TOPLEFT", frame, "TOPLEFT",
+            leftOffset, topOffset - headerHeight)
+        background:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT",
+            rightOffset, bottomOffset)
     else
-        background:SetAllPoints(anchor)
+        background:SetPoint("TOPLEFT", anchor, "TOPLEFT",
+            leftOffset, topOffset)
+        background:SetPoint("BOTTOMRIGHT", anchor, "BOTTOMRIGHT",
+            rightOffset, bottomOffset)
     end
+
     data.windowBackgroundLayoutAnchor = anchor
     data.windowBackgroundInsetHeader = insetHeader
     data.windowBackgroundLayoutHeight = headerHeight
+end
+
+local function RefreshWindowPixelGeometry(frame)
+    local data = NSkin:GetSkinData(frame, COMPONENT_STATE, false)
+    if not data then return end
+    if data.windowHeaderBackground then
+        LayoutWindowHeaderBackground(
+            frame, data, data.windowHeaderAnchor or frame)
+    end
+    if data.windowBackground then
+        LayoutWindowBackground(
+            frame, data, data.windowBackgroundAnchor or frame)
+    end
 end
 
 local function ConcealWindowRegion(region)
@@ -103,12 +148,6 @@ function NSkin:SkinWindow(frame, backgroundAnchor, style, borderColor,
     if not frame then return nil end
 
     local data = self:GetSkinData(frame, COMPONENT_STATE)
-    if not data.blizzardHeaderHeight then
-        local titleBackground = frame.TitleBg or frame.titleBg
-        local height = titleBackground and titleBackground.GetHeight
-            and titleBackground:GetHeight()
-        data.blizzardHeaderHeight = tonumber(height) and height > 0 and height or nil
-    end
     self:ConcealWindowArtwork(frame, preserveArtwork)
     style = style or self:GetStyle("window")
     local anchor = backgroundAnchor or frame
@@ -125,9 +164,12 @@ function NSkin:SkinWindow(frame, backgroundAnchor, style, borderColor,
         data.windowBackground = background
         data.windowBackgroundLayoutAnchor = nil
     end
+    self:ConfigureOwnedPixelTexture(background)
     data.windowBackgroundOwner = backgroundOwner
     data.windowBackgroundAnchor = anchor
     LayoutWindowBackground(frame, data, anchor)
+    self:RegisterPhysicalPixelRefresh(
+        frame, "windowSurfaces", RefreshWindowPixelGeometry)
     local backgroundColor = self:GetResolvedAppearanceColor(style, "background")
     self:SetOwnedTextureColor(background, unpack(backgroundColor))
     data.windowBackgroundColor = {
@@ -167,26 +209,19 @@ function NSkin:SkinWindowHeader(frame, style, owner, defaultHeight, anchor)
         data.windowHeaderOwner = owner
         data.windowHeaderAnchor = nil
     end
-    if data.windowHeaderAnchor ~= anchor then
-        background:ClearAllPoints()
-        background:SetPoint("TOPLEFT", anchor, "TOPLEFT", 0, 0)
-        background:SetPoint("TOPRIGHT", anchor, "TOPRIGHT", 0, 0)
-        data.windowHeaderAnchor = anchor
-    end
-    local height = tonumber(style.height) or data.blizzardHeaderHeight
+    self:ConfigureOwnedPixelTexture(background)
+    local height = tonumber(style.height)
         or tonumber(defaultHeight)
         or (frame.nskinOwnedGeometry and 22 or nil)
-    if height then
-        height = self:SnapToPhysicalPixel(frame, math.max(0, height))
-        if data.windowHeaderHeight ~= height or not background:GetHeight()
-            or background:GetHeight() == 0
-        then background:SetHeight(height) end
-    end
+    data.windowHeaderRequestedHeight = height and math.max(0, height) or 0
+    data.windowHeaderAnchor = anchor
+    LayoutWindowHeaderBackground(frame, data, anchor)
+    self:RegisterPhysicalPixelRefresh(
+        frame, "windowSurfaces", RefreshWindowPixelGeometry)
     local color = style.matchBackground and data.windowBackgroundColor
         or self:GetResolvedAppearanceColor(style, "background")
     color = color or self:GetResolvedAppearanceColor(style, "background")
     self:SetOwnedTextureColor(background, unpack(color))
-    data.windowHeaderHeight = height or 0
     LayoutWindowBackground(frame, data, data.windowBackgroundAnchor or frame)
     return background
 end
@@ -543,8 +578,16 @@ function NSkin:SkinStandardWindowChrome(definition)
         frame, definition.backgroundAnchor, style, borderColor,
         definition.backgroundOwner, definition.preserveArtwork,
         definition.borderOwner, definition.borderAnchor)
+
+    local closeButton = definition.closeButton
+    if closeButton == nil then closeButton = frame.CloseButton end
+    local headerHeight = tonumber(definition.headerHeight)
+    if not headerHeight and closeButton and closeButton.GetHeight then
+        local closeHeight = tonumber(closeButton:GetHeight())
+        if closeHeight and closeHeight > 0 then headerHeight = closeHeight end
+    end
     local header = self:SkinWindowHeader(frame, style.header,
-        definition.headerOwner, definition.headerHeight,
+        definition.headerOwner, headerHeight,
         definition.headerAnchor)
 
     local title = definition.title
@@ -557,8 +600,6 @@ function NSkin:SkinStandardWindowChrome(definition)
         self:ApplyResolvedTypography(title, style.header)
     end
 
-    local closeButton = definition.closeButton
-    if closeButton == nil then closeButton = frame.CloseButton end
     if closeButton and definition.skinCloseButton ~= false then
         local headerControlsID = definition.headerControlsID
             or (elementID .. ".HeaderControls")

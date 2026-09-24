@@ -1502,6 +1502,15 @@ function NSkin:ConfigureOwnedPixelTexture(texture)
     data.configured = true
 end
 
+function NSkin:ConfigurePixelBorderTexture(texture)
+    if not texture then return end
+    local data = self:GetSkinData(texture, "pixelBorderTexture")
+    if data.configured then return end
+    if texture.SetSnapToPixelGrid then texture:SetSnapToPixelGrid(true) end
+    if texture.SetTexelSnappingBias then texture:SetTexelSnappingBias(0) end
+    data.configured = true
+end
+
 local function ColorValuesEqual(color, red, green, blue, alpha)
     return color and color[1] == red and color[2] == green
         and color[3] == blue and color[4] == alpha
@@ -1556,64 +1565,69 @@ local function ApplyPixelBorderGeometry(border)
         local edge = border[key]
         if edge then
             edge:ClearAllPoints()
-            NSkin:ConfigureOwnedPixelTexture(edge)
+            NSkin:ConfigurePixelBorderTexture(edge)
         end
     end
+
+    -- Define every border edge by two physical-pixel-aligned boundaries.
+    -- Avoid SetWidth/SetHeight from a single snapped edge: after an ancestor
+    -- scale transform, the far side can otherwise land between screen pixels
+    -- and rasterize as a dark/partial extra row.
     if border.outside and requestedPadding == nil then
         if border.top then
-            border.top:SetPoint("BOTTOMLEFT", anchor, "TOPLEFT",
-                -thickness + leftOffset, topOffset)
+            border.top:SetPoint("TOPLEFT", anchor, "TOPLEFT",
+                -thickness + leftOffset, thickness + topOffset)
             border.top:SetPoint("BOTTOMRIGHT", anchor, "TOPRIGHT",
                 thickness + rightOffset, topOffset)
         end
         if border.bottom then
             border.bottom:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT",
                 -thickness + leftOffset, bottomOffset)
-            border.bottom:SetPoint("TOPRIGHT", anchor, "BOTTOMRIGHT",
-                thickness + rightOffset, bottomOffset)
+            border.bottom:SetPoint("BOTTOMRIGHT", anchor, "BOTTOMRIGHT",
+                thickness + rightOffset, bottomOffset - thickness)
         end
         if border.left then
-            border.left:SetPoint("TOPRIGHT", anchor, "TOPLEFT",
-                leftOffset, thickness + topOffset)
+            border.left:SetPoint("TOPLEFT", anchor, "TOPLEFT",
+                leftOffset - thickness, thickness + topOffset)
             border.left:SetPoint("BOTTOMRIGHT", anchor, "BOTTOMLEFT",
-                leftOffset, -thickness + bottomOffset)
+                leftOffset, bottomOffset - thickness)
         end
         if border.right then
             border.right:SetPoint("TOPLEFT", anchor, "TOPRIGHT",
                 rightOffset, thickness + topOffset)
-            border.right:SetPoint("BOTTOMLEFT", anchor, "BOTTOMRIGHT",
-                rightOffset, -thickness + bottomOffset)
+            border.right:SetPoint("BOTTOMRIGHT", anchor, "BOTTOMRIGHT",
+                rightOffset + thickness, bottomOffset - thickness)
         end
     else
+        local left = leftOffset - padding
+        local right = rightOffset + padding
+        local top = topOffset + padding
+        local bottom = bottomOffset - padding
         if border.top then
             border.top:SetPoint("TOPLEFT", anchor, "TOPLEFT",
-                -padding + leftOffset, padding + topOffset)
-            border.top:SetPoint("TOPRIGHT", anchor, "TOPRIGHT",
-                padding + rightOffset, padding + topOffset)
+                left, top)
+            border.top:SetPoint("BOTTOMRIGHT", anchor, "TOPRIGHT",
+                right, top - thickness)
         end
         if border.bottom then
-            border.bottom:SetPoint("BOTTOMLEFT", anchor, "BOTTOMLEFT",
-                -padding + leftOffset, -padding + bottomOffset)
+            border.bottom:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT",
+                left, bottom + thickness)
             border.bottom:SetPoint("BOTTOMRIGHT", anchor, "BOTTOMRIGHT",
-                padding + rightOffset, -padding + bottomOffset)
+                right, bottom)
         end
         if border.left then
             border.left:SetPoint("TOPLEFT", anchor, "TOPLEFT",
-                -padding + leftOffset, padding + topOffset)
-            border.left:SetPoint("BOTTOMLEFT", anchor, "BOTTOMLEFT",
-                -padding + leftOffset, -padding + bottomOffset)
+                left, top)
+            border.left:SetPoint("BOTTOMRIGHT", anchor, "BOTTOMLEFT",
+                left + thickness, bottom)
         end
         if border.right then
-            border.right:SetPoint("TOPRIGHT", anchor, "TOPRIGHT",
-                padding + rightOffset, padding + topOffset)
+            border.right:SetPoint("TOPLEFT", anchor, "TOPRIGHT",
+                right - thickness, top)
             border.right:SetPoint("BOTTOMRIGHT", anchor, "BOTTOMRIGHT",
-                padding + rightOffset, -padding + bottomOffset)
+                right, bottom)
         end
     end
-    if border.top then border.top:SetHeight(thickness) end
-    if border.bottom then border.bottom:SetHeight(thickness) end
-    if border.left then border.left:SetWidth(thickness) end
-    if border.right then border.right:SetWidth(thickness) end
 end
 
 function NSkin:ResnapPixelBorder(border)
@@ -1717,7 +1731,7 @@ function NSkin:CreatePixelBorder(frame, key, size, color, outside, anchor)
     local function NewEdge()
         local edge = frame:CreateTexture(nil, "OVERLAY", nil, 7)
         self:SetOwnedTextureColor(edge, unpack(color))
-        self:ConfigureOwnedPixelTexture(edge)
+        self:ConfigurePixelBorderTexture(edge)
         return edge
     end
 
@@ -1803,7 +1817,7 @@ function NSkin:CreatePixelEdgeBorder(frame, key, edges, size, color, anchor)
         then
             local edge = frame:CreateTexture(nil, "OVERLAY", nil, 7)
             self:SetOwnedTextureColor(edge, unpack(color))
-            self:ConfigureOwnedPixelTexture(edge)
+            self:ConfigurePixelBorderTexture(edge)
             border[edgeName] = edge
         end
     end
@@ -1838,7 +1852,7 @@ function NSkin:SetPixelBorderColor(border, red, green, blue, alpha)
         local edge = border[key]
         if edge then
             self:SetOwnedTextureColor(edge, red, green, blue, alpha)
-            self:ConfigureOwnedPixelTexture(edge)
+            self:ConfigurePixelBorderTexture(edge)
         end
     end
     border.color = { red, green, blue, alpha }
