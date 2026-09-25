@@ -1165,10 +1165,11 @@ local function RegisterRecipeListGroups(frame, recipeList, sectionID, rowID,
     for _, definition in ipairs({
         { sectionID, "Recipe section cards", "SECTION_CARD",
             IsRecipeCategory, nil },
-        { rowID, "Recipe list rows", "SECTION_ROW",
-            IsRecipeRow, "text" },
+        { rowID, "Recipe list rows", "BUTTON",
+            IsRecipeRow, "text", "sectionRow" },
     }) do
-        local id, label, kind, predicate, extraStyle = unpack(definition)
+        local id, label, kind, predicate, extraStyle, rowFamily =
+            unpack(definition)
         local function Refresh()
             if kind == "SECTION_CARD" then
                 return ApplyRecipeSections(recipeList, id)
@@ -1178,7 +1179,8 @@ local function RegisterRecipeListGroups(frame, recipeList, sectionID, rowID,
         if not registeredGroups[id] then
             registeredGroups[id] = NSkin:RegisterSkinningElement(id, {
                 module = "Professions", appearanceWindowID = IDs.Scope,
-                label = label, kind = kind, window = frame,
+                label = label, kind = kind, rowFamily = rowFamily,
+                window = frame,
                 target = recipeList.ScrollBox,
                 priority = priority + (kind == "SECTION_CARD" and 0 or 1),
                 draggable = false,
@@ -2497,7 +2499,8 @@ function OrdersSkin:ApplyOrderRows(frame, page)
     if not registeredOrdersElements[id] then
         registeredOrdersElements[id] = NSkin:RegisterSkinningElement(id, {
             module = "Professions", appearanceWindowID = IDs.Scope,
-            label = "Crafting order result rows", kind = "ROW",
+            label = "Crafting order result rows", kind = "BUTTON",
+            rowFamily = "row",
             window = frame, target = scrollBox, priority = 330,
             draggable = false,
             highlightRegions = function() return GetOrderRows(page, true) end,

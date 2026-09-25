@@ -145,9 +145,6 @@ ICON
 PROGRESS_BAR
 
 BUTTON
-ACTION_BUTTON
-GLYPH_BUTTON
-ICON_BUTTON
 CHECKBOX
 EDIT_BOX
 DROPDOWN
@@ -249,9 +246,9 @@ dungeon selector
 └─ DROPDOWN
 
 pagination
-├─ GLYPH_BUTTON
+├─ BUTTON
 ├─ TEXT
-└─ GLYPH_BUTTON
+└─ BUTTON
 
 search control
 ├─ EDIT_BOX
@@ -798,19 +795,46 @@ A special semantic role does not justify a new icon component type if the visual
 
 ## 20.3 Buttons
 
-BUTTON and ACTION_BUTTON remain semantically distinct even when they share visual primitives.
+BUTTON is the single canonical atomic button component.
+
+Text, glyph, atlas, icon, primary-action, close, navigation, and other button
+presentations do not create separate component identities. They are native/default
+presentation descriptors of BUTTON and may be overridden by the user.
+
+A Blizzard button keeps its native width, height, and content presentation by
+default. Customization may change those properties independently; for example, a
+native square close-glyph button may become a rectangular text button without
+changing component identity.
+
+Legacy names such as ACTION_BUTTON, GLYPH_BUTTON, and ICON_BUTTON are migration
+inputs only and must normalize to BUTTON rather than registering separate shared
+component types.
+
+## 20.3.1 Component presentation states
+
+An atomic component may declare multiple reusable presentation states without
+creating new component identities. State is part of appearance context.
+
+For BUTTON this supports controls such as collapse/expand, play/pause, or other
+visual state pairs while keeping one canonical BUTTON component.
+
+A state descriptor may provide:
 
 ```text
-BUTTON
-= secondary, utility, navigation, cancel, close, or non-commit action
-
-ACTION_BUTTON
-= primary operation/commit action for the current panel/workflow
+id
+label
+appearanceID
+defaultContent
+getStateID(target)
+previewState(target, stateID)
+previewRuntimeState = true | false
 ```
 
-GLYPH_BUTTON is appropriate for icon-only/procedural-glyph button presentation.
-
-ICON_BUTTON may be used where an icon-bearing button has a genuinely reusable atomic visual/control contract.
+Skinning Mode selects the runtime state of the exact clicked target. The Docked
+Window may switch the edited state explicitly. By default, switching state also
+previews that state on the selected runtime target when the adapter provides a
+safe preview callback. Controls where changing state has gameplay or other
+meaningful side effects opt out with `previewRuntimeState = false`.
 
 ## 20.4 EDIT_BOX Variations
 

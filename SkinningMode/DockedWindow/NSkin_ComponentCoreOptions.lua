@@ -1021,7 +1021,8 @@ CreateColor = function(view, control, y, layout)
             table.insert(modes, 1,
                 { value = "QUALITY", label = "Item Quality" })
         end
-        if control.allowDefaultAlways
+        if hasColorMode
+            or control.allowDefaultAlways
             or (control.allowDefault and current
                 and type(current.defaultColor) == "table")
         then

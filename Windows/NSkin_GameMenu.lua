@@ -649,6 +649,7 @@ local function RegisterSettingsGeneratedGroup(frame, definition)
         registeredSettingsGroups[id] = NSkin:RegisterSkinningElement(id, {
             label = definition.label,
             kind = definition.kind,
+            rowFamily = definition.rowFamily,
             module = "GameMenu",
             appearanceWindowID = IDs.Settings.Scope,
             window = frame,
@@ -749,7 +750,8 @@ function GameMenuSkin:RegisterSettingsGeneratedGroups(frame)
                 return GameMenuSkin:ApplySettingsCategoryGroup(frame, true)
             end },
         { id = ids.CategoryRows, label = "Settings category rows",
-            kind = "SECTION_ROW", owner = categoryScrollBox, priority = 67,
+            kind = "BUTTON", rowFamily = "sectionRow",
+            owner = categoryScrollBox, priority = 67,
             pixelBorders = true,
             appearanceStyles = { "text" },
             appearanceTypeIDs = { "TEXT" },
@@ -1138,6 +1140,7 @@ local function RegisterChatConfigGroup(frame, definition)
         registeredChatConfigGroups[id] = NSkin:RegisterSkinningElement(id, {
             label = definition.label,
             kind = definition.kind,
+            rowFamily = definition.rowFamily,
             module = "GameMenu",
             appearanceWindowID = IDs.ChatConfig.Scope,
             window = frame,
@@ -1314,7 +1317,8 @@ function GameMenuSkin:RegisterChatConfigGroups(frame)
     local channelOwner = _G.ChatConfigChannelSettingsLeft or optionsOwner
     local definitions = {
         { id = ids.Categories, label = "Chat categories",
-            kind = "SECTION_ROW", owner = categories, priority = 43,
+            kind = "BUTTON", rowFamily = "sectionRow",
+            owner = categories, priority = 43,
             pixelBorders = true, appearanceStyles = { "text" },
             appearanceTypeIDs = { "TEXT" },
             targets = GetChatConfigCategories,
@@ -1354,14 +1358,16 @@ function GameMenuSkin:RegisterChatConfigGroups(frame)
                 return GameMenuSkin:ApplyChatConfigOptions(frame)
             end },
         { id = ids.General.MessageRows,
-            label = "General chat message rows", kind = "ROW",
+            label = "General chat message rows", kind = "BUTTON",
+            rowFamily = "row",
             owner = optionsOwner, priority = 53, pixelBorders = true,
             targets = GetChatConfigGeneralMessageRows,
             refresh = function()
                 return GameMenuSkin:ApplyChatConfigGeneralMessageRows(frame)
             end },
         { id = ids.ChannelRows, label = "Movable chat channel rows",
-            kind = "SECTION_ROW", owner = channelOwner, priority = 54,
+            kind = "BUTTON", rowFamily = "sectionRow",
+            owner = channelOwner, priority = 54,
             pixelBorders = true, targets = GetChatConfigChannelRows,
             refresh = function()
                 return GameMenuSkin:ApplyChatConfigChannelRows(frame)
@@ -1840,7 +1846,7 @@ function GameMenuSkin:ApplyChatConfigCombatLog(frame)
     RegisterChatConfigGroup(frame, {
         id = ids.FilterRows,
         label = "Combat Log filters",
-        kind = "SECTION_ROW",
+        kind = "BUTTON", rowFamily = "sectionRow",
         owner = filters.ScrollBox,
         priority = 70,
         pixelBorders = true,

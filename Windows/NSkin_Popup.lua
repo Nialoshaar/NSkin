@@ -999,13 +999,29 @@ function PopupSkin:ApplyLootRows(frame, rowID)
             module = "Popup",
             appearanceWindowID = IDs.Loot.Scope,
             label = label,
-            kind = "ROW",
+            kind = "BUTTON", rowFamily = "row",
             window = frame,
             target = scrollBox,
             priority = rowID == IDs.Loot.ItemRows and 30 or 31,
             draggable = false,
             appearanceStyles = { "icon", "text" },
             appearanceTypeIDs = { "ICON", "TEXT" },
+            rowFamilyMemberTargets = {
+                ICON = function()
+                    local targets = {}
+                    for _, row in ipairs(
+                        GetLootRows(frame, rowID, true))
+                    do
+                        if row.Item
+                            and (row.Item.icon or row.Item.Icon
+                                or row.Item.IconTexture)
+                        then
+                            targets[#targets + 1] = row.Item
+                        end
+                    end
+                    return targets
+                end,
+            },
             highlightRegions = function()
                 return GetLootRowHighlightRegions(frame, rowID)
             end,

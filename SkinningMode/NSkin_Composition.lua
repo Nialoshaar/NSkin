@@ -401,6 +401,7 @@ local editorGroups = {}
 local editorGroupByElementID = {}
 local appearanceParentByID = {}
 local appearanceOwnerByID = {}
+local appearanceStateByID = {}
 
 function NSkin:GetAppearanceParentID(elementID)
     return appearanceParentByID[elementID]
@@ -408,6 +409,93 @@ end
 
 function NSkin:GetAppearanceOwnerElementID(elementID)
     return appearanceOwnerByID[elementID]
+end
+
+function NSkin:RegisterAppearanceParentID(elementID, parentID, ownerID)
+    if type(elementID) ~= "string" or elementID == ""
+        or type(parentID) ~= "string" or parentID == ""
+        or elementID == parentID
+    then
+        return false
+    end
+    appearanceParentByID[elementID] = parentID
+    if type(ownerID) == "string" and ownerID ~= "" then
+        appearanceOwnerByID[elementID] = ownerID
+    end
+    return true
+end
+
+function NSkin:RefreshCompositeMemberStateAppearance(change)
+    local entry = change and appearanceStateByID[change.elementID]
+    if not entry then return false end
+
+    local element = self:GetSkinningElement(entry.elementID)
+    local member = element
+        and self:GetCompositeMember(element, entry.memberID)
+    if not element or not member
+        or type(member.refreshStateAppearance) ~= "function"
+    then
+        return false
+    end
+
+    local stateDefinition
+    for _, candidate in ipairs(member.states or {}) do
+        if candidate.id == entry.stateID then
+            stateDefinition = candidate
+            break
+        end
+    end
+    if not stateDefinition then return false end
+
+    local ok, refreshed = pcall(
+        member.refreshStateAppearance,
+        element, member, stateDefinition, change)
+    return ok and refreshed ~= false
+end
+
+function NSkin:GetCompositeMemberTargetAppearanceID(
+    elementOrID, memberOrID, target)
+    local element = type(elementOrID) == "table" and elementOrID
+        or self:GetSkinningElement(elementOrID)
+    local member = element and (type(memberOrID) == "table" and memberOrID
+        or self:GetCompositeMember(element, memberOrID))
+    if not element or not member then return nil end
+
+    local appearanceID
+    if target and type(member.getTargetAppearanceID) == "function" then
+        local ok, resolved = pcall(
+            member.getTargetAppearanceID, element, member, target)
+        if ok and type(resolved) == "string" and resolved ~= "" then
+            appearanceID = resolved
+        end
+    end
+    appearanceID = appearanceID or member.appearanceID or member.id
+
+    if appearanceID ~= (member.appearanceID or member.id) then
+        self:RegisterAppearanceParentID(
+            appearanceID, member.appearanceID or member.id, element.id)
+    end
+    return appearanceID
+end
+
+function NSkin:GetCompositeMemberTargetForAppearanceID(
+    elementOrID, memberOrID, appearanceID)
+    local element = type(elementOrID) == "table" and elementOrID
+        or self:GetSkinningElement(elementOrID)
+    local member = element and (type(memberOrID) == "table" and memberOrID
+        or self:GetCompositeMember(element, memberOrID))
+    if not element or not member or type(appearanceID) ~= "string" then
+        return nil
+    end
+    for _, target in ipairs(
+        self:GetCompositionMemberTargets(element, member, false) or {})
+    do
+        if self:GetCompositeMemberTargetAppearanceID(
+            element, member, target) == appearanceID
+        then
+            return target
+        end
+    end
 end
 
 local function GetCompositionMemberState(element, member, create)
@@ -463,6 +551,66 @@ local function GetCompositePropertyOverrideStore(element, create)
 end
 
 
+local function GetCompositeTargetOffsetStore(element, create)
+    if not element or type(element.module) ~= "string" then return nil end
+    local moduleOptions = NSkin:GetModuleOptions(element.module, create == true)
+    if not moduleOptions then return nil end
+    local all = moduleOptions.compositeTargetOffsets
+    if not all and create then
+        all = {}
+        moduleOptions.compositeTargetOffsets = all
+    end
+    local store = all and all[element.id]
+    if not store and create then
+        store = {}
+        all[element.id] = store
+    end
+    return store, all, moduleOptions
+end
+
+function NSkin:GetCompositeMemberTargetOffset(
+    elementOrID, memberOrID, appearanceID)
+    local element = type(elementOrID) == "table" and elementOrID
+        or self:GetSkinningElement(elementOrID)
+    local member = element and (type(memberOrID) == "table" and memberOrID
+        or self:GetCompositeMember(element, memberOrID))
+    if not element or not member or type(appearanceID) ~= "string" then
+        return 0, 0
+    end
+    local store = GetCompositeTargetOffsetStore(element, false)
+    local memberStore = store and store[member.id]
+    local saved = memberStore and memberStore[appearanceID]
+    return tonumber(saved and saved.x) or 0,
+        tonumber(saved and saved.y) or 0
+end
+
+function NSkin:SetCompositeMemberTargetOffset(
+    elementOrID, memberOrID, appearanceID, x, y)
+    local element = type(elementOrID) == "table" and elementOrID
+        or self:GetSkinningElement(elementOrID)
+    local member = element and (type(memberOrID) == "table" and memberOrID
+        or self:GetCompositeMember(element, memberOrID))
+    if not element or not member or type(appearanceID) ~= "string"
+        or appearanceID == ""
+    then return false end
+
+    x, y = tonumber(x) or 0, tonumber(y) or 0
+    local store = GetCompositeTargetOffsetStore(element, true)
+    store[member.id] = store[member.id] or {}
+    local memberStore = store[member.id]
+    local saved = memberStore[appearanceID]
+    if saved and (tonumber(saved.x) or 0) == x
+        and (tonumber(saved.y) or 0) == y
+    then return false end
+    if x == 0 and y == 0 then
+        memberStore[appearanceID] = nil
+        if not next(memberStore) then store[member.id] = nil end
+    else
+        memberStore[appearanceID] = { x = x, y = y }
+    end
+    return true
+end
+
 local function GetCompositeFamilyOffsetStore(element, create)
     if not element or type(element.module) ~= "string" then return nil end
     local moduleOptions = NSkin:GetModuleOptions(element.module, create == true)
@@ -515,8 +663,11 @@ local function HasCompositePositionOverrideMetadata(
     return false
 end
 
-local function MakeCompositePropertyOverrideKey(memberID, groupID, propertyKey)
-    return table.concat({ memberID, groupID, propertyKey }, "\031")
+local function MakeCompositePropertyOverrideKey(
+    memberID, groupID, propertyKey, appearanceID)
+    return table.concat({
+        memberID, groupID, propertyKey, appearanceID or "",
+    }, "\031")
 end
 
 function NSkin:GetCompositePropertyOverrides(elementOrID)
@@ -541,7 +692,7 @@ function NSkin:GetCompositePropertyOverrides(elementOrID)
     return entries
 end
 
-function NSkin:HasCompositeMemberOverride(elementOrID, memberOrID)
+function NSkin:HasCompositeMemberOverride(elementOrID, memberOrID, target)
     local element = type(elementOrID) == "table" and elementOrID
         or self:GetSkinningElement(elementOrID)
     local member = element and (type(memberOrID) == "table" and memberOrID
@@ -551,9 +702,18 @@ function NSkin:HasCompositeMemberOverride(elementOrID, memberOrID)
     local state = GetCompositionMemberState(element, member, false)
     if state and state.overrideSpecific == true then return true end
 
+    local targetAppearanceID = target
+        and self:GetCompositeMemberTargetAppearanceID(
+            element, member, target) or nil
     local store = GetCompositePropertyOverrideStore(element, false)
     for _, entry in pairs(store or {}) do
-        if entry.memberID == member.id then return true end
+        if entry.memberID == member.id then
+            if not target then return true end
+            if entry.appearanceID == targetAppearanceID then return true end
+            if entry.appearanceID == nil and not member.getTargetAppearanceID then
+                return true
+            end
+        end
     end
     return false
 end
@@ -581,7 +741,7 @@ end
 
 
 function NSkin:AddCompositePropertyOverride(
-    elementOrID, memberID, groupID, propertyKey, propertyLabel)
+    elementOrID, memberID, groupID, propertyKey, propertyLabel, target)
     local element = type(elementOrID) == "table" and elementOrID
         or self:GetSkinningElement(elementOrID)
     local member = element and self:GetCompositeMember(element, memberID)
@@ -590,15 +750,20 @@ function NSkin:AddCompositePropertyOverride(
         or type(propertyKey) ~= "string" or propertyKey == ""
     then return false end
 
+    local appearanceID = self:GetCompositeMemberTargetAppearanceID(
+        element, member, target)
+    local exactAppearanceID = appearanceID ~= (member.appearanceID or member.id)
+        and appearanceID or nil
     local store = GetCompositePropertyOverrideStore(element, true)
     local token = MakeCompositePropertyOverrideKey(
-        member.id, groupID, propertyKey)
+        member.id, groupID, propertyKey, exactAppearanceID)
     if store[token] then return true end
     store[token] = {
         memberID = member.id,
         groupID = groupID,
         propertyKey = propertyKey,
         propertyLabel = propertyLabel or propertyKey,
+        appearanceID = exactAppearanceID,
         label = (member.label or member.id) .. " - "
             .. (propertyLabel or propertyKey),
     }
@@ -607,7 +772,7 @@ function NSkin:AddCompositePropertyOverride(
 end
 
 function NSkin:RemoveCompositePropertyOverrideMetadata(
-    elementOrID, memberID, groupID, propertyKey)
+    elementOrID, memberID, groupID, propertyKey, appearanceID)
     local element = type(elementOrID) == "table" and elementOrID
         or self:GetSkinningElement(elementOrID)
     if not element then return false end
@@ -615,7 +780,11 @@ function NSkin:RemoveCompositePropertyOverrideMetadata(
         GetCompositePropertyOverrideStore(element, false)
     if not store then return false end
     local token = MakeCompositePropertyOverrideKey(
-        memberID, groupID, propertyKey)
+        memberID, groupID, propertyKey, appearanceID)
+    if not store[token] and appearanceID == nil then
+        token = table.concat(
+            { memberID, groupID, propertyKey }, "\031")
+    end
     if not store[token] then return false end
     store[token] = nil
     if not next(store) then
@@ -629,38 +798,133 @@ function NSkin:RemoveCompositePropertyOverrideMetadata(
 end
 
 function NSkin:GetCompositeMemberExactAppearanceContext(
-    elementOrID, memberOrID)
+    elementOrID, memberOrID, targetOrAppearanceID)
     local element = type(elementOrID) == "table" and elementOrID
         or self:GetSkinningElement(elementOrID)
     local member = element and (type(memberOrID) == "table" and memberOrID
         or self:GetCompositeMember(element, memberOrID))
     if not element or not member then return nil end
 
-    local context = member._exactAppearanceEditorContext or {}
-    member._exactAppearanceEditorContext = context
-    context.id = member.appearanceID or member.id
+    local target
+    local appearanceID
+    if type(targetOrAppearanceID) == "string" then
+        appearanceID = targetOrAppearanceID
+        target = self:GetCompositeMemberTargetForAppearanceID(
+            element, member, appearanceID)
+    else
+        target = targetOrAppearanceID or member._editorRuntimeTarget
+        if not target then
+            local targets = self:GetCompositionMemberTargets(
+                element, member, false)
+            target = member.movementOwner or targets[1]
+        end
+        appearanceID = self:GetCompositeMemberTargetAppearanceID(
+            element, member, target)
+    end
+    appearanceID = appearanceID or member.appearanceID or member.id
+    if appearanceID ~= (member.appearanceID or member.id) then
+        self:RegisterAppearanceParentID(
+            appearanceID, member.appearanceID or member.id, element.id)
+    end
+
+    member._exactAppearanceEditorContexts =
+        member._exactAppearanceEditorContexts or {}
+    local context = member._exactAppearanceEditorContexts[appearanceID] or {}
+    member._exactAppearanceEditorContexts[appearanceID] = context
+    context.id = appearanceID
     context.label = member.label or member.id
     context.kind = member.kind
     context.module = element.module
     context.window = element.window
-    local targets = self:GetCompositionMemberTargets(
-        element, member, false)
-    context.target = member.movementOwner or targets[1]
+    context.target = target
     context.appearanceWindowID =
         member.appearanceWindowID or element.appearanceWindowID
     context.compositeOwner = element
     context.compositeMember = member
     context.exactMemberOverride = true
+    context.exactAppearanceID = appearanceID
     return context
 end
 
 function NSkin:GetCompositeMemberExactPositionContext(
-    elementOrID, memberOrID)
+    elementOrID, memberOrID, targetOrAppearanceID)
     local element = type(elementOrID) == "table" and elementOrID
         or self:GetSkinningElement(elementOrID)
     local member = element and (type(memberOrID) == "table" and memberOrID
         or self:GetCompositeMember(element, memberOrID))
     if not element or not member then return nil end
+
+    local target
+    local appearanceID
+    if type(targetOrAppearanceID) == "string" then
+        appearanceID = targetOrAppearanceID
+        target = self:GetCompositeMemberTargetForAppearanceID(
+            element, member, appearanceID)
+    else
+        target = targetOrAppearanceID or member._editorRuntimeTarget
+        appearanceID = target and self:GetCompositeMemberTargetAppearanceID(
+            element, member, target) or nil
+    end
+
+    -- Repeated pooled members use a stable target appearance ID. Ordinary
+    -- members keep the existing member-wide offset behavior.
+    if appearanceID
+        and appearanceID ~= (member.appearanceID or member.id)
+    then
+        member._exactPositionEditorContexts =
+            member._exactPositionEditorContexts or {}
+        local context =
+            member._exactPositionEditorContexts[appearanceID] or {}
+        member._exactPositionEditorContexts[appearanceID] = context
+        context.id = appearanceID .. ":Position"
+        context.label = member.label or member.id
+        context.kind = member.kind
+        context.module = element.module
+        context.window = element.window
+        context.target = target
+        context.appearanceWindowID =
+            member.appearanceWindowID or element.appearanceWindowID
+        context.compositeOwner = element
+        context.compositeMember = member
+        context.exactMemberOverride = true
+        context.exactAppearanceID = appearanceID
+        context.getPlacement = function()
+            local x, y = NSkin:GetCompositeMemberTargetOffset(
+                element, member, appearanceID)
+            return {
+                mode = "OFFSET",
+                alongOffset = x,
+                edgeOffset = y,
+            }
+        end
+        context.setPlacement = function(_, placement)
+            local x = tonumber(placement and
+                (placement.alongOffset or placement.x)) or 0
+            local y = tonumber(placement and
+                (placement.edgeOffset or placement.y)) or 0
+            local changed = NSkin:SetCompositeMemberTargetOffset(
+                element, member, appearanceID, x, y)
+            if type(member.applyTargetOffset) == "function" then
+                pcall(member.applyTargetOffset,
+                    element, member, target, appearanceID, x, y)
+            elseif changed and type(element.refreshLayout) == "function" then
+                element.refreshLayout(NSkin, element)
+            end
+            return changed
+        end
+        context.resetPlacement = function()
+            local changed = NSkin:SetCompositeMemberTargetOffset(
+                element, member, appearanceID, 0, 0)
+            if type(member.applyTargetOffset) == "function" then
+                pcall(member.applyTargetOffset,
+                    element, member, target, appearanceID, 0, 0)
+            elseif changed and type(element.refreshLayout) == "function" then
+                element.refreshLayout(NSkin, element)
+            end
+            return changed
+        end
+        return context
+    end
 
     local context = member._exactPositionEditorContext or {}
     member._exactPositionEditorContext = context
@@ -790,6 +1054,12 @@ local function NormalizeCompositeMembers(element, composition)
                     member.appearanceWindowID or element.appearanceWindowID
                 member.appearanceID =
                     member.appearanceID or member.elementID or member.id
+                -- TEXT is one canonical shared component. Every registered
+                -- TEXT member gets the same exact-property override system,
+                -- regardless of which Composite/window registered it.
+                if member.kind == "TEXT" then
+                    member.allowOverrides = true
+                end
                 if type(member.appearanceParentID) == "string"
                     and member.appearanceParentID ~= ""
                     and member.appearanceParentID ~= member.appearanceID
@@ -798,6 +1068,19 @@ local function NormalizeCompositeMembers(element, composition)
                         member.appearanceParentID
                 end
                 appearanceOwnerByID[member.appearanceID] = element.id
+                for _, stateDefinition in ipairs(member.states or {}) do
+                    local stateID = stateDefinition.appearanceID
+                        or (member.appearanceID .. ".State."
+                            .. tostring(stateDefinition.id))
+                    stateDefinition.appearanceID = stateID
+                    appearanceParentByID[stateID] = member.appearanceID
+                    appearanceOwnerByID[stateID] = element.id
+                    appearanceStateByID[stateID] = {
+                        elementID = element.id,
+                        memberID = member.id,
+                        stateID = stateDefinition.id,
+                    }
+                end
                 if member.attached == nil then member.attached = true end
                 local saved = GetCompositionMemberState(element, member, false)
                 if saved then
@@ -1401,6 +1684,12 @@ function NSkin:ApplyCompositeMemberFamilyOffset(
     if not element or not key then return false end
     x, y = tonumber(x) or 0, tonumber(y) or 0
 
+    if type(member.applyFamilyOffset) == "function" then
+        local ok, applied = pcall(
+            member.applyFamilyOffset, element, member, x, y)
+        return ok and applied == true
+    end
+
     local applied
     for _, candidate in ipairs(element.composition.members or {}) do
         if GetCompositeMemberFamilyKey(candidate) == key then
@@ -1597,8 +1886,10 @@ function NSkin:GetCompositeMemberEditorContext(elementOrID, memberOrID)
     local member = element and (type(memberOrID) == "table" and memberOrID
         or self:GetCompositeMember(element, memberOrID))
     if not element or not member then return nil end
+    if member.movable == false then return nil end
 
-    -- Every member kind, including Surface, edits its shared family position.
+    -- Every movable member kind, including Surface, edits its shared family
+    -- position. Runtime pooled families opt out explicitly.
     -- Exact-member X/Y remains available only through sparse overrides.
     local context = member._editorContext or {}
     member._editorContext = context
@@ -1636,6 +1927,75 @@ function NSkin:GetCompositeMemberEditorContext(elementOrID, memberOrID)
     return context
 end
 
+local function GetCompositeMemberStateDefinition(member, stateID)
+    if not member or type(stateID) ~= "string" then return nil end
+    for _, definition in ipairs(member.states or {}) do
+        if definition.id == stateID then return definition end
+    end
+end
+
+function NSkin:GetCompositeMemberRuntimeState(
+    elementOrID, memberOrID, target)
+    local element = type(elementOrID) == "table" and elementOrID
+        or self:GetSkinningElement(elementOrID)
+    local member = element and (type(memberOrID) == "table" and memberOrID
+        or self:GetCompositeMember(element, memberOrID))
+    if not element or not member or not target then return nil end
+    if type(member.getStateID) == "function" then
+        local ok, stateID = pcall(
+            member.getStateID, element, member, target)
+        if ok and GetCompositeMemberStateDefinition(member, stateID) then
+            return stateID
+        end
+    end
+end
+
+function NSkin:GetCompositeMemberEditorState(elementOrID, memberOrID)
+    local element = type(elementOrID) == "table" and elementOrID
+        or self:GetSkinningElement(elementOrID)
+    local member = element and (type(memberOrID) == "table" and memberOrID
+        or self:GetCompositeMember(element, memberOrID))
+    if not element or not member or #(member.states or {}) == 0 then
+        return nil, nil
+    end
+    local stateID = member._editorStateID
+    local definition = GetCompositeMemberStateDefinition(member, stateID)
+    if not definition then
+        definition = member.states[1]
+        stateID = definition and definition.id
+    end
+    return stateID, definition
+end
+
+function NSkin:SetCompositeMemberEditorState(
+    elementOrID, memberOrID, stateID, target, preview)
+    local element = type(elementOrID) == "table" and elementOrID
+        or self:GetSkinningElement(elementOrID)
+    local member = element and (type(memberOrID) == "table" and memberOrID
+        or self:GetCompositeMember(element, memberOrID))
+    local definition = member
+        and GetCompositeMemberStateDefinition(member, stateID)
+    if not element or not member or not definition then return false end
+
+    local stateChanged = member._editorStateID ~= stateID
+    local targetChanged = target ~= nil
+        and member._editorStateTarget ~= target
+    member._editorStateID = stateID
+    if target then member._editorStateTarget = target end
+
+    local previewed
+    if preview == true and member.previewRuntimeState ~= false
+        and type(member.previewState) == "function"
+        and member._editorStateTarget
+    then
+        local ok, result = pcall(member.previewState, element, member,
+            member._editorStateTarget, stateID)
+        previewed = ok and result ~= false
+    end
+
+    return stateChanged or targetChanged or previewed == true
+end
+
 function NSkin:GetCompositeMemberAppearanceContext(elementOrID, memberOrID)
     local element = type(elementOrID) == "table" and elementOrID
         or self:GetSkinningElement(elementOrID)
@@ -1647,18 +2007,28 @@ function NSkin:GetCompositeMemberAppearanceContext(elementOrID, memberOrID)
     member._appearanceEditorContext = context
     local specific = self:IsCompositeMemberSpecificOverrideEnabled(
         element, member)
-    context.id = specific
+    local baseAppearanceID = specific
         and (member.appearanceID or member.id)
         or (member.appearanceParentID or element.id)
+    local stateID, stateDefinition =
+        self:GetCompositeMemberEditorState(element, member)
+    context.id = stateDefinition
+        and (stateDefinition.appearanceID
+            or (baseAppearanceID .. ".State." .. stateID))
+        or baseAppearanceID
     context.label = member.label or member.id
     context.kind = member.kind
     context.module = element.module
     context.window = element.window
-    context.target = GetCompositeMemberMovementTarget(element, member)
+    context.target = member._editorStateTarget
+        or GetCompositeMemberMovementTarget(element, member)
+    context.componentStateID = stateID
+    context.componentState = stateDefinition
     context.appearanceWindowID =
         member.appearanceWindowID or element.appearanceWindowID
     context.compositeOwner = element
     context.compositeMember = member
+    context.surfaceStyle = member.surfaceStyle
     context.specificElementOverride = specific
     return context
 end
@@ -1696,9 +2066,10 @@ function NSkin:GetCompositeMemberEditorOptions(elementOrID, memberOrID)
         self:GetCompositeMemberAppearanceContext(element, member)
     local labels = element.editorOptionLabels
         or (element.composition and element.composition.editorOptionLabels)
-    for _, definition in ipairs(
-        self:CreateEditorOptionsPreset(component.editorPreset) or {})
-    do
+    local definitions = member.editorOptions
+        or self:CreateEditorOptionsPreset(component.editorPreset)
+        or {}
+    for _, definition in ipairs(definitions) do
         local id = type(definition) == "table"
             and definition.id or definition
         local category = type(definition) == "table"
@@ -1740,9 +2111,10 @@ function NSkin:ResetCompositeMemberCustomizations(elementOrID, memberOrID)
     local component = member.kind
         and self:GetSharedElementType(member.kind)
     if component and appearanceContext then
-        for _, definition in ipairs(
-            self:CreateEditorOptionsPreset(component.editorPreset) or {})
-        do
+        local definitions = member.editorOptions
+            or self:CreateEditorOptionsPreset(component.editorPreset)
+            or {}
+        for _, definition in ipairs(definitions) do
             local id = type(definition) == "table"
                 and definition.id or definition
             local category = type(definition) == "table"

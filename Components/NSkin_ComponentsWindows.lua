@@ -280,13 +280,17 @@ function NSkin:SkinGlyphButton(button, options)
         options.background
             or self:GetResolvedAppearanceColor(style, "background")
             or style.background,
-        options.border or self:GetComponentBorderColor("button", style))
+        options.border
+            or self:GetResolvedAppearanceColor(style, "border")
+            or self:GetComponentBorderColor("button", style))
     self:CreateFlatButtonGlow(button, style.hoverAlpha)
 
     local border = self:GetPixelBorder(button, backgroundKey .. "Border")
     if border then
-        self:SetPixelBorderSize(border, options.borderSize or 1)
-        self:SetPixelBorderPadding(border, options.borderPadding or 0)
+        self:SetPixelBorderSize(border,
+            tonumber(options.borderSize) or tonumber(style.borderSize) or 1)
+        self:SetPixelBorderPadding(border,
+            tonumber(options.borderPadding) or tonumber(style.borderPadding) or 0)
         self:SetPixelBorderShown(border, true)
     end
 
@@ -326,6 +330,9 @@ function NSkin:SkinGlyphButton(button, options)
 
     state.centeredGlyph = self:CreateCenteredButtonGlyph(
         button, options.glyphKey or "glyphButton", definition)
+    if state.centeredGlyph then
+        self:SetCenteredButtonGlyphShown(state.centeredGlyph, true)
+    end
 
     if not state.stateHooked and button.HookScript then
         button:HookScript("OnEnable", RefreshGlyphButtonAppearance)
@@ -335,6 +342,175 @@ function NSkin:SkinGlyphButton(button, options)
     end
     RefreshGlyphButtonAppearance(button)
     return state
+end
+
+local function CaptureButtonNativeDefaults(button)
+    local data = NSkin:GetSkinData(button, COMPONENT_STATE)
+    local state = data.canonicalButtonDefaults
+    if state then return state end
+
+    state = {}
+    data.canonicalButtonDefaults = state
+    if button.GetSize then
+        local width, height = button:GetSize()
+        state.width = tonumber(width)
+        state.height = tonumber(height)
+    end
+
+    local text = button.GetText and button:GetText()
+    if type(text) == "string" and text ~= "" then
+        state.content = { type = "TEXT", text = text }
+    end
+
+    if not state.content and button.GetNormalTexture then
+        local texture = button:GetNormalTexture()
+        if texture then
+            local atlas = texture.GetAtlas and texture:GetAtlas()
+            local path = texture.GetTexture and texture:GetTexture()
+            if atlas then
+                state.content = { type = "ATLAS", atlas = atlas }
+            elseif path then
+                state.content = { type = "ICON", texture = path }
+            end
+        end
+    end
+
+    state.content = state.content or { type = "TEXT", text = "" }
+    return state
+end
+
+local function ResolveCanonicalButtonContent(button, style, options)
+    local native = CaptureButtonNativeDefaults(button)
+    local default = options.defaultContent or native.content
+    local mode = string.upper(tostring(style.contentMode or "DEFAULT"))
+    if mode == "DEFAULT" then
+        local resolved = {}
+        for key, value in pairs(default or {}) do resolved[key] = value end
+        resolved.type = string.upper(tostring(resolved.type or "TEXT"))
+        if resolved.type == "GLYPH"
+            and type(style.contentGlyph) == "string"
+            and style.contentGlyph ~= ""
+        then
+            resolved.glyph = style.contentGlyph
+        end
+        return resolved
+    end
+
+    if mode == "TEXT" then
+        local text = style.contentText
+        if type(text) ~= "string" or text == "" then
+            text = default and default.text
+                or (button.GetText and button:GetText()) or ""
+        end
+        return { type = "TEXT", text = text }
+    elseif mode == "GLYPH" then
+        local glyph = type(style.contentGlyph) == "string"
+            and style.contentGlyph ~= "" and style.contentGlyph
+            or (default and default.glyph) or "close"
+        return {
+            type = "GLYPH",
+            glyph = glyph,
+        }
+    elseif mode == "ICON" then
+        return {
+            type = "ICON",
+            texture = style.contentTexture ~= "" and style.contentTexture
+                or (default and default.texture),
+        }
+    elseif mode == "ATLAS" then
+        return {
+            type = "ATLAS",
+            atlas = style.contentAtlas ~= "" and style.contentAtlas
+                or (default and default.atlas),
+        }
+    end
+    return default or native.content
+end
+
+function NSkin:SkinButton(button, options)
+    if not button then return nil end
+    options = options or {}
+    local style = options.style or self:GetStyle("button")
+    local native = CaptureButtonNativeDefaults(button)
+    local data = self:GetSkinData(button, COMPONENT_STATE)
+
+    local width = tonumber(style.width)
+    local height = tonumber(style.height)
+    if button.SetSize and native.width and native.height then
+        local resolvedWidth = width and width > 0 and width or native.width
+        local resolvedHeight = height and height > 0 and height or native.height
+        if resolvedWidth > 0 and resolvedHeight > 0 then
+            button:SetSize(resolvedWidth, resolvedHeight)
+        end
+    end
+
+    local content = ResolveCanonicalButtonContent(button, style, options)
+    local contentType = string.upper(tostring(content and content.type or "TEXT"))
+    local contentSize = tonumber(style.contentSize)
+    if not contentSize or contentSize <= 0 then
+        contentSize = tonumber(content and content.size)
+            or tonumber(options.textSize)
+            or tonumber(style.textSize)
+    end
+    local offsetX = tonumber(style.contentOffsetX) or 0
+    local offsetY = tonumber(style.contentOffsetY) or 0
+    local border = options.border
+        or self:GetResolvedAppearanceColor(style, "border")
+        or self:GetComponentBorderColor("button", style)
+    local background = options.background
+        or self:GetResolvedAppearanceColor(style, "background")
+        or style.background
+
+    if contentType == "TEXT" then
+        if data.glyphButton and data.glyphButton.centeredGlyph then
+            self:SetCenteredButtonGlyphShown(
+                data.glyphButton.centeredGlyph, false)
+        end
+        self:SkinActionButton(button, {
+            style = style,
+            border = border,
+            background = background,
+            borderSize = style.borderSize,
+            borderPadding = style.borderPadding,
+            textSize = contentSize,
+            label = content.text or "",
+            labelOffsetX = offsetX,
+            labelOffsetY = offsetY,
+            customText = string.upper(tostring(style.contentMode or "DEFAULT"))
+                == "TEXT",
+            textRegion = options.textRegion,
+            preserveTexture = options.preserveTexture,
+            preserveTextGeometry = options.preserveTextGeometry,
+            disabledTextAlpha = options.disabledTextAlpha,
+        })
+        return self:GetSkinData(button, COMPONENT_STATE)
+    end
+
+    data.actionActive = nil
+    if data.label then data.label:Hide() end
+
+    local glyphOptions = {
+        style = style,
+        border = border,
+        background = background,
+        borderSize = style.borderSize,
+        borderPadding = style.borderPadding,
+        size = contentSize,
+        offsetX = offsetX,
+        offsetY = offsetY,
+        backgroundKey = options.backgroundKey,
+        glyphKey = options.glyphKey or "buttonContent",
+    }
+    if contentType == "GLYPH" then
+        glyphOptions.glyph = content.glyph or "close"
+    elseif contentType == "ATLAS" then
+        if not content.atlas then return nil end
+        glyphOptions.icon = { atlas = content.atlas, size = contentSize }
+    else
+        if not content.texture then return nil end
+        glyphOptions.icon = { texture = content.texture, size = contentSize }
+    end
+    return self:SkinGlyphButton(button, glyphOptions)
 end
 
 local STANDARD_WINDOW_HEADER_GLYPHS = {
@@ -386,7 +562,31 @@ function NSkin:SkinWindowHeaderButton(button, content, options)
         return nil
     end
 
-    local state = self:SkinGlyphButton(button, glyphOptions)
+    local defaultContent
+    if glyphOptions.glyph then
+        defaultContent = {
+            type = "GLYPH",
+            glyph = glyphOptions.glyph,
+            size = glyphOptions.size,
+        }
+    elseif glyphOptions.icon then
+        local icon = glyphOptions.icon
+        defaultContent = {
+            type = type(icon) == "table" and icon.atlas and "ATLAS" or "ICON",
+            atlas = type(icon) == "table" and icon.atlas or nil,
+            texture = type(icon) == "table" and icon.texture or icon,
+            size = type(icon) == "table" and icon.size or glyphOptions.size,
+        }
+    end
+    local state = self:SkinButton(button, {
+        style = glyphOptions.style,
+        background = glyphOptions.background,
+        border = glyphOptions.border,
+        borderSize = glyphOptions.borderSize,
+        borderPadding = glyphOptions.borderPadding,
+        defaultContent = defaultContent,
+        glyphKey = glyphOptions.glyphKey,
+    })
     local data = self:GetSkinData(button, COMPONENT_STATE)
     data.windowHeaderButton = state
     return state
@@ -432,7 +632,7 @@ function NSkin:SkinStandardCloseButton(window, closeButton, options)
     local border = self:GetPixelBorder(
         closeButton, "NSkinFlatBackgroundBorder")
     self:SetPixelBorderSize(border, options.borderSize or 1)
-    self:SetPixelBorderPadding(border, 0)
+    self:SetPixelBorderPadding(border, options.borderPadding or 0)
     if border then
         -- The window border supplies the two exterior edges. Drawing the
         -- button edges over them would darken translucent borders and can
@@ -445,13 +645,14 @@ function NSkin:SkinStandardCloseButton(window, closeButton, options)
     return closeButton
 end
 
-local function ConfigureWindowHeaderControlBorder(control, borderSize)
+local function ConfigureWindowHeaderControlBorder(
+    control, borderSize, borderPadding)
     local border = NSkin:GetPixelBorder(
         control, "NSkinFlatBackgroundBorder")
     if not border then return end
 
     NSkin:SetPixelBorderSize(border, borderSize or 1)
-    NSkin:SetPixelBorderPadding(border, 0)
+    NSkin:SetPixelBorderPadding(border, borderPadding or 0)
     -- The window supplies the shared top edge and the control to the right
     -- supplies the shared vertical edge. Keep only this slot's left and
     -- bottom separators so translucent borders are never drawn twice.
@@ -526,7 +727,7 @@ function NSkin:RegisterWindowHeaderControls(definition)
                     "TOPRIGHT", previousControl, "TOPLEFT", -spacing, 0)
                 if target.SetSize then target:SetSize(width, height) end
                 ConfigureWindowHeaderControlBorder(
-                    target, definition.borderSize)
+                    target, definition.borderSize, definition.borderPadding)
             end
             previousControl = slotAnchor
         end
@@ -604,9 +805,9 @@ function NSkin:SkinStandardWindowChrome(definition)
         local headerControlsID = definition.headerControlsID
             or (elementID .. ".HeaderControls")
         local headerButtonStyle = self:GetAppearanceStyle(
-            "windowHeaderButton", appearanceWindowID, headerControlsID)
+            "button", appearanceWindowID, headerControlsID)
         local headerButtonBorder = self:GetAppearanceBorderColor(
-            "windowHeaderButton", headerButtonStyle,
+            "button", headerButtonStyle,
             appearanceWindowID, headerControlsID)
         local buttonWidth = tonumber(headerButtonStyle.width)
         local buttonHeight = tonumber(headerButtonStyle.height)
@@ -616,7 +817,8 @@ function NSkin:SkinStandardWindowChrome(definition)
             style = headerButtonStyle,
             background = definition.closeButtonBackground,
             border = definition.closeButtonBorder or headerButtonBorder,
-            borderSize = style.borderSize,
+            borderSize = headerButtonStyle.borderSize,
+            borderPadding = headerButtonStyle.borderPadding,
             width = buttonWidth,
             height = buttonHeight,
             preserveGeometry = definition.preserveCloseButtonGeometry,
@@ -639,7 +841,8 @@ function NSkin:SkinStandardWindowChrome(definition)
             spacing = definition.headerControlSpacing,
             buttonWidth = buttonWidth,
             buttonHeight = buttonHeight,
-            borderSize = style.borderSize,
+            borderSize = headerButtonStyle.borderSize,
+            borderPadding = headerButtonStyle.borderPadding,
         })
         -- Register on every chrome application so an existing runtime element
         -- keeps the current direct chrome definition and refresh contract.
@@ -647,8 +850,11 @@ function NSkin:SkinStandardWindowChrome(definition)
         self:RegisterSkinningElement(headerControlsID, {
             label = definition.headerControlsLabel
                 or "Window header buttons",
-            kind = "WINDOW_HEADER_CONTROLS",
+            kind = "BUTTON",
             appearanceWindowID = appearanceWindowID,
+            editorOptions = self:CreateEditorOptionsPreset("BUTTON"),
+            appearanceStyles = { "button" },
+            appearanceTypeIDs = { "BUTTON" },
             window = frame,
             target = closeButton,
             chromeDefinition = definition,
@@ -711,11 +917,11 @@ function NSkin:RefreshWindowHeaderControlsElement(element)
     local windowStyle = definition.style or self:GetAppearanceStyle(
         "window", appearanceWindowID, elementID)
     local headerButtonStyle = self:GetAppearanceStyle(
-        "windowHeaderButton", appearanceWindowID, headerControlsID)
+        "button", appearanceWindowID, headerControlsID)
     if not windowStyle or not headerButtonStyle then return false end
 
     local headerButtonBorder = self:GetAppearanceBorderColor(
-        "windowHeaderButton", headerButtonStyle,
+        "button", headerButtonStyle,
         appearanceWindowID, headerControlsID)
     local buttonWidth = tonumber(headerButtonStyle.width)
     local buttonHeight = tonumber(headerButtonStyle.height)
@@ -726,7 +932,8 @@ function NSkin:RefreshWindowHeaderControlsElement(element)
         style = headerButtonStyle,
         background = definition.closeButtonBackground,
         border = definition.closeButtonBorder or headerButtonBorder,
-        borderSize = windowStyle.borderSize,
+        borderSize = headerButtonStyle.borderSize,
+        borderPadding = headerButtonStyle.borderPadding,
         width = buttonWidth,
         height = buttonHeight,
         preserveGeometry = definition.preserveCloseButtonGeometry,
@@ -751,7 +958,8 @@ function NSkin:RefreshWindowHeaderControlsElement(element)
         spacing = definition.headerControlSpacing,
         buttonWidth = buttonWidth,
         buttonHeight = buttonHeight,
-        borderSize = windowStyle.borderSize,
+        borderSize = headerButtonStyle.borderSize,
+        borderPadding = headerButtonStyle.borderPadding,
     })
 
     self:NotifySkinningElementBoundsChanged(element.id)

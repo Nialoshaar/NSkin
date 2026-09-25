@@ -238,13 +238,32 @@ function DeathRecapSkin:ApplyRows(frame)
             module = "DeathRecap",
             appearanceWindowID = IDs.Scope,
             label = "Death Recap event rows",
-            kind = "ROW",
+            kind = "BUTTON", rowFamily = "row",
             window = frame,
             target = scrollBox,
             priority = 30,
             draggable = false,
             appearanceStyles = { "text", "icon" },
             appearanceTypeIDs = { "TEXT", "ICON" },
+            rowFamilyMemberTargets = {
+                ICON = function()
+                    local targets = {}
+                    for _, row in ipairs(GetVisibleRows(frame)) do
+                        local iconTarget = GetRowIcon(row)
+                        if iconTarget then targets[#targets + 1] = iconTarget end
+                    end
+                    return targets
+                end,
+                TEXT = function()
+                    local targets = {}
+                    for _, row in ipairs(GetVisibleRows(frame)) do
+                        for _, target in pairs(GetRowTexts(row)) do
+                            if target then targets[#targets + 1] = target end
+                        end
+                    end
+                    return targets
+                end,
+            },
             highlightRegions = function()
                 return GetVisibleRows(frame)
             end,

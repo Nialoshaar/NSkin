@@ -433,7 +433,7 @@ function StableSkin:ApplyPetRows(frame)
                 module = "Stable",
                 appearanceWindowID = IDs.Scope,
                 label = "Stable pet rows",
-                kind = "SECTION_ROW",
+                kind = "BUTTON", rowFamily = "sectionRow",
                 window = frame,
                 target = scrollBox,
                 priority = 50,

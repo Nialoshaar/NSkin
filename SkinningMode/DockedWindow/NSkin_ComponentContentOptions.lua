@@ -674,6 +674,116 @@ NSkin:RegisterOptionGroup("shared.sectionRowAppearance", {
     end,
 })
 
+local surfaceAppearanceControls = {
+    {
+        type = "SLIDER_PAIR", order = 1, centerReset = true,
+        resetSubset = true,
+        resetTooltip = "Reset surface width and height",
+        left = { key = "width", label = "Width", min = 20,
+            max = 1000, step = 1, decimals = 0, suffix = " px",
+            resetValue = 0 },
+        right = { key = "height", label = "Height", min = 8,
+            max = 300, step = 1, decimals = 0, suffix = " px",
+            resetValue = 0 },
+    },
+    {
+        type = "COLOR_PAIR", order = 2,
+        left = { type = "COLOR", key = "border",
+            modeKey = "borderMode", label = "Border" },
+        right = { type = "COLOR", key = "background",
+            modeKey = "backgroundMode", label = "Background" },
+    },
+    {
+        type = "SLIDER", key = "hoverAlpha",
+        label = "Highlight opacity", min = 0, max = 1,
+        step = 0.05, decimals = 2, order = 3,
+    },
+    {
+        type = "COLOR", key = "selectedBackground",
+        modeKey = "selectedBackgroundMode",
+        label = "Selected background", order = 4,
+    },
+}
+
+local surfaceAppearanceKeys = {
+    width = true,
+    height = true,
+    background = true,
+    backgroundMode = true,
+    selectedBackground = true,
+    selectedBackgroundMode = true,
+    border = true,
+    borderMode = true,
+    hoverAlpha = true,
+}
+
+local function GetSurfaceAppearanceStyleName(context)
+    return context and context.surfaceStyle == "sectionRow"
+        and "sectionRow" or "row"
+end
+
+local function GetSurfaceAppearancePaths(context, keys)
+    local styleName = GetSurfaceAppearanceStyleName(context)
+    local paths = {}
+    for key in pairs(keys or surfaceAppearanceKeys) do
+        if surfaceAppearanceKeys[key] then
+            paths[#paths + 1] = styleName .. "." .. key
+        end
+    end
+    if styleName == "sectionRow" then
+        paths[#paths + 1] = "sectionRow.showBorder"
+    end
+    return paths
+end
+
+NSkin:RegisterOptionGroup("shared.surfaceAppearance", {
+    controls = surfaceAppearanceControls,
+    get = function(context)
+        local styleName = GetSurfaceAppearanceStyleName(context)
+        local style = NSkin:GetAppearanceStyle(
+            styleName, GetAppearanceWindowID(context), context.id)
+        local target = context.target
+        return {
+            width = tonumber(style.width) and style.width > 0 and style.width
+                or (target and target.GetWidth and target:GetWidth()) or 20,
+            height = tonumber(style.height) and style.height > 0 and style.height
+                or (target and target.GetHeight and target:GetHeight()) or 20,
+            background = CopyColor(style.background),
+            backgroundMode = style.backgroundMode or "CUSTOM",
+            selectedBackground = CopyColor(style.selectedBackground),
+            selectedBackgroundMode = style.selectedBackgroundMode or "CUSTOM",
+            border = CopyColor(style.border),
+            borderMode = style.borderMode or "CUSTOM",
+            hoverAlpha = tonumber(style.hoverAlpha) or 0.10,
+        }
+    end,
+    set = function(context, values)
+        local styleName = GetSurfaceAppearanceStyleName(context)
+        local changed = false
+        for key in pairs(surfaceAppearanceKeys) do
+            if values[key] ~= nil then
+                changed = SetElementValue(
+                    context, styleName .. "." .. key, values[key]) or changed
+            end
+        end
+        if styleName == "sectionRow"
+            and (values.border ~= nil or values.borderMode ~= nil)
+        then
+            changed = SetElementValue(
+                context, "sectionRow.showBorder", true) or changed
+        end
+        return changed == true
+    end,
+    reset = function(context)
+        return ResetElementPaths(
+            context, GetSurfaceAppearancePaths(context))
+    end,
+    resetSubset = function(context, keys)
+        return ResetElementPaths(
+            context, GetSurfaceAppearancePaths(context, keys))
+    end,
+})
+
 local sectionCardAppearanceControls = {
     { type = "SECTION", label = "Card", order = 10 },
     {

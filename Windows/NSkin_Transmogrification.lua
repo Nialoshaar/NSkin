@@ -831,10 +831,32 @@ function TransmogrificationSkin:ApplyDressUpFamily(frame, panel, isRow)
         NSkin:RegisterSkinningElement(id, {
             module = "Transmogrification", appearanceWindowID = DressUpIDs.Scope,
             label = isRow and "Dressing Room set items" or "Dressing Room appearance slots",
-            kind = isRow and "ROW" or "ICON",
+            kind = isRow and "BUTTON" or "ICON",
+            rowFamily = isRow and "row" or nil,
             window = frame, target = panel, priority = 40, draggable = false,
             appearanceStyles = { "icon", "text" },
             appearanceTypeIDs = { "ICON", "TEXT" },
+            rowFamilyMemberTargets = isRow and {
+                ICON = function()
+                    local targets = {}
+                    for _, row in ipairs(GetDressUpRows(panel, true)) do
+                        if row.Icon then targets[#targets + 1] = row end
+                    end
+                    return targets
+                end,
+                TEXT = function()
+                    local targets = {}
+                    for _, row in ipairs(GetDressUpRows(panel, true)) do
+                        if row.ItemName then
+                            targets[#targets + 1] = row.ItemName
+                        end
+                        if row.ItemSlot then
+                            targets[#targets + 1] = row.ItemSlot
+                        end
+                    end
+                    return targets
+                end,
+            } or nil,
             editorOptions = isRow and {
                 { id = "shared.rowAppearance", label = "Rows", category = "CUSTOMIZE" },
                 { id = "shared.iconAppearance", label = "Icons", category = "CUSTOMIZE" },

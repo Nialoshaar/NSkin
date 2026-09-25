@@ -472,7 +472,7 @@ local function ApplyRowColumns(target, state, columns, options)
         end
         local definition = {}
         for key, value in pairs(column) do definition[key] = value end
-        definition.id = options.elementID
+        definition.id = column.appearanceID or options.elementID
         definition.appearanceWindowID = options.appearanceWindowID
         definition.skinOptions = column.skinOptions
         if column.kind == "BUTTON" then
@@ -637,6 +637,10 @@ function NSkin:SkinRow(target, options)
             ResetRowColumn(columnState)
             state.columnStates[target] = nil
         end
+        if state.widthModified and state.originalWidth and target.SetWidth then
+            target:SetWidth(state.originalWidth)
+            state.widthModified = nil
+        end
         if state.heightModified and state.originalHeight and target.SetHeight then
             target:SetHeight(state.originalHeight)
             state.heightModified = nil
@@ -671,8 +675,19 @@ function NSkin:SkinRow(target, options)
         visualRegion = target
     end
 
+    if not state.originalWidth and target.GetWidth then
+        state.originalWidth = target:GetWidth()
+    end
     if not state.originalHeight and target.GetHeight then
         state.originalHeight = target:GetHeight()
+    end
+    local width = tonumber(options.width) or tonumber(style.width)
+    if width and width > 0 and target.SetWidth then
+        target:SetWidth(width)
+        state.widthModified = true
+    elseif state.widthModified and state.originalWidth and target.SetWidth then
+        target:SetWidth(state.originalWidth)
+        state.widthModified = nil
     end
     local height = tonumber(options.height)
         or tonumber(style.height)
@@ -687,6 +702,7 @@ function NSkin:SkinRow(target, options)
     local backgroundColor = self:GetResolvedAppearanceColor(
         style, "background")
     local borderColor = options.border
+        or (style.borderMode and self:GetResolvedAppearanceColor(style, "border"))
         or self:GetComponentBorderColor("row", style)
     local surfaceInset = tonumber(options.surfaceInset)
     if surfaceInset == nil then surfaceInset = 1 end
@@ -951,6 +967,14 @@ function NSkin:SkinSectionRow(target, options)
         for _, regionState in pairs(state.contentRegionStates or {}) do
             if regionState.active then RestoreSectionRowContentRegion(regionState) end
         end
+        if state.widthModified and state.originalWidth and target.SetWidth then
+            target:SetWidth(state.originalWidth)
+            state.widthModified = nil
+        end
+        if state.heightModified and state.originalHeight and target.SetHeight then
+            target:SetHeight(state.originalHeight)
+            state.heightModified = nil
+        end
         if state.background then state.background:Hide() end
         if state.border then self:SetPixelBorderShown(state.border, false) end
         if state.selectedOverlay then state.selectedOverlay:Hide() end
@@ -976,8 +1000,32 @@ function NSkin:SkinSectionRow(target, options)
         visualRegion = target
     end
 
+    if not state.originalWidth and target.GetWidth then
+        state.originalWidth = target:GetWidth()
+    end
+    if not state.originalHeight and target.GetHeight then
+        state.originalHeight = target:GetHeight()
+    end
+    local width = tonumber(options.width) or tonumber(style.width)
+    if width and width > 0 and target.SetWidth then
+        target:SetWidth(width)
+        state.widthModified = true
+    elseif state.widthModified and state.originalWidth and target.SetWidth then
+        target:SetWidth(state.originalWidth)
+        state.widthModified = nil
+    end
+    local height = tonumber(options.height) or tonumber(style.height)
+    if height and height > 0 and target.SetHeight then
+        target:SetHeight(height)
+        state.heightModified = true
+    elseif state.heightModified and state.originalHeight and target.SetHeight then
+        target:SetHeight(state.originalHeight)
+        state.heightModified = nil
+    end
+
     local backgroundColor = self:GetResolvedAppearanceColor(style, "background")
     local borderColor = options.border
+        or (style.borderMode and self:GetResolvedAppearanceColor(style, "border"))
         or self:GetComponentBorderColor("sectionRow", style)
     local background = self:CreateFlatBackground(
         target, SECTION_ROW_BACKGROUND, backgroundColor, borderColor)
@@ -1069,6 +1117,270 @@ function NSkin:SkinSectionRow(target, options)
     end
     RefreshSectionRowPresentation(target)
     return state
+end
+
+
+-- Part 4A: ROW and SECTION_ROW are presentation families only. They no longer
+-- participate in the canonical component registry or editor identity. A
+-- logical row family is exposed as a REGULAR COMPOSITE whose members are
+-- canonical atomic component kinds. Runtime/pooled frames are resolved from
+-- the existing audited row presentation state.
+local ROW_FAMILY_OPTION_KIND = {
+    ["shared.textAppearance"] = "TEXT",
+    ["shared.iconAppearance"] = "ICON",
+    ["shared.checkboxAppearance"] = "CHECKBOX",
+    ["shared.progressBarAppearance"] = "PROGRESS_BAR",
+    ["shared.buttonAppearance"] = "BUTTON",
+}
+
+local function ResolveRowFamilyTargets(element)
+    if not element then return {} end
+    local provider = element.rowFamilyTargets or element.highlightRegions
+    local targets
+    if type(provider) == "function" then
+        local ok, resolved = pcall(provider, element)
+        targets = ok and resolved or nil
+    elseif type(provider) == "table" then
+        targets = provider
+    end
+    if type(targets) ~= "table" then return {} end
+    local result = {}
+    for i = 1, #targets do
+        local target = targets[i]
+        if target and (not target.IsForbidden or not target:IsForbidden()) then
+            result[#result + 1] = target
+        end
+    end
+    return result
+end
+
+local function AppendUniqueRowFamilyTarget(result, seen, target)
+    if target and not seen[target]
+        and (not target.IsForbidden or not target:IsForbidden())
+    then
+        seen[target] = true
+        result[#result + 1] = target
+    end
+end
+
+local function AppendCustomRowFamilyTargets(element, kind, result, seen)
+    local providers = element and element.rowFamilyMemberTargets
+    local provider = providers and providers[kind]
+    local targets
+    if type(provider) == "function" then
+        local ok, resolved = pcall(provider, element, kind)
+        targets = ok and resolved or nil
+    elseif type(provider) == "table" then
+        targets = provider
+    end
+    for i = 1, #(targets or {}) do
+        AppendUniqueRowFamilyTarget(result, seen, targets[i])
+    end
+end
+
+function NSkin:GetRowFamilyMemberTargets(element, member)
+    if not element or not member then return {} end
+    if member.rowFamilySurface == true then
+        return ResolveRowFamilyTargets(element)
+    end
+
+    local result, seen = {}, {}
+    AppendCustomRowFamilyTargets(element, member.kind, result, seen)
+    local stateKey = element.rowFamily == "sectionRow"
+        and SECTION_ROW_STATE or ROW_STATE
+
+    for _, row in ipairs(ResolveRowFamilyTargets(element)) do
+        local state = self:GetSkinData(row, stateKey, false)
+        if state then
+            if member.kind == "TEXT" then
+                for _, regionState in pairs(state.contentRegionStates or {}) do
+                    if regionState.active then
+                        AppendUniqueRowFamilyTarget(
+                            result, seen, regionState.region)
+                    end
+                end
+            end
+            for _, columnState in pairs(state.columnStates or {}) do
+                if columnState.kind == member.kind then
+                    local target = member.kind == "ICON"
+                        and (columnState.iconTarget or columnState.target)
+                        or columnState.target
+                    AppendUniqueRowFamilyTarget(result, seen, target)
+                end
+                if member.kind == "TEXT" and columnState.checkboxLabel then
+                    AppendUniqueRowFamilyTarget(
+                        result, seen, columnState.checkboxLabel)
+                end
+            end
+            if member.kind == "BUTTON" and state.collapseButton then
+                AppendUniqueRowFamilyTarget(
+                    result, seen, state.collapseButton)
+            end
+        end
+    end
+    return result
+end
+
+local function CopyRowFamilyEditorOption(option)
+    local copy = {}
+    for key, value in pairs(option or {}) do copy[key] = value end
+    return copy
+end
+
+local function GetRowFamilySurfaceOptions()
+    return {
+        { id = "shared.surfaceAppearance", label = "Surface",
+            category = "CUSTOMIZE" },
+    }
+end
+
+local function CollectRowFamilyKinds(definition)
+    local result, seen = {}, {}
+    local function Add(kind)
+        if type(kind) ~= "string" or kind == ""
+            or kind == "ROW" or kind == "SECTION_ROW"
+        then return end
+        kind = NSkin:GetCanonicalSharedElementType(kind)
+        if seen[kind] then return end
+        if NSkin:GetSharedElementType(kind) then
+            seen[kind] = true
+            result[#result + 1] = kind
+        end
+    end
+
+    for _, kind in ipairs(definition.appearanceTypeIDs or {}) do Add(kind) end
+    for _, option in ipairs(definition.editorOptions or {}) do
+        local id = type(option) == "table" and option.id or option
+        Add(ROW_FAMILY_OPTION_KIND[id])
+    end
+    if definition.rowFamily == "sectionRow" then Add("TEXT") end
+    return result
+end
+
+local function MakeRowFamilyMember(elementID, definition, kind, surface)
+    local suffix = surface and "Surface" or kind:gsub("[^%w_%-]", "")
+    local member = {
+        id = elementID .. "." .. suffix,
+        kind = surface and "BUTTON" or kind,
+        role = surface and "PRIMARY" or "SECONDARY",
+        label = surface and ((definition.label or elementID) .. " Surface")
+            or (kind:sub(1, 1) .. kind:sub(2):lower()),
+        appearanceWindowID = definition.appearanceWindowID,
+        appearanceID = elementID .. "." .. suffix,
+        appearanceParentID = surface and elementID
+            or (elementID .. "." .. suffix),
+        targets = function(element, current)
+            return NSkin:GetRowFamilyMemberTargets(element, current)
+        end,
+        movementFamilyID = surface and "ROW_SURFACE" or ("ROW_" .. kind),
+        movable = false,
+        allowOverrides = false,
+        highlightMode = "REGIONS",
+    }
+    if surface then
+        member.editorSurface = true
+        member.rowFamilySurface = true
+        member.surfaceStyle = definition.rowFamily
+        member.editorOptions = GetRowFamilySurfaceOptions()
+        for key, value in pairs(
+            definition.rowFamilySurfaceDefinition or {})
+        do
+            member[key] = value
+        end
+    else
+        local memberDefinitions = definition.rowFamilyMemberDefinitions
+        local memberDefinition = memberDefinitions and memberDefinitions[kind]
+        for key, value in pairs(memberDefinition or {}) do
+            member[key] = value
+        end
+    end
+    return member
+end
+
+function NSkin:PrepareRowFamilyDefinition(elementID, definition)
+    if type(definition) ~= "table" then return false end
+    local family = definition.rowFamily
+    if not family and definition.kind == "ROW" then family = "row" end
+    if not family and definition.kind == "SECTION_ROW" then
+        family = "sectionRow"
+    end
+    if family ~= "row" and family ~= "sectionRow" then return false end
+
+    definition.rowFamily = family
+    definition.kind = "BUTTON"
+
+    local composition = definition.composition
+    if type(composition) ~= "table" or composition.mode ~= "COMPOSITE" then
+        composition = {
+            mode = "COMPOSITE",
+            type = "REGULAR",
+            editorLabel = definition.label,
+            members = {},
+        }
+        definition.composition = composition
+    else
+        composition.type = "REGULAR"
+        composition.members = composition.members or {}
+    end
+    -- Repeated/pooled row families are disjoint editor regions. Empty space
+    -- between visible rows is not part of the Composite hit surface.
+    composition.separateRegions = true
+
+    local surface
+    for _, member in ipairs(composition.members) do
+        local memberFamily = member.rowFamily
+        if not memberFamily and member.kind == "ROW" then memberFamily = "row" end
+        if not memberFamily and member.kind == "SECTION_ROW" then
+            memberFamily = "sectionRow"
+        end
+        if memberFamily == "row" or memberFamily == "sectionRow" then
+            member.kind = "BUTTON"
+            member.rowFamily = nil
+            member.editorSurface = true
+            member.rowFamilySurface = true
+            member.surfaceStyle = family
+            member.highlightMode = "REGIONS"
+            member.movable = false
+            member.allowOverrides = false
+            member.movementFamilyID = "ROW_SURFACE"
+            member.appearanceWindowID =
+                member.appearanceWindowID or definition.appearanceWindowID
+            member.appearanceID = member.appearanceID
+                or (elementID .. ".Surface")
+            member.appearanceParentID = elementID
+            member.editorOptions = GetRowFamilySurfaceOptions()
+            surface = member
+        end
+    end
+    if not surface then
+        table.insert(composition.members, 1,
+            MakeRowFamilyMember(elementID, definition, "BUTTON", true))
+    end
+
+    local existingKinds = {}
+    for _, member in ipairs(composition.members) do
+        if not member.rowFamilySurface then existingKinds[member.kind] = true end
+    end
+    for _, kind in ipairs(CollectRowFamilyKinds(definition)) do
+        if not existingKinds[kind] then
+            composition.members[#composition.members + 1] =
+                MakeRowFamilyMember(elementID, definition, kind, false)
+            existingKinds[kind] = true
+        end
+    end
+
+    local filtered = {}
+    for _, kind in ipairs(definition.appearanceTypeIDs or {}) do
+        if kind ~= "ROW" and kind ~= "SECTION_ROW" then
+            filtered[#filtered + 1] = kind
+        end
+    end
+    definition.appearanceTypeIDs = #filtered > 0 and filtered or nil
+
+    -- Composite members now own contextual Skinning Mode presentation.
+    -- Keep the old list only as source material for member construction.
+    definition.editorOptions = {}
+    return true
 end
 
 function NSkin:SkinColumnHeader(target, options)

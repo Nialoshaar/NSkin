@@ -25,6 +25,153 @@ RegisterColorAppearanceGroup("appearance.button", "button", {
     { type = "COLOR", key = "text", label = "Button text" },
     { type = "RESET", label = "Reset Buttons" },
 })
+local buttonAppearanceControls = {
+    {
+        type = "SLIDER_PAIR", order = 1, centerReset = true,
+        resetSubset = true,
+        resetTooltip = "Reset button width and height",
+        left = { key = "width", label = "Width", min = 0,
+            max = 500, step = 1, decimals = 0, suffix = " px",
+            resetValue = 0 },
+        right = { key = "height", label = "Height", min = 0,
+            max = 200, step = 1, decimals = 0, suffix = " px",
+            resetValue = 0 },
+    },
+    {
+        type = "COLOR_PAIR", order = 2,
+        left = { type = "COLOR", key = "border",
+            modeKey = "borderMode", label = "Border" },
+        right = { type = "COLOR", key = "background",
+            modeKey = "backgroundMode", label = "Background" },
+    },
+    CreateBorderGeometryControls(3),
+    {
+        type = "SLIDER", key = "hoverAlpha", label = "Highlight opacity",
+        min = 0, max = 1, step = 0.05, decimals = 2, order = 4,
+    },
+    {
+        type = "DROPDOWN", key = "contentMode", label = "Content",
+        order = 10, values = {
+            { value = "DEFAULT", label = "Blizzard Default" },
+            { value = "TEXT", label = "Text" },
+            { value = "GLYPH", label = "Glyph" },
+            { value = "ICON", label = "Icon" },
+            { value = "ATLAS", label = "Atlas" },
+        },
+    },
+    {
+        type = "COLOR", key = "text", modeKey = "textMode",
+        label = "Content color", order = 11,
+    },
+    {
+        type = "MIXED_PAIR", order = 12,
+        left = { type = "SLIDER", key = "contentSize",
+            label = "Content size", min = 0, max = 64,
+            step = 1, decimals = 0, suffix = " px" },
+        right = { type = "DROPDOWN", key = "contentGlyph",
+            label = "Glyph", values = {
+                { value = "close", label = "Close" },
+                { value = "plus", label = "Plus" },
+                { value = "minus", label = "Minus" },
+                { value = "square", label = "Square" },
+            } },
+    },
+    {
+        type = "SLIDER_PAIR", order = 13, centerReset = true,
+        resetSubset = true,
+        resetTooltip = "Reset content offsets",
+        left = { key = "contentOffsetX", label = "Content X",
+            min = -40, max = 40, step = 1, decimals = 0,
+            suffix = " px", resetValue = 0 },
+        right = { key = "contentOffsetY", label = "Content Y",
+            min = -40, max = 40, step = 1, decimals = 0,
+            suffix = " px", resetValue = 0 },
+    },
+    { type = "TEXT_INPUT", key = "contentText",
+        label = "Custom text", order = 14, maxLetters = 128 },
+    { type = "TEXT_INPUT", key = "contentTexture",
+        label = "Custom icon texture", order = 15, maxLetters = 512 },
+    { type = "TEXT_INPUT", key = "contentAtlas",
+        label = "Custom atlas", order = 16, maxLetters = 256 },
+}
+
+local buttonResetPaths = {
+    width = "button.width",
+    height = "button.height",
+    border = "button.border",
+    borderMode = "button.borderMode",
+    borderSize = "button.borderSize",
+    borderPadding = "button.borderPadding",
+    background = "button.background",
+    backgroundMode = "button.backgroundMode",
+    hoverAlpha = "button.hoverAlpha",
+    text = "button.text",
+    textMode = "button.textMode",
+    contentMode = "button.contentMode",
+    contentText = "button.contentText",
+    contentGlyph = "button.contentGlyph",
+    contentTexture = "button.contentTexture",
+    contentAtlas = "button.contentAtlas",
+    contentSize = "button.contentSize",
+    contentOffsetX = "button.contentOffsetX",
+    contentOffsetY = "button.contentOffsetY",
+}
+
+NSkin:RegisterOptionGroup("shared.buttonAppearance", {
+    controls = buttonAppearanceControls,
+    get = function(context)
+        local style = NSkin:GetAppearanceStyle(
+            "button", GetAppearanceWindowID(context), context.id)
+        local target = context.target
+        return {
+            width = tonumber(style.width) and style.width > 0 and style.width
+                or (target and target.GetWidth and target:GetWidth()) or 24,
+            height = tonumber(style.height) and style.height > 0 and style.height
+                or (target and target.GetHeight and target:GetHeight()) or 24,
+            border = CopyColor(style.border),
+            borderMode = style.borderMode or "CUSTOM",
+            borderSize = tonumber(style.borderSize) or 1,
+            borderPadding = tonumber(style.borderPadding) or 0,
+            background = CopyColor(style.background),
+            backgroundMode = style.backgroundMode or "CUSTOM",
+            hoverAlpha = tonumber(style.hoverAlpha) or 0.10,
+            text = CopyColor(style.text),
+            textMode = style.textMode or "CUSTOM",
+            contentMode = style.contentMode or "DEFAULT",
+            contentText = style.contentText or "",
+            contentGlyph = (type(style.contentGlyph) == "string"
+                    and style.contentGlyph ~= "" and style.contentGlyph)
+                or (context.componentState
+                    and context.componentState.defaultContent
+                    and context.componentState.defaultContent.glyph)
+                or "close",
+            contentTexture = style.contentTexture or "",
+            contentAtlas = style.contentAtlas or "",
+            contentSize = tonumber(style.contentSize) or 0,
+            contentOffsetX = tonumber(style.contentOffsetX) or 0,
+            contentOffsetY = tonumber(style.contentOffsetY) or 0,
+        }
+    end,
+    set = function(context, values)
+        local changed
+        for key, path in pairs(buttonResetPaths) do
+            if values[key] ~= nil then
+                changed = SetElementValue(context, path, values[key])
+                    or changed
+            end
+        end
+        return changed == true
+    end,
+    reset = function(context)
+        local paths = {}
+        for _, path in pairs(buttonResetPaths) do paths[#paths + 1] = path end
+        return ResetElementPaths(context, paths)
+    end,
+    resetSubset = function(context, keys)
+        return ResetMappedElementKeys(context, keys, buttonResetPaths)
+    end,
+})
+
 NSkin:RegisterOptionGroup("shared.checkboxAppearance", {
     controls = {
         { type = "MIXED_PAIR", order = 1,
@@ -38,15 +185,15 @@ NSkin:RegisterOptionGroup("shared.checkboxAppearance", {
                 suffix = " px" } },
         { type = "MIXED_PAIR", order = 2,
             left = { type = "COLOR", key = "checked",
-                label = "Checkmark color" },
+                modeKey = "checkedMode", label = "Checkmark color" },
             right = { type = "SLIDER", key = "checkedInset",
                 label = "Checkmark inset", min = 0, max = 15,
                 step = 1, decimals = 0, suffix = " px" } },
         { type = "COLOR_PAIR", order = 3,
             left = { type = "COLOR", key = "background",
-                label = "Background color" },
+                modeKey = "backgroundMode", label = "Background color" },
             right = { type = "COLOR", key = "border",
-                label = "Border color" } },
+                modeKey = "borderMode", label = "Border color" } },
     },
     get = function(context)
         local style = NSkin:GetAppearanceStyle(
@@ -55,12 +202,15 @@ NSkin:RegisterOptionGroup("shared.checkboxAppearance", {
             shape = style.checkboxShape or "square",
             size = tonumber(style.checkboxSize) or 14,
             checked = CopyColor(style.checked or NSkin:GetSharedBorderColor()),
+            checkedMode = style.checkedMode or "CUSTOM",
             checkedInset = tonumber(style.checkboxCheckedInset)
                 or math.max(0, ((tonumber(style.checkboxSize) or 14)
                     - (tonumber(style.checkboxCheckedSize) or 8)) / 2),
             background = CopyColor(style.background),
+            backgroundMode = style.backgroundMode or "CUSTOM",
             border = CopyColor(NSkin:GetAppearanceBorderColor(
                 "button", style, GetAppearanceWindowID(context), context.id)),
+            borderMode = style.borderMode or "CUSTOM",
         }
     end,
     set = function(context, values)
@@ -69,9 +219,12 @@ NSkin:RegisterOptionGroup("shared.checkboxAppearance", {
             shape = "checkboxShape",
             size = "checkboxSize",
             checked = "checked",
+            checkedMode = "checkedMode",
             checkedInset = "checkboxCheckedInset",
             background = "background",
+            backgroundMode = "backgroundMode",
             border = "border",
+            borderMode = "borderMode",
         }
         for key, path in pairs(mapping) do
             if values[key] ~= nil then
@@ -84,9 +237,10 @@ NSkin:RegisterOptionGroup("shared.checkboxAppearance", {
     reset = function(context)
         return ResetElementPaths(context, {
             "button.checkboxShape", "button.checkboxSize",
-            "button.checked", "button.checkboxCheckedInset",
-            "button.checkboxCheckedSize",
-            "button.background", "button.border", "button.hoverAlpha",
+            "button.checked", "button.checkedMode",
+            "button.checkboxCheckedInset", "button.checkboxCheckedSize",
+            "button.background", "button.backgroundMode",
+            "button.border", "button.borderMode", "button.hoverAlpha",
         })
     end,
     resetSubset = function(context, keys)
@@ -94,9 +248,12 @@ NSkin:RegisterOptionGroup("shared.checkboxAppearance", {
             shape = "button.checkboxShape",
             size = "button.checkboxSize",
             checked = "button.checked",
+            checkedMode = "button.checkedMode",
             checkedInset = "button.checkboxCheckedInset",
             background = "button.background",
+            backgroundMode = "button.backgroundMode",
             border = "button.border",
+            borderMode = "button.borderMode",
         }
         return ResetMappedElementKeys(context, keys, mapping)
     end,

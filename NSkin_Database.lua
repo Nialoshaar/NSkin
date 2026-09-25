@@ -82,11 +82,26 @@ NSkin.baseAppearance = {
     },
 
     button = {
+        width = 0,
+        height = 0,
         background = { 0.04, 0.04, 0.04, 0.90 },
+        backgroundMode = "CUSTOM",
         border = { 0.45, 0.45, 0.45, 1 },
+        borderMode = "CUSTOM",
+        borderSize = 1,
+        borderPadding = 0,
         text = { 1, 1, 1, 1 },
+        textMode = "CUSTOM",
         disabledText = { 0.45, 0.45, 0.45, 1 },
         hoverAlpha = 0.10,
+        contentMode = "DEFAULT",
+        contentText = "",
+        contentGlyph = "",
+        contentTexture = "",
+        contentAtlas = "",
+        contentSize = 0,
+        contentOffsetX = 0,
+        contentOffsetY = 0,
         checkboxShape = "square",
         checkboxSize = 14,
         checkboxCheckedInset = 3,
@@ -276,6 +291,7 @@ NSkin.baseAppearance = {
     },
 
     row = {
+        width = 0,
         background = { 0.04, 0.04, 0.04, 0.72 },
         backgroundMode = "CUSTOM",
         selectedBackground = { 1, 1, 1, 0.10 },
@@ -289,6 +305,8 @@ NSkin.baseAppearance = {
     },
 
     sectionRow = {
+        width = 0,
+        height = 0,
         background = { 0, 0, 0, 0 },
         backgroundMode = "CUSTOM",
         selectedBackground = { 1, 1, 1, 0.10 },

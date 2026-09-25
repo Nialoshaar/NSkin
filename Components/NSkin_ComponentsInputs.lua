@@ -346,8 +346,12 @@ function NSkin:SkinFlatButton(button, label, backgroundColor, borderColor,
     if not button or not button.CreateTexture or not button.CreateFontString then return end
 
     local style = resolvedStyle or self:GetStyle("button")
-    backgroundColor = backgroundColor or style.background
-    borderColor = borderColor or self:GetComponentBorderColor("button", style)
+    backgroundColor = backgroundColor
+        or self:GetResolvedAppearanceColor(style, "background")
+        or style.background
+    borderColor = borderColor
+        or self:GetResolvedAppearanceColor(style, "border")
+        or self:GetComponentBorderColor("button", style)
 
     local background = self:GetFlatBackground(button)
     if not background then
@@ -359,7 +363,10 @@ function NSkin:SkinFlatButton(button, label, backgroundColor, borderColor,
     local data = self:GetSkinData(button, COMPONENT_STATE)
     local text = preserveLabelGeometry and data.label
         or self:SetFlatButtonLabel(button, label, labelSize, labelOffsetX, labelOffsetY)
-    if text then self:SetFontStringColor(text, unpack(style.text)) end
+    if text then
+        self:SetFontStringColor(text, unpack(
+            self:GetResolvedAppearanceColor(style, "text") or style.text))
+    end
 end
 
 local function SuppressActionButtonNativeText(button)
@@ -434,10 +441,14 @@ function NSkin:SkinActionButton(button, options)
         or (options.background and options.text and options)
         or self:GetStyle("button")
     data.actionStyle = style
+    data.actionCustomText = options.customText == true
     data.actionTextColor = self:GetResolvedAppearanceColor(style, "text")
     data.actionDisabledTextAlpha = options.disabledTextAlpha
         or style.disabledTextAlpha or 0.45
-    local label = button.GetText and button:GetText() or ""
+    local label = options.label
+    if label == nil then
+        label = button.GetText and button:GetText() or ""
+    end
     local nativeText = options.textRegion
         or (button.GetFontString and button:GetFontString())
     if nativeText and nativeText.GetObjectType
@@ -457,12 +468,20 @@ function NSkin:SkinActionButton(button, options)
         nativeText:Show()
     end
     self:SkinFlatButton(button, label,
-        options.background or style.background,
-        options.border or self:GetComponentBorderColor("button", style),
-        options.textSize, nil, nil, options.preserveTexture,
+        options.background
+            or self:GetResolvedAppearanceColor(style, "background")
+            or style.background,
+        options.border
+            or self:GetResolvedAppearanceColor(style, "border")
+            or self:GetComponentBorderColor("button", style),
+        options.textSize, options.labelOffsetX, options.labelOffsetY,
+        options.preserveTexture,
         options.preserveTextGeometry == true, style)
     local border = self:GetPixelBorder(button, "NSkinFlatBackgroundBorder")
-    self:SetPixelBorderSize(border, 1)
+    self:SetPixelBorderSize(border,
+        tonumber(options.borderSize) or tonumber(style.borderSize) or 1)
+    self:SetPixelBorderPadding(border,
+        tonumber(options.borderPadding) or tonumber(style.borderPadding) or 0)
     SuppressActionButtonNativeText(button)
     if data.label then
         self:ApplyResolvedTypography(data.label, self:GetStyle("text"))
@@ -471,7 +490,9 @@ function NSkin:SkinActionButton(button, options)
         _G.hooksecurefunc(button, "SetText", function(_, value)
             local state = NSkin:GetSkinData(button, COMPONENT_STATE, false)
             if not state or not state.actionActive then return end
-            if state.label then state.label:SetText(value or "") end
+            if state.label and not state.actionCustomText then
+                state.label:SetText(value or "")
+            end
             SuppressActionButtonNativeText(button)
         end)
         data.actionTextHooked = true
@@ -724,9 +745,14 @@ function NSkin:SkinCheckButton(checkButton, options)
         data.checkButtonArtworkSuppressed = true
     end
     local borderColor = options.border
+        or (style.borderMode and self:GetResolvedAppearanceColor(style, "border"))
         or self:GetComponentBorderColor("button", style)
+    local backgroundColor = options.background
+        or (style.backgroundMode
+            and self:GetResolvedAppearanceColor(style, "background"))
+        or style.background
     local visual = self:CreateFlatBackground(checkButton, nil,
-        options.background or style.background, borderColor, true)
+        backgroundColor, borderColor, true)
     if not visual then return false end
     local border = self:GetPixelBorder(checkButton,
         "NSkinFlatBackgroundBorder")
@@ -739,8 +765,22 @@ function NSkin:SkinCheckButton(checkButton, options)
         data.checkButtonCheckedTexture = checked
     end
     if checked.SetDrawLayer then checked:SetDrawLayer("OVERLAY", 7) end
-    self:SetOwnedTextureColor(checked, unpack(
-        options.checked or style.checked or self:GetSharedBorderColor()))
+    local checkedColor = options.checked or style.checked
+        or self:GetSharedBorderColor()
+    if not options.checked and style.checkedMode == "ACCENT" then
+        checkedColor = self:GetAccentColor()
+    elseif not options.checked and style.checkedMode == "CLASS" then
+        local _, class = UnitClass("player")
+        local classColor = class and RAID_CLASS_COLORS
+            and RAID_CLASS_COLORS[class]
+        if classColor then
+            checkedColor = {
+                classColor.r, classColor.g, classColor.b,
+                checkedColor[4] or classColor.a or 1,
+            }
+        end
+    end
+    self:SetOwnedTextureColor(checked, unpack(checkedColor))
 
     local shape = string.lower(tostring(
         options.shape or style.checkboxShape or "square"))

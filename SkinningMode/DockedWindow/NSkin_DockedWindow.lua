@@ -27,9 +27,13 @@ local function ResizeInspector(view, extraHeight)
     local contentHeight = (view and view:GetHeight() or 1) + (extraHeight or 0)
     local screenLimit = (UIParent:GetHeight() or 768) - 40
     local anchoredLimit = (inspector:GetTop() or screenLimit) - 20
-    local maximumHeight = math.max(122, math.min(screenLimit, anchoredLimit))
+    local headerHeight = state.inspectorHeaderHeight or 59
+    local minimumHeight = headerHeight + 63
+    local maximumHeight = math.max(
+        minimumHeight, math.min(screenLimit, anchoredLimit))
     local inspectorHeight = NSkin:SnapToPhysicalPixel(inspector,
-        math.max(122, math.min(contentHeight + 59, maximumHeight)))
+        math.max(minimumHeight,
+            math.min(contentHeight + headerHeight, maximumHeight)))
     local snappedContentHeight = NSkin:SnapToPhysicalPixel(
         state.scrollChild, math.max(1, contentHeight))
     inspector:SetHeight(inspectorHeight)
@@ -38,7 +42,7 @@ local function ResizeInspector(view, extraHeight)
         state.scrollFrame:UpdateScrollChildRect()
     end
     local range = state.scrollFrame:GetVerticalScrollRange() or 0
-    if contentHeight + 59 <= maximumHeight then
+    if contentHeight + headerHeight <= maximumHeight then
         state.scrollFrame:SetVerticalScroll(0)
     elseif state.scrollFrame:GetVerticalScroll() > range then
         state.scrollFrame:SetVerticalScroll(range)
@@ -186,15 +190,97 @@ local function GetDockSelectionLabel(element, member)
     if not element then return nil end
     local composition = element.composition
     if composition and composition.mode == "COMPOSITE" then
-        if member then
-            local labels = composition.memberEditorLabels
-            if labels and labels[member.kind] then
-                return labels[member.kind]
-            end
+        local groupLabel = composition.groupLabel
+            or composition.editorLabel or element.label or element.id
+        if not member or member.editorSurface == true then
+            return groupLabel
         end
-        return composition.editorLabel or element.label or element.id
+
+        local stateID, stateDefinition =
+            NSkin:GetCompositeMemberEditorState(element, member)
+        if stateID and stateDefinition then
+            local stateLabel = stateDefinition.selectedLabel
+                or ((stateDefinition.label or stateDefinition.id) .. " button")
+            return groupLabel .. " - " .. stateLabel
+        end
+
+        local memberLabel = member.editorLabel
+        if not memberLabel then
+            local labels = composition.memberEditorLabels
+            memberLabel = labels
+                and (labels[member.id] or labels[member.kind])
+        end
+        memberLabel = memberLabel or member.label or member.id
+
+        -- Member labels historically often embedded the Composite label
+        -- ("Dungeons & Raids Cards Text"). The header already provides the
+        -- group, so normalize that globally to "Group - Text".
+        if type(groupLabel) == "string" and type(memberLabel) == "string"
+            and #memberLabel >= #groupLabel
+            and memberLabel:sub(1, #groupLabel):lower()
+                == groupLabel:lower()
+        then
+            local remainder = memberLabel:sub(#groupLabel + 1)
+                :gsub("^%s*[-:–—]?%s*", "")
+            if remainder ~= "" then memberLabel = remainder end
+        end
+
+        return groupLabel .. " - " .. memberLabel
     end
     return element.label or element.id
+end
+
+local function RefreshStateSelector(element, member)
+    local inspector = state.inspector
+    if not inspector then return end
+    local states = member and member.states or nil
+    local hasStates = states and #states > 0
+    inspector.stateLabel:SetShown(hasStates == true)
+    inspector.selection:Show()
+
+    for _, button in ipairs(inspector.stateButtons or {}) do
+        button:Hide()
+    end
+    if not hasStates then return end
+
+    local selectedState = NSkin:GetCompositeMemberEditorState(
+        element, member)
+    local x = 58
+    for index, definition in ipairs(states) do
+        local button = inspector.stateButtons[index]
+        if not button then
+            button = CreateButton(inspector, "", 70, function(self)
+                local currentElement = state.selectedElement
+                local currentMember = currentElement
+                    and state.focusedCompositeMemberID
+                    and NSkin:GetCompositeMember(
+                        currentElement, state.focusedCompositeMemberID)
+                if not currentElement or not currentMember then return end
+                NSkin:SetCompositeMemberEditorState(
+                    currentElement, currentMember,
+                    self.stateID, state.focusedCompositeRuntimeTarget, true)
+                RefreshInspector()
+            end)
+            inspector.stateButtons[index] = button
+        end
+        local label = definition.label or definition.id
+        button.stateID = definition.id
+        button:SetWidth(math.max(58, #tostring(label) * 7 + 18))
+        NSkin:SkinFlatButton(button, label, nil, nil, 12)
+        button:ClearAllPoints()
+        button:SetPoint("TOPLEFT", inspector, "TOPLEFT", x, -45)
+        button:SetAlpha(definition.id == selectedState and 1 or 0.55)
+        local fontString = button.GetFontString and button:GetFontString()
+        if fontString then
+            NSkin:SetFontStringColor(fontString,
+                definition.id == selectedState
+                    and NSkin:GetAccentColor() or { 1, 1, 1, 1 })
+        end
+        button:Show()
+        x = x + button:GetWidth() + 4
+    end
+    -- Selected text is refreshed after state switches so it reflects
+    -- Collapse button / Expand button immediately.
 end
 
 local function RefreshHeaderActions(element)
@@ -203,7 +289,12 @@ local function RefreshHeaderActions(element)
     local composition = element and element.composition
     local composite = composition and composition.mode == "COMPOSITE"
 
-    inspector.addOverride:SetShown(composite == true)
+    local overrideMember = composite
+        and GetContextualCompositeMember(element) or nil
+    inspector.addOverride:SetShown(
+        composite == true
+            and (not overrideMember
+                or overrideMember.allowOverrides ~= false))
     inspector.resetElement:SetShown(element ~= nil)
     if composite then
         local member = GetContextualCompositeMember(element)
@@ -221,13 +312,32 @@ local function RefreshHeaderActions(element)
         inspector.resetElement.resetLabel = "Reset All"
     end
 
+    local hasStates = overrideMember
+        and #(overrideMember.states or {}) > 0
+    state.inspectorHeaderHeight = hasStates and 78 or 59
+
     inspector.selection:ClearAllPoints()
     inspector.selection:SetPoint(
-        "TOPLEFT", inspector, "TOPLEFT", 12, -34)
+        "TOPLEFT", inspector, "TOPLEFT", 12, -29)
     local rightTarget = composite
         and inspector.addOverride or inspector.resetElement
     inspector.selection:SetPoint(
         "RIGHT", rightTarget, "LEFT", -8, 0)
+
+    inspector.resetElement:ClearAllPoints()
+    inspector.resetElement:SetPoint(
+        "TOPRIGHT", inspector, "TOPRIGHT", -12,
+        hasStates and -40 or -27)
+
+    if state.scrollFrame then
+        state.scrollFrame:ClearAllPoints()
+        state.scrollFrame:SetPoint(
+            "TOPLEFT", inspector, "TOPLEFT", 1,
+            -(state.inspectorHeaderHeight - 1))
+        state.scrollFrame:SetPoint(
+            "BOTTOMRIGHT", inspector, "BOTTOMRIGHT", -1, 1)
+    end
+    RefreshStateSelector(element, overrideMember)
 end
 
 local function FocusEditorSection(element, memberID)
@@ -313,10 +423,10 @@ local function GetOverrideEntryContext(element, member, entry)
     if not element or not member or not entry then return nil end
     if entry.groupID == "shared.movable" then
         return NSkin:GetCompositeMemberExactPositionContext(
-            element, member)
+            element, member, entry.appearanceID)
     end
     return NSkin:GetCompositeMemberExactAppearanceContext(
-        element, member)
+        element, member, entry.appearanceID)
 end
 
 local function ClearCompositeOverrides(element, memberID)
@@ -339,7 +449,7 @@ local function ClearCompositeOverrides(element, memberID)
             and GetOverrideEntryContext(element, member, entry)
         NSkin:RemoveCompositePropertyOverrideMetadata(
             element, entry.memberID, entry.groupID,
-            entry.propertyKey)
+            entry.propertyKey, entry.appearanceID)
         if subsetID and context then
             changed = NSkin:ResetOptionGroup(
                 subsetID, context) or changed
@@ -445,7 +555,7 @@ local function RefreshOverrideListView(frame, element, memberID)
                             owner, member, current)
                     NSkin:RemoveCompositePropertyOverrideMetadata(
                         owner, current.memberID, current.groupID,
-                        current.propertyKey)
+                        current.propertyKey, current.appearanceID)
                     if subsetID and context then
                         NSkin:ResetOptionGroup(subsetID, context)
                     end
@@ -888,8 +998,7 @@ RefreshInspector = function()
             element, state.focusedCompositeMemberID)
     local selectionLabel = GetDockSelectionLabel(element, member)
     state.inspector.selection:SetText(
-        selectionLabel and ("Selected: " .. selectionLabel)
-            or "Select an element"
+        selectionLabel or "Select an element"
     )
     LoadEditorOptions(element)
     NSkin:ApplyGlobalTypography(state.inspector)
@@ -923,11 +1032,23 @@ function DockedWindow:OpenOverridePopup(element, memberID)
     OpenOverridePopup(element, memberID)
 end
 
-function DockedWindow:Refresh(element, memberID)
+function DockedWindow:Refresh(element, memberID, runtimeTarget)
     local contextChanged = state.selectedElement ~= element
         or state.focusedCompositeMemberID ~= memberID
     state.selectedElement = element
     state.focusedCompositeMemberID = memberID
+    state.focusedCompositeRuntimeTarget = runtimeTarget
+    local member = element and memberID
+        and NSkin:GetCompositeMember(element, memberID)
+    if member then member._editorRuntimeTarget = runtimeTarget end
+    if member and runtimeTarget and #(member.states or {}) > 0 then
+        local runtimeState = NSkin:GetCompositeMemberRuntimeState(
+            element, member, runtimeTarget)
+        if runtimeState then
+            NSkin:SetCompositeMemberEditorState(
+                element, member, runtimeState, runtimeTarget, false)
+        end
+    end
     if contextChanged then
         FocusEditorSection(element, memberID)
     end
@@ -1129,8 +1250,12 @@ function NSkin:CreateDockedWindow(owner)
     end)
     state.debugToggle = debugToggle
     inspector.selection = CreateLabel(
-        inspector, "Select an element", "TOPLEFT", inspector, "TOPLEFT", 12, -34
-    )
+        inspector, "Select an element",
+        "TOPLEFT", inspector, "TOPLEFT", 12, -29)
+    inspector.stateLabel = CreateLabel(
+        inspector, "State:", "TOPLEFT", inspector, "TOPLEFT", 12, -48)
+    inspector.stateLabel:Hide()
+    inspector.stateButtons = {}
     local resetElement = CreateButton(inspector, "Reset All", 96,
         function()
             local element = state.selectedElement
@@ -1249,15 +1374,23 @@ function NSkin:CreateDockedWindow(owner)
             local member = selections and selections[1]
             local property = selections and selections[2]
             if not element or not member or not property then return end
+            local runtimeTarget = state.focusedCompositeRuntimeTarget
             if NSkin:AddCompositePropertyOverride(
                 element, member.id, property.groupID,
-                property.propertyKey, property.propertyLabel)
+                property.propertyKey, property.propertyLabel, runtimeTarget)
             then
+                local exactAppearanceID =
+                    NSkin:GetCompositeMemberTargetAppearanceID(
+                        element, member, runtimeTarget)
+                if exactAppearanceID == (member.appearanceID or member.id) then
+                    exactAppearanceID = nil
+                end
                 local entry = {
                     memberID = member.id,
                     groupID = property.groupID,
                     propertyKey = property.propertyKey,
                     propertyLabel = property.propertyLabel,
+                    appearanceID = exactAppearanceID,
                     label = (member.label or member.id)
                         .. " - " .. property.propertyLabel,
                 }

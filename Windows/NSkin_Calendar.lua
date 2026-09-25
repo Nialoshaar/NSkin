@@ -648,7 +648,7 @@ function CalendarSkin:ApplyEventPickerRows(frame)
                 module = "Calendar",
                 appearanceWindowID = IDs.EventPicker.Scope,
                 label = "Calendar event picker rows",
-                kind = "SECTION_ROW",
+                kind = "BUTTON", rowFamily = "sectionRow",
                 window = frame,
                 target = scrollBox,
                 priority = 40,

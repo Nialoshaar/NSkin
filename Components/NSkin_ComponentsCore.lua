@@ -1225,6 +1225,15 @@ function NSkin:RefreshAppearance(change)
 
     if change and change.scope == "element" then
         local element = self:GetSkinningElement(change.elementID)
+        if not element
+            and type(self.RefreshCompositeMemberStateAppearance) == "function"
+            and self:RefreshCompositeMemberStateAppearance(change)
+        then
+            if self.RefreshSkinningModeAppearance then
+                self:RefreshSkinningModeAppearance(change)
+            end
+            return
+        end
         if not element and type(self.GetAppearanceOwnerElementID) == "function" then
             local ownerID = self:GetAppearanceOwnerElementID(change.elementID)
             element = ownerID and self:GetSkinningElement(ownerID) or nil
@@ -2336,9 +2345,11 @@ local EDITOR_PRESETS = {
         { id = "shared.windowHeaderAppearance", label = "Header",
             category = "CUSTOMIZE" },
     },
-    WINDOW_HEADER_CONTROLS = {
-        { id = "shared.windowHeaderControlsAppearance",
-            label = "Header Buttons", category = "CUSTOMIZE" },
+    BUTTON = {
+        { id = "shared.movable", label = "Position",
+            presentation = "INLINE", category = "POSITION" },
+        { id = "shared.buttonAppearance", label = "Button",
+            presentation = "INLINE", category = "CUSTOMIZE" },
     },
     TAB_GROUP = {
         { id = "shared.movable", label = "Position",
@@ -2404,16 +2415,6 @@ local EDITOR_PRESETS = {
         { id = "shared.columnHeaderAppearance", label = "Column Header",
             category = "CUSTOMIZE" },
     },
-    ROW = {
-        { id = "shared.rowAppearance", label = "Row",
-            category = "CUSTOMIZE" },
-    },
-    SECTION_ROW = {
-        { id = "shared.sectionRowAppearance", label = "Section Row",
-            category = "CUSTOMIZE" },
-        { id = "shared.textAppearance", label = "Text",
-            category = "CUSTOMIZE" },
-    },
     MOVABLE = {
         { id = "shared.movable", label = "Position",
             presentation = "INLINE", category = "POSITION" },
@@ -2462,8 +2463,20 @@ function NSkin:RegisterSharedElementType(typeID, definition)
     return true
 end
 
+local LEGACY_BUTTON_TYPES = {
+    ACTION_BUTTON = true,
+    GLYPH_BUTTON = true,
+    ICON_BUTTON = true,
+    WINDOW_HEADER_CONTROLS = true,
+}
+
+function NSkin:GetCanonicalSharedElementType(typeID)
+    if LEGACY_BUTTON_TYPES[typeID] then return "BUTTON" end
+    return typeID
+end
+
 function NSkin:GetSharedElementType(typeID)
-    return SHARED_ELEMENT_TYPES[typeID]
+    return SHARED_ELEMENT_TYPES[self:GetCanonicalSharedElementType(typeID)]
 end
 
 function NSkin:HasSharedElementStyle(styleName)
@@ -2480,7 +2493,7 @@ function NSkin:HasSharedElementStyle(styleName)
 end
 
 function NSkin:CreateSharedElementEditorOptions(typeID, extras)
-    local definition = SHARED_ELEMENT_TYPES[typeID]
+    local definition = self:GetSharedElementType(typeID)
     return definition and self:CreateEditorOptionsPreset(
         definition.editorPreset, extras) or nil
 end
@@ -2523,11 +2536,8 @@ local SHARED_TYPE_DEFINITIONS = {
     SIDE_TAB = { style = "sideTab", skin = "SkinSideTab",
         appearanceControls = "shared.sideTabAppearance",
         editorPreset = "SIDE_TAB" },
-    BUTTON = { style = "button", skin = "SkinFlatButton", editorPreset = "MOVABLE" },
-    GLYPH_BUTTON = { style = "button", skin = "SkinGlyphButton",
-        editorPreset = "MOVABLE" },
-    ACTION_BUTTON = { style = "button", skin = "SkinActionButton",
-        editorPreset = "MOVABLE" },
+    BUTTON = { style = "button", skin = "SkinButton",
+        editorPreset = "BUTTON" },
     CHECKBOX = { style = "button", skin = "SkinCheckButton",
         editorPreset = "CHECKBOX" },
     DROPDOWN = { style = "button", skin = "SkinDropdown", editorPreset = "MOVABLE" },
@@ -2554,11 +2564,6 @@ local SHARED_TYPE_DEFINITIONS = {
     COLUMN_HEADER = { style = "columnHeader", skin = "SkinColumnHeader",
         appearanceControls = "shared.columnHeaderAppearance",
         editorPreset = "COLUMN_HEADER" },
-    ROW = { style = "row", skin = "SkinRow",
-        appearanceControls = "shared.rowAppearance", editorPreset = "ROW" },
-    SECTION_ROW = { style = "sectionRow", skin = "SkinSectionRow",
-        appearanceControls = "shared.sectionRowAppearance",
-        editorPreset = "SECTION_ROW" },
     TEXT = { style = "text", skin = "SkinText",
         appearanceControls = "shared.textAppearance", editorPreset = "TEXT" },
 }
@@ -2572,6 +2577,13 @@ function NSkin:RegisterSkinningElement(elementID, definition)
         or not (definition.window or definition.owner)
     then
         return false
+    end
+
+    -- 4A migration hook: row/section-row presentation families are no longer
+    -- shared element kinds. ComponentsContent converts them into atomic
+    -- REGULAR COMPOSITEs before canonical registration proceeds.
+    if type(self.PrepareRowFamilyDefinition) == "function" then
+        self:PrepareRowFamilyDefinition(elementID, definition)
     end
 
     definition.window = definition.window or definition.owner
@@ -3290,11 +3302,21 @@ local SHARED_SKIN_ADAPTERS = {
         skinMethod(self, target)
     end,
     BUTTON = function(self, skinMethod, target, style, borderColor, definition)
-        local options = definition.skinOptions or {}
-        skinMethod(self, target, options.label, style.background, borderColor,
-            options.textSize, options.labelOffsetX, options.labelOffsetY,
-            options.preserveTexture or definition.preserveTexture,
-            nil, style)
+        local options = {}
+        for key, value in pairs(definition.skinOptions or {}) do
+            options[key] = value
+        end
+        options.style = style
+        if options.border == nil then options.border = borderColor end
+        if options.defaultContent == nil then
+            options.defaultContent = definition.buttonContent
+                or definition.defaultContent
+        end
+        if options.label == nil then options.label = definition.labelText end
+        if options.preserveTexture == nil then
+            options.preserveTexture = definition.preserveTexture
+        end
+        skinMethod(self, target, options)
     end,
     COLUMN_HEADER = function(self, skinMethod, target, style, borderColor,
         definition)
@@ -3309,49 +3331,6 @@ local SHARED_SKIN_ADAPTERS = {
             "hoverRegion", "getHovered", "visualRegion",
         }) do
             if options[key] == nil then options[key] = definition[key] end
-        end
-        skinMethod(self, target, options)
-    end,
-    ROW = function(self, skinMethod, target, style, borderColor, definition)
-        local options = {}
-        for key, value in pairs(definition.skinOptions or {}) do
-            options[key] = value
-        end
-        options.style = style
-        if options.border == nil then options.border = borderColor end
-        for _, key in ipairs({
-            "nativeDecorationRegions", "artworkRegions", "preserveTextures", "hoverRegion",
-            "selectedRegion", "getHovered", "getSelected", "visualRegion",
-            "contentRegions", "contentStyle", "columns", "showBackground",
-            "surfaceInset",
-            "height", "reset",
-        }) do
-            if options[key] == nil then options[key] = definition[key] end
-        end
-        options.elementID = definition.id
-        options.appearanceWindowID = definition.appearanceWindowID
-        skinMethod(self, target, options)
-    end,
-    SECTION_ROW = function(self, skinMethod, target, style, borderColor,
-        definition)
-        local options = {}
-        for key, value in pairs(definition.skinOptions or {}) do
-            options[key] = value
-        end
-        options.style = style
-        if options.border == nil then options.border = borderColor end
-        for _, key in ipairs({
-            "nativeDecorationRegions", "artworkRegions", "preserveTextures",
-            "hoverRegion", "selectedRegion", "getHovered", "getSelected",
-            "visualRegion", "textRegion", "contentRegions", "contentStyle",
-            "collapseButton", "reset",
-        }) do
-            if options[key] == nil then options[key] = definition[key] end
-        end
-        if options.contentStyle == nil then
-            local appearanceID = self:GetElementAppearanceID(definition, "TEXT")
-            options.contentStyle = self:GetAppearanceStyle(
-                "text", definition.appearanceWindowID, appearanceID)
         end
         skinMethod(self, target, options)
     end,
@@ -3373,33 +3352,6 @@ local SHARED_SKIN_ADAPTERS = {
         }) do
             if options[key] == nil then options[key] = definition[key] end
         end
-        skinMethod(self, target, options)
-    end,
-    GLYPH_BUTTON = function(self, skinMethod, target, style, borderColor,
-        definition)
-        local options = {}
-        for key, value in pairs(definition.skinOptions or {}) do
-            options[key] = value
-        end
-        options.style = style
-        if options.border == nil then options.border = borderColor end
-        for _, key in ipairs({
-            "glyph", "icon", "size", "thickness", "offsetX", "offsetY",
-            "background", "borderSize", "borderPadding", "backgroundKey",
-            "glyphKey",
-        }) do
-            if options[key] == nil then options[key] = definition[key] end
-        end
-        skinMethod(self, target, options)
-    end,
-    ACTION_BUTTON = function(self, skinMethod, target, style, borderColor,
-        definition)
-        local options = {}
-        for key, value in pairs(definition.skinOptions or {}) do
-            options[key] = value
-        end
-        options.style = style
-        if options.border == nil then options.border = borderColor end
         skinMethod(self, target, options)
     end,
     CHECKBOX = function(self, skinMethod, target, style, borderColor, definition)
@@ -3523,6 +3475,7 @@ local SHARED_SKIN_ADAPTERS = {
 
 function NSkin:SkinTypedElement(typeID, definition)
     if type(definition) ~= "table" or not definition.target then return false end
+    typeID = self:GetCanonicalSharedElementType(typeID)
     local typeDefinition = self:GetSharedElementType(typeID)
     local adapter = SHARED_SKIN_ADAPTERS[typeID]
     local skinMethod = typeDefinition and self[typeDefinition.skin]
@@ -3588,19 +3541,6 @@ local TYPED_SKIN_FIELDS_BY_TYPE = {
     COLUMN_HEADER = {
         "textRegion", "artworkRegions", "preserveTextures", "hoverRegion",
         "getHovered", "visualRegion",
-    },
-    ROW = {
-        "nativeDecorationRegions", "artworkRegions", "preserveTextures", "hoverRegion",
-        "selectedRegion", "getHovered", "getSelected", "visualRegion",
-        "contentRegions", "contentStyle", "columns", "showBackground",
-        "surfaceInset",
-        "height", "reset",
-    },
-    SECTION_ROW = {
-        "nativeDecorationRegions", "artworkRegions", "preserveTextures",
-        "hoverRegion", "selectedRegion", "getHovered", "getSelected",
-        "visualRegion", "textRegion", "contentRegions", "contentStyle",
-        "collapseButton", "reset",
     },
     CHECKBOX = { "text", "getChecked", "labelBaselineID", "visualSize" },
     DROPDOWN = { "menus" },
@@ -3675,6 +3615,7 @@ function NSkin:RegisterTypedElement(typeID, definition)
     if type(definition) ~= "table" or type(definition.id) ~= "string"
         or not definition.target
     then return nil end
+    typeID = self:GetCanonicalSharedElementType(typeID)
     local existing = self:GetSkinningElement(definition.id)
     if existing and existing.typedRegistration and existing.kind == typeID
         and existing.target == definition.target
@@ -3737,8 +3678,13 @@ function NSkin:RegisterTypedElement(typeID, definition)
     return self:RegisterSimpleMovableElement(element)
 end
 
+function NSkin:RegisterButton(definition)
+    return self:RegisterTypedElement("BUTTON", definition)
+end
+
+-- Compatibility entry point while adapters are migrated. It registers BUTTON.
 function NSkin:RegisterActionButton(definition)
-    return self:RegisterTypedElement("ACTION_BUTTON", definition)
+    return self:RegisterButton(definition)
 end
 
 function NSkin:RegisterSectionCard(definition)
@@ -4176,29 +4122,6 @@ end
 
 function NSkin:RegisterColumnHeader(definition)
     return self:RegisterTypedElement("COLUMN_HEADER", definition)
-end
-
-function NSkin:RegisterRow(definition)
-    return self:RegisterTypedElement("ROW", definition)
-end
-
-function NSkin:RegisterSectionRow(definition)
-    if type(definition) ~= "table" then return nil end
-    local normalized = {}
-    for key, value in pairs(definition) do normalized[key] = value end
-    normalized.appearanceStyles = {}
-    for i = 1, #(definition.appearanceStyles or {}) do
-        AppendUniqueValue(normalized.appearanceStyles,
-            definition.appearanceStyles[i])
-    end
-    AppendUniqueValue(normalized.appearanceStyles, "text")
-    normalized.appearanceTypeIDs = {}
-    for i = 1, #(definition.appearanceTypeIDs or {}) do
-        AppendUniqueValue(normalized.appearanceTypeIDs,
-            definition.appearanceTypeIDs[i])
-    end
-    AppendUniqueValue(normalized.appearanceTypeIDs, "TEXT")
-    return self:RegisterTypedElement("SECTION_ROW", normalized)
 end
 
 function NSkin:RegisterTextElement(definition)

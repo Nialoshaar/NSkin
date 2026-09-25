@@ -109,7 +109,9 @@ local function IsPointWithinElementHitArea(element, x, y)
     -- only controls how that group is drawn; gaps between those regions still
     -- belong to the Composite and must beat the WINDOW fallback.
     local composition = element.composition
-    if composition and composition.mode == "COMPOSITE" then
+    if composition and composition.mode == "COMPOSITE"
+        and composition.separateRegions ~= true
+    then
         local left, right, bottom, top = GetElementBounds(element)
         return left and x >= left and x <= right
             and y >= bottom and y <= top
@@ -326,11 +328,12 @@ local function SetOverlayInputEnabled(overlay, enabled)
     enabled = enabled == true
     local element = overlay.inputTarget
         and overlay.inputTarget.nskinSkinningElement
-    local composite = element and element.composition
-        and element.composition.mode == "COMPOSITE"
+    local composition = element and element.composition
+    local composite = composition and composition.mode == "COMPOSITE"
     if overlay.inputTarget then
         overlay.inputTarget:EnableMouse(
-            enabled and (overlay.highlightMode ~= "REGIONS" or composite))
+            enabled and (overlay.highlightMode ~= "REGIONS"
+                or (composite and composition.separateRegions ~= true)))
     end
     for _, surface in ipairs(overlay.regionSurfaces or {}) do
         if surface.input then
@@ -562,6 +565,48 @@ local function AnchorCompositeMemberSurface(frame, element, member)
     return true
 end
 
+local function AnchorCompositeMemberRegionSurface(
+    frame, member, target, padding)
+    frame:ClearAllPoints()
+    local left, right, bottom, top =
+        GetNormalizedRegionBounds(target, padding)
+
+    if left and member and member.tightTextBounds == true
+        and target and target.GetStringWidth and target.GetWidth
+    then
+        local allocatedWidth = tonumber(target:GetWidth()) or 0
+        local stringWidth = tonumber(target:GetStringWidth()) or 0
+        if allocatedWidth > 0 and stringWidth >= 0
+            and stringWidth < allocatedWidth
+        then
+            local boundsWidth = right - left
+            local renderedWidth = boundsWidth
+                * math.min(1, stringWidth / allocatedWidth)
+            local justify = target.GetJustifyH
+                and string.upper(tostring(target:GetJustifyH() or "LEFT"))
+                or "LEFT"
+            if justify == "RIGHT" then
+                left = right - renderedWidth
+            elseif justify == "CENTER" then
+                local center = (left + right) * 0.5
+                left = center - renderedWidth * 0.5
+                right = center + renderedWidth * 0.5
+            else
+                right = left + renderedWidth
+            end
+        end
+    end
+
+    if not left then
+        frame:Hide()
+        return false
+    end
+    frame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top)
+    frame:SetPoint("BOTTOMRIGHT", UIParent, "BOTTOMLEFT", right, bottom)
+    frame:Show()
+    return true
+end
+
 local function SetCompositeMemberNativeHoverSuppressed(
     element, member, suppressed)
     if not member then return end
@@ -577,8 +622,10 @@ local function SetCompositeMemberNativeHoverSuppressed(
 end
 
 local function GetCompositeMemberBorderColor(
-    style, element, member, emphasized)
-    if NSkin:HasCompositeMemberOverride(element, member) then
+    style, element, member, emphasized, target)
+    local hasOverride =
+        NSkin:HasCompositeMemberOverride(element, member, target)
+    if hasOverride then
         local override = style.override or { 1, 0.65, 0, 0.82 }
         return {
             override[1] or 1,
@@ -592,6 +639,7 @@ end
 
 local function OpenCompositeMemberContextMenu(input, element, member)
     if not input or not element or not member
+        or member.allowOverrides == false
         or not _G.MenuUtil
         or type(_G.MenuUtil.CreateContextMenu) ~= "function"
     then return false end
@@ -617,11 +665,12 @@ local function OpenCompositeMemberContextMenu(input, element, member)
     return true
 end
 
-local function EnsureCompositeMemberSurface(element, member)
+local function EnsureCompositeMemberSurface(element, member, surfaceKey)
     controller.compositeMemberSurfaces[element.id] =
         controller.compositeMemberSurfaces[element.id] or {}
     local surfaces = controller.compositeMemberSurfaces[element.id]
-    local surface = surfaces[member.id]
+    surfaceKey = surfaceKey or member.id
+    local surface = surfaces[surfaceKey]
     if surface then
         surface.member = member
         return surface
@@ -670,7 +719,8 @@ local function EnsureCompositeMemberSurface(element, member)
         element = element,
         member = member,
     }
-    surfaces[member.id] = surface
+    surface.surfaceKey = surfaceKey
+    surfaces[surfaceKey] = surface
 
     local function IsInteractive(self)
         return controller.enabled
@@ -713,7 +763,7 @@ local function EnsureCompositeMemberSurface(element, member)
     end)
     input:SetScript("OnMouseDown", function(self, button)
         if button ~= "LeftButton" or not IsInteractive(self) then return end
-        SelectElement(element, surface.member.id)
+        SelectElement(element, surface.member.id, surface.runtimeTarget)
         if _G.IsShiftKeyDown and _G.IsShiftKeyDown() then
             BeginCompositeMemberDrag(element, surface.member)
         end
@@ -725,7 +775,7 @@ local function EnsureCompositeMemberSurface(element, member)
     end)
     input:SetScript("OnClick", function(self, button)
         if controller.dragging or not IsInteractive(self) then return end
-        SelectElement(element, surface.member.id)
+        SelectElement(element, surface.member.id, surface.runtimeTarget)
         if button == "RightButton" then
             OpenCompositeMemberContextMenu(
                 self, element, surface.member)
@@ -756,17 +806,36 @@ RefreshCompositeMemberSurfaces = function(element)
     local compositeHovered = overlay and overlay.hovered == true
     local active = {}
 
-    for _, member in ipairs(composition.members or {}) do
-        SetCompositeMemberNativeHoverSuppressed(element, member, true)
-        local surface = EnsureCompositeMemberSurface(element, member)
-        active[member.id] = true
-        local visualAnchored =
-            AnchorCompositeMemberSurface(surface.visual, element, member)
-        local inputAnchored =
-            AnchorCompositeMemberSurface(surface.input, element, member)
+    local function RefreshSurface(member, target)
+        local surfaceKey = member.id
+        if target then
+            surfaceKey = member.id .. "\031" .. tostring(target)
+        end
+        local surface = EnsureCompositeMemberSurface(
+            element, member, surfaceKey)
+        surface.runtimeTarget = target
+        active[surfaceKey] = true
+
+        local visualAnchored
+        local inputAnchored
+        if target then
+            visualAnchored = AnchorCompositeMemberRegionSurface(
+                surface.visual, member, target, member.highlightPadding)
+            inputAnchored = AnchorCompositeMemberRegionSurface(
+                surface.input, member, target, member.highlightPadding)
+        else
+            visualAnchored =
+                AnchorCompositeMemberSurface(surface.visual, element, member)
+            inputAnchored =
+                AnchorCompositeMemberSurface(surface.input, element, member)
+        end
+
         local attached = NSkin:IsCompositeMemberAttached(element, member)
         local focused = selected
             and controller.focusedCompositeMemberID == member.id
+            and (not target
+                or not controller.focusedCompositeRuntimeTarget
+                or target == controller.focusedCompositeRuntimeTarget)
         local memberHovered = surface.hovered == true
         local showSubglow = visualAnchored and not controller.dragging
             and (compositeHovered or selected or memberHovered
@@ -776,7 +845,7 @@ RefreshCompositeMemberSurfaces = function(element)
             local fill = member.editorSurface
                 and style.highlight or style.hover
             local border = GetCompositeMemberBorderColor(
-                style, element, member, focused or memberHovered)
+                style, element, member, focused or memberHovered, target)
             surface.visual.texture:SetColorTexture(unpack(fill))
             if surface.visual.hoverGlow then
                 surface.visual.hoverGlow:SetShown(memberHovered == true)
@@ -804,10 +873,25 @@ RefreshCompositeMemberSurfaces = function(element)
         end
     end
 
-    for memberID, surface in pairs(existing or {}) do
-        if not active[memberID] then
+    for _, member in ipairs(composition.members or {}) do
+        SetCompositeMemberNativeHoverSuppressed(element, member, true)
+        if member.highlightMode == "REGIONS" then
+            for _, target in ipairs(
+                NSkin:GetCompositionMemberTargets(
+                    element, member, false) or {})
+            do
+                RefreshSurface(member, target)
+            end
+        else
+            RefreshSurface(member)
+        end
+    end
+
+    for surfaceKey, surface in pairs(existing or {}) do
+        if not active[surfaceKey] then
             surface.visual:Hide()
             surface.input:Hide()
+            surface.hovered = nil
         end
     end
 end
@@ -898,7 +982,8 @@ local function RefreshInspector()
     if controller and controller.dockedWindow then
         controller.dockedWindow:Refresh(
             controller.selectedElement,
-            controller.focusedCompositeMemberID)
+            controller.focusedCompositeMemberID,
+            controller.focusedCompositeRuntimeTarget)
         if NSkin.RefreshSkinningDebugInspector then
             NSkin:RefreshSkinningDebugInspector(controller.selectedElement,
                 controller.dockedWindow.frame)
@@ -916,6 +1001,7 @@ local function DockWithoutSelection(excludedWindow)
     local previous = controller.selectedElement
     controller.selectedElement = nil
     controller.focusedCompositeMemberID = nil
+    controller.focusedCompositeRuntimeTarget = nil
     if previous then RefreshOverlayAppearance(previous) end
     local activeWindow = NSkin:GetMostRecentVisibleSkinningWindow(excludedWindow)
     local visibleElement
@@ -932,7 +1018,7 @@ local function DockWithoutSelection(excludedWindow)
     RefreshInspector()
 end
 
-SelectElement = function(element, memberID)
+SelectElement = function(element, memberID, runtimeTarget)
     if not element then return end
     local clickedElement = element
     element = GetEditorElement(element)
@@ -946,8 +1032,10 @@ SelectElement = function(element, memberID)
         and memberID and NSkin:GetCompositeMember(element, memberID)
     then
         controller.focusedCompositeMemberID = memberID
+        controller.focusedCompositeRuntimeTarget = runtimeTarget
     else
         controller.focusedCompositeMemberID = nil
+        controller.focusedCompositeRuntimeTarget = nil
     end
     if previous ~= element or previousMember ~= controller.focusedCompositeMemberID then
         controller.dockedWindow:ResetScroll()
@@ -1250,7 +1338,9 @@ local function UpdateCompositeMemberDrag()
 end
 
 BeginCompositeMemberDrag = function(element, member)
-    if not controller or controller.dragging or not element or not member then
+    if not controller or controller.dragging or not element or not member
+        or member.movable == false
+    then
         return false
     end
     local family = NSkin:GetCompositeMemberFamily(element, member)

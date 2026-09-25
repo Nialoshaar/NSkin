@@ -1143,11 +1143,13 @@ local CategoryDefinitions = {
     },
     {
         class = CATEGORY_SECONDARY_ROW, id = CustomerOrdersIDs.SecondaryRows,
-        label = "Secondary category rows", kind = "SECTION_ROW",
+        label = "Secondary category rows", kind = "BUTTON",
+        rowFamily = "sectionRow",
     },
     {
         class = CATEGORY_TERTIARY, id = CustomerOrdersIDs.TertiaryRows,
-        label = "Tertiary category rows", kind = "SECTION_ROW",
+        label = "Tertiary category rows", kind = "BUTTON",
+        rowFamily = "sectionRow",
     },
 }
 
@@ -1234,11 +1236,12 @@ function CustomerOrdersSkin:ApplyCategoryTargets(frame, browse)
                     module = "AuctionHouse", appearanceWindowID = IDs.Scope,
                     label = categoryDefinition.label,
                     kind = categoryDefinition.kind,
+                    rowFamily = categoryDefinition.rowFamily,
                     window = frame, target = scrollBox,
                     priority = 30 + index, draggable = false,
-                    appearanceStyles = categoryDefinition.kind == "SECTION_ROW"
+                    appearanceStyles = categoryDefinition.rowFamily == "sectionRow"
                         and { "text" } or nil,
-                    appearanceTypeIDs = categoryDefinition.kind == "SECTION_ROW"
+                    appearanceTypeIDs = categoryDefinition.rowFamily == "sectionRow"
                         and { "TEXT" } or nil,
                     highlightRegions = function()
                         return GetCategoryButtons(
@@ -1289,7 +1292,8 @@ function CustomerOrdersSkin:ApplyRecipeRows(frame, browse)
         customerOrdersElements[CustomerOrdersIDs.RecipeRows] =
             NSkin:RegisterSkinningElement(CustomerOrdersIDs.RecipeRows, {
                 module = "AuctionHouse", appearanceWindowID = IDs.Scope,
-                label = "Customer order recipe rows", kind = "ROW",
+                label = "Customer order recipe rows", kind = "BUTTON",
+                rowFamily = "row",
                 window = frame, target = scrollBox,
                 priority = 39, draggable = false,
                 highlightRegions = function()
@@ -1418,7 +1422,7 @@ function CustomerOrdersSkin:ApplyMyOrdersRows(frame, page)
         customerOrdersElements[id] =
             NSkin:RegisterSkinningElement(id, {
                 module = "AuctionHouse", appearanceWindowID = IDs.Scope,
-                label = "My Orders rows", kind = "ROW",
+                label = "My Orders rows", kind = "BUTTON", rowFamily = "row",
                 window = frame, target = scrollBox,
                 priority = 101, draggable = false,
                 highlightRegions = function()
@@ -2418,13 +2422,45 @@ function BlackMarketSkin:ApplyRows(frame)
                 module = "AuctionHouse",
                 appearanceWindowID = IDs.Scope,
                 label = "Black Market results table",
-                kind = "ROW",
+                kind = "BUTTON", rowFamily = "row",
                 window = frame,
                 target = scrollBox,
                 priority = 60,
                 draggable = false,
                 appearanceStyles = { "text", "icon" },
                 appearanceTypeIDs = { "TEXT", "ICON" },
+                rowFamilyMemberTargets = {
+                    ICON = function()
+                        local targets = {}
+                        for _, row in ipairs(GetVisibleRows(frame)) do
+                            if row.Item and row.Item.IconTexture then
+                                targets[#targets + 1] = row.Item
+                            end
+                        end
+                        return targets
+                    end,
+                    TEXT = function()
+                        local targets = {}
+                        for _, row in ipairs(GetVisibleRows(frame)) do
+                            local item = row.Item
+                            for _, target in ipairs({
+                                row.Name, row.Level, row.Type,
+                                row.TimeLeft and row.TimeLeft.Text,
+                                row.Seller, row.YourBid,
+                                item and item.Count, item and item.Stock,
+                                row.CurrentBid and row.CurrentBid.GoldButton
+                                    and row.CurrentBid.GoldButton.Text,
+                                row.CurrentBid and row.CurrentBid.SilverButton
+                                    and row.CurrentBid.SilverButton.Text,
+                                row.CurrentBid and row.CurrentBid.CopperButton
+                                    and row.CurrentBid.CopperButton.Text,
+                            }) do
+                                if target then targets[#targets + 1] = target end
+                            end
+                        end
+                        return targets
+                    end,
+                },
                 highlightRegions = function()
                     return GetVisibleRows(frame)
                 end,

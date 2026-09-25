@@ -272,7 +272,7 @@ function NPCInteractionSkin:ApplyOptionRows(frame)
                 module = "NPCInteraction",
                 appearanceWindowID = IDs.Scope,
                 label = "Gossip quest and option rows",
-                kind = "SECTION_ROW",
+                kind = "BUTTON", rowFamily = "sectionRow",
                 window = frame,
                 target = scrollBox,
                 priority = 60,
@@ -1166,13 +1166,29 @@ function NPCInteractionSkin:ApplyTrainerSkillStep(frame)
                 module = "NPCInteraction",
                 appearanceWindowID = TrainerIDs.Scope,
                 label = "Selected trainer skill row",
-                kind = "ROW",
+                kind = "BUTTON", rowFamily = "row",
                 window = frame,
                 target = skillStep,
                 priority = 70,
                 draggable = false,
                 appearanceStyles = { "icon", "text" },
                 appearanceTypeIDs = { "ICON", "TEXT" },
+                rowFamilyMemberTargets = {
+                    ICON = function()
+                        local icon = GetTrainerRowIcon(skillStep)
+                            or _G.ClassTrainerFrameSkillStepButtonIcon
+                        return icon and { skillStep } or {}
+                    end,
+                    TEXT = function()
+                        local targets = {}
+                        for _, target in pairs(
+                            GetTrainerRowTexts(skillStep))
+                        do
+                            if target then targets[#targets + 1] = target end
+                        end
+                        return targets
+                    end,
+                },
                 highlightRegions = { skillStep },
                 pixelBorderTargets = { skillStep },
                 editorOptions = {
@@ -1260,13 +1276,33 @@ function NPCInteractionSkin:ApplyTrainerRows(frame)
                 module = "NPCInteraction",
                 appearanceWindowID = TrainerIDs.Scope,
                 label = "Trainer skill rows",
-                kind = "ROW",
+                kind = "BUTTON", rowFamily = "row",
                 window = frame,
                 target = scrollBox,
                 priority = 80,
                 draggable = false,
                 appearanceStyles = { "icon", "text" },
                 appearanceTypeIDs = { "ICON", "TEXT" },
+                rowFamilyMemberTargets = {
+                    ICON = function()
+                        local targets = {}
+                        for _, row in ipairs(GetVisibleTrainerRows(frame)) do
+                            if GetTrainerRowIcon(row) then
+                                targets[#targets + 1] = row
+                            end
+                        end
+                        return targets
+                    end,
+                    TEXT = function()
+                        local targets = {}
+                        for _, row in ipairs(GetVisibleTrainerRows(frame)) do
+                            for _, target in pairs(GetTrainerRowTexts(row)) do
+                                if target then targets[#targets + 1] = target end
+                            end
+                        end
+                        return targets
+                    end,
+                },
                 highlightRegions = function()
                     return GetVisibleTrainerRows(frame)
                 end,

@@ -410,13 +410,47 @@ function MailboxSkin:ApplyRows(frame)
             module = "Mailbox",
             appearanceWindowID = IDs.Scope,
             label = "Inbox mail rows",
-            kind = "ROW",
+            kind = "BUTTON", rowFamily = "row",
             window = frame,
             target = inbox,
             priority = 60,
             draggable = false,
             appearanceStyles = { "icon", "text" },
             appearanceTypeIDs = { "ICON", "TEXT" },
+            rowFamilyMemberTargets = {
+                ICON = function()
+                    local targets = {}
+                    for index = 1, 7 do
+                        local row = _G["MailItem" .. index]
+                        local button = _G["MailItem" .. index .. "Button"]
+                        if IsVisible(row) and button and button.Icon then
+                            targets[#targets + 1] = button
+                        end
+                    end
+                    return targets
+                end,
+                TEXT = function()
+                    local targets = {}
+                    for index = 1, 7 do
+                        local prefix = "MailItem" .. index
+                        local row = _G[prefix]
+                        if IsVisible(row) then
+                            local expireButton = _G[prefix .. "ExpireTime"]
+                            local expireText = expireButton
+                                and expireButton.GetFontString
+                                and expireButton:GetFontString()
+                            for _, target in ipairs({
+                                _G[prefix .. "Sender"],
+                                _G[prefix .. "Subject"],
+                                expireText,
+                            }) do
+                                if target then targets[#targets + 1] = target end
+                            end
+                        end
+                    end
+                    return targets
+                end,
+            },
             highlightRegions = function()
                 return GetInboxRowTargets(true)
             end,
