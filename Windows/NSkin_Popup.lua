@@ -4,21 +4,6 @@ local PopupSkin = NSkin:NewModule("Popup")
 
 local IDs = {
     Scope = "Popup",
-    Splash = {
-        Scope = "Splash",
-        Window = "Splash.Window",
-        Header = "Splash.Header",
-        Label = "Splash.Label",
-        TopCloseButton = "Splash.TopCloseButton",
-        BottomCloseButton = "Splash.BottomCloseButton",
-        TopLeftTitle = "Splash.TopLeft.Title",
-        TopLeftDescription = "Splash.TopLeft.Description",
-        BottomLeftTitle = "Splash.BottomLeft.Title",
-        BottomLeftDescription = "Splash.BottomLeft.Description",
-        RightTitle = "Splash.Right.Title",
-        RightDescription = "Splash.Right.Description",
-        StartQuest = "Splash.Right.StartQuest",
-    },
     RolePoll = {
         Scope = "Popup.RolePoll",
         Window = "Popup.RolePoll.Window",
@@ -65,8 +50,6 @@ local IDs = {
 }
 
 local LFG_ARTWORK_TOP_INSET = 11
-local SPLASH_CHROME_INSET_X = 10
-local SPLASH_CHROME_INSET_Y = 9
 
 local initialized = false
 local showHooked = false
@@ -78,13 +61,9 @@ local lootRowsRegistered = {}
 local lootQualityTextRegistered = false
 local readyCheckInitialized = false
 local rolePollInitialized = false
-local splashInitialized = false
 
 NSkin:RegisterAppearanceScope(IDs.Scope, {
     label = "Popups",
-})
-NSkin:RegisterAppearanceScope(IDs.Splash.Scope, {
-    label = "Splash", parent = IDs.Scope,
 })
 NSkin:RegisterAppearanceScope(IDs.RolePoll.Scope, {
     label = "Role Poll",
@@ -527,7 +506,6 @@ function PopupSkin:RefreshAppearance()
     if lootInitialized then self:ApplyLoot() end
     if readyCheckInitialized then self:ApplyReadyCheck() end
     if rolePollInitialized then self:ApplyRolePoll() end
-    if splashInitialized then self:ApplySplash() end
 end
 
 local function CanSkinReadyCheckTarget(target)
@@ -786,115 +764,6 @@ function PopupSkin:ApplyRolePoll()
         end,
     })) ~= nil and applied
     rolePollInitialized = applied
-    return applied
-end
-
-local function GetSplashChromeAnchor(frame)
-    local data = NSkin:GetSkinData(frame, "splash")
-    local anchor = data.chromeAnchor
-    if not anchor then
-        anchor = _G.CreateFrame("Frame", nil, frame)
-        anchor:EnableMouse(false)
-        data.chromeAnchor = anchor
-    end
-    anchor:ClearAllPoints()
-    anchor:SetPoint("TOPLEFT", frame, "TOPLEFT",
-        SPLASH_CHROME_INSET_X, -SPLASH_CHROME_INSET_Y)
-    anchor:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT",
-        -SPLASH_CHROME_INSET_X, SPLASH_CHROME_INSET_Y)
-    return anchor
-end
-
-function PopupSkin:ApplySplash()
-    local frame = _G.SplashFrame
-    if not CanSkinReadyCheckTarget(frame) then return false end
-    local left, bottom, right = frame.TopLeftFeature,
-        frame.BottomLeftFeature, frame.RightFeature
-    if not CanSkinReadyCheckTarget(left) or not CanSkinReadyCheckTarget(bottom)
-        or not CanSkinReadyCheckTarget(right)
-        or not CanSkinReadyCheckTarget(frame.TopCloseButton)
-    then return false end
-    local definitions = {
-        { IDs.Splash.Header, "TEXT", "Splash header", frame.Header },
-        { IDs.Splash.Label, "TEXT", "Splash label", frame.Label },
-        { IDs.Splash.TopLeftTitle, "TEXT", "Top-left feature title", left.Title },
-        { IDs.Splash.TopLeftDescription, "TEXT", "Top-left feature description", left.Description },
-        { IDs.Splash.BottomLeftTitle, "TEXT", "Bottom-left feature title", bottom.Title },
-        { IDs.Splash.BottomLeftDescription, "TEXT", "Bottom-left feature description", bottom.Description },
-        { IDs.Splash.RightTitle, "TEXT", "Right feature title", right.Title },
-        { IDs.Splash.RightDescription, "TEXT", "Right feature description", right.Description },
-        { IDs.Splash.BottomCloseButton, "BUTTON", "Close splash", frame.BottomCloseButton },
-        { IDs.Splash.StartQuest, "ACTION_BUTTON", "Start quest", right.StartQuestButton },
-    }
-    for _, definition in ipairs(definitions) do
-        if not CanSkinReadyCheckTarget(definition[4]) then return false end
-    end
-    if not CanSkinReadyCheckTarget(right.StartQuestButton.Text) then return false end
-    local chromeAnchor = GetSplashChromeAnchor(frame)
-    local chrome = NSkin:SkinStandardWindowChrome({
-        frame = frame, appearanceWindowID = IDs.Splash.Scope,
-        elementID = IDs.Splash.Window, title = false,
-        backgroundAnchor = chromeAnchor,
-        borderOwner = chromeAnchor,
-        borderAnchor = chromeAnchor,
-        headerAnchor = chromeAnchor,
-        closeButton = frame.TopCloseButton,
-        headerControlsID = IDs.Splash.TopCloseButton,
-        headerControlsLabel = "Splash top close button",
-        preserveCloseButtonGeometry = true,
-    })
-    if not chrome then return false end
-    frame.TopCloseButton:ClearAllPoints()
-    frame.TopCloseButton:SetPoint(
-        "TOPRIGHT", chromeAnchor, "TOPRIGHT", 0, 0)
-    -- Preserve the patch-specific Left/Right/BottomTexture and BottomLine.
-    -- Keep shared chrome behind that artwork. The native splash atlases carry
-    -- transparent padding around their visible edge, so the NSkin border uses
-    -- a small inset anchor instead of the full 882x584 layout frame.
-    if chrome.background then chrome.background:SetDrawLayer("BACKGROUND", -8) end
-    if chrome.header then chrome.header:SetDrawLayer("BACKGROUND", -7) end
-    local applied = NSkin:RegisterSkinningElement(IDs.Splash.Window, {
-        label = "Splash window", kind = "WINDOW", module = "Popup",
-        appearanceWindowID = IDs.Splash.Scope,
-        window = frame, target = frame, priority = 0, draggable = false,
-        pixelBorderTargets = { chromeAnchor },
-    }) == true
-    for index, definition in ipairs(definitions) do
-        local id, kind, label, target = unpack(definition)
-        local options = {
-            id = id, module = "Popup", appearanceWindowID = IDs.Splash.Scope,
-            label = label, window = frame, target = target, priority = 10 + index,
-            highlightRegions = { target },
-            isEditable = function()
-                return IsVisible(frame) and IsVisible(target)
-            end,
-        }
-        if kind == "ACTION_BUTTON" then
-            options.skinOptions = {
-                textRegion = target.Text, preserveTextGeometry = true,
-            }
-        elseif kind == "BUTTON" then
-            options.skinOptions = { label = target:GetText() }
-        end
-        local element = NSkin:RegisterTypedElement(kind, options)
-        applied = RefreshElement(element) ~= nil and applied
-    end
-    local data = NSkin:GetSkinData(frame, "splash")
-    if not data.payloadHooked and _G.hooksecurefunc then
-        -- Payload setup auto-scales the right title. Reapply only that TEXT's
-        -- explicit typography after Blizzard finishes its own layout.
-        _G.hooksecurefunc(right, "Setup", function()
-            RefreshElement(NSkin:GetSkinningElement(IDs.Splash.RightTitle))
-        end)
-        _G.hooksecurefunc(right, "SetStartQuestButtonDisplay", function()
-            for _, id in ipairs({ IDs.Splash.RightTitle, IDs.Splash.RightDescription,
-                IDs.Splash.StartQuest, IDs.Splash.BottomCloseButton }) do
-                NSkin:NotifySkinningElementBoundsChanged(id)
-            end
-        end)
-        data.payloadHooked = true
-    end
-    splashInitialized = applied
     return applied
 end
 
@@ -1246,13 +1115,6 @@ NSkin:RegisterWindowSkin({
     apply = function()
         return PopupSkin:ApplyRolePoll()
     end,
-})
-
-NSkin:RegisterWindowSkin({
-    key = IDs.Splash.Window,
-    module = "Popup",
-    addon = "Blizzard_SplashFrame",
-    apply = function() return PopupSkin:ApplySplash() end,
 })
 
 NSkin:RegisterWindowSkin({

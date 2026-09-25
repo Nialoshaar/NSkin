@@ -888,9 +888,16 @@ This is why `Components/NSkin_ComponentsNavigation.lua` and its dock option coun
 
 ---
 
-# 23. Popup Architecture
+# 23. Popup and Shell-Only Window Architecture
 
 Reusable popup families belong in shared popup adapter infrastructure when their Blizzard structure is genuinely shared.
+
+`Windows/NSkin_ShellOnly.lua` groups Blizzard window adapters whose NSkin support is intentionally limited primarily to shared window chrome because internal content is forbidden, inaccessible, unsuitable for mutation, or deliberately left Blizzard-owned.
+
+Shell-only is an adapter organization, not an atomic component, composition mode, capability, or editor type. A shell-only window may still register explicitly safe canonical child controls. Having one or a few supported child controls does not require a separate window adapter when the window remains primarily shell-only.
+
+If a shell-only window later becomes comprehensively skinnable, it may graduate to its own normal `Windows/NSkin_<Window>.lua` adapter.
+
 
 Keep `Components/NSkin_ComponentsPopup.lua` as shared adapter infrastructure rather than creating a POPUP atomic component for every popup family.
 
@@ -1130,6 +1137,7 @@ NSkin/
 │     └─ NSkin_ComponentMenusOptions.lua
 │
 ├─ Windows/
+│  ├─ NSkin_ShellOnly.lua                 # intentionally limited window adapters
 │  └─ NSkin_*.lua
 │
 ├─ Options/
