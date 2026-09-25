@@ -253,10 +253,10 @@ NSkin:RegisterOptionGroup("shared.sideTabAppearance", {
             resetSubset = true,
             resetTooltip = "Reset side-tab width and height",
             left = { key = "width", label = "Width", min = 20,
-                max = 100, step = 1, decimals = 0, suffix = " px",
+                max = 500, step = 1, decimals = 0, suffix = " px",
                 resetValue = 0 },
             right = { key = "height", label = "Height", min = 20,
-                max = 100, step = 1, decimals = 0, suffix = " px",
+                max = 200, step = 1, decimals = 0, suffix = " px",
                 resetValue = 0 },
         },
         {

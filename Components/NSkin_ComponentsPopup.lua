@@ -137,6 +137,291 @@ function NSkin:SkinPopupSurface(frame, options)
     return true
 end
 
+
+local function CreateSelectionPopupLabel(parent, text)
+    local label = parent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    label:SetText(text or "")
+    label:SetTextColor(1, 1, 1, 1)
+    return label
+end
+
+local function CreateSelectionPopupButton(parent, text, width, callback)
+    local button = CreateFrame("Button", nil, parent)
+    button:SetSize(width or 120, 22)
+    NSkin:SkinFlatButton(button, text or "", nil, nil, 12)
+    button:SetScript("OnClick", callback)
+    return button
+end
+
+local function ResolveSelectionPopupItems(popup, columnIndex)
+    local column = popup.definition.columns[columnIndex]
+    if not column then return {} end
+    local items = column.items
+    if type(items) == "function" then
+        local ok, resolved = pcall(
+            items, popup.context, popup.selections, popup)
+        items = ok and resolved or nil
+    end
+    return type(items) == "table" and items or {}
+end
+
+local function GetSelectionPopupItemLabel(column, item)
+    if type(column.getLabel) == "function" then
+        local ok, label = pcall(column.getLabel, item)
+        if ok and label ~= nil then return tostring(label) end
+    end
+    if type(item) == "table" then
+        return tostring(item.label or item.name or item.id or "")
+    end
+    return tostring(item or "")
+end
+
+local function GetSelectionPopupItemID(column, item)
+    if type(column.getID) == "function" then
+        local ok, id = pcall(column.getID, item)
+        if ok then return id end
+    end
+    if type(item) == "table" then
+        return item.id or item.value or item
+    end
+    return item
+end
+
+local function SelectionPopupItemsEqual(column, left, right)
+    if left == right then return true end
+    if left == nil or right == nil then return false end
+    return GetSelectionPopupItemID(column, left)
+        == GetSelectionPopupItemID(column, right)
+end
+
+function NSkin:RefreshSelectionPopupAppearance(popup)
+    if not popup or not popup.definition then return false end
+    self:SkinWindow(popup)
+    self:SkinWindowHeader(popup)
+    self:SkinText(popup.title)
+    for _, column in ipairs(popup.columns or {}) do
+        self:SkinText(column.header)
+        for _, button in ipairs(column.buttons or {}) do
+            if button:IsShown() then
+                self:SkinFlatButton(
+                    button, button.selectionLabel or "", nil, nil, 12)
+            end
+        end
+    end
+    self:SkinFlatButton(
+        popup.confirmButton,
+        popup.definition.confirmLabel or "Confirm", nil, nil, 12)
+    self:SkinFlatButton(
+        popup.cancelButton,
+        popup.definition.cancelLabel or "Cancel", nil, nil, 12)
+    return true
+end
+
+function NSkin:CreateSelectionPopup(definition)
+    if type(definition) ~= "table"
+        or type(definition.columns) ~= "table"
+        or #definition.columns == 0
+    then return nil end
+
+    local width = tonumber(definition.width) or 520
+    local height = tonumber(definition.height) or 360
+    local padding = tonumber(definition.padding) or 12
+    local columnGap = tonumber(definition.columnGap) or 36
+    local rowHeight = tonumber(definition.rowHeight) or 25
+    local frame = CreateFrame("Frame", nil, definition.parent or UIParent)
+    frame:SetSize(width, height)
+    frame:SetFrameStrata(definition.frameStrata or "FULLSCREEN_DIALOG")
+    frame:SetFrameLevel(tonumber(definition.frameLevel) or 600)
+    frame:SetClampedToScreen(true)
+    -- The popup surface itself owns mouse input, not only its child buttons.
+    -- This prevents Skinning Mode or other underlying UI from receiving hover
+    -- while the cursor is over otherwise-empty popup background.
+    frame:EnableMouse(definition.blockUnderlyingMouse ~= false)
+    if frame.SetPropagateMouseMotion then
+        frame:SetPropagateMouseMotion(
+            definition.blockUnderlyingMouse == false)
+    end
+    if frame.SetPropagateMouseClicks then
+        frame:SetPropagateMouseClicks(
+            definition.blockUnderlyingMouse == false)
+    end
+    frame.definition = definition
+    frame.context = nil
+    frame.selections = {}
+    frame.columns = {}
+
+    frame.title = CreateSelectionPopupLabel(
+        frame, definition.title or "Select")
+    frame.title:SetPoint("TOPLEFT", frame, "TOPLEFT", padding, -8)
+
+    local columnCount = #definition.columns
+    local usableWidth = width - padding * 2 - columnGap * (columnCount - 1)
+    local columnWidth = math.floor(usableWidth / columnCount)
+    for index, columnDefinition in ipairs(definition.columns) do
+        local column = {
+            definition = columnDefinition,
+            buttons = {},
+        }
+        frame.columns[index] = column
+        local x = padding + (index - 1) * (columnWidth + columnGap)
+        column.x = x
+        column.width = columnWidth
+        column.header = CreateSelectionPopupLabel(
+            frame, columnDefinition.label or ("Column " .. index))
+        column.header:SetPoint("TOPLEFT", frame, "TOPLEFT", x, -36)
+    end
+
+    function frame:Refresh()
+        for columnIndex, column in ipairs(self.columns) do
+            local columnDefinition = column.definition
+            local items = ResolveSelectionPopupItems(self, columnIndex)
+            local selected = self.selections[columnIndex]
+            local selectedStillValid
+            for _, item in ipairs(items) do
+                if SelectionPopupItemsEqual(
+                    columnDefinition, selected, item)
+                then
+                    selectedStillValid = item
+                    break
+                end
+            end
+            self.selections[columnIndex] = selectedStillValid
+
+            for itemIndex, item in ipairs(items) do
+                local button = column.buttons[itemIndex]
+                if not button then
+                    button = CreateSelectionPopupButton(
+                        self, "", column.width, function(selfButton)
+                            local owner = selfButton.selectionPopup
+                            local indexValue =
+                                selfButton.selectionColumnIndex
+                            owner.selections[indexValue] =
+                                selfButton.selectionItem
+                            for later = indexValue + 1,
+                                #owner.columns
+                            do
+                                owner.selections[later] = nil
+                            end
+                            if type(owner.definition.onSelectionChanged)
+                                == "function"
+                            then
+                                owner.definition.onSelectionChanged(
+                                    owner.context,
+                                    owner.selections,
+                                    indexValue,
+                                    owner)
+                            end
+                            owner:Refresh()
+                        end)
+                    button.selectionPopup = self
+                    button.selectionColumnIndex = columnIndex
+                    column.buttons[itemIndex] = button
+                end
+
+                local label = GetSelectionPopupItemLabel(
+                    columnDefinition, item)
+                button.selectionItem = item
+                button.selectionLabel = label
+                NSkin:SkinFlatButton(button, label, nil, nil, 12)
+                button:SetSize(column.width, 22)
+                button:ClearAllPoints()
+                button:SetPoint(
+                    "TOPLEFT", self, "TOPLEFT",
+                    column.x,
+                    -58 - (itemIndex - 1) * rowHeight)
+                local isSelected = SelectionPopupItemsEqual(
+                    columnDefinition,
+                    self.selections[columnIndex],
+                    item)
+                button:SetAlpha(isSelected and 1 or 0.72)
+                local border = NSkin:GetPixelBorder(
+                    button, "NSkinFlatButtonBorder")
+                if border then
+                    NSkin:SetPixelBorderColor(
+                        border,
+                        unpack(isSelected
+                            and NSkin:GetAccentColor()
+                            or NSkin:GetSharedBorderColor()))
+                end
+                button:Show()
+            end
+            for itemIndex = #items + 1, #column.buttons do
+                column.buttons[itemIndex]:Hide()
+            end
+        end
+
+        local enabled = true
+        if type(self.definition.canConfirm) == "function" then
+            local ok, result = pcall(
+                self.definition.canConfirm,
+                self.context, self.selections, self)
+            enabled = ok and result == true
+        else
+            for index = 1, #self.columns do
+                if self.selections[index] == nil then
+                    enabled = false
+                    break
+                end
+            end
+        end
+        self.confirmButton:SetEnabled(enabled)
+        self.confirmButton:SetAlpha(enabled and 1 or 0.45)
+        NSkin:RefreshSelectionPopupAppearance(self)
+    end
+
+    function frame:Open(context, initialSelections)
+        self.context = context
+        self.selections = {}
+        for index, item in ipairs(initialSelections or {}) do
+            self.selections[index] = item
+        end
+        self:ClearAllPoints()
+        if type(definition.anchor) == "function" then
+            definition.anchor(self, context)
+        else
+            self:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+        end
+        self:Refresh()
+        self:Show()
+    end
+
+    function frame:Close()
+        self:Hide()
+        self.context = nil
+        self.selections = {}
+    end
+
+    frame.cancelButton = CreateSelectionPopupButton(
+        frame, definition.cancelLabel or "Cancel", 80, function()
+            frame:Close()
+            if type(definition.onCancel) == "function" then
+                definition.onCancel(frame.context, frame)
+            end
+        end)
+    frame.cancelButton:SetPoint(
+        "BOTTOMRIGHT", frame, "BOTTOMRIGHT", -padding, 10)
+
+    frame.confirmButton = CreateSelectionPopupButton(
+        frame, definition.confirmLabel or "Confirm", 112, function()
+            if not frame.confirmButton:IsEnabled() then return end
+            if type(definition.onConfirm) == "function" then
+                local keepOpen = definition.onConfirm(
+                    frame.context, frame.selections, frame)
+                if keepOpen == true then
+                    frame:Refresh()
+                    return
+                end
+            end
+            frame:Close()
+        end)
+    frame.confirmButton:SetPoint(
+        "RIGHT", frame.cancelButton, "LEFT", -6, 0)
+
+    self:RefreshSelectionPopupAppearance(frame)
+    frame:Hide()
+    return frame
+end
+
 local function GetEquipmentFlyoutIcon(button)
     if not button then return nil end
     local icon = button.Icon or button.icon

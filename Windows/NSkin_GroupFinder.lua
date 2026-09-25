@@ -403,10 +403,12 @@ local function RegisterRoleComposite(
             mode = "COMPOSITE",
             movementOwner = roleButton,
             members = {
-                { kind = "ICON", role = "PRIMARY",
-                    target = icon, label = "Role icon" },
-                { kind = "CHECKBOX", role = "SECONDARY",
-                    target = checkButton, label = "Role selection" },
+                { id = id .. ".Icon", kind = "ICON", role = "PRIMARY",
+                    target = icon, label = "Role icon",
+                    appearanceID = groupID },
+                { id = id .. ".Checkbox", kind = "CHECKBOX",
+                    role = "SECONDARY", target = checkButton,
+                    label = "Role selection", appearanceID = groupID },
             },
         },
         highlightRegions = { icon, checkButton },
@@ -1672,14 +1674,15 @@ local function GetFinderNavigationDefinitions()
     }
 end
 
-local function SkinFinderNavigationIcon(button)
+local function SkinFinderNavigationIcon(button, appearanceID)
     if not button or not button.icon then return false end
+    appearanceID = appearanceID or IDs.Navigation.Group
 
     local iconStyle = WithIconDefaults(
-        NSkin:GetAppearanceStyle("icon", IDs.Scope, IDs.Navigation.Group),
+        NSkin:GetAppearanceStyle("icon", IDs.Scope, appearanceID),
         { size = 55 })
     local borderColor = NSkin:GetAppearanceBorderColor(
-        "icon", iconStyle, IDs.Scope, IDs.Navigation.Group)
+        "icon", iconStyle, IDs.Scope, appearanceID)
 
     NSkin:SkinIcon(button.icon, {
         texture = button.icon,
@@ -1700,10 +1703,28 @@ local function SkinFinderNavigationButton(frame, button, id, label)
     ConcealTexture(button.ring)
     ConcealTexture(button.GetHighlightTexture and button:GetHighlightTexture())
 
+    local surfaceAppearanceID = id .. ".Surface"
     local sideStyle = NSkin:GetAppearanceStyle(
-        "sideTab", IDs.Scope, IDs.Navigation.Group)
+        "sideTab", IDs.Scope, surfaceAppearanceID)
     local borderColor = NSkin:GetAppearanceBorderColor(
-        "sideTab", sideStyle, IDs.Scope, IDs.Navigation.Group)
+        "sideTab", sideStyle, IDs.Scope, surfaceAppearanceID)
+
+    local geometry = NSkin:GetSkinData(
+        button, "groupFinderNavigationGeometry")
+    if not geometry.blizzardWidth or not geometry.blizzardHeight then
+        geometry.blizzardWidth = button:GetWidth()
+        geometry.blizzardHeight = button:GetHeight()
+    end
+    local width = tonumber(sideStyle.width)
+    local height = tonumber(sideStyle.height)
+    width = width and width > 0 and width or geometry.blizzardWidth
+    height = height and height > 0 and height or geometry.blizzardHeight
+    if width and height
+        and (button:GetWidth() ~= width or button:GetHeight() ~= height)
+    then
+        button:SetSize(width, height)
+    end
+
     local selected = _G.GroupFinderFrame
         and _G.GroupFinderFrame.selectionIndex == button:GetID()
     local backgroundColor = NSkin:GetResolvedAppearanceColor(
@@ -1724,11 +1745,14 @@ local function SkinFinderNavigationButton(frame, button, id, label)
     end
     NSkin:CreateFlatButtonGlow(button, sideStyle.hoverAlpha)
 
-    SkinFinderNavigationIcon(button)
+    SkinFinderNavigationIcon(button, id .. ".Icon")
     if button.name then
+        local textAppearanceID = id .. ".Text"
         NSkin:SkinText(button.name,
             NSkin:GetAppearanceStyle(
-                "text", IDs.Scope, IDs.Navigation.Group))
+                "text", IDs.Scope, textAppearanceID), {
+                elementID = textAppearanceID,
+            })
     end
     return true
 end
@@ -1756,7 +1780,7 @@ function PVESkin:ApplyFinderNavigation()
             IDs.Navigation.Group, {
                 module = "GroupFinder",
                 appearanceWindowID = IDs.Scope,
-                label = "Dungeon and raid navigation",
+                label = "Dungeons & Raids Cards",
                 kind = "SIDE_TAB",
                 window = frame,
                 target = visible[1],
@@ -1764,25 +1788,67 @@ function PVESkin:ApplyFinderNavigation()
                 draggable = false,
                 appearanceStyles = { "sideTab", "icon", "text" },
                 appearanceTypeIDs = { "SIDE_TAB", "ICON", "TEXT" },
+                extraEditorOptions = {
+                    { id = "shared.iconAppearance", label = "Icons",
+                        presentation = "INLINE", category = "CUSTOMIZE" },
+                    { id = "shared.textAppearance", label = "Text",
+                        category = "CUSTOMIZE" },
+                },
                 composition = {
                     mode = "COMPOSITE",
                     type = "REGULAR",
-                    movementOwner = visible[1],
+                    editorLabel = "Dungeons & Raids Cards",
+                    memberEditorLabels = {
+                        SIDE_TAB = "Dungeons & Raids Cards",
+                        ICON = "Dungeons & Raids Cards Icons",
+                        TEXT = "Dungeons & Raids Cards Text",
+                    },
+                    editorOptionLabels = {
+                        ["shared.sideTabAppearance"] = "Surface",
+                        ["shared.iconAppearance"] = "Icon",
+                        ["shared.textAppearance"] = "Text",
+                    },
+                    primaryEditorOptionID = "shared.sideTabAppearance",
                     members = (function()
                         local members = {}
-                        for index, entry in ipairs(definitions) do
+                        for _, entry in ipairs(definitions) do
                             local id, label, button =
                                 entry[1], entry[2], entry[3]
                             if button then
                                 members[#members + 1] = {
-                                    id = id,
+                                    id = id .. ".Surface",
                                     kind = "SIDE_TAB",
-                                    role = index == 1
-                                        and "PRIMARY" or "SECONDARY",
-                                    label = label,
+                                    role = "PRIMARY",
+                                    label = label .. " card",
                                     target = button,
                                     appearanceWindowID = IDs.Scope,
-                                    appearanceID = IDs.Navigation.Group,
+                                    appearanceID = id .. ".Surface",
+                                    appearanceParentID = IDs.Navigation.Group,
+                                    editorSurface = true,
+                                }
+                            end
+                            if button and button.icon then
+                                members[#members + 1] = {
+                                    id = id .. ".Icon",
+                                    kind = "ICON",
+                                    role = "SECONDARY",
+                                    label = label .. " icon",
+                                    target = button.icon,
+                                    appearanceWindowID = IDs.Scope,
+                                    appearanceID = id .. ".Icon",
+                                    appearanceParentID = IDs.Navigation.Group,
+                                }
+                            end
+                            if button and button.name then
+                                members[#members + 1] = {
+                                    id = id .. ".Text",
+                                    kind = "TEXT",
+                                    role = "SECONDARY",
+                                    label = label .. " text",
+                                    target = button.name,
+                                    appearanceWindowID = IDs.Scope,
+                                    appearanceID = id .. ".Text",
+                                    appearanceParentID = IDs.Navigation.Group,
                                 }
                             end
                         end
@@ -1882,6 +1948,7 @@ function PVESkin:ApplyBottomTabs()
                             role = "PRIMARY",
                             label = "Dungeons & Raids",
                             target = tabs[1],
+                            appearanceID = IDs.BottomTabs,
                         },
                         {
                             id = IDs.BottomTabPlayerVsPlayer,
@@ -1889,6 +1956,7 @@ function PVESkin:ApplyBottomTabs()
                             role = "SECONDARY",
                             label = "Player vs. Player",
                             target = tabs[2],
+                            appearanceID = IDs.BottomTabs,
                         },
                         {
                             id = IDs.BottomTabMythicPlus,
@@ -1896,6 +1964,7 @@ function PVESkin:ApplyBottomTabs()
                             role = "SECONDARY",
                             label = "Mythic+",
                             target = tabs[3],
+                            appearanceID = IDs.BottomTabs,
                         },
                     },
                 }) ~= nil

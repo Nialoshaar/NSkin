@@ -1025,7 +1025,8 @@ CreateColor = function(view, control, y, layout)
             or (control.allowDefault and current
                 and type(current.defaultColor) == "table")
         then
-            table.insert(modes, 1, { value = "DEFAULT", label = "Default" })
+            table.insert(modes, 1, {
+                value = "DEFAULT", label = "Blizzard Default" })
         end
         for i = 1, #modes do
             local mode = modes[i]
@@ -1070,8 +1071,9 @@ local function RefreshColorControl(view, control, values)
     local dropdown = view.colorByKey[control.key]
     local modeKey = view.colorModeByKey[control.key]
     local mode = modeKey and values[modeKey] or "CUSTOM"
-    local labels = { DEFAULT = "Default", QUALITY = "Item Quality",
-        CLASS = "Class", ACCENT = "Accent", CUSTOM = "Custom" }
+    local labels = { DEFAULT = "Blizzard Default",
+        QUALITY = "Item Quality", CLASS = "Class",
+        ACCENT = "Accent", CUSTOM = "Custom" }
     FillColorDropdown(dropdown, ResolveColorModeFill(values, control, mode))
     dropdown:SetDefaultText(labels[mode] or "Custom")
     if dropdown.GenerateMenu then dropdown:GenerateMenu() end
@@ -1435,6 +1437,140 @@ end
 
 function NSkin:GetOptionGroupDefinition(id)
     return optionGroups[id]
+end
+
+
+local function CopyOverrideControl(control)
+    if type(control) ~= "table" then return nil end
+    local copy = {}
+    for key, value in pairs(control) do
+        copy[key] = type(value) == "table" and CopyTable(value) or value
+    end
+    return copy
+end
+
+local function AddOverrideProperty(properties, control, forcedType)
+    if type(control) ~= "table" then return end
+    local controlType = control.type or forcedType
+
+    if controlType == "SECTION" or controlType == "RESET" then return end
+    if controlType == "TYPOGRAPHY" then
+        if control.fontKey then
+            properties[#properties + 1] = {
+                key = control.fontKey,
+                label = control.fontLabel or "Font",
+                control = {
+                    type = "DROPDOWN", key = control.fontKey,
+                    label = control.fontLabel or "Font",
+                    values = control.fontValues,
+                },
+            }
+        end
+        if control.sizeKey then
+            properties[#properties + 1] = {
+                key = control.sizeKey,
+                label = control.sizeLabel or "Size",
+                control = {
+                    type = "SLIDER", key = control.sizeKey,
+                    label = control.sizeLabel or "Size",
+                    min = control.sizeMin, max = control.sizeMax,
+                    step = control.sizeStep or 1,
+                    decimals = control.sizeDecimals or 0,
+                    suffix = control.sizeSuffix or " px",
+                },
+            }
+        end
+        if control.outlineKey then
+            properties[#properties + 1] = {
+                key = control.outlineKey,
+                label = control.outlineLabel or "Outline",
+                control = {
+                    type = "DROPDOWN", key = control.outlineKey,
+                    label = control.outlineLabel or "Outline",
+                    values = control.outlineValues,
+                },
+            }
+        end
+        if control.color then
+            local color = CopyOverrideControl(control.color)
+            if color and color.key then
+                properties[#properties + 1] = {
+                    key = color.key,
+                    label = color.label or "Color",
+                    control = color,
+                }
+            end
+        end
+        return
+    end
+
+    local pairTypes = {
+        SLIDER_PAIR = "SLIDER",
+        COLOR_PAIR = "COLOR",
+        DROPDOWN_PAIR = "DROPDOWN",
+        MIXED_PAIR = nil,
+    }
+    if control.left or control.right then
+        local childType = pairTypes[controlType]
+        AddOverrideProperty(properties, control.left, childType)
+        AddOverrideProperty(properties, control.right, childType)
+        return
+    end
+
+    if type(control.key) ~= "string" or control.key == "" then return end
+    local copy = CopyOverrideControl(control)
+    copy.type = copy.type or forcedType
+    properties[#properties + 1] = {
+        key = control.key,
+        label = control.label or control.key,
+        control = copy,
+    }
+end
+
+function NSkin:GetOptionGroupOverrideProperties(id)
+    local definition = optionGroups[id]
+    if not definition then return {} end
+    local properties = {}
+    for _, ordered in ipairs(definition.orderedControls or {}) do
+        AddOverrideProperty(properties, ordered.definition)
+    end
+    table.sort(properties, function(left, right)
+        return tostring(left.label) < tostring(right.label)
+    end)
+    return properties
+end
+
+local function SanitizeOverrideID(value)
+    return tostring(value or ""):gsub("[^%w_%-]", "_")
+end
+
+function NSkin:EnsureOptionGroupPropertySubset(
+    sourceID, memberID, propertyKey, rowLabel)
+    local source = optionGroups[sourceID]
+    if not source then return nil end
+    local selected
+    for _, property in ipairs(self:GetOptionGroupOverrideProperties(sourceID)) do
+        if property.key == propertyKey then
+            selected = property
+            break
+        end
+    end
+    if not selected then return nil end
+
+    local subsetID = "composition.override."
+        .. SanitizeOverrideID(sourceID) .. "."
+        .. SanitizeOverrideID(memberID) .. "."
+        .. SanitizeOverrideID(propertyKey)
+    if optionGroups[subsetID] then return subsetID end
+
+    local control = CopyOverrideControl(selected.control)
+    control.label = ""
+    if not self:RegisterOptionGroupSubset(
+        subsetID, sourceID, { control })
+    then
+        return optionGroups[subsetID] and subsetID or nil
+    end
+    return subsetID
 end
 
 -- Reusable horizontal navigation over canonical option-group views.
@@ -2193,6 +2329,70 @@ local function ResetSharedPlacementSubset(context, keys)
     return context.setPlacement(context,
         NSkin:NormalizeSharedPlacementValues(context, values))
 end
+
+NSkin:RegisterOptionGroup("composition.memberOverride", {
+    controls = {
+        { type = "CHECKBOX", key = "specific",
+            label = "Override this element", order = 1 },
+    },
+    get = function(context)
+        local owner = context and context.compositeOwner
+        local member = context and context.compositeMember
+        return {
+            specific = owner and member
+                and NSkin:IsCompositeMemberSpecificOverrideEnabled(
+                    owner, member) or false,
+        }
+    end,
+    set = function(context, values)
+        local owner = context and context.compositeOwner
+        local member = context and context.compositeMember
+        if not owner or not member or values.specific == nil then
+            return false
+        end
+        return NSkin:SetCompositeMemberSpecificOverride(
+            owner, member, values.specific)
+    end,
+    reset = function(context)
+        local owner = context and context.compositeOwner
+        local member = context and context.compositeMember
+        return owner and member
+            and NSkin:SetCompositeMemberSpecificOverride(
+                owner, member, false)
+            or false
+    end,
+})
+
+NSkin:RegisterOptionGroup("composition.memberAttachment", {
+    controls = {
+        { type = "CHECKBOX", key = "attached",
+            label = "Attached to composite", order = 1 },
+    },
+    get = function(context)
+        local owner = context and context.compositeOwner
+        local member = context and context.compositeMember
+        return {
+            attached = owner and member
+                and NSkin:IsCompositeMemberAttached(owner, member) or false,
+        }
+    end,
+    set = function(context, values)
+        local owner = context and context.compositeOwner
+        local member = context and context.compositeMember
+        if not owner or not member or values.attached == nil then
+            return false
+        end
+        return NSkin:SetCompositeMemberAttached(
+            owner, member, values.attached)
+    end,
+    reset = function(context)
+        local owner = context and context.compositeOwner
+        local member = context and context.compositeMember
+        return owner and member
+            and NSkin:SetCompositeMemberAttached(owner, member, true)
+            or false
+    end,
+})
 
 NSkin:RegisterOptionGroup("shared.movable", {
     controls = NSkin:CreateSharedPlacementControls(),

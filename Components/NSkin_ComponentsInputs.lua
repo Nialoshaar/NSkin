@@ -4,6 +4,7 @@ local COMPONENT_STATE = "components"
 local function ShowFlatButtonGlow(button)
     local data = NSkin:GetSkinData(button, COMPONENT_STATE, false)
     if data and data.hoverGlow and not data.hoverGlowManaged
+        and not data.hoverGlowSuppressed
         and (not button.IsEnabled or button:IsEnabled())
     then
         data.hoverGlow:Show()
@@ -47,6 +48,23 @@ function NSkin:CreateFlatButtonGlow(button, alpha, managed)
 
     return glow
 end
+
+function NSkin:SetFlatButtonGlowSuppressed(button, suppressed)
+    if not button then return false end
+    local data = self:GetSkinData(button, COMPONENT_STATE, false)
+    if not data or not data.hoverGlow then return false end
+    data.hoverGlowSuppressed = suppressed == true or nil
+    if data.hoverGlowSuppressed then
+        data.hoverGlow:Hide()
+    elseif button.IsMouseOver and button:IsMouseOver()
+        and not data.hoverGlowManaged
+        and (not button.IsEnabled or button:IsEnabled())
+    then
+        data.hoverGlow:Show()
+    end
+    return true
+end
+
 
 local CENTERED_BUTTON_GLYPHS = {
     close = {
