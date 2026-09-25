@@ -1,10 +1,12 @@
 # NSkin Architecture
 
-This document defines the stable architectural rules for NSkin.
+This document defines the stable architectural rules and target architecture for NSkin.
 
-Codex should read this file before making substantial changes to shared components, Skinning Mode, window adapters, reset behavior, option inheritance, or performance-sensitive refresh paths.
+Codex should read this file before making substantial changes to shared components, Skinning Mode, window adapters, reset behavior, appearance inheritance, composition, or performance-sensitive refresh paths.
 
-Task-specific prompts may add temporary requirements, but they should not silently contradict this document. If a task genuinely requires changing one of these architectural rules, treat that as an architectural refactor and update this file as part of the change.
+Task-specific prompts may add temporary requirements, but they must not silently contradict this document. If a task genuinely changes one of these rules, treat it as an architectural refactor and update this file.
+
+The repository is currently migrating toward this architecture. Existing legacy component/grouping types may remain temporarily while callers are migrated. Their presence in the codebase does not make them part of the target architecture.
 
 ---
 
@@ -12,16 +14,17 @@ Task-specific prompts may add temporary requirements, but they should not silent
 
 NSkin is an advanced standalone skinning addon for Blizzard UI windows.
 
-Its scope is visual skinning and layout of Blizzard windows such as:
+Its scope is visual skinning and editable presentation of Blizzard windows such as:
 
 - Spellbook
 - Collections
 - Adventure Guide
 - Professions
 - Character-related windows
+- Group Finder
 - other Blizzard panels and popups
 
-NSkin is **not** intended to become a general combat UI replacement.
+NSkin is not intended to become a general combat UI replacement.
 
 Do not expand the project into unrelated systems such as:
 
@@ -33,530 +36,686 @@ Do not expand the project into unrelated systems such as:
 
 The addon should remain centered on skinning and editing Blizzard UI presentation.
 
----
-
-# 2. Core Architectural Rule
-
-The central rule is:
-
-> Registration defines what an element is and where it belongs.  
-> Component type defines how it is skinned and what options it exposes.
-
-Window-specific files should describe Blizzard structure and semantic membership.
-
-Shared component files should define reusable visual behavior.
-
-The same shared component should behave consistently everywhere it is registered.
+The default NSkin presentation should preserve Blizzard's layout. Position, size, anchors, visibility, interaction, protected behavior, enabled state, and functional overlays remain Blizzard-owned unless a specific NSkin feature explicitly takes ownership of them.
 
 ---
 
-# 3. Canonical Shared Components
+# 2. Core Architectural Model
 
-Each shared component type should have one canonical implementation for:
+The target architecture separates four questions:
+
+```text
+1. What reusable visual/control type is this?
+   → Atomic Component
+
+2. Which atomic elements permanently form one editable object?
+   → COMPOSITE
+
+3. Which independent editor elements structurally belong to a parent?
+   → CONTAINER
+
+4. Which independent editor elements may optionally be manipulated together?
+   → EDITOR_GROUP
+```
+
+Movement is a separate editor capability. It does not define any of those concepts.
+
+The central long-term rule is:
+
+> Atomic components define reusable appearance and state. Composition defines relationships. Window files register Blizzard UI. Skinning Mode edits those structures.
+
+Do not create a new component type merely because several controls appear together in one Blizzard layout.
+
+---
+
+# 3. Repository Ownership
+
+The target ownership layout is:
+
+```text
+NSkin/
+│
+├─ Components/
+│  ├─ canonical atomic component behavior
+│  ├─ shared visual/state helpers
+│  ├─ shared popup adapters
+│  └─ shared menu/window presentation
+│
+├─ SkinningMode/
+│  ├─ NSkin_SkinningMode.lua
+│  ├─ NSkin_Composition.lua
+│  └─ DockedWindow/
+│     ├─ NSkin_DockedWindow.lua
+│     └─ canonical option presentation files
+│
+├─ Windows/
+│  └─ Blizzard window adapters
+│
+├─ Debug/
+│  └─ Tests/
+│
+├─ NSkin_Menu.lua
+├─ NSkin_Core.lua
+├─ NSkin_Database.lua
+└─ NSkin_Commands.lua
+```
+
+Responsibilities:
+
+```text
+Components/
+= reusable visual/control behavior
+
+SkinningMode/NSkin_Composition.lua
+= structural/editor relationships
+
+SkinningMode/NSkin_SkinningMode.lua
+= selection, hover, highlights, input ownership, movement interaction,
+  modal/occlusion handling
+
+SkinningMode/DockedWindow/
+= inspector UI and canonical option presentation
+
+Windows/
+= explicit knowledge of Blizzard windows, targets, semantic membership,
+  lifecycle providers, and exceptional adapters
+
+NSkin_Menu.lua
+= main addon configuration UI
+
+Debug/Tests/
+= development validation files; not part of normal runtime architecture
+```
+
+The old `Skins/` name is replaced by `Windows/` because these files are Blizzard window adapters, not independent skinning systems.
+
+---
+
+# 4. Atomic Components
+
+An atomic component represents a reusable visual/control contract.
+
+A component type should exist because it has reusable appearance or state behavior, not because of its semantic role in one window.
+
+Target atomic component families include concepts such as:
+
+```text
+TEXT
+ICON
+PROGRESS_BAR
+
+BUTTON
+ACTION_BUTTON
+GLYPH_BUTTON
+ICON_BUTTON
+CHECKBOX
+EDIT_BOX
+DROPDOWN
+SLIDER
+SCROLLBAR
+```
+
+Window-level presentation may continue to use shared window/chrome infrastructure where appropriate.
+
+Each canonical atomic component should have one shared implementation for:
 
 - skin behavior
 - appearance schema
 - docked options
+- original-state ownership
 - reset behavior
 - inheritance behavior
 - common lifecycle handling
 
-Examples include:
+A new option added to a canonical component should normally become available everywhere that component is used without modifying individual window adapters.
 
-```text
-WINDOW
-WINDOW_HEADER
-WINDOW_HEADER_CONTROLS
-TAB_GROUP
-SIDE_TAB
-BUTTON
-GLYPH_BUTTON
-ACTION_BUTTON
-CHECKBOX
-DROPDOWN
-SLIDER
-NAVIGATION_BAR
-EDIT_BOX
-SEARCH_GROUP
-SEARCH_BOX
-PAGINATION_GROUP
-PAGINATION_CHILD
-PROGRESS_BAR
-ICON
-SCROLLBAR
-SECTION_HEADER
-SECTION_CARD
-COLUMN_HEADER
-ROW
-SECTION_ROW
-TEXT
-```
-
-Do not create page-specific copies of shared appearance logic.
-
-For example, there should be one canonical shared `TEXT` appearance/options implementation.
-
-All relevant text instances should reuse it:
-
-```text
-standalone TEXT
-checkbox label TEXT
-icon-associated TEXT
-container child TEXT
-row child TEXT
-generated TEXT
-```
-
-Shared TEXT captures the FontString's native color before its first mutation.
-The shared color control starts in Default mode when that color is available,
-and tracks subsequent Blizzard color changes. Registrations may explicitly
-supply `defaultColor` as a color or callback. Accent, Class, and Custom remain
-explicit overrides. Reset removes the override and returns to the native color.
-
-Likewise, CHECKBOX, ICON, EDIT_BOX, ROW, and other shared types should each have one canonical shared implementation.
-
-`GLYPH_BUTTON` is the canonical shared component for icon-only or procedural-glyph
-buttons such as close, plus/minus, reset, arrow-only, and similar controls. The
-Blizzard Button remains the interaction and geometry owner; the shared component owns
-only presentation such as background, pixel border, hover treatment, and glyph regions.
-Header controls and equivalent glyph buttons in window content should reuse this
-component rather than rebuild button surfaces or glyph geometry locally.
-
-Glyph placement should be derived from the component's resolved visible geometry. When
-a pixel border is present, its rendered edges are the source of truth for visual
-centering. Glyph stroke/detail may use physical-pixel semantics while the Blizzard
-button itself continues to follow native layout and scaling. Shared glyph helpers must
-not replace click behavior, hit rectangles, enabled state, protection, or dimensions.
-
-A new option added to a shared component should normally become available everywhere that component is used without modifying individual window files.
-
-`BUTTON` and `ACTION_BUTTON` are visually related but semantically distinct:
-
-```text
-BUTTON
-= secondary, utility, navigation, cancel, close, or non-commit action
-
-ACTION_BUTTON
-= primary operation/commit action for the current panel or workflow
-```
-
-Examples of `ACTION_BUTTON` include actions such as Create, Craft, Apply, Upgrade,
-Accept, Send, Enter, Place Order, or Train when that control performs the panel's
-primary operation. Do not classify a primary commit action as `BUTTON` merely
-because it currently shares the same visual primitive.
+Do not create page-specific copies of canonical appearance logic.
 
 ---
 
-# 4. Shared Options vs Window Adapters
+# 5. Component Identity vs Editor Identity
 
-Shared component option definitions belong in the shared component-options layer.
+Appearance identity and editor identity are separate.
 
-Window adapters should not reconstruct option panels.
+For example:
+
+```text
+COMPOSITE
+├─ CHECKBOX
+└─ TEXT
+```
+
+The Composite is one editor object, but CHECKBOX and TEXT retain their canonical atomic identities.
+
+This distinction is fundamental:
+
+```text
+editor identity
+≠
+appearance identity
+```
+
+Composite membership must not flatten several atomic components into a bespoke visual component type.
+
+Do not create types such as:
+
+```text
+CHECKBOX_TEXT
+CHECKBOX_LABEL
+ICON_TEXT_ROW
+SEARCH_WITH_DROPDOWN
+```
+
+when normal atomic components plus composition can express the relationship.
+
+---
+
+# 6. STANDALONE
+
+STANDALONE means one atomic component is exposed as one editor element.
+
+Conceptually:
+
+```text
+STANDALONE
+└─ TEXT
+```
+
+Typical behavior:
+
+- one editor identity
+- one canonical atomic appearance identity
+- its own highlight
+- its own safe movement contract when movement is supported
+- canonical options for its component type
+
+STANDALONE is a structural/editor relationship, not a component type.
+
+---
+
+# 7. COMPOSITE
+
+A Composite represents multiple atomic components that permanently form one logical editor object.
+
+Examples:
+
+```text
+checkbox option
+├─ CHECKBOX
+└─ TEXT
+
+dungeon selector
+├─ TEXT
+└─ DROPDOWN
+
+pagination
+├─ GLYPH_BUTTON
+├─ TEXT
+└─ GLYPH_BUTTON
+
+search control
+├─ EDIT_BOX
+└─ DROPDOWN
+```
+
+A Composite provides:
+
+- one editor selection
+- one outer highlight
+- one Shift-drag movement operation
+- combined bounds
+- stable member identities
+- canonical appearance for every member
+- member-local X/Y
+- generic member attach/detach
+- dock aggregation of member options
+
+The Composite itself does not duplicate member appearance schemas.
+
+## 7.1 Composite Types
+
+Every Composite has a type.
+
+The initial/default type is:
+
+```text
+REGULAR
+```
+
+REGULAR should be sufficient for ordinary compositions.
+
+Introduce a specialized Composite type only when a genuinely reusable behavior cannot be expressed through REGULAR plus normal member metadata. Do not use Composite types as semantic names for individual windows.
+
+## 7.2 Composite Member Identity
+
+Each member must retain:
+
+- stable member identity
+- canonical component kind
+- appearance context
+- reset ownership
+- local placement state when NSkin owns it
+
+A member's canonical appearance implementation remains authoritative.
+
+## 7.3 Attached and Detached Members
+
+Generic member state may be:
+
+```text
+ATTACHED
+→ participates in Composite movement
+→ represented as a Composite member/sub-highlight
+→ not independently dragged as a separate editor object
+
+DETACHED
+→ no longer follows Composite-level movement
+→ receives a valid independent placement contract
+→ may become independently selectable
+```
+
+Detach must not blindly destroy Blizzard anchors. It changes participation in Composite placement/movement while preserving a safe independent placement contract.
+
+## 7.4 Composite Skinning Mode Behavior
+
+Target behavior:
+
+```text
+hover Composite
+→ one outer highlight
+
+select Composite
+→ outer highlight
+→ member sub-highlights
+
+focus member in dock
+→ stronger member sub-highlight
+
+normal click on attached member
+→ select Composite
+
+Shift-drag
+→ move Composite as a whole
+
+member X/Y
+→ edit member-local placement
+```
+
+Direct Shift-drag of attached members is not required. Member-local placement is initially controlled through the dock.
+
+---
+
+# 8. CONTAINER
+
+A Container is a true structural parent whose children remain independently registered and independently editable.
+
+Example:
+
+```text
+CONTAINER
+├─ TEXT
+├─ ICON
+├─ COMPOSITE
+└─ BUTTON
+```
+
+A Container is appropriate when the parent-child relationship is real and useful independently of movement.
+
+Container children retain:
+
+- their own canonical IDs
+- their own editor identities
+- their own atomic/Composite structure
+- their own canonical options
+- their own reset ownership
+
+A Container does not flatten children into one component or one Composite.
+
+Do not use Container merely because several controls should move together.
+
+If several atomic members permanently form one editor object, use COMPOSITE.
+
+If several independent editor objects should optionally be manipulated together, use EDITOR_GROUP.
+
+Selection policy remains separate from the definition of Container. Skinning Mode may later change how parent/child selection is exposed without changing registrations or identities.
+
+---
+
+# 9. EDITOR_GROUP
+
+EDITOR_GROUP is an optional virtual editor relationship over complete, independently editable elements.
+
+Example:
+
+```text
+Navigation Entry A ─┐
+Navigation Entry B ─┼─ EDITOR_GROUP: Left Navigation
+Navigation Entry C ─┘
+```
+
+The members remain independently editable.
+
+The Editor Group may provide:
+
+- collective selection
+- combined highlight/envelope
+- collective movement
+- a group label in Skinning Mode
+
+The distinction is:
+
+```text
+COMPOSITE
+A + B + C → one editor object
+
+EDITOR_GROUP
+A, B, C remain independent
++ optional GROUP(A, B, C)
+```
+
+EDITOR_GROUP should be used sparingly.
+
+The current Anchor Group implementation is transitional architecture. During the refactor, its valid editor-only behavior should migrate toward EDITOR_GROUP rather than making Anchor Group a permanent independent architectural concept.
+
+Appearance sharing must not be inherently coupled to Editor Group. If shared appearance across otherwise independent elements is needed, it should use a separate appearance relationship such as `appearanceGroupID` rather than redefining Editor Group.
+
+---
+
+# 10. Movement Is a Separate Capability
+
+Movement is not a structural mode.
+
+Do not define STANDALONE, COMPOSITE, CONTAINER, or EDITOR_GROUP by whether something moves.
+
+Skinning Mode movement activation remains:
+
+```text
+normal click
+→ selection
+
+normal drag
+→ selection-safe; no geometry mutation
+
+Shift + drag
+→ activate movement for the selected editor object
+```
+
+Movement requires a safe placement contract.
+
+Preserve Blizzard anchor relationships whenever they already express the desired relationship. Do not recreate Blizzard layout with guessed offsets.
+
+When NSkin takes ownership of placement:
+
+- capture Blizzard state before first mutation
+- mutate only the required anchors/offsets
+- keep ownership explicit
+- reset to the captured Blizzard baseline
+- never accumulate offsets from an already NSkin-modified baseline
+
+Movement availability and movement ownership must remain independent from selection policy.
+
+---
+
+# 11. Surface Capability
+
+Surface is an optional appearance capability.
+
+It is not:
+
+- an atomic component type
+- a composition mode
+- a Container
+- an Editor Group
+- an editor identity by itself
+
+Surface answers:
+
+> What visual decoration surrounds or backs this owning element?
+
+A Surface may provide shared behavior such as:
+
+```text
+Surface
+├─ Background
+│  ├─ Default / None / Color / Texture
+│  ├─ color
+│  ├─ opacity
+│  ├─ texture / atlas / file
+│  └─ optional crop/tiling where supported
+│
+├─ Border
+│  ├─ mode
+│  ├─ color
+│  └─ size
+│
+└─ Padding
+```
+
+Surface may either skin an explicitly declared existing Blizzard visual surface or create NSkin-owned non-interactive decoration around the owner's bounds.
+
+Surface must not own:
+
+- selection
+- movement
+- children
+- member anchors
+- editor grouping
+- semantic identity
+
+NSkin-created Surface regions must not steal Blizzard clicks, tooltips, or hit regions.
+
+## 11.1 Surface Eligibility and Defaults
+
+Surface capability and Surface-default inheritance are separate policies.
+
+Initial use is intended primarily for eligible standalone atomic elements.
+
+For example:
+
+```text
+STANDALONE + TEXT
+→ may expose Surface
+
+global "standalone TEXT Surface" defaults
+→ apply only to eligible standalone TEXT elements
+```
+
+A TEXT member inside a Composite still receives normal TEXT appearance defaults, but must not automatically receive standalone-TEXT Surface defaults.
+
+The capability must remain generic enough that future architecture can allow:
+
+```text
+COMPOSITE + Surface
+CONTAINER + Surface
+WINDOW + Surface
+```
+
+where that makes sense, without causing those owners to inherit standalone-component Surface defaults.
+
+---
+
+# 12. Appearance Inheritance
+
+Canonical component appearance resolves through the established hierarchy:
+
+```text
+NSkin defaults
+→ global canonical component type
+→ window/scope override
+→ individual appearance identity override
+```
+
+Lower-level overrides should remain sparse.
+
+Composition does not create a hidden appearance tier.
+
+Composite members resolve appearance through their canonical component identities.
+
+Surface defaults use their own eligibility/inheritance policy as described above; they must not blur structural relationships with appearance inheritance.
+
+Editor grouping and appearance grouping are separate concerns.
+
+---
+
+# 13. Shared Options and Configuration UI
+
+Canonical option definitions belong with shared component/capability infrastructure, not in individual window adapters.
+
+The Docked Window should consume canonical option definitions rather than reconstruct reduced copies.
+
+Conceptually:
+
+```text
+STANDALONE
+→ canonical component options
+→ eligible capabilities such as Surface
+
+COMPOSITE
+→ Composite structural options
+→ canonical member option groups
+
+CONTAINER
+→ parent structural controls where relevant
+→ independently addressable child options
+
+EDITOR_GROUP
+→ editor-group controls
+→ member appearance remains independently canonical
+```
+
+The future main addon menu should reuse the same canonical schemas/contracts wherever possible.
+
+Do not create one TEXT configuration implementation for Skinning Mode and another unrelated TEXT implementation for `/nskin`.
+
+`NSkin_Menu.lua` is the root main-menu implementation.
+
+`Options/NSkin_WindowsOptions.lua` remains transitional. Generic component/capability options should migrate to their canonical owners; genuinely window-specific options should remain owned by the relevant window/module architecture.
+
+---
+
+# 14. Window Adapters
+
+Files under `Windows/` describe Blizzard UI structure and semantic knowledge.
 
 A window adapter may provide:
 
 - canonical ID
-- target frame/region
+- Blizzard target frame/region
 - window/scope ID
 - semantic label
+- atomic component kind
+- composition membership
+- Container membership
+- Editor Group membership
 - lifecycle provider
 - exceptional Blizzard-state mapping
-- composition membership
-- container membership
 - audited native decoration regions
 - specific reset/lifecycle metadata when genuinely necessary
 
 A window adapter should not normally provide:
 
-- duplicated text controls
-- duplicated icon controls
-- custom checkbox option schemas
-- custom generic hit-testing logic
-- custom generic editor-tab construction
-- custom generic bounds aggregation
+- duplicated TEXT/ICON/etc. appearance logic
+- duplicated canonical option schemas
+- generic Composite behavior
+- generic Container behavior
+- generic Editor Group behavior
+- generic Skinning Mode hit-testing
+- generic bounds aggregation
+- generic Surface implementation
 
-If multiple windows need the same visual/editor behavior, move it into the shared component/composition layer.
+If several windows need the same visual/editor behavior, move it into shared infrastructure.
 
-A window adapter may compose or adapt shared component appearance behavior for
-a Blizzard control whose state or geometry does not fit a canonical component
-contract. Such a specialized adapter must preserve Blizzard semantics and
-should not weaken or broaden a generic shared component contract merely to
-support one exceptional control.
+Window-specific exceptional adapters are allowed when a Blizzard control genuinely does not fit a canonical contract, but they must not weaken a shared contract merely to accommodate one exceptional control.
 
 ---
 
-# 5. Appearance Inheritance
+# 15. Explicit Registration and Runtime Families
 
-Appearance should resolve through the established hierarchy:
+Prefer explicit declarative registration for static Blizzard controls.
+
+Do not optimize toward zero explicit registrations.
+
+Stable canonical identity is more important than minimizing registration declarations.
+
+Use targeted lifecycle providers for generated/pooled controls.
+
+A shared family helper is appropriate when Blizzard exposes a known repeated family through a stable template, array, provider, or equivalent semantic collection.
+
+Identity rules:
 
 ```text
-NSkin defaults
-→ global shared component type
-→ window/scope override
-→ individual element override
+persistent semantic members
+→ may generate stable individual canonical registrations
+
+interchangeable pooled/recycled frames
+→ physical frame identity is not canonical identity
+→ one logical registration may represent multiple runtime targets
 ```
 
-Lower-level overrides should remain sparse.
-
-Do not create another hidden appearance tier for compositions or containers.
-
-A composition may group components for editing, but it does not own a separate appearance schema.
+Do not use broad runtime discovery as a substitute for understanding Blizzard structure.
 
 ---
 
-# 6. Composition Is Separate From Components
+# 16. Generated and Pooled Controls
 
-NSkin distinguishes visual components from logical composition.
+Pooled controls may be reused for different semantic content.
 
-```text
-Component
-= visual behavior and canonical options
+On the relevant acquire/init/update lifecycle:
 
-Composition
-= structural relationship between components
+- re-resolve active presentation targets
+- re-resolve audited decoration
+- re-resolve semantic state/membership
+- apply canonical shared behavior
+- refresh only the relevant element/family
 
-Window adapter
-= declares semantic grouping when that knowledge is window-specific
-```
+Do not use:
 
-Do not create new visual component types merely because multiple canonical components appear together.
+- `OnUpdate`
+- polling
+- delayed timers
+- broad full-window reapply
 
-Examples:
+when an exact Blizzard lifecycle hook exists.
 
-```text
-CHECKBOX + TEXT
-→ composition of CHECKBOX and TEXT
+A missing ScrollBox view means "not ready yet", not an error. Use readiness-aware enumeration and refresh through the real lifecycle.
 
-ICON + TEXT
-→ composition of ICON and TEXT
-
-Crafting Details
-→ semantic container declared by Professions
-```
-
-A composition should reuse canonical shared component options rather than redefine them.
-
-Distinguish a component variation from a composition:
-
-```text
-Component variation
-= the same semantic control with optional internal presentation/children
-
-Composition
-= multiple canonical semantic components combined into one logical editor control
-```
-
-Examples:
-
-```text
-EDIT_BOX with decrement/increment buttons
-→ EDIT_BOX variation
-
-CHECKBOX + TEXT
-→ COMPOSITE
-
-ICON + TEXT
-→ COMPOSITE
-```
-
-Do not promote every control with multiple child regions into a Composite.
+For secure-sensitive or transactional UI, runtime accessibility is authoritative. If a target is forbidden or inaccessible, skip the mutation. Do not attempt to bypass Blizzard protection.
 
 ---
 
-# 7. Structural Editor Modes
+# 17. Stable IDs
 
-The composition/editor architecture uses three structural modes:
+Canonical IDs must remain stable across refactors.
 
-```text
-STANDALONE
-COMPOSITE
-CONTAINER
-```
+Do not remove an explicit registration if doing so silently changes identity.
 
-These modes describe structure and ownership.
-
-They must remain separate from any future Skinning Mode input policy.
-
-Do not infer structural mode from arbitrary child count.
-
----
-
-## 7.1 STANDALONE
-
-A Standalone element is one independently edited component.
-
-Typical behavior:
+If registration strategy changes, preserve identity through:
 
 ```text
-selection = element
-highlight = element bounds
-movement = element's normal movement behavior
-dock = canonical options for that component
-```
-
----
-
-## 7.2 COMPOSITE
-
-A Composite represents several canonical components that together form one logical UI control.
-
-Example:
-
-```text
-checkbox + attached label
-```
-
-Structural behavior:
-
-```text
-one logical Skinning Mode selection
-members are not independently selectable
-one movement owner
-combined visible bounds
-canonical options from member component types
-```
-
-The composition itself must not own duplicated visual options.
-
-Composite members must retain canonical component identity, appearance
-resolution, and reset ownership, but a secondary member does not need to exist
-as an independently selectable Skinning Mode element merely to participate in
-the Composite.
-
-This differs from Container children, which remain independently addressable
-canonical editor elements even when the current selection policy chooses not to
-expose them directly.
-
-For a primary + secondary composite, the dock should normally present:
-
-```text
-primary component options inline
-secondary component options in tabs
-```
-
-Example:
-
-```text
-CHECKBOX + TEXT
-
-primary = CHECKBOX
-secondary = TEXT
-movement owner = checkbox
-```
-
-Dock conceptually:
-
-```text
-Customize
-
-canonical CHECKBOX controls
-
-[Text]
-    canonical TEXT controls
-```
-
-The checkbox+text composition should not create:
-
-```text
-CHECKBOX_TEXT
-CHECKBOX_LABEL
-CHECKBOX_COMBO
-```
-
-as visual component types.
-
-A symbolic composition identifier such as `CHECKBOX_WITH_TEXT` is acceptable only if it clearly belongs to composition metadata rather than the visual component registry.
-
----
-
-## 7.3 CONTAINER
-
-A Container groups semantically distinct child components.
-
-Example:
-
-```text
-Crafting Details
-```
-
-Structural behavior:
-
-```text
-container owns movement
-children remain genuine canonical component registrations
-children retain stable IDs and types
-children retain canonical options
-children are not independently movable
-parent and child bounds remain addressable
-```
-
-The Container does not flatten its children into one visual component.
-
-Children remain real components such as:
-
-```text
-TEXT
-ICON
-CHECKBOX
-PROGRESS_BAR
-ROW
-EDIT_BOX
-...
-```
-
-A Container may also contain a deliberately specialized window adapter when a
-Blizzard control does not fit an existing canonical shared component contract.
-
-The semantic membership of a Container belongs in the relevant window adapter.
-
-The generic behavior of Containers belongs in the shared composition/editor layer.
-
-`CONTAINER` may declare `movementStrategy = "OFFSET_ROOTS"` and a `roots`
-provider when one semantic group has several independent Blizzard-owned roots.
-`RegisterOffsetContainer` in ComponentsComposition creates its non-interactive
-movement owner and uses the normal movable registration, saved placement, and
-editor APIs. There is no second layout registry. Roots retain their native
-parents and relative anchors; only a common translation is applied to their
-native anchor offsets. The provider must name independent roots, not both an
-anchored child and its moving ancestor. Children remain non-movable components.
-
-The combined root bounds determine the movement owner's bounds. Adapters call
-`ObserveOffsetContainerLayout` only after an authoritative native positioning
-method, and `ReleaseOffsetContainerRoot` before a provider recycles a root.
-Offsets are applied to those native points, never accumulated on NSkin points.
-Movement and reset are blocked during combat. Native anchor updates for a
-single movable owner can use `ObserveMovableElementNativePoints` with explicitly
-identified, freshly authored native points; never pass a skin-modified snapshot.
-
----
-
-# 8. Selection Policy Must Remain Replaceable
-
-`STANDALONE`, `COMPOSITE`, and `CONTAINER` describe structural relationships.
-
-They must not encode a specific future interaction model such as:
-
-- modifier-key child selection
-- drill-down selection
-- double-click selection
-- hierarchy browser selection
-
-For a Container, preserve enough metadata for the Skinning Mode resolver to address either:
-
-```text
-container
+natural ID continuity
 or
-child
+explicit semantic mapping/aliasing
 ```
 
-without changing component registrations or ownership later.
+Composite member IDs must also remain stable.
 
-The current development/debug selection policy may allow direct child selection because it is useful for validating child options and registrations.
-
-That policy is not part of the definition of `CONTAINER`.
-
-No component implementation or window adapter should assume that direct child
-selection is permanent. Selection-policy decisions belong in Skinning Mode's
-selection resolver.
-
-Future Skinning Mode UX should be able to change selection policy without altering:
-
-- canonical IDs
-- shared component registrations
-- composition membership
-- appearance ownership
-- movement ownership
-- reset ownership
+A physical recycled frame or viewport position must not become a persistent canonical ID unless that position is genuinely the semantic object being customized.
 
 ---
 
-# 9. Movement Ownership
+# 18. Reset and Original-State Ownership
 
-Movement and selection are separate concepts.
-
-For a Composite:
-
-```text
-one explicit movement owner
-all composite members follow through existing hierarchy/anchors
-```
-
-The declared `composition.movementOwner` is authoritative for baseline
-capture, placement, reset, and Skinning Mode dragging. The element target
-remains its registration and appearance target when it differs from the
-movement owner.
-
-Example:
-
-```text
-checkbox + label
-movement owner = checkbox
-label follows Blizzard's existing anchor
-```
-
-Do not create independent movement state for a child merely because it has its own appearance component.
-
-For a Container:
-
-```text
-container = movable
-children = non-movable
-```
-
-A child may remain selectable for debugging/editor purposes while still having no movement controls.
-
-Movement suppression for Container children is an editor/composition-context rule, not a new subtype of the child component.
-
----
-
-# 10. Anchoring Philosophy
-
-Preserve Blizzard's existing anchor relationships whenever they already express the desired logical relationship.
-
-The default NSkin presentation should preserve Blizzard's resolved geometry:
-positions, sizes, relative anchors, and layout relationships remain Blizzard-owned
-unless a specific NSkin layout option explicitly takes ownership of them.
-
-Do not reproduce Blizzard placement with guessed or compensating offsets when the
-original Blizzard anchors can simply be left intact. Replacing chrome, borders, or
-background artwork is not by itself a reason to move Blizzard-owned content.
-
-Do not build or apply custom anchors unnecessarily.
-
-For example, Blizzard's standard checkbox template anchors its label to the checkbox. NSkin should preserve that relationship rather than introduce a new general anchor graph merely to group them.
-
-When NSkin changes spacing or geometry:
-
-- capture original Blizzard state before the first mutation
-- mutate only what NSkin needs
-- restore the exact original state on reset
-
-Advanced anchor editing can be added later if needed.
-
-Do not prematurely introduce:
-
-- arbitrary anchor-target selection
-- percentage positioning
-- generalized constraint solvers
-- complex anchor graphs
-
----
-
-# 11. Reset and Original-State Ownership
-
-Original Blizzard state must be captured before NSkin mutates a property.
+Original Blizzard state must be captured before NSkin's first mutation of that property.
 
 Use first-write capture.
 
 Never recapture an NSkin-modified value as the Blizzard baseline.
 
-Reset should restore only properties NSkin owns.
+Reset only properties NSkin owns.
 
 Apply, refresh, and reset paths must be idempotent.
 
 Prefer property-level ownership over broad state snapshots.
-
-A reset should not revert unrelated Blizzard state or state owned by another shared component.
 
 Examples:
 
@@ -567,419 +726,239 @@ TEXT reset
 ICON reset
 → ICON-owned properties only
 
-container movement reset
-→ container movement only
+Surface reset
+→ Surface-owned decoration only
 
-composite reset
+Composite movement reset
+→ Composite-owned placement only
 → must not duplicate-reset member appearance
 ```
 
+When multiple shared systems touch one Blizzard object, their ownership boundaries must remain explicit.
+
 ---
 
-# 12. Stable Canonical IDs
+# 19. Anchoring Philosophy
 
-Canonical IDs must remain stable across refactors.
+Preserve Blizzard's existing anchor relationships whenever they already express the desired logical relationship.
 
-Do not remove an explicit registration if doing so silently changes the canonical ID.
+The default NSkin presentation should preserve Blizzard's resolved geometry:
 
-If registration strategy changes, preserve identity through either:
+- positions
+- sizes
+- relative anchors
+- layout relationships
+
+Replacing artwork, backgrounds, or borders is not by itself a reason to move Blizzard-owned content.
+
+Do not prematurely introduce:
+
+- arbitrary anchor-target selection
+- percentage positioning
+- generalized constraint solvers
+- broad custom anchor graphs
+
+When NSkin changes geometry, capture the original Blizzard state before mutation and restore exactly the properties NSkin owns.
+
+---
+
+# 20. Canonical Component Contracts
+
+Detailed component behavior belongs in the relevant canonical component implementation, but several project-wide invariants apply.
+
+## 20.1 TEXT
+
+TEXT remains one canonical appearance contract wherever it is used.
+
+Examples:
 
 ```text
-natural ID continuity
-or
-explicit semantic mapping/aliasing
+standalone TEXT
+Composite member TEXT
+Container child TEXT
+generated TEXT
 ```
 
-Do not optimize toward zero explicit registrations.
+Semantic context may give same-type TEXT members separate stable appearance identities when users need to customize them independently.
 
-Stable identity is more important than minimizing registration declarations.
+## 20.2 ICON
 
----
+ICON separates logical interaction target from presentation texture.
 
-# 13. Explicit Registration Over Broad Discovery
+General invariants:
 
-Prefer explicit declarative registration for static controls.
-
-Use targeted lifecycle providers/hooks for pooled or generated controls.
-
-Avoid broad runtime discovery unless there is a strong architectural reason.
-
-Discovery must not become a substitute for understanding Blizzard structure.
-
-When Blizzard itself exposes a known repeated family through a stable template,
-parent array, explicit provider, or equivalent semantic collection, a window
-adapter may use one family helper to remove registration boilerplate.
-
-A family helper does not determine logical identity by itself:
-
-```text
-persistent semantic members
-→ one family helper may generate many stable canonical registrations
-
-interchangeable pooled/recycled instances
-→ one logical canonical registration may represent many runtime targets
-```
-
-Do not collapse persistent controls into one editor element merely because they
-share a Blizzard template. Conversely, do not create persistent canonical IDs for
-recycled frames merely because several physical frame instances exist.
-
-For generated/pooled controls:
-
-- enumerate the relevant active pool/provider
-- use stable semantic IDs/slot logic
-- refresh at the real lifecycle point
-- do not use timers to compensate for missing lifecycle understanding
-
----
-
-# 14. Generated and Pooled Controls
-
-Pooled controls may be reused for different semantic content.
-
-Do not assume a frame's previous state remains valid after reuse.
-
-On relevant acquire/init/update lifecycle:
-
-- re-resolve active visual regions
-- re-resolve decorations
-- re-resolve membership/state
-- apply the canonical shared component behavior
-- refresh only the relevant group/element
-
-Do not use:
-
-- `OnUpdate`
-- polling
-- delayed timers
-- broad full-window re-apply
-
-when an exact lifecycle hook exists.
-
-A single logical editor registration may represent multiple equivalent runtime
-instances of the same canonical component contract when those runtime instances
-are interchangeable carriers of the same semantic element.
-
-Typical examples include recycled ScrollBox rows or generated homogeneous entries:
-
-```text
-Loot item rows
-Trainer rows
-Death Recap rows
-Mailbox rows
-→ one logical registration per semantic row family
-→ multiple active/recycled runtime targets
-```
-
-Do not assign canonical identity to the physical recycled frame or to a viewport
-position such as `Row3` unless that position itself is genuinely the semantic
-control being customized.
-
-This differs from stable repeated controls such as fixed equipment slots. When
-Blizzard exposes persistent semantic members through a stable array/template
-family and NSkin intends them to be independently movable/customizable, a family
-helper should generate stable individual canonical IDs for those members.
-
-Grouped multiplicity is not a new visual component type and is not automatically
-a `CONTAINER`.
-
----
-
-# 15. ScrollBox Safety
-
-Blizzard ScrollBoxes may exist before their View is ready.
-
-A missing view means "not ready yet", not an error.
-
-Do not blindly call raw enumeration methods when `GetView()` may be nil.
-
-Use the shared readiness-aware ScrollBox enumeration helper.
-
-Refresh later through the real Blizzard lifecycle rather than using timers or `pcall` as control flow.
-
----
-
-# 16. ICON Contract
-
-ICON is a canonical shared component.
-
-General rules:
-
-```text
-Button/Frame
-= logical interaction target
-
-Texture
-= presentation target
-
-Border owner
-= may differ from either
-```
-
-ICON may support shared controls such as:
-
-- size
-- crop
-- zoom
-- border
-- shape (`square` by default, plus `circle`, `hexagon`, and `octagon`)
-- quality presentation
-
-Important invariants:
-
-- crop changes sampled texture coordinates without changing the rendered icon
-  dimensions or stretching the artwork
+- crop changes sampled texture coordinates without stretching the rendered icon
 - zoom changes texcoords only
-- changing icon presentation must not resize/move the parent Button unless explicitly intended
-- visual skinning must not replace, cover, or steal mouse input from the Blizzard interaction target
-- if Blizzard uses a Button/Frame hit rect or click script as the interaction owner, preserve that owner rather than duplicating its click behavior on an NSkin surface
-- audited native decoration suppression must be targeted
-- functional Blizzard overlays/state must be preserved
-- direct `SkinIcon()` callers remain supported
-- grouped/generated icon collections still use canonical ICON behavior
-- adapters may declare `defaultShape`; it applies while the owning ICON has no
-  custom shape choice, and does not prevent a later element appearance override
-- icons that use Blizzard sprite-sheet coordinates may opt into
-  `preserveTexCoords` while still using shared ICON geometry and lifecycle
-- `size` is the canonical square dimension; legacy adapter-provided `width`
-  and `height` remain supported for non-square layout contracts
-- square borders use the shared pixel-border primitive; circle keeps an
-  NSkin-owned masked solid backing, while hexagon and octagon use tintable
-  NSkin border assets paired with their dedicated clipping masks. All shapes
-  follow the effective icon geometry and physical-pixel border controls
-- a non-square shape's clipping mask and NSkin border form one lifecycle pair;
-  shape changes deactivate the old pair before configuring the new one
-- native icon masks remain Blizzard-owned. An adapter may opt into suppressing
-  an explicitly named native mask relationship; shared ICON records whether
-  it removed that relationship and restores it on reset. NSkin removes only
-  its own shape mask on reset or a switch back to square
-- texture-backed ICON interaction may use a mouse-disabled presentation
-  overlay while a Blizzard Button retains click and spell-cast ownership
-- textured glow borders are shared NSkin-owned primitives; adapters decide
-  their state and visibility
+- presentation changes must not unexpectedly resize/move the parent interaction target
+- shapes and borders remain shared ICON behavior
+- Blizzard interaction/state ownership is preserved
+- pooled ICON targets must release/reacquire runtime state safely
 
-ComponentsContent contains one canonical `SkinIcon` entry point, with private
-single-presentation rendering and multi-presentation coordination. A logical
-ICON may declare `presentations` containing explicit textures, `nativeMasks`,
-an optional suppressed `nativeMask`, and `presentationMasks`. All presentations
-share the effective style, shape, zoom and primary presentation size. Only the
-primary creates an outer border; secondary textures are not editor identities.
+A special semantic role does not justify a new icon component type if the visual contract is still ICON.
 
-Masked texcoords require `allowMaskedTexCoords`. The private mask helper detaches
-only an entirely known, explicitly declared attached set, applies the crop, and
-immediately reattaches that same set even if the client rejects the operation.
-An unknown or inaccessible attached mask prevents the operation. Declared
-presentation-mask geometry uses first-write baselines and follows effective
-texture geometry; reset restores only NSkin-owned geometry and masks.
+## 20.3 Buttons
 
-Optional `splitDivider`/`splitVisible` and `cornerIndicator`/`cornerVisible`
-request non-interactive texture adornments. The divider uses the primary's
-effective border color and shape clipping. Adapters supply assets and visibility
-semantics. Generic `borderColorProvider` supplies automatic/state colors; explicit
-user color modes still override it. Shared ICON knows no window-specific node
-types, states, or semantics. Provider-owned pooled groups release a runtime child
-through `ReleaseIconGroupChild` before another family acquires it.
-
-Clickable, empty, quality-bearing, disabled, popup-opening, or special-purpose icons should not become bespoke visual types merely because their behavior differs.
-
-Special Blizzard slots such as enchant/salvage remain normal ICONs when their visual contract matches ICON.
-
-SIDE_TAB remains the canonical registration for icon-based navigation tabs.
-Its tab surface owns the background, border, hover, selected, and disabled
-presentation; its icon uses the shared ICON skin internally without a separate
-registration. Side tabs retain Blizzard icon anchors and size unless an ICON
-appearance override explicitly changes them. The tab border is full by default;
-an adapter may declare an `attachmentEdge` to leave that edge open.
-
----
-
-# 17. ROW Contract
-
-Shared column disposition is layout state, not an ICON appearance option. A
-window adapter supplies allowed counts plus getter, setter, and refresh
-callbacks to the shared controller. The controller captures Blizzard's first
-value before changing it, stores only the explicit override, and restores the
-captured value on reset. Existing module option keys may be retained for saved
-profile compatibility.
-
-Repeated `SECTION_HEADERS` instances use the shared header skin for text,
-underline, optional placement offset, and audited native decoration. The
-adapter supplies the pooled targets and their native fields; the shared skin
-captures original text points and decoration state for reset. It maps
-`text`/`textMode` to shared TEXT color handling and may accept a per-registration
-`defaultTextSize` when no custom section-header size is selected.
-
-Search accessories can omit the shared dropdown arrow, background, or border
-without post-skin cleanup. In grouped mode, an unsaved placement restores the
-accessory and primary Blizzard baselines in that order; custom placement
-applies the primary first and then runs the adapter's grouped anchor callback.
-When Blizzard anchors cross two controls that the adapter defines as separate
-movement groups, the adapter may opt into using its declared window-relative
-default placement as the reset baseline. That opt-in replaces the cross-group
-anchor without changing either group's resolved default position; ordinary
-movable elements continue to restore their captured Blizzard anchors.
-
-ROW is used for tabular/data-record rows, often containing several cells or
-fields. It owns row-level visual state such as:
-
-- background
-- border
-- hover
-- selected state
-
-`showBackground = false` leaves ROW's border, hover, selected state, and
-columns active while omitting its flat background.
-`surfaceInset` controls the inset of the owned background and state overlays;
-it defaults to 1, while 0 aligns those surfaces with the row border.
-
-Cells inside a ROW remain canonical components such as:
-
-- TEXT
-- ICON
-
-`SkinRow(row, { columns = { ... } })` may declare several typed columns.
-Each column uses its existing shared component skin and resolves appearance
-through the owning ROW element. The columns are presentation members of that
-ROW, not separate canonical registrations or Skinning Mode elements. Repeated
-applications must restore columns removed from the declaration, including for
-recycled rows. The older `contentRegions` text path remains supported.
-
-The row-level visual surface must not take interaction ownership away from
-Blizzard child controls. If Blizzard intentionally makes a child button's hit
-rectangle cover the row, keep that child as the click/tooltip interaction owner
-and ensure NSkin-owned row surfaces do not intercept mouse input.
-
-Multiple child regions of the same canonical type do not have to share one
-individual appearance namespace when their semantics differ. For example, an
-item-name `TEXT` and a quality-label `TEXT` may use separate logical registrations
-if users need to customize them independently. They still use the same canonical
-shared `TEXT` implementation; do not invent bespoke visual types.
-
-ROW state may need to reassert child text presentation when Blizzard hover/selection logic restores native colors.
-
-That does not make those texts a separate bespoke text type.
-
----
-
-# 18. SECTION_ROW Contract
-
-SECTION_ROW is used for lightweight hierarchical/list entries, usually
-preserving Blizzard indentation and layout. It is borderless by default and
-may own shared background, border, hover, and selected-state presentation.
-
-Its text remains canonical TEXT behavior rather than a separate section-row
-text type. SECTION_ROW may be collapsible or non-collapsible. When supplied,
-an optional collapse/expand control retains Blizzard's logical state and
-callbacks while SECTION_ROW skins only its visual interaction presentation.
-
-Do not use SECTION_ROW for tabular/data-record rows that belong to ROW.
-
----
-
-# 19. SECTION_CARD Contract
-
-SECTION_CARD represents collapsible/category/header-like content rather than generic table rows.
-
-It may own shared:
-
-- background
-- border
-- hover
-- selected/highlight behavior
-
-Do not use SECTION_CARD as a generic substitute for ROW.
-
----
-
-# 20. EDIT_BOX Contract
-
-Spinner-style edit boxes are legitimate component variations.
-
-For example:
+BUTTON and ACTION_BUTTON remain semantically distinct even when they share visual primitives.
 
 ```text
-[-] [value] [+]
+BUTTON
+= secondary, utility, navigation, cancel, close, or non-commit action
+
+ACTION_BUTTON
+= primary operation/commit action for the current panel/workflow
 ```
 
-may still be one logical EDIT_BOX component variation.
+GLYPH_BUTTON is appropriate for icon-only/procedural-glyph button presentation.
 
-This differs from compositions such as checkbox+text, where the members remain distinct canonical component types.
+ICON_BUTTON may be used where an icon-bearing button has a genuinely reusable atomic visual/control contract.
+
+## 20.4 EDIT_BOX Variations
+
+Internal controls that are intrinsic to one semantic EDIT_BOX may remain an EDIT_BOX variation when they do not represent independently meaningful atomic members.
+
+Do not turn every internal Blizzard region into a Composite.
 
 ---
 
-# 21. Popup Architecture
+# 21. Legacy Grouping Types
 
-Reusable popup families belong in shared popup infrastructure when their visual/behavioral structure is genuinely shared.
+The following kinds of shared types are migration candidates rather than target canonical architecture:
 
-A transient search preview with a Blizzard-owned ScrollBox or button pool may
-compose the existing popup surface, ROW, ICON, and TEXT skins. Its adapter
-provides active entries and hooks the list's real update lifecycle; NSkin
-keeps click and selection ownership on Blizzard's result buttons.
+```text
+ROW
+SECTION_ROW
+PAGINATION_GROUP
+PAGINATION_CHILD
+SEARCH_GROUP
+SEARCH_ACCESSORY
+TAB_GROUP
+SIDE_TAB
+NAVIGATION_BAR
+WINDOW_HEADER_CONTROLS
+COLUMN_HEADER
+SECTION_HEADER
+SECTION_CARD
+```
+
+Their current implementations may remain temporarily while the refactor is in progress.
+
+For each legacy type, ask:
+
+> Can this be represented as atomic components plus COMPOSITE or CONTAINER?
+
+If yes, migrate it and remove the grouping-style shared type when no callers remain.
+
+Examples:
+
+```text
+row of several fields
+→ usually REGULAR COMPOSITE of atomic members
+
+pagination
+→ REGULAR COMPOSITE of GLYPH_BUTTON + TEXT + GLYPH_BUTTON
+
+search
+→ REGULAR COMPOSITE of EDIT_BOX + DROPDOWN where appropriate
+
+tab with text/icon
+→ atomic button-like member(s) plus REGULAR COMPOSITE when needed
+
+section/card with independently editable children
+→ CONTAINER, optionally with Surface
+
+card that is one logical editor object
+→ COMPOSITE, optionally with Surface
+```
+
+Do not mechanically rename legacy grouping types into new component types.
+
+---
+
+# 22. Tabs, Navigation, and Breadcrumbs
+
+TAB and SIDE_TAB should not exist merely as grouping concepts.
+
+Text tabs and icon side tabs should reuse atomic button/icon-button behavior plus composition/orientation metadata where needed.
+
+A breadcrumb bar should normally be a Composite of canonical buttons. Introduce a specialized atomic button contract only if the breadcrumb button itself has genuinely reusable visual/state behavior that normal BUTTON cannot express.
+
+Navigation is semantic/layout context, not by itself a canonical visual component family.
+
+This is why `Components/NSkin_ComponentsNavigation.lua` and its dock option counterpart are transitional files. Their useful atomic behavior should migrate to the appropriate canonical owners during later refactor parts.
+
+---
+
+# 23. Popup Architecture
+
+Reusable popup families belong in shared popup adapter infrastructure when their Blizzard structure is genuinely shared.
+
+Keep `Components/NSkin_ComponentsPopup.lua` as shared adapter infrastructure rather than creating a POPUP atomic component for every popup family.
+
+Popup adapters should compose normal canonical components and capabilities.
 
 Do not build one universal giant popup abstraction.
 
-Prefer reusable families with explicit window-specific registration.
+Examples of reusable popup families may include:
 
-Examples may include:
+- icon selection popups
+- equipment flyouts
+- confirmation dialog families
+- color picker families
 
-- icon select popup
-- confirmation dialogs
-- color pickers
-- profession-specific dialog families
+Window-specific semantic registration remains in the relevant window adapter.
 
 ---
 
-# 22. Menu Architecture
+# 24. Menu Architecture
 
-Use generic Blizzard menu styling where Blizzard menu infrastructure is shared.
+Use shared Blizzard menu styling where Blizzard menu infrastructure is shared.
 
 Avoid page-specific menu implementations when the underlying menu behavior is generic.
 
-Window adapters may still provide exceptional menu anchors or state where required.
+Window adapters may still provide exceptional menu anchors/state where genuinely required.
 
 ---
 
-# 23. Window Chrome
+# 25. Window Chrome
 
-Standard window chrome should use shared window/chrome components.
+Standard window chrome should use shared window/chrome infrastructure.
 
-Window backgrounds, headers, borders, and attached chrome controls that visually share
-an edge must resolve from the same physical-pixel geometry. Do not independently anchor
-adjacent owned surfaces to unsnapped Blizzard edges when the corresponding border is
-pixel-snapped; shared edge geometry should be refreshed when effective scale changes so
-fractional coordinates cannot expose seams or double-thickness rows.
+Adjacent NSkin-owned visual edges should resolve from consistent physical-pixel geometry so borders/backgrounds do not expose seams or double-thickness rows at fractional coordinates.
 
-Standard chrome owns conventional inset presentation cleanup. It may suppress
-named inset backgrounds, NineSlice containers, edges, and corners, but must not
-hide the inset frame itself or its functional children.
+Standard chrome may suppress explicitly audited Blizzard decoration but must not recursively hide arbitrary textures or functional children.
 
-Exceptional internal artwork suppression must remain explicit and audited.
+Preserve:
 
-ComponentsWindows owns `ApplyTextureBackground`/`RestoreTextureBackground` for a
-declared native source and optional associated decorative layers. `DEFAULT`
-reveals the current native source; `NONE` suppresses it; `CUSTOM` uses an owned
-texture over the same native area and a WoW-accessible texture path. Invalid
-paths fail closed without discarding the saved path. No OS file access occurs.
-The helper owns replacement visibility only: native atlas/texture, texcoords,
-alpha/animations and anchors remain untouched, so a native source change while
-customized is still the source on reset. First-write visibility capture and
-guarded native visibility hooks distinguish native updates from NSkin writes.
+- interaction
+- functional overlays
+- state indicators
+- protected behavior
+- Blizzard-owned visibility semantics
 
-Do not recursively hide all textures in a window.
-
-Preserve functional Blizzard artwork/state.
+Generic Surface behavior should eventually absorb generic background/border capability where appropriate without turning Window into a structural Container.
 
 ---
 
-# 24. Skinning Mode Principles
+# 26. Skinning Mode
 
-Skinning Mode should operate on semantic editor elements rather than arbitrary frame traversal.
+Skinning Mode operates on semantic editor elements rather than arbitrary frame traversal.
 
-The editor should distinguish:
+It owns:
+
+- hover
+- selection
+- highlights
+- input ownership
+- Shift-drag activation
+- modal/occlusion handling
+- editor interaction policy
+
+It must distinguish:
 
 ```text
-visual component identity
-logical composition
+atomic appearance identity
+editor identity
+composition relationship
 movement ownership
 selection policy
 window/container membership
@@ -988,169 +967,75 @@ input ownership / occlusion
 
 Do not couple these concepts unnecessarily.
 
-Skinning Mode highlight presentation and Skinning Mode input ownership are
-separate surfaces. A highlight may stay in a high, mouse-disabled editor layer
-so Blizzard child frames cannot bury it. Selection/drag input uses a separate
-editor-owned hit target.
+Highlight presentation and input ownership are separate surfaces.
 
-The central interaction rule is:
+An editor element is interactive only when its underlying Blizzard element is the topmost valid UI target at the pointer. Modal UI and unrelated windows must win over Skinning Mode.
 
-> An editor element is interactive only when its underlying Blizzard element
-> is the topmost valid UI target at the pointer.
+Use event/lifecycle-driven invalidation rather than `OnUpdate` polling for occlusion.
 
-The input target may sit above local Blizzard children so the entire semantic
-element remains selectable, but it must propagate mouse motion and expose the
-real focus stack beneath it. `IsSkinningOverlayInteractive` resolves that
-underlying stack and rejects hidden/non-editable elements, points outside the
-active hit target, visible modal StaticPopups, and unrelated UI surfaces above
-the edited window. If the underlying topmost real focus belongs to the same
-edited window, Skinning Mode may consume the click for selection. If another
-window owns the point, click propagation remains enabled so NSkin does not
-steal that interaction.
-
-Multi-region semantic elements may declare `highlightMode = "REGIONS"`.
-Their logical bounds remain the union of all visible regions for movement and
-geometry, but Skinning Mode renders and hit-tests each region independently.
-Hovering any one region highlights every active region belonging to that same
-logical editor element; empty space between disjoint regions is not part of the
-highlight or hit surface. The default remains one union-bounds highlight.
-
-Overlapping elements in the same semantic window may still use the Skinning
-Mode selection resolver to choose the most specific registered element.
-
-Modal interaction always wins over Skinning Mode. StaticPopup lifecycle hooks
-disable Skinning Mode hit targets while a modal popup is shown, rather than
-merely rejecting a click after NSkin has already intercepted it. This rule is
-event/lifecycle-driven; do not add `OnUpdate` polling for occlusion.
-
-Occlusion, selection policy, and movement activation remain separate concerns.
-Normal click/drag interaction selects and inspects without modifying geometry.
-Every editor element is movement-enabled by default when it can expose a safe
-placement contract. Explicit component contracts remain authoritative; semantic
-registrations without one receive a shared relative OFFSET contract lazily when
-movement is first requested. Movement availability is not determined by the
-legacy `draggable` flag. Shift held at drag start unlocks geometry movement.
-Without Shift, dragging remains selection-only. Composition children with their
-relative OFFSET placement contract may be Shift-dragged inside their owning
-composition without acquiring parent/group movement ownership. Shift is reserved
-for movement activation and must not change group-vs-element selection. Any
-future Element/Group selection policy should be a separate persistent editor
-mode and must not weaken the modal/window occlusion rule or move input ownership
-into window adapters.
-
-For Composite elements:
-
-- one selection
-- combined bounds
-- one movement owner
-- canonical member options
-
-For Container elements:
-
-- container owns movement
-- children remain canonical elements
-- children remain non-movable
-- parent/child relationship is preserved
-- selection policy may evolve later
-
-Keep the architecture "docked-window ready" without requiring final UX polish during foundational refactors.
+Selection policy must remain replaceable without changing canonical IDs, composition membership, appearance ownership, movement ownership, or reset ownership.
 
 ---
 
-# 25. Docked Window Principles
+# 27. Docked Window
 
-The docked window should stay compact and understandable.
+The Docked Window is the compact inspector for the selected editor object.
 
-Do not solve architecture problems by duplicating reduced option schemas.
+It should render canonical option groups rather than duplicate schemas.
 
-Instead, reuse canonical component option groups and control their presentation.
-
-General direction:
+Target presentation:
 
 ```text
-Standalone
-→ canonical component options
+STANDALONE
+→ canonical atomic options
+→ eligible capability options
 
-Composite
-→ primary canonical options inline
-→ secondary canonical components in tabs
+COMPOSITE
+→ structural/position controls
+→ primary/member canonical options
+→ member sections/tabs as appropriate
+→ attach/detach
+→ member-local X/Y
 
-Container
-→ container-level controls when parent selected
-→ canonical child controls when child selected
+CONTAINER
+→ parent structural controls
+→ independently addressable children
+
+EDITOR_GROUP
+→ collective editor controls
+→ independent member appearance remains canonical
 ```
 
-The dock renderer should reference existing shared option groups rather than reconstruct controls.
-
-A window adapter or composition should declare component identity and option
-presentation only. The dock should derive the actual controls from the
-canonical shared component-options registry.
-
-A composition may say:
-
-```text
-TEXT shown as secondary tab
-```
-
-but it must not redefine TEXT controls.
+A window adapter may declare identity and presentation metadata, but it must not reconstruct generic dock controls.
 
 ---
 
-# 26. Window-Specific Containers
+# 28. Main Addon Menu
 
-Semantic Containers belong in the window adapter because only that adapter understands the meaning of the Blizzard UI structure.
+`NSkin_Menu.lua` is the main `/nskin` configuration UI.
 
-Example:
+Long-term global settings should consume the same canonical component/capability contracts used by Skinning Mode.
+
+For example, a future TEXT section may expose:
 
 ```text
-Professions
-→ declares which canonical child elements belong to Crafting Details
+TEXT
+├─ font
+├─ size
+├─ color
+├─ outline
+└─ eligible standalone Surface defaults
 ```
 
-The shared composition layer defines what `CONTAINER` means and how its membership behaves.
+The menu must not create a second independent implementation of canonical appearance behavior.
 
-This same pattern should apply to future complex groups in other windows.
+Window/module enablement and genuinely window-specific configuration remain separate from canonical component defaults.
 
 ---
 
-# 27. Shared Intrinsic Compositions
+# 29. Performance Rules
 
-Common intrinsic relationships should not be repeated in every window adapter.
-
-Example:
-
-```text
-CHECKBOX with attached Blizzard FontString
-→ shared checkbox/composition logic may register COMPOSITE
-```
-
-The shared checkbox registration may deterministically resolve known labels using explicit/known fields such as:
-
-```text
-definition.text
-target.Text
-target.text
-```
-
-Shared CHECKBOX skinning keeps Blizzard's hit rectangle intact and centers a
-pixel-snapped visual square (14 by default, configurable with `visualSize`).
-The owned background, border, checked mark, and hover surface follow that
-square; an attached label may anchor to its right edge while its original
-points remain available for reset.
-The checked mark is an independent NSkin texture driven by the Blizzard
-CheckButton's checked state (or an explicit state provider). CHECKBOX suppresses
-native checked/disabled-checked artwork without replacing Blizzard's checked
-texture assignments or changing its interaction owner.
-
-Do not broadly scan arbitrary FontStrings.
-
-This is not generic structural inference: the shared checkbox implementation knows its own intrinsic composition pattern.
-
----
-
-# 28. Performance Rules
-
-Perfy auditing and Optimization Passes 1–4 established the current performance baseline.
+Optimization Passes 1–4 established the current performance baseline.
 
 Do not add speculative optimization passes without a measured user-visible problem.
 
@@ -1163,14 +1048,9 @@ Avoid:
 - `OnUpdate` polling
 - timers
 - debounce layers
-- deferred slider hacks
+- deferred-slider workarounds
 
-unless explicitly required by a demonstrated lifecycle constraint.
-
-Composite member typography and geometry can change several times in one
-frame during a single inspector edit. Their shared bounds notification may
-coalesce those same-frame changes into one deferred notification; this is
-limited to composite bounds and does not reapply a window or poll for changes.
+unless a demonstrated lifecycle constraint requires them.
 
 Prefer:
 
@@ -1186,13 +1066,15 @@ local change
 → refresh entire addon/window
 ```
 
+A narrowly scoped same-frame coalescing mechanism is acceptable only when it addresses a demonstrated local dependency such as Composite bounds and does not become general polling/debounce architecture.
+
 ---
 
-# 29. Lifecycle Rules
+# 30. Blizzard Lifecycle and Safety
 
-Respect Blizzard's own lifecycle.
+Respect Blizzard's lifecycle and ownership.
 
-Do not change:
+Do not change unless explicitly required:
 
 - visibility ownership
 - interaction semantics
@@ -1201,164 +1083,159 @@ Do not change:
 - enabled/disabled state
 - native functional overlays
 
-unless the feature specifically requires it.
-
-A safe-looking shared Blizzard template does not guarantee that every runtime
-instance is writable. For secure-sensitive or transactional UI, runtime
-accessibility is authoritative. If a target or child is forbidden/inaccessible,
-skip the mutation and never attempt to bypass Blizzard protection.
-
-`IsProtected()` alone is not a permanent rejection rule for layout. Where the
-API permits out-of-combat changes, preserve that behavior and use
-`InCombatLockdown()` to guard restricted operations. Forbidden/inaccessible
-targets remain excluded regardless of combat state.
-
-Skinning should remain presentation-focused. NSkin-owned visual surfaces must not
-become accidental mouse blockers or replacement interaction layers unless the
-feature explicitly requires NSkin to own interaction.
+NSkin-created visual regions must not become accidental mouse blockers.
 
 Use targeted hooks rather than replacing Blizzard lifecycle logic.
 
----
-
-# 30. Native Decoration Suppression
-
 Only suppress native Blizzard visual regions that have been explicitly audited as decoration.
 
-Do not hide unknown regions just because they are textures.
+Do not hide unknown regions merely because they are textures.
 
-Preserve functional state regions such as:
+Preserve functional state such as:
 
 - lock states
 - input overlays
-- quality/state indicators where still needed
+- quality/state indicators where needed
 - interaction feedback
-- selection state required for Blizzard behavior
-
-Use explicit `nativeDecorationRegions` or equivalent audited metadata when possible.
-
-When NSkin owns hover presentation for a component:
-
-- suppress native Blizzard hover artwork only after it has been explicitly identified as presentation-only
-- preserve Blizzard's underlying interaction and state logic
-- prefer explicit logical state providers such as `IsMouseOver()` over inferring hover from whether a Blizzard highlight texture is shown
+- selection state required by Blizzard behavior
 
 ---
 
-# 31. Shared File Organization
+# 31. Current Repository During Migration
 
-Current shared component organization includes:
-
-```text
-Components/
-    NSkin_ComponentsCore.lua
-    NSkin_ComponentsWindows.lua
-    NSkin_ComponentsInputs.lua
-    NSkin_ComponentsNavigation.lua
-    NSkin_ComponentsContent.lua
-    NSkin_ComponentsPopup.lua
-    NSkin_ComponentsMenus.lua
-```
-
-Composition should live in a dedicated shared layer when implemented, for example:
+After Part 1 of the architecture refactor, the repository is organized around the new ownership boundaries while some legacy implementation files remain temporarily:
 
 ```text
-Components/
-    NSkin_ComponentsComposition.lua
+NSkin/
+│
+├─ Components/
+│  ├─ NSkin_ComponentsCore.lua
+│  ├─ NSkin_ComponentsWindows.lua
+│  ├─ NSkin_ComponentsInputs.lua
+│  ├─ NSkin_ComponentsNavigation.lua       # transitional
+│  ├─ NSkin_ComponentsContent.lua          # transitional
+│  ├─ NSkin_ComponentsPopup.lua
+│  └─ NSkin_ComponentsMenus.lua
+│
+├─ SkinningMode/
+│  ├─ NSkin_SkinningMode.lua
+│  ├─ NSkin_Composition.lua
+│  └─ DockedWindow/
+│     ├─ NSkin_DockedWindow.lua
+│     ├─ NSkin_ComponentCoreOptions.lua
+│     ├─ NSkin_ComponentWindowsOptions.lua
+│     ├─ NSkin_ComponentInputsOptions.lua
+│     ├─ NSkin_ComponentNavigationOptions.lua  # transitional
+│     ├─ NSkin_ComponentContentOptions.lua     # transitional
+│     └─ NSkin_ComponentMenusOptions.lua
+│
+├─ Windows/
+│  └─ NSkin_*.lua
+│
+├─ Options/
+│  ├─ NSkin_WindowsOptions.lua             # transitional
+│  └─ README.md
+│
+├─ Debug/
+│  ├─ NSkin_AppearanceDebug.lua
+│  ├─ NSkin_LFGQueuePopDebug.lua
+│  ├─ NSkin_SkinningDebugInspector.lua
+│  └─ Tests/
+│
+├─ Media/
+├─ NSkin_Menu.lua
+├─ NSkin_Core.lua
+├─ NSkin_Database.lua
+├─ NSkin_Commands.lua
+└─ NSkin.toc
 ```
 
-Shared option files are organized separately under:
+Do not treat a transitional file/type as permanent merely because it still exists after Part 1.
 
-```text
-Options/Components/
-```
-
-Keep visual implementation, editor composition, and option definitions clearly separated.
-
-The shared composition implementation stores `composition` on the existing
-Skinning Mode element: an explicit `mode`, Composite `members` with canonical
-`kind` and primary/secondary `role`, or Container `children` containing canonical
-element IDs. `movementOwner` is the registration's movement target. Container
-children declare `compositionParentID` in their window adapter, including when
-they register before the parent. Keep both sides of that explicit membership
-consistent; optional runtime children need not exist yet.
-
-`GetCompositionEditorOptions` derives member presentation from canonical editor
-presets using the existing element appearance context. Composition has no separate
-appearance state. Container child registration omits movement callbacks and
-movement baseline capture. Skinning Mode owns hit priority and hover policy;
-composition metadata contains no selection-policy flags.
+Later refactor parts should remove or rename transitional files only when their callers have been migrated and the replacement architecture is functional.
 
 ---
 
-# 32. Validation Rules for Codex
+# 32. Refactor Sequence
+
+The intended migration sequence is:
+
+```text
+Part 1
+Architecture/worktree organization
+        ↓
+Part 2
+Composition foundation
+        ↓
+Part 3
+Skinning Mode + Composite behavior
+        ↓
+Part 4
+Legacy grouping migration
+        ↓
+Part 5
+Container + Editor Group cleanup
+        ↓
+Part 6
+Surface + final legacy cleanup
+```
+
+Part 4 may be split into smaller implementation patches by family:
+
+```text
+rows/section structures
+search/pagination
+tabs
+navigation/breadcrumbs
+remaining grouping/card structures
+```
+
+Every intermediate patch should leave the addon in a usable/checkable state.
+
+---
+
+# 33. Validation Rules for Codex
 
 For normal NSkin implementation tasks:
 
-1. Syntax-check changed Lua files.
-2. Run:
+1. Fetch and inspect the exact current target-branch files.
+2. If earlier local blobs were applied but not pushed, reconstruct that local state before generating the next patch.
+3. Keep the requested scope as small as practical.
+4. Syntax-check changed Lua files.
+5. Run:
 
 ```bash
 git diff --check
 ```
 
-3. Review the final diff for architectural regressions.
-4. Do **not** run the repository `Tests` folder unless explicitly requested.
-5. Do **not** commit unless explicitly requested.
+6. Inspect the final diff for architectural regressions.
+7. Do not run the repository `Debug/Tests` files unless explicitly requested.
+8. Do not commit or push unless explicitly requested.
 
-The user runs the repository tests locally when needed.
-
----
-
-# 33. Minimal Appearance Anchor Groups
-
-An Anchor Group is an explicit, addon-authored editor relationship declared by
-multiple registered elements with the same stable `anchorGroupID`. It is
-orthogonal to `STANDALONE`, `COMPOSITE`, and `CONTAINER`: every member retains
-its canonical ID, composition, container parent, lifecycle, runtime targets,
-movement owner, and reset ownership.
-
-The group may affect only:
-
-- the Skinning Mode selection label and dock target;
-- aggregation of unique canonical component option groups;
-- the visual highlight, computed as the union of each visible member's own
-  logical bounds;
-- the individual appearance lookup key for canonical component types exposed
-  by at least two group members.
-
-Matching canonical types share the group ID as their sparse individual
-appearance namespace. Non-matching types continue to use the canonical member
-element ID. The existing default, global, window, and individual inheritance
-resolver remains authoritative; an Anchor Group changes only the final
-individual key. A deterministic migration may copy an existing member's real
-local override into an empty group namespace, but must not materialize inherited
-values or erase the original member override.
-
-Anchor Groups remain editor-only and are not a new component or composition
-mode. In Skinning Mode they may own one shared relative movement offset for the
-explicit member set. The shared composition layer resolves movement roots from
-member anchor relationships, captures those roots before mutation, and applies
-the same offset without changing group membership or canonical member IDs.
-Individual member movement remains independent when that member is selected.
+Patch blobs must be generated from exact before/after files with an automatic diff, not handwritten patch hunks.
 
 ---
 
 # 34. Refactor Review Checklist
 
-For any major shared-component/editor refactor, check for:
+For major shared-component/editor changes, check for:
 
 - duplicate canonical option schemas
 - page-specific copies of shared behavior
 - unstable canonical IDs
+- unstable Composite member IDs
 - broad discovery replacing explicit registration
 - duplicate reset ownership
 - baseline recapture after mutation
 - window-specific generic editor logic
 - compositions inventing visual types
-- containers flattening real child registrations
-- child movement leaking through container membership
-- selection policy being baked into structural semantics
+- Containers used merely as movement groups
+- Editor Groups flattening independent elements
+- appearance sharing coupled unnecessarily to Editor Group
+- selection policy baked into structural semantics
+- movement semantics baked into component identity
+- Surface gaining structural/editor responsibilities
+- standalone Surface defaults leaking into Composite/Container owners
 - broad refreshes
 - timers or `OnUpdate`
 - native Blizzard functional state being suppressed
@@ -1366,36 +1243,60 @@ For any major shared-component/editor refactor, check for:
 - recycled runtime frames incorrectly given persistent per-frame IDs
 - NSkin visual surfaces intercepting Blizzard-owned clicks/tooltips
 - arbitrary geometry offsets replacing intact Blizzard anchor relationships
-- same-type semantic fields unintentionally forced into one individual appearance namespace
+- same-type semantic fields unintentionally forced into one appearance identity
 
 ---
 
-# 35. Decision Rule for New Architecture
+# 35. Decision Rule for New Abstractions
 
 Before adding a new shared abstraction, ask:
 
-> Would this rule or behavior be useful in multiple windows or multiple instances of the same component type?
+> Is this reusable visual/control behavior, a structural relationship, an editor relationship, or window-specific Blizzard knowledge?
 
-If yes, it likely belongs in shared infrastructure.
+Then place it accordingly:
 
-If it describes the meaning of one Blizzard window's layout, it likely belongs in that window adapter.
+```text
+reusable visual/control behavior
+→ Components/
 
-If it is merely a temporary implementation detail for one task, it should normally remain in the task/code rather than this architecture document.
+relationship between atomic/editor elements
+→ SkinningMode/NSkin_Composition.lua
+
+selection/highlight/input/movement interaction
+→ SkinningMode/NSkin_SkinningMode.lua
+
+inspector presentation
+→ SkinningMode/DockedWindow/
+
+Blizzard window meaning/lifecycle
+→ Windows/
+
+global addon configuration UI
+→ NSkin_Menu.lua
+```
+
+If a proposed component exists only because several controls happen to be grouped together, it is probably composition rather than a new component.
+
+If a proposed Container exists only because independent elements should move together, it is probably an Editor Group.
+
+If a proposed Surface starts owning children, selection, or movement, its responsibility is too broad.
 
 ---
 
 # 36. Updating This File
 
-`ARCHITECTURE.md` should describe stable project-wide rules.
+`ARCHITECTURE.md` describes stable project-wide rules and the explicit target of an active architecture migration.
 
 Update it when a major architectural decision changes, such as:
 
 - component ownership
 - composition semantics
+- Surface semantics
 - reset rules
 - inheritance rules
 - shared registration strategy
 - editor architecture
+- repository ownership boundaries
 - project-wide performance/lifecycle rules
 
 Do not update it for every:
@@ -1414,37 +1315,53 @@ If yes, it probably belongs here.
 
 ---
 
-# 37. Current Architectural Summary
+# 37. Target Architectural Summary
 
 ```text
 NSkin
 │
-├─ Shared Components
-│   ├─ canonical visual behavior
-│   ├─ canonical options
-│   ├─ canonical reset ownership
-│   └─ canonical inheritance
+├─ Atomic Components
+│  ├─ canonical appearance/state
+│  ├─ canonical options
+│  ├─ canonical reset ownership
+│  └─ canonical inheritance
 │
-├─ Composition Layer
-│   ├─ STANDALONE
-│   ├─ COMPOSITE
-│   └─ CONTAINER
+├─ Optional Appearance Capabilities
+│  └─ Surface
+│     ├─ background
+│     ├─ border
+│     └─ padding
+│
+├─ Composition
+│  ├─ STANDALONE
+│  ├─ COMPOSITE
+│  │  └─ type: REGULAR by default
+│  ├─ CONTAINER
+│  └─ EDITOR_GROUP
 │
 ├─ Skinning Mode
-│   ├─ selection policy
-│   ├─ virtual appearance Anchor Groups
-│   ├─ highlights
-│   ├─ movement
-│   └─ dock presentation
+│  ├─ selection
+│  ├─ hover/highlights
+│  ├─ input ownership
+│  ├─ Shift-drag movement
+│  └─ modal/occlusion policy
 │
-└─ Window Adapters
-    ├─ Blizzard targets
-    ├─ canonical IDs
-    ├─ lifecycle mapping
-    ├─ semantic container membership
-    └─ exceptional audited behavior
+├─ Docked Window
+│  ├─ canonical option presentation
+│  ├─ Composite member editing
+│  └─ structural editor controls
+│
+├─ Window Adapters
+│  ├─ Blizzard targets
+│  ├─ canonical IDs
+│  ├─ semantic relationships
+│  ├─ lifecycle mapping
+│  └─ exceptional audited behavior
+│
+└─ Main Menu
+   └─ global configuration using canonical contracts
 ```
 
-The main long-term principle is:
+The long-term principle is:
 
-> Keep visual behavior canonical and shared, keep semantic grouping declarative, and keep editor interaction policy replaceable.
+> Atomic components define reusable appearance/state. Composition defines relationships. Window files register Blizzard UI. Skinning Mode edits those structures.
