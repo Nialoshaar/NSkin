@@ -906,18 +906,23 @@ function NSkin:RegisterTabGroup(groupID, definition)
     if type(group.module) == "string" and not group.getPlacement then
         group.hasPlacement = function(element)
             local moduleOptions = NSkin:GetModuleOptions(element.module, false)
-            return moduleOptions and moduleOptions.tabPlacements
-                and moduleOptions.tabPlacements[element.id] ~= nil
+            return moduleOptions and moduleOptions.movablePlacements
+                and moduleOptions.movablePlacements[element.id] ~= nil
         end
         group.getPlacement = function(element)
             local moduleOptions = NSkin:GetModuleOptions(element.module, false)
-            local saved = moduleOptions and moduleOptions.tabPlacements
-                and moduleOptions.tabPlacements[element.id]
+            local saved = moduleOptions and moduleOptions.movablePlacements
+                and moduleOptions.movablePlacements[element.id]
             if saved then return CopyPlacement(saved) end
-            local originals = tabGroupOriginalPoints[element.id]
-            local target = originals and originals[1] and originals[1].target
-            if target then return GetCurrentWindowPlacement(element.window, target) end
-            return CopyPlacement(NSkin:GetTabPlacement())
+            -- The universal X/Y editor contract is an offset from the
+            -- captured Blizzard layout. Returning an absolute GRID position
+            -- here makes the first Shift-drag reinterpret the native tab
+            -- position as a new layout and causes the group to jump.
+            return {
+                mode = "OFFSET",
+                alongOffset = 0,
+                edgeOffset = 0,
+            }
         end
         group.setPlacement = function(element, placement)
             if not NSkin:ApplyTabGroupPlacement(element, placement,
@@ -926,31 +931,34 @@ function NSkin:RegisterTabGroup(groupID, definition)
                 return false
             end
             local moduleOptions = NSkin:GetModuleOptions(element.module, true)
-            moduleOptions.tabPlacements = moduleOptions.tabPlacements or {}
-            moduleOptions.tabPlacements[element.id] = CopyPlacement(placement)
+            moduleOptions.movablePlacements =
+                moduleOptions.movablePlacements or {}
+            moduleOptions.movablePlacements[element.id] =
+                CopyPlacement(placement)
             FireComponentCallback("TabGroupLayoutApplied", element)
             return true
         end
         group.resetPlacement = function(element)
-            NSkin:RestoreTabGroupOriginalPlacement(element.id)
             local moduleOptions = NSkin:GetModuleOptions(element.module, false)
-            if moduleOptions and moduleOptions.tabPlacements then
-                moduleOptions.tabPlacements[element.id] = nil
-                if not next(moduleOptions.tabPlacements) then
-                    moduleOptions.tabPlacements = nil
+            if moduleOptions and moduleOptions.movablePlacements then
+                moduleOptions.movablePlacements[element.id] = nil
+                if not next(moduleOptions.movablePlacements) then
+                    moduleOptions.movablePlacements = nil
                 end
-                if not next(moduleOptions) then
-                    local profile = NSkin:GetProfile()
-                    if profile.moduleOptions then
-                        profile.moduleOptions[element.module] = nil
-                        if not next(profile.moduleOptions) then
-                            profile.moduleOptions = nil
-                        end
+            end
+            local restored =
+                NSkin:RestoreTabGroupOriginalPlacement(element.id)
+            if moduleOptions and not next(moduleOptions) then
+                local profile = NSkin:GetProfile()
+                if profile.moduleOptions then
+                    profile.moduleOptions[element.module] = nil
+                    if not next(profile.moduleOptions) then
+                        profile.moduleOptions = nil
                     end
                 end
             end
             FireComponentCallback("TabGroupLayoutApplied", element)
-            return true
+            return restored == true
         end
     end
 
@@ -1617,6 +1625,62 @@ end
 
 function NSkin:ApplyTabGroupPlacement(group, placement, applyOptions)
     if not group or (_G.InCombatLockdown and _G.InCombatLockdown()) then return false end
+    if placement and placement.mode == "OFFSET" then
+        if not RestoreTabPoints(group.id) then return false end
+        local offsetX = tonumber(placement.alongOffset or placement.x) or 0
+        local offsetY = tonumber(placement.edgeOffset or placement.y) or 0
+        local originals = tabGroupOriginalPoints[group.id]
+        local roots, rootSet = {}, {}
+        for _, original in ipairs(originals or {}) do
+            if original.target then rootSet[original.target] = true end
+        end
+        for _, original in ipairs(originals or {}) do
+            local target = original.target
+            local dependent
+            for _, point in ipairs(original.points or {}) do
+                local relativeTo = point[2]
+                if relativeTo and relativeTo ~= target and rootSet[relativeTo] then
+                    dependent = true
+                    break
+                end
+            end
+            if target and not dependent then roots[#roots + 1] = original end
+        end
+        if #roots == 0 and originals and originals[1] then
+            roots[1] = originals[1]
+        end
+        for _, original in ipairs(roots) do
+            local target = original.target
+            if target and target.ClearAllPoints and target.SetPoint then
+                target:ClearAllPoints()
+                for _, point in ipairs(original.points or {}) do
+                    target:SetPoint(point[1], point[2], point[3],
+                        (tonumber(point[4]) or 0) + offsetX,
+                        (tonumber(point[5]) or 0) + offsetY)
+                end
+            end
+        end
+        local tabs = group.container and group.container.tabs or group.tabs
+        local tabStyle = self:GetAppearanceStyle(
+            "tab", group.appearanceWindowID, group.id)
+        for i = 1, #(tabs or {}) do
+            local tab = tabs[i]
+            if tab then
+                local baselineID = group.tabBaselineIDs
+                    and group.tabBaselineIDs[i]
+                if baselineID then
+                    self:MarkComponentGeometryModified(
+                        baselineID, "points", true)
+                end
+                ApplyTabDimensions(tab, tabStyle,
+                    self:GetSkinData(tab, COMPONENT_STATE))
+            end
+        end
+        if not (applyOptions and applyOptions.suppressNotify) then
+            FireComponentCallback("TabGroupLayoutApplied", group)
+        end
+        return true
+    end
     local options = group.layoutOptions
     if not options then
         options = {}
@@ -1707,6 +1771,7 @@ function NSkin:RestoreTabGroupOriginalPlacement(groupID)
         refreshed = group.refreshBlizzardLayout(group) == true
     end
     if refreshed then
+        RestoreTabDimensions(group)
         for i = 1, #(group.tabBaselineIDs or {}) do
             local baseline = self:GetComponentBaseline(group.tabBaselineIDs[i])
             if baseline then wipe(baseline.modified) end
@@ -1716,9 +1781,10 @@ function NSkin:RestoreTabGroupOriginalPlacement(groupID)
         self:RefreshTabGroupBaseline(groupID, true)
     elseif not RestoreTabPoints(groupID) then
         return false
+    else
+        RestoreTabDimensions(group)
     end
     if group then
-        RestoreTabDimensions(group)
         group.spacingOverrideApplied = nil
         if group.container and group.container.MarkDirty then
             if group.originalSpacing ~= nil then

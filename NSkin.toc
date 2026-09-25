@@ -51,7 +51,6 @@ Windows\NSkin_ItemUpgrade.lua
 Windows\NSkin_Achievements.lua
 Windows\NSkin_ExpansionFeatures.lua
 Windows\NSkin_TradingPost.lua
-Windows\NSkin_Shop.lua
 Windows\NSkin_AuctionHouse.lua
 Windows\NSkin_Professions.lua
 Windows\NSkin_Transmogrification.lua

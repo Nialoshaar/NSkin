@@ -411,12 +411,19 @@ NSkin:RegisterOptionGroup("shared.tabAppearance", {
         return changed == true
     end,
     reset = function(context)
-        return ResetElementPaths(context, { "tab.fontMode", "tab.sizeMode",
-            "tab.outlineMode", "tab.font", "tab.textSize", "tab.outline",
-            "tab.text", "tab.textMode", "tab.background", "tab.backgroundMode", "tab.selectedBackground",
+        local changed = ResetElementPaths(context, {
+            "tab.fontMode", "tab.sizeMode", "tab.outlineMode", "tab.font",
+            "tab.textSize", "tab.outline", "tab.text", "tab.textMode",
+            "tab.background", "tab.backgroundMode", "tab.selectedBackground",
             "tab.selectedBackgroundMode", "tab.border", "tab.borderMode",
             "tab.borderSize", "tab.borderPadding", "tab.width", "tab.height",
-            "tab.spacing" })
+            "tab.spacing",
+        })
+        if NSkin:GetTabGroup(context.id) then
+            changed = NSkin:RestoreTabGroupOriginalPlacement(context.id)
+                or changed
+        end
+        return changed == true
     end,
     resetSubset = function(context, keys)
         return ResetMappedElementKeys(context, keys, tabResetPaths)

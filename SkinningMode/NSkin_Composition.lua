@@ -383,45 +383,311 @@ function NSkin:GetElementAppearanceID(elementOrID, kind)
     return group.id
 end
 
--- Structure lives on the existing editor elements, never in a second registry.
--- A member shares its Composite's appearance ID; Container children retain theirs.
-function NSkin:InitializeElementComposition(element)
-    element.composition = element.composition or { mode = "STANDALONE" }
-    if element.compositionParentID then
-        element.draggable, element.movable = false, false
+-- Composition is authoritative structural metadata on registered editor elements.
+-- It does not replace canonical atomic appearance registrations.
+local COMPOSITION_MODES = {
+    STANDALONE = true,
+    COMPOSITE = true,
+    CONTAINER = true,
+}
+local compositeTypes = {
+    REGULAR = {},
+}
+local editorGroups = {}
+local editorGroupByElementID = {}
+
+local function GetCompositionMemberState(element, member, create)
+    if not element or not member or type(element.module) ~= "string" then
+        return nil
     end
-    if element.composition.mode ~= "COMPOSITE" then return end
-    element.compositionHookedTargets = element.compositionHookedTargets
-        or setmetatable({}, { __mode = "k" })
-    for _, member in ipairs(element.composition.members) do
-        local target = member.target
-        if target and not element.compositionHookedTargets[target] then
-            element.compositionHookedTargets[target] = true
-            local function RefreshBounds()
-                if element.compositionBoundsRefreshPending then return end
-                element.compositionBoundsRefreshPending = true
-                local function NotifyOnce()
-                    element.compositionBoundsRefreshPending = nil
-                    if NSkin:GetSkinningElement(element.id) == element then
-                        NSkin:NotifySkinningElementBoundsChanged(element.id)
+    local options = NSkin:GetModuleOptions(element.module, create == true)
+    if not options then return nil end
+    local all = options.compositionMembers
+    if not all and create then
+        all = {}
+        options.compositionMembers = all
+    end
+    local owner = all and all[element.id]
+    if not owner and create then
+        owner = {}
+        all[element.id] = owner
+    end
+    local state = owner and owner[member.id]
+    if not state and create then
+        state = {}
+        owner[member.id] = state
+    end
+    return state, owner, all, options
+end
+
+local function PruneCompositionMemberState(element, member)
+    local state, owner, all, options =
+        GetCompositionMemberState(element, member, false)
+    if not state then return end
+    if next(state) then return end
+    owner[member.id] = nil
+    if not next(owner) then all[element.id] = nil end
+    if not next(all) then options.compositionMembers = nil end
+end
+
+local function MakeStableMemberID(element, member, index, used)
+    local explicit = member.id or member.memberID
+    if type(explicit) == "string" and explicit ~= "" then
+        if used[explicit] then return nil end
+        used[explicit] = true
+        return explicit
+    end
+
+    local token = member.key or member.kind or ("Member" .. index)
+    token = tostring(token):gsub("[^%w_%-]", "")
+    if token == "" then token = "Member" .. index end
+    local base = element.id .. ".Member." .. token
+    local candidate, suffix = base, 2
+    while used[candidate] do
+        candidate = base .. suffix
+        suffix = suffix + 1
+    end
+    used[candidate] = true
+    return candidate
+end
+
+local function NormalizeCompositeMembers(element, composition)
+    local normalized, byID, used = {}, {}, {}
+    for index, source in ipairs(composition.members or {}) do
+        if type(source) == "table" then
+            local member = source
+            local id = MakeStableMemberID(element, member, index, used)
+            if id then
+                member.id = id
+                member.memberID = nil
+                member.role = member.role == "PRIMARY" and "PRIMARY" or "SECONDARY"
+                member.appearanceWindowID =
+                    member.appearanceWindowID or element.appearanceWindowID
+                member.appearanceID =
+                    member.appearanceID or member.elementID or member.id
+                if member.attached == nil then member.attached = true end
+                local saved = GetCompositionMemberState(element, member, false)
+                if saved then
+                    if saved.attached ~= nil then
+                        member.attached = saved.attached == true
                     end
-                end
-                if C_Timer and C_Timer.After then
-                    C_Timer.After(0, NotifyOnce)
+                    member.localX = tonumber(saved.x) or 0
+                    member.localY = tonumber(saved.y) or 0
                 else
-                    NotifyOnce()
+                    member.localX = tonumber(member.localX) or 0
+                    member.localY = tonumber(member.localY) or 0
                 end
-            end
-            for _, method in ipairs({ "Show", "Hide", "SetShown", "SetText", "SetFont",
-                "SetFormattedText",
-                "SetPoint", "SetSize", "SetWidth", "SetHeight", "SetScale" })
-            do
-                if type(target[method]) == "function" then
-                    hooksecurefunc(target, method, RefreshBounds)
-                end
+                normalized[#normalized + 1] = member
+                byID[id] = member
             end
         end
     end
+    composition.members = normalized
+    composition.membersByID = byID
+end
+
+local function NormalizeContainerChildren(composition)
+    local children, seen = {}, {}
+    for _, child in ipairs(composition.children or {}) do
+        local id = type(child) == "table" and (child.id or child.elementID)
+            or child
+        if type(id) == "string" and id ~= "" and not seen[id] then
+            seen[id] = true
+            children[#children + 1] = id
+        end
+    end
+    composition.children = children
+end
+
+local function NormalizeComposition(element)
+    local composition = element.composition
+    if type(composition) ~= "table" then composition = {} end
+    local mode = tostring(composition.mode or "STANDALONE"):upper()
+    if not COMPOSITION_MODES[mode] then mode = "STANDALONE" end
+    composition.mode = mode
+
+    if mode == "COMPOSITE" then
+        local compositeType = tostring(composition.type or "REGULAR"):upper()
+        if not compositeTypes[compositeType] then compositeType = "REGULAR" end
+        composition.type = compositeType
+        NormalizeCompositeMembers(element, composition)
+    elseif mode == "CONTAINER" then
+        NormalizeContainerChildren(composition)
+    end
+
+    element.composition = composition
+    return composition
+end
+
+function NSkin:RegisterCompositeType(typeID, definition)
+    if type(typeID) ~= "string" or typeID == ""
+        or type(definition) ~= "table"
+    then return false end
+    typeID = typeID:upper()
+    if typeID == "REGULAR" then return false end
+    compositeTypes[typeID] = definition
+    return true
+end
+
+function NSkin:GetCompositeType(typeID)
+    typeID = type(typeID) == "string" and typeID:upper() or "REGULAR"
+    return compositeTypes[typeID] or compositeTypes.REGULAR
+end
+
+function NSkin:GetElementComposition(elementOrID)
+    local element = type(elementOrID) == "table" and elementOrID
+        or self:GetSkinningElement(elementOrID)
+    return element and element.composition or nil
+end
+
+function NSkin:SetElementComposition(elementOrID, composition)
+    local element = type(elementOrID) == "table" and elementOrID
+        or self:GetSkinningElement(elementOrID)
+    if not element or type(composition) ~= "table" then return nil end
+    element.composition = composition
+    self:InitializeElementComposition(element)
+    return element.composition
+end
+
+function NSkin:GetCompositeMember(elementOrID, memberID)
+    local composition = self:GetElementComposition(elementOrID)
+    return composition and composition.mode == "COMPOSITE"
+        and composition.membersByID and composition.membersByID[memberID] or nil
+end
+
+function NSkin:GetCompositeMembers(elementOrID)
+    local composition = self:GetElementComposition(elementOrID)
+    return composition and composition.mode == "COMPOSITE"
+        and composition.members or nil
+end
+
+function NSkin:GetCompositionMemberAppearanceContext(elementOrID, memberOrID)
+    local element = type(elementOrID) == "table" and elementOrID
+        or self:GetSkinningElement(elementOrID)
+    if not element then return nil end
+    local member = type(memberOrID) == "table" and memberOrID
+        or self:GetCompositeMember(element, memberOrID)
+    if not member then return nil end
+    return {
+        appearanceWindowID =
+            member.appearanceWindowID or element.appearanceWindowID,
+        appearanceID = member.appearanceID or member.id,
+        kind = member.kind,
+        memberID = member.id,
+    }
+end
+
+function NSkin:GetContainerChildren(elementOrID)
+    local composition = self:GetElementComposition(elementOrID)
+    if not composition or composition.mode ~= "CONTAINER" then return nil end
+    local children = {}
+    for _, id in ipairs(composition.children or {}) do
+        local child = self:GetSkinningElement(id)
+        if child then children[#children + 1] = child end
+    end
+    return children
+end
+
+local function GetSortedEditorGroupMembers(group)
+    local members = {}
+    for _, element in pairs(group.membersByID or {}) do
+        members[#members + 1] = element
+    end
+    table.sort(members, function(left, right) return left.id < right.id end)
+    return members
+end
+
+function NSkin:RegisterEditorGroup(definition)
+    if type(definition) ~= "table" or type(definition.id) ~= "string"
+        or definition.id == ""
+    then return nil end
+    local group = editorGroups[definition.id]
+    if not group then
+        group = { id = definition.id, membersByID = {} }
+        editorGroups[definition.id] = group
+    end
+    group.label = definition.label or group.label or definition.id
+    group.window = definition.window or group.window
+    group.appearanceWindowID =
+        definition.appearanceWindowID or group.appearanceWindowID
+    group.priority = tonumber(definition.priority) or group.priority or 0
+
+    for _, member in ipairs(definition.members or {}) do
+        local element = type(member) == "table" and member
+            or self:GetSkinningElement(member)
+        if element and type(element.id) == "string" then
+            local previous = editorGroupByElementID[element.id]
+            if previous and previous ~= group then
+                previous.membersByID[element.id] = nil
+            end
+            group.membersByID[element.id] = element
+            editorGroupByElementID[element.id] = group
+        end
+    end
+    return group
+end
+
+function NSkin:GetEditorGroup(elementOrID)
+    if type(elementOrID) == "table" and elementOrID.membersByID
+        and editorGroups[elementOrID.id] == elementOrID
+    then return elementOrID end
+    local id = type(elementOrID) == "table" and elementOrID.id or elementOrID
+    return editorGroupByElementID[id] or editorGroups[id]
+end
+
+function NSkin:GetEditorGroupMembers(elementOrID)
+    local group = self:GetEditorGroup(elementOrID)
+    return group and GetSortedEditorGroupMembers(group) or nil
+end
+
+local function QueueCompositionBoundsRefresh(element)
+    if element.compositionBoundsRefreshPending then return end
+    element.compositionBoundsRefreshPending = true
+    local function NotifyOnce()
+        element.compositionBoundsRefreshPending = nil
+        if NSkin:GetSkinningElement(element.id) == element then
+            NSkin:NotifySkinningElementBoundsChanged(element.id)
+        end
+    end
+    if C_Timer and C_Timer.After then
+        C_Timer.After(0, NotifyOnce)
+    else
+        NotifyOnce()
+    end
+end
+
+local function HookCompositionTarget(element, target)
+    if not target or element.compositionHookedTargets[target] then return end
+    element.compositionHookedTargets[target] = true
+    for _, method in ipairs({
+        "Show", "Hide", "SetShown", "SetText", "SetFont",
+        "SetFormattedText", "SetPoint", "SetSize", "SetWidth",
+        "SetHeight", "SetScale",
+    }) do
+        if type(target[method]) == "function" then
+            hooksecurefunc(target, method, function()
+                QueueCompositionBoundsRefresh(element)
+            end)
+        end
+    end
+end
+
+function NSkin:InitializeElementComposition(element)
+    local composition = NormalizeComposition(element)
+    if element.compositionParentID then
+        element.draggable, element.movable = false, false
+    end
+    if composition.mode ~= "COMPOSITE" then return composition end
+
+    element.compositionHookedTargets = element.compositionHookedTargets
+        or setmetatable({}, { __mode = "k" })
+    for _, member in ipairs(composition.members or {}) do
+        local targets = self:GetCompositionMemberTargets(element, member, false)
+        for _, target in ipairs(targets) do
+            HookCompositionTarget(element, target)
+        end
+    end
+    return composition
 end
 
 function NSkin:GetCompositionParent(element)
@@ -434,6 +700,7 @@ function NSkin:GetCompositionMovementOwner(element)
     local composition = element.composition
     return composition and composition.movementOwner or element.target
 end
+
 
 local function ResolveMemberTargets(member, element, visibleOnly)
     local provider = member and (member.targets or member.regions)
@@ -461,6 +728,137 @@ end
 
 function NSkin:GetCompositionMemberTargets(element, member, visibleOnly)
     return ResolveMemberTargets(member, element, visibleOnly == true)
+end
+
+
+local function GetCompositeMemberMovementTarget(element, member)
+    if member.movementOwner then return member.movementOwner end
+    local targets = ResolveMemberTargets(member, element, false)
+    return targets[1]
+end
+
+function NSkin:GetCompositeMemberBounds(elementOrID, memberOrID, visibleOnly)
+    local element = type(elementOrID) == "table" and elementOrID
+        or self:GetSkinningElement(elementOrID)
+    if not element then return nil end
+    local member = type(memberOrID) == "table" and memberOrID
+        or self:GetCompositeMember(element, memberOrID)
+    if not member then return nil end
+
+    local left, right, bottom, top
+    for _, target in ipairs(ResolveMemberTargets(
+        member, element, visibleOnly ~= false))
+    do
+        local l, r, b, t = self:GetUIParentNormalizedBounds(target)
+        if l then
+            left = left and math.min(left, l) or l
+            right = right and math.max(right, r) or r
+            bottom = bottom and math.min(bottom, b) or b
+            top = top and math.max(top, t) or t
+        end
+    end
+    return left, right, bottom, top
+end
+
+function NSkin:GetCompositionBounds(elementOrID, visibleOnly)
+    local element = type(elementOrID) == "table" and elementOrID
+        or self:GetSkinningElement(elementOrID)
+    local composition = element and element.composition
+    if not composition or composition.mode ~= "COMPOSITE" then return nil end
+
+    local left, right, bottom, top
+    for _, member in ipairs(composition.members or {}) do
+        local l, r, b, t = self:GetCompositeMemberBounds(
+            element, member, visibleOnly)
+        if l then
+            left = left and math.min(left, l) or l
+            right = right and math.max(right, r) or r
+            bottom = bottom and math.min(bottom, b) or b
+            top = top and math.max(top, t) or t
+        end
+    end
+    return left, right, bottom, top
+end
+
+function NSkin:GetCompositeMemberOffset(elementOrID, memberOrID)
+    local element = type(elementOrID) == "table" and elementOrID
+        or self:GetSkinningElement(elementOrID)
+    local member = element and (type(memberOrID) == "table" and memberOrID
+        or self:GetCompositeMember(element, memberOrID))
+    if not member then return nil end
+    return tonumber(member.localX) or 0, tonumber(member.localY) or 0
+end
+
+local function ApplyCompositeMemberOffset(element, member, x, y)
+    local target = GetCompositeMemberMovementTarget(element, member)
+    if not target or not target.GetNumPoints or not target.ClearAllPoints
+        or not target.SetPoint
+        or (_G.InCombatLockdown and _G.InCombatLockdown())
+    then return false end
+
+    local baselineID = element.id .. ":CompositeMember:" .. member.id
+    NSkin:CaptureComponentBaseline(baselineID, target, {
+        points = true,
+        canCapture = function(frame)
+            return frame.GetNumPoints and frame:GetNumPoints() > 0
+        end,
+    })
+    local baseline = NSkin:GetComponentBaseline(baselineID)
+    if not baseline or type(baseline.points) ~= "table"
+        or #baseline.points == 0
+    then return false end
+
+    target:ClearAllPoints()
+    for _, point in ipairs(baseline.points) do
+        target:SetPoint(point[1], point[2], point[3],
+            (tonumber(point[4]) or 0) + x,
+            (tonumber(point[5]) or 0) + y)
+    end
+    NSkin:MarkComponentGeometryModified(baselineID, "points", true)
+    member.localX, member.localY = x, y
+    QueueCompositionBoundsRefresh(element)
+    return true
+end
+
+function NSkin:SetCompositeMemberOffset(elementOrID, memberOrID, x, y)
+    local element = type(elementOrID) == "table" and elementOrID
+        or self:GetSkinningElement(elementOrID)
+    local member = element and (type(memberOrID) == "table" and memberOrID
+        or self:GetCompositeMember(element, memberOrID))
+    if not member then return false end
+    x, y = tonumber(x) or 0, tonumber(y) or 0
+    if not ApplyCompositeMemberOffset(element, member, x, y) then return false end
+    local state = GetCompositionMemberState(element, member, true)
+    state.x, state.y = x, y
+    if x == 0 then state.x = nil end
+    if y == 0 then state.y = nil end
+    PruneCompositionMemberState(element, member)
+    return true
+end
+
+function NSkin:ResetCompositeMemberOffset(elementOrID, memberOrID)
+    return self:SetCompositeMemberOffset(elementOrID, memberOrID, 0, 0)
+end
+
+function NSkin:IsCompositeMemberAttached(elementOrID, memberOrID)
+    local element = type(elementOrID) == "table" and elementOrID
+        or self:GetSkinningElement(elementOrID)
+    local member = element and (type(memberOrID) == "table" and memberOrID
+        or self:GetCompositeMember(element, memberOrID))
+    return member and member.attached ~= false or false
+end
+
+function NSkin:SetCompositeMemberAttached(elementOrID, memberOrID, attached)
+    local element = type(elementOrID) == "table" and elementOrID
+        or self:GetSkinningElement(elementOrID)
+    local member = element and (type(memberOrID) == "table" and memberOrID
+        or self:GetCompositeMember(element, memberOrID))
+    if not member then return false end
+    member.attached = attached ~= false
+    local state = GetCompositionMemberState(element, member, true)
+    state.attached = member.attached and nil or false
+    PruneCompositionMemberState(element, member)
+    return true
 end
 
 function NSkin:GetCompositionHighlightRegions(element)

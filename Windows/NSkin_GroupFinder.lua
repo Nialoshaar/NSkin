@@ -7,9 +7,18 @@ local IDs = {
     Window = "GroupFinder.Window",
     HeaderControls = "GroupFinder.HeaderControls",
     BottomTabs = "GroupFinder.BottomTabs",
+    BottomTabDungeonsAndRaids =
+        "GroupFinder.BottomTabs.DungeonsAndRaids",
+    BottomTabPlayerVsPlayer =
+        "GroupFinder.BottomTabs.PlayerVsPlayer",
+    BottomTabMythicPlus =
+        "GroupFinder.BottomTabs.MythicPlus",
     DungeonFinder = {
         Scope = "GroupFinder.DungeonFinder",
         RolesGroup = "GroupFinder.DungeonFinder.Roles",
+        RolesEditorGroup = "GroupFinder.DungeonFinder.Roles.EditorGroup",
+        DungeonListContainer =
+            "GroupFinder.DungeonFinder.DungeonList.Container",
         TypeSelector = "GroupFinder.DungeonFinder.TypeSelector",
         TypeLabel = "GroupFinder.DungeonFinder.TypeLabel",
         FollowerHeader = "GroupFinder.DungeonFinder.Follower.Header",
@@ -110,9 +119,12 @@ local initialized = false
 local showHooked = false
 local applyPending = false
 local tabsRegistered = false
+local bottomTabsCompositionConfigured = false
 local navigationRegistered = false
 local navigationSelectionHooked = false
 local dungeonRowsRegistered = false
+local dungeonListContainerRegistered = false
+local dungeonRoleEditorGroupRegistered = false
 local dungeonChoiceUpdateHooked = false
 local hookedControls = setmetatable({}, { __mode = "k" })
 local hookedShowControls = setmetatable({}, { __mode = "k" })
@@ -432,11 +444,25 @@ function PVESkin:ApplyRoleCheckboxes()
     if not frame or not queueFrame then return false end
     SuppressDungeonFinderArtwork()
     local applied = false
+    local editorMembers = {}
     for _, definition in ipairs(GetRoleDefinitions()) do
         applied = RegisterRoleComposite(
             definition[1], definition[2], IDs.DungeonFinder.Scope,
             IDs.DungeonFinder.RolesGroup, "Dungeon Finder roles",
             frame, queueFrame, definition[3]) or applied
+        if NSkin:GetSkinningElement(definition[1]) then
+            editorMembers[#editorMembers + 1] = definition[1]
+        end
+    end
+    if #editorMembers > 0 then
+        dungeonRoleEditorGroupRegistered =
+            NSkin:RegisterEditorGroup({
+                id = IDs.DungeonFinder.RolesEditorGroup,
+                label = "Dungeon Finder roles",
+                window = frame,
+                appearanceWindowID = IDs.DungeonFinder.Scope,
+                members = editorMembers,
+            }) ~= nil
     end
     return applied
 end
@@ -1387,6 +1413,34 @@ function PVESkin:RegisterDungeonRows()
 
     RegisterFamily(IDs.DungeonSections, "Dungeon section rows", true)
     RegisterFamily(IDs.SpecificDungeons, "Dungeon rows", false)
+
+    if not dungeonListContainerRegistered then
+        local specific = queueFrame.Specific
+        local target = specific and (specific.ScrollBox or specific)
+            or queueFrame
+        dungeonListContainerRegistered = NSkin:RegisterSkinningElement(
+            IDs.DungeonFinder.DungeonListContainer, {
+                module = "GroupFinder",
+                appearanceWindowID = IDs.DungeonFinder.Scope,
+                label = "Dungeon list container",
+                kind = "CONTAINER",
+                window = frame,
+                target = target,
+                priority = 1,
+                draggable = false,
+                composition = {
+                    mode = "CONTAINER",
+                    children = {
+                        IDs.DungeonSections,
+                        IDs.SpecificDungeons,
+                    },
+                },
+                -- Part 2 validates only the structural relationship. The
+                -- container must not compete with its children for input yet.
+                isEditable = function() return false end,
+            }) == true
+    end
+
     dungeonRowsRegistered = true
     return true
 end
@@ -1710,6 +1764,31 @@ function PVESkin:ApplyFinderNavigation()
                 draggable = false,
                 appearanceStyles = { "sideTab", "icon", "text" },
                 appearanceTypeIDs = { "SIDE_TAB", "ICON", "TEXT" },
+                composition = {
+                    mode = "COMPOSITE",
+                    type = "REGULAR",
+                    movementOwner = visible[1],
+                    members = (function()
+                        local members = {}
+                        for index, entry in ipairs(definitions) do
+                            local id, label, button =
+                                entry[1], entry[2], entry[3]
+                            if button then
+                                members[#members + 1] = {
+                                    id = id,
+                                    kind = "SIDE_TAB",
+                                    role = index == 1
+                                        and "PRIMARY" or "SECONDARY",
+                                    label = label,
+                                    target = button,
+                                    appearanceWindowID = IDs.Scope,
+                                    appearanceID = IDs.Navigation.Group,
+                                }
+                            end
+                        end
+                        return members
+                    end)(),
+                },
                 highlightRegions = function()
                     local regions = {}
                     for _, entry in ipairs(GetFinderNavigationDefinitions()) do
@@ -1788,6 +1867,39 @@ function PVESkin:ApplyBottomTabs()
             edge = "BOTTOM",
         })
         tabsRegistered = true
+    end
+    if tabsRegistered and not bottomTabsCompositionConfigured then
+        local element = NSkin:GetSkinningElement(IDs.BottomTabs)
+        if element then
+            bottomTabsCompositionConfigured = NSkin:SetElementComposition(
+                element, {
+                    mode = "COMPOSITE",
+                    type = "REGULAR",
+                    members = {
+                        {
+                            id = IDs.BottomTabDungeonsAndRaids,
+                            kind = "TAB",
+                            role = "PRIMARY",
+                            label = "Dungeons & Raids",
+                            target = tabs[1],
+                        },
+                        {
+                            id = IDs.BottomTabPlayerVsPlayer,
+                            kind = "TAB",
+                            role = "SECONDARY",
+                            label = "Player vs. Player",
+                            target = tabs[2],
+                        },
+                        {
+                            id = IDs.BottomTabMythicPlus,
+                            kind = "TAB",
+                            role = "SECONDARY",
+                            label = "Mythic+",
+                            target = tabs[3],
+                        },
+                    },
+                }) ~= nil
+        end
     end
     NSkin:ApplyTabGroupLayout(IDs.BottomTabs)
     return true

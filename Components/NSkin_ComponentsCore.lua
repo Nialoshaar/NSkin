@@ -2287,7 +2287,7 @@ local EDITOR_PRESETS = {
             label = "Header Buttons", category = "CUSTOMIZE" },
     },
     TAB_GROUP = {
-        { id = "tabs.layout", label = "Position",
+        { id = "shared.movable", label = "Position",
             presentation = "INLINE", category = "POSITION" },
         { id = "shared.tabSurfaceAppearance", label = "Tab Surface",
             presentation = "INLINE", category = "CUSTOMIZE" },
