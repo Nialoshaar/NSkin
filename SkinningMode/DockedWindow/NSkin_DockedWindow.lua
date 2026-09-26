@@ -362,20 +362,44 @@ local function GetMemberAppearanceOptionGroups(member)
     local component = member and member.kind
         and NSkin:GetSharedElementType(member.kind)
     if not component then return {} end
-    local groups = {}
-    for _, definition in ipairs(
-        NSkin:CreateEditorOptionsPreset(component.editorPreset) or {})
-    do
+    local groups, seen = {}, {}
+    local function Add(definition)
         local id = type(definition) == "table"
             and definition.id or definition
         local category = type(definition) == "table"
             and definition.category
         if type(id) == "string" and id ~= "shared.movable"
             and category ~= "POSITION" and category ~= "LAYOUT"
-            and NSkin:GetOptionGroupDefinition(id)
+            and NSkin:GetOptionGroupDefinition(id) and not seen[id]
         then
+            seen[id] = true
             groups[#groups + 1] = id
         end
+    end
+    if type(member.editorOptions) == "table"
+        and #member.editorOptions > 0
+    then
+        for _, definition in ipairs(member.editorOptions) do
+            if type(definition) == "table"
+                and type(definition.tabs) == "table"
+            then
+                for _, tab in ipairs(definition.tabs) do
+                    for _, groupID in ipairs(
+                        tab.groups or { tab.id })
+                    do
+                        Add(groupID)
+                    end
+                end
+            else
+                Add(definition)
+            end
+        end
+        return groups
+    end
+    for _, definition in ipairs(
+        NSkin:CreateEditorOptionsPreset(component.editorPreset) or {})
+    do
+        Add(definition)
     end
     return groups
 end
@@ -779,6 +803,42 @@ local function LoadEditorOptions(element)
                 section.label = section:CreateFontString(nil, "OVERLAY", "GameFontNormal")
                 section.label:SetPoint("LEFT", section, "LEFT", 12, 0)
                 section.label:SetTextColor(1, 1, 1, 1)
+                section.power = CreateFrame("Button", nil, section)
+                section.power:SetSize(22, 22)
+                section.power:SetPoint(
+                    "LEFT", section.label, "RIGHT", 6, 0)
+                section.power.icon = NSkin:CreateCenteredButtonGlyph(
+                    section.power, "sectionPower", {
+                        texture = "Interface\\AddOns\\NSkin\\Media\\power.png",
+                        size = 15,
+                    })
+                section.power:SetScript("OnClick", function(self)
+                    if not self.optionGroupID or not self.context
+                        or not self.toggleKey
+                    then return end
+                    local definition =
+                        NSkin:GetOptionGroupDefinition(self.optionGroupID)
+                    local values = definition
+                        and definition.get(self.context)
+                    if not values then return end
+                    NSkin:SetOptionGroupValues(
+                        self.optionGroupID, self.context, {
+                            [self.toggleKey] =
+                                values[self.toggleKey] ~= true,
+                        }, true)
+                    RefreshInspector()
+                end)
+                section.power:SetScript("OnEnter", function(self)
+                    if GameTooltip then
+                        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                        GameTooltip:SetText(
+                            self.toggleTooltip or "Enable/disable")
+                        GameTooltip:Show()
+                    end
+                end)
+                section.power:SetScript("OnLeave", function()
+                    if GameTooltip then GameTooltip:Hide() end
+                end)
                 section.icon = section:CreateTexture(nil, "OVERLAY")
                 section.icon:SetSize(18, 18)
                 section.icon:SetPoint("RIGHT", section, "RIGHT", -12, 0)
@@ -875,6 +935,27 @@ local function LoadEditorOptions(element)
                 and NSkin:GetOptionGroupDefinition(id) or nil
             local hasInheritedReset = optionDefinition
                 and optionDefinition.inheritedReset == true
+            local headerToggleKey = type(definition) == "table"
+                and definition.headerToggleKey
+            section.power.optionGroupID = id
+            section.power.context = optionContext
+            section.power.toggleKey = headerToggleKey
+            section.power.toggleTooltip = headerToggleKey
+                and ("Toggle " .. tostring(
+                    type(definition) == "table"
+                        and (definition.label or id) or id))
+                or nil
+            local toggleValues = headerToggleKey and optionDefinition
+                and optionDefinition.get(optionContext)
+            local toggleEnabled = toggleValues
+                and toggleValues[headerToggleKey] == true
+            section.power:SetShown(headerToggleKey ~= nil)
+            if headerToggleKey then
+                NSkin:SetCenteredButtonGlyphColor(
+                    section.power.icon,
+                    toggleEnabled and NSkin:GetAccentColor()
+                        or { 0.45, 0.45, 0.45, 1 })
+            end
             section.reset.optionGroupID = id
             section.reset.context = optionContext
             section.reset.sectionLabel = type(definition) == "table"
@@ -929,7 +1010,8 @@ local function LoadEditorOptions(element)
                     state.selectedEditorSubtabs[key] = selected
                     local tab = tabs[selected]
                     viewIDs = tab.groups or { tab.id }
-                    viewContext = ResolveEditorContext(tab, element)
+                    viewContext = ResolveEditorContext(
+                        tab, optionContext)
                     local bar = section.tabBar
                     if not bar then
                         bar = CreateFrame("Frame", nil, state.scrollChild)
@@ -976,6 +1058,10 @@ local function LoadEditorOptions(element)
                     end
                     if view then
                         view.isSkinningModeInspector = true
+                        if view.SetExternalEnabled then
+                            view:SetExternalEnabled(
+                                headerToggleKey == nil or toggleEnabled)
+                        end
                         view:ClearAllPoints()
                         view:SetPoint("TOPLEFT", state.scrollChild, "TOPLEFT",
                             SnapInspectorOffset(8), -SnapInspectorOffset(y))

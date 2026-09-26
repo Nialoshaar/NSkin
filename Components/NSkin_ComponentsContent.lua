@@ -137,6 +137,51 @@ local function AnchorContentSurface(region, visualRegion, inset)
     region:SetPoint("BOTTOMRIGHT", visualRegion, "BOTTOMRIGHT", -inset, inset)
 end
 
+local function ResolveContentSurfaceAnchor(
+    target, state, visualRegion, width, height)
+    if not target or not state or not visualRegion then return visualRegion end
+    local anchor = state.surfaceAnchor
+    if not anchor then
+        anchor = CreateFrame("Frame", nil, target)
+        anchor:EnableMouse(false)
+        state.surfaceAnchor = anchor
+    end
+    anchor:ClearAllPoints()
+    anchor:SetPoint("TOPLEFT", visualRegion, "TOPLEFT", 0, 0)
+    local resolvedWidth = tonumber(width)
+    local resolvedHeight = tonumber(height)
+    if not resolvedWidth or resolvedWidth <= 0 then
+        resolvedWidth = visualRegion.GetWidth and visualRegion:GetWidth() or 1
+    end
+    if not resolvedHeight or resolvedHeight <= 0 then
+        resolvedHeight = visualRegion.GetHeight and visualRegion:GetHeight() or 1
+    end
+    anchor:SetSize(math.max(1, resolvedWidth), math.max(1, resolvedHeight))
+    return anchor
+end
+
+local function ApplyContentSurfaceExtent(target, state, width, height)
+    if not target or not state then return end
+    if state.originalHeight == nil and target.GetHeight then
+        local originalHeight = tonumber(target:GetHeight())
+        if originalHeight and originalHeight > 0 then
+            state.originalHeight = originalHeight
+        end
+    end
+
+    -- Repeated ScrollBox rows are horizontally constrained by Blizzard's
+    -- anchors. Width belongs to the owned surface frame; forcing SetWidth()
+    -- on the pooled row fights that layout and has no stable visual result.
+    height = tonumber(height)
+    if height and height > 0 and target.SetHeight then
+        target:SetHeight(height)
+        state.heightModified = true
+    elseif state.heightModified and state.originalHeight and target.SetHeight then
+        target:SetHeight(state.originalHeight)
+        state.heightModified = nil
+    end
+end
+
 local function HideDeclaredContentArtwork(region)
     if not region or not region.GetObjectType then return end
     if region.SetAlpha then region:SetAlpha(0) end
@@ -618,10 +663,17 @@ RefreshRowPresentation = function(target)
     if not state or not state.active then return end
     local selected = ResolveContentState(
         state.getSelected, state.selectedRegion, target)
-    local hovered = ResolveContentState(
-        state.getHovered, state.hoverRegion, target)
+    local hovered
+    if type(state.getHovered) == "function" then
+        hovered = ResolveContentState(
+            state.getHovered, state.hoverRegion, target)
+    else
+        hovered = state.pointerHovered == true
+    end
     if state.selectedOverlay then state.selectedOverlay:SetShown(selected) end
-    if state.hoverOverlay then state.hoverOverlay:SetShown(hovered) end
+    if state.hoverOverlay then
+        state.hoverOverlay:SetShown(state.showHighlight ~= false and hovered)
+    end
     RefreshRowContentAppearance(target)
 end
 
@@ -668,6 +720,11 @@ function NSkin:SkinRow(target, options)
     state.selectedRegion = ResolveContentValue(options.selectedRegion, target)
     state.getHovered = options.getHovered
     state.getSelected = options.getSelected
+    if state.pointerHovered == nil then state.pointerHovered = false end
+    state.showHighlight = options.showHighlight
+    if state.showHighlight == nil then
+        state.showHighlight = style.showHighlight ~= false
+    end
     state.contentStyle = options.contentStyle
     state.contentTextOptions = options.contentTextOptions
     local visualRegion = ResolveContentValue(options.visualRegion, target)
@@ -675,39 +732,28 @@ function NSkin:SkinRow(target, options)
         visualRegion = target
     end
 
-    if not state.originalWidth and target.GetWidth then
-        state.originalWidth = target:GetWidth()
-    end
-    if not state.originalHeight and target.GetHeight then
-        state.originalHeight = target:GetHeight()
-    end
-    local width = tonumber(options.width) or tonumber(style.width)
-    if width and width > 0 and target.SetWidth then
-        target:SetWidth(width)
-        state.widthModified = true
-    elseif state.widthModified and state.originalWidth and target.SetWidth then
-        target:SetWidth(state.originalWidth)
-        state.widthModified = nil
-    end
-    local height = tonumber(options.height)
-        or tonumber(style.height)
-    if height and height > 0 and target.SetHeight then
-        target:SetHeight(height)
-        state.heightModified = true
-    elseif state.heightModified and state.originalHeight and target.SetHeight then
-        target:SetHeight(state.originalHeight)
-        state.heightModified = nil
-    end
+    local surfaceWidth = tonumber(options.width) or tonumber(style.width)
+    local surfaceHeight = tonumber(options.height) or tonumber(style.height)
+    ApplyContentSurfaceExtent(
+        target, state, surfaceWidth, surfaceHeight)
+    local surfaceRegion = ResolveContentSurfaceAnchor(
+        target, state, visualRegion, surfaceWidth, surfaceHeight)
 
     local backgroundColor = self:GetResolvedAppearanceColor(
         style, "background")
+    backgroundColor[4] = tonumber(style.backgroundOpacity)
+        or backgroundColor[4] or 1
     local borderColor = options.border
         or (style.borderMode and self:GetResolvedAppearanceColor(style, "border"))
         or self:GetComponentBorderColor("row", style)
     local surfaceInset = tonumber(options.surfaceInset)
     if surfaceInset == nil then surfaceInset = 1 end
+    local showBackground = options.showBackground
+    if showBackground == nil then showBackground = style.showBackground ~= false end
+    local showBorder = options.showBorder
+    if showBorder == nil then showBorder = style.showBorder ~= false end
     local background = self:GetFlatBackground(target, ROW_BACKGROUND)
-    if options.showBackground ~= false then
+    if showBackground then
         background = self:CreateFlatBackground(
             target, ROW_BACKGROUND, backgroundColor, borderColor)
         -- Table templates commonly place their cell FontStrings on BACKGROUND.
@@ -715,21 +761,23 @@ function NSkin:SkinRow(target, options)
         if background and background.SetDrawLayer then
             background:SetDrawLayer("BACKGROUND", -8)
         end
-        AnchorContentSurface(background, visualRegion, surfaceInset)
+        AnchorContentSurface(background, surfaceRegion, surfaceInset)
         if background then background:Show() end
     elseif background then
         background:Hide()
     end
     local border = self:GetPixelBorder(target, ROW_BACKGROUND .. "Border")
         or self:CreatePixelBorder(target, ROW_BACKGROUND .. "Border",
-            style.borderSize or 1, borderColor, false, visualRegion)
+            style.borderSize or 1, borderColor, false, surfaceRegion)
     state.background = background
     state.border = border
-    if border then border.anchor = visualRegion end
+    self:SetPixelBorderAnchor(border, surfaceRegion)
     self:SetPixelBorderColor(border, unpack(borderColor))
     self:SetPixelBorderSize(border, style.borderSize or 1)
-    self:SetPixelBorderPadding(border, style.borderPadding or 0)
-    self:SetPixelBorderShown(border, true)
+    self:SetPixelBorderPadding(border,
+        (tonumber(style.borderPadding) or 0) - surfaceInset)
+    self:SetPixelBorderShown(border,
+        showBorder and (tonumber(style.borderSize) or 0) > 0)
 
     if not state.selectedOverlay then
         state.selectedOverlay = target:CreateTexture(nil, "ARTWORK", nil, 6)
@@ -739,12 +787,21 @@ function NSkin:SkinRow(target, options)
         state.hoverOverlay = target:CreateTexture(nil, "OVERLAY", nil, -1)
         self:ConfigureOwnedPixelTexture(state.hoverOverlay)
     end
-    AnchorContentSurface(state.selectedOverlay, visualRegion, surfaceInset)
-    AnchorContentSurface(state.hoverOverlay, visualRegion, surfaceInset)
-    self:SetOwnedTextureColor(state.selectedOverlay, unpack(
-        self:GetResolvedAppearanceColor(style, "selectedBackground")))
+    AnchorContentSurface(state.selectedOverlay, surfaceRegion, surfaceInset)
+    AnchorContentSurface(state.hoverOverlay, surfaceRegion, surfaceInset)
+    local selectedColor =
+        self:GetResolvedAppearanceColor(style, "selectedBackground")
     self:SetOwnedTextureColor(
-        state.hoverOverlay, 1, 1, 1, tonumber(style.hoverAlpha) or 0.10)
+        state.selectedOverlay,
+        selectedColor[1], selectedColor[2], selectedColor[3],
+        tonumber(style.selectedBackgroundOpacity)
+            or selectedColor[4] or 0.10)
+    local highlightColor =
+        self:GetResolvedAppearanceColor(style, "highlight")
+    self:SetOwnedTextureColor(
+        state.hoverOverlay,
+        highlightColor[1], highlightColor[2], highlightColor[3],
+        tonumber(style.hoverAlpha) or highlightColor[4] or 0.10)
 
     local preserved = {
         [state.selectedOverlay] = true,
@@ -763,9 +820,21 @@ function NSkin:SkinRow(target, options)
         columnTargets)
     ApplyRowColumns(target, state, columns, options)
     if not state.hooked and target.HookScript then
-        for _, script in ipairs({ "OnEnter", "OnLeave", "OnShow" }) do
-            target:HookScript(script, RefreshRowPresentation)
-        end
+        target:HookScript("OnEnter", function(row)
+            local rowState = NSkin:GetSkinData(row, ROW_STATE, false)
+            if rowState then rowState.pointerHovered = true end
+            RefreshRowPresentation(row)
+        end)
+        target:HookScript("OnLeave", function(row)
+            local rowState = NSkin:GetSkinData(row, ROW_STATE, false)
+            if rowState then rowState.pointerHovered = false end
+            RefreshRowPresentation(row)
+        end)
+        target:HookScript("OnShow", function(row)
+            local rowState = NSkin:GetSkinData(row, ROW_STATE, false)
+            if rowState then rowState.pointerHovered = false end
+            RefreshRowPresentation(row)
+        end)
         state.hooked = true
     end
     if not state.methodHooksInstalled and _G.hooksecurefunc then
@@ -938,14 +1007,16 @@ RefreshSectionRowPresentation = function(target)
     local selected = ResolveContentState(
         state.getSelected, state.selectedRegion, target)
     local hovered
-    if state.hoverEventsManaged then
-        hovered = state.pointerHovered == true
-    else
+    if type(state.getHovered) == "function" then
         hovered = ResolveContentState(
             state.getHovered, state.hoverRegion, target)
+    else
+        hovered = state.pointerHovered == true
     end
     if state.selectedOverlay then state.selectedOverlay:SetShown(selected) end
-    if state.hoverOverlay then state.hoverOverlay:SetShown(hovered) end
+    if state.hoverOverlay then
+        state.hoverOverlay:SetShown(state.showHighlight ~= false and hovered)
+    end
     RefreshSectionRowContentAppearance(target)
     RefreshSectionRowCollapseGlow(state)
 end
@@ -991,6 +1062,11 @@ function NSkin:SkinSectionRow(target, options)
     state.selectedRegion = ResolveContentValue(options.selectedRegion, target)
     state.getHovered = options.getHovered
     state.getSelected = options.getSelected
+    if state.pointerHovered == nil then state.pointerHovered = false end
+    state.showHighlight = options.showHighlight
+    if state.showHighlight == nil then
+        state.showHighlight = style.showHighlight ~= false
+    end
     state.hoverEventsManaged = type(options.getHovered) == "function"
     state.pointerHovered = false
     state.contentStyle = options.contentStyle
@@ -1000,49 +1076,50 @@ function NSkin:SkinSectionRow(target, options)
         visualRegion = target
     end
 
-    if not state.originalWidth and target.GetWidth then
-        state.originalWidth = target:GetWidth()
-    end
-    if not state.originalHeight and target.GetHeight then
-        state.originalHeight = target:GetHeight()
-    end
-    local width = tonumber(options.width) or tonumber(style.width)
-    if width and width > 0 and target.SetWidth then
-        target:SetWidth(width)
-        state.widthModified = true
-    elseif state.widthModified and state.originalWidth and target.SetWidth then
-        target:SetWidth(state.originalWidth)
-        state.widthModified = nil
-    end
-    local height = tonumber(options.height) or tonumber(style.height)
-    if height and height > 0 and target.SetHeight then
-        target:SetHeight(height)
-        state.heightModified = true
-    elseif state.heightModified and state.originalHeight and target.SetHeight then
-        target:SetHeight(state.originalHeight)
-        state.heightModified = nil
-    end
+    local surfaceWidth = tonumber(options.width) or tonumber(style.width)
+    local surfaceHeight = tonumber(options.height) or tonumber(style.height)
+    ApplyContentSurfaceExtent(
+        target, state, surfaceWidth, surfaceHeight)
+    local surfaceRegion = ResolveContentSurfaceAnchor(
+        target, state, visualRegion, surfaceWidth, surfaceHeight)
 
     local backgroundColor = self:GetResolvedAppearanceColor(style, "background")
+    backgroundColor[4] = tonumber(style.backgroundOpacity)
+        or backgroundColor[4] or 1
     local borderColor = options.border
         or (style.borderMode and self:GetResolvedAppearanceColor(style, "border"))
         or self:GetComponentBorderColor("sectionRow", style)
-    local background = self:CreateFlatBackground(
-        target, SECTION_ROW_BACKGROUND, backgroundColor, borderColor)
-    if background and background.SetDrawLayer then
-        background:SetDrawLayer("BACKGROUND", -8)
+    local showBackground = options.showBackground
+    if showBackground == nil then showBackground = style.showBackground ~= false end
+    local showBorder = options.showBorder
+    if showBorder == nil then showBorder = style.showBorder == true end
+    local surfaceInset = 1
+    local background = self:GetFlatBackground(target, SECTION_ROW_BACKGROUND)
+    if showBackground then
+        background = self:CreateFlatBackground(
+            target, SECTION_ROW_BACKGROUND, backgroundColor, borderColor)
+        if background and background.SetDrawLayer then
+            background:SetDrawLayer("BACKGROUND", -8)
+        end
+        AnchorContentSurface(background, surfaceRegion, surfaceInset)
+        if background then background:Show() end
+    elseif background then
+        background:Hide()
     end
-    AnchorContentSurface(background, visualRegion, 1)
     local border = self:GetPixelBorder(
         target, SECTION_ROW_BACKGROUND .. "Border")
+        or self:CreatePixelBorder(
+            target, SECTION_ROW_BACKGROUND .. "Border",
+            style.borderSize or 1, borderColor, false, surfaceRegion)
     state.background = background
     state.border = border
-    if border then border.anchor = visualRegion end
+    self:SetPixelBorderAnchor(border, surfaceRegion)
     self:SetPixelBorderColor(border, unpack(borderColor))
     self:SetPixelBorderSize(border, style.borderSize or 1)
-    self:SetPixelBorderPadding(border, style.borderPadding or 0)
+    self:SetPixelBorderPadding(border,
+        (tonumber(style.borderPadding) or 0) - surfaceInset)
     self:SetPixelBorderShown(border,
-        style.showBorder == true and (tonumber(style.borderSize) or 0) > 0)
+        showBorder and (tonumber(style.borderSize) or 0) > 0)
 
     if not state.selectedOverlay then
         state.selectedOverlay = target:CreateTexture(nil, "ARTWORK", nil, 6)
@@ -1052,18 +1129,27 @@ function NSkin:SkinSectionRow(target, options)
         state.hoverOverlay = target:CreateTexture(nil, "OVERLAY", nil, -1)
         self:ConfigureOwnedPixelTexture(state.hoverOverlay)
     end
-    AnchorContentSurface(state.selectedOverlay, visualRegion, 1)
-    AnchorContentSurface(state.hoverOverlay, visualRegion, 1)
-    self:SetOwnedTextureColor(state.selectedOverlay, unpack(
-        self:GetResolvedAppearanceColor(style, "selectedBackground")))
+    AnchorContentSurface(state.selectedOverlay, surfaceRegion, 1)
+    AnchorContentSurface(state.hoverOverlay, surfaceRegion, 1)
+    local selectedColor =
+        self:GetResolvedAppearanceColor(style, "selectedBackground")
     self:SetOwnedTextureColor(
-        state.hoverOverlay, 1, 1, 1, tonumber(style.hoverAlpha) or 0.10)
+        state.selectedOverlay,
+        selectedColor[1], selectedColor[2], selectedColor[3],
+        tonumber(style.selectedBackgroundOpacity)
+            or selectedColor[4] or 0.10)
+    local highlightColor =
+        self:GetResolvedAppearanceColor(style, "highlight")
+    self:SetOwnedTextureColor(
+        state.hoverOverlay,
+        highlightColor[1], highlightColor[2], highlightColor[3],
+        tonumber(style.hoverAlpha) or highlightColor[4] or 0.10)
 
     local preserved = {
-        [background] = true,
         [state.selectedOverlay] = true,
         [state.hoverOverlay] = true,
     }
+    if background then preserved[background] = true end
     PreserveContentRegions(preserved, options.preserveTextures)
     ApplyRowNativeDecorations(target, state,
         options.nativeDecorationRegions or options.artworkRegions, preserved)
@@ -1084,9 +1170,7 @@ function NSkin:SkinSectionRow(target, options)
         target:HookScript("OnEnter", function(row)
             local rowState = NSkin:GetSkinData(
                 row, SECTION_ROW_STATE, false)
-            if rowState and rowState.hoverEventsManaged then
-                rowState.pointerHovered = true
-            end
+            if rowState then rowState.pointerHovered = true end
             RefreshSectionRowPresentation(row)
         end)
         target:HookScript("OnLeave", function(row)
@@ -1154,6 +1238,136 @@ local function ResolveRowFamilyTargets(element)
     return result
 end
 
+local function RefreshRowFamilySurfaceTarget(
+    target, family, style)
+    local stateKey = family == "sectionRow"
+        and SECTION_ROW_STATE or ROW_STATE
+    local backgroundKey = family == "sectionRow"
+        and SECTION_ROW_BACKGROUND or ROW_BACKGROUND
+    local state = NSkin:GetSkinData(target, stateKey, false)
+    if not state or not state.active or not style then return false end
+
+    ApplyContentSurfaceExtent(
+        target, state, style.width, style.height)
+    local surfaceRegion = ResolveContentSurfaceAnchor(
+        target, state, target, style.width, style.height)
+    local surfaceInset = 1
+    local backgroundColor = NSkin:GetResolvedAppearanceColor(
+        style, "background")
+    backgroundColor[4] = tonumber(style.backgroundOpacity)
+        or backgroundColor[4] or 1
+    local borderColor = style.borderMode
+        and NSkin:GetResolvedAppearanceColor(style, "border")
+        or NSkin:GetComponentBorderColor(family, style)
+
+    local background = NSkin:GetFlatBackground(target, backgroundKey)
+    if style.showBackground ~= false then
+        background = background or NSkin:CreateFlatBackground(
+            target, backgroundKey, backgroundColor, borderColor)
+        NSkin:SetOwnedTextureColor(
+            background, backgroundColor[1], backgroundColor[2],
+            backgroundColor[3], backgroundColor[4])
+        if background and background.SetDrawLayer then
+            background:SetDrawLayer("BACKGROUND", -8)
+        end
+        AnchorContentSurface(background, surfaceRegion, surfaceInset)
+        if background then background:Show() end
+    elseif background then
+        background:Hide()
+    end
+
+    local border = NSkin:GetPixelBorder(target, backgroundKey .. "Border")
+        or NSkin:CreatePixelBorder(
+            target, backgroundKey .. "Border",
+            style.borderSize or 1, borderColor, false, surfaceRegion)
+    state.background = background
+    state.border = border
+    NSkin:SetPixelBorderAnchor(border, surfaceRegion)
+    NSkin:SetPixelBorderColor(border, unpack(borderColor))
+    NSkin:SetPixelBorderSize(border, style.borderSize or 1)
+    NSkin:SetPixelBorderPadding(
+        border, (tonumber(style.borderPadding) or 0) - surfaceInset)
+    local showBorder = family == "sectionRow"
+        and style.showBorder == true or style.showBorder ~= false
+    NSkin:SetPixelBorderShown(
+        border, showBorder and (tonumber(style.borderSize) or 0) > 0)
+
+    if state.selectedOverlay then
+        AnchorContentSurface(
+            state.selectedOverlay, surfaceRegion, surfaceInset)
+        local selectedColor = NSkin:GetResolvedAppearanceColor(
+            style, "selectedBackground")
+        NSkin:SetOwnedTextureColor(
+            state.selectedOverlay,
+            selectedColor[1], selectedColor[2], selectedColor[3],
+            tonumber(style.selectedBackgroundOpacity)
+                or selectedColor[4] or 0.10)
+    end
+    if state.hoverOverlay then
+        AnchorContentSurface(
+            state.hoverOverlay, surfaceRegion, surfaceInset)
+        local highlightColor = NSkin:GetResolvedAppearanceColor(
+            style, "highlight")
+        NSkin:SetOwnedTextureColor(
+            state.hoverOverlay,
+            highlightColor[1], highlightColor[2], highlightColor[3],
+            tonumber(style.hoverAlpha) or highlightColor[4] or 0.10)
+    end
+    state.showHighlight = style.showHighlight ~= false
+    if family == "sectionRow" then
+        RefreshSectionRowPresentation(target)
+    else
+        RefreshRowPresentation(target)
+    end
+    return true
+end
+
+function NSkin:RefreshRowFamilySurfaceAppearance(elementOrID, change)
+    local element = type(elementOrID) == "table" and elementOrID
+        or self:GetSkinningElement(elementOrID)
+    if not element
+        or (element.rowFamily ~= "row"
+            and element.rowFamily ~= "sectionRow")
+    then
+        return false
+    end
+    local style = self:GetAppearanceStyle(
+        element.rowFamily, element.appearanceWindowID, element.id)
+    local refreshed
+    for _, target in ipairs(ResolveRowFamilyTargets(element)) do
+        refreshed = RefreshRowFamilySurfaceTarget(
+            target, element.rowFamily, style) or refreshed
+    end
+    local function ChangeIncludesKey(key)
+        if not change then return false end
+        if type(change.path) == "string"
+            and change.path:match("([^.]+)$") == key
+        then
+            return true
+        end
+        for _, entry in ipairs(change.changes or {}) do
+            if type(entry.path) == "string"
+                and entry.path:match("([^.]+)$") == key
+            then
+                return true
+            end
+        end
+        return false
+    end
+    local widthChanged = ChangeIncludesKey("width")
+    local heightChanged = ChangeIncludesKey("height")
+    if heightChanged
+        and type(element.refreshRowFamilyLayout) == "function"
+    then
+        refreshed = element.refreshRowFamilyLayout(
+            self, element, change) or refreshed
+    end
+    if widthChanged or heightChanged then
+        self:NotifySkinningElementBoundsChanged(element.id)
+    end
+    return refreshed == true
+end
+
 local function AppendUniqueRowFamilyTarget(result, seen, target)
     if target and not seen[target]
         and (not target.IsForbidden or not target:IsForbidden())
@@ -1178,9 +1392,25 @@ local function AppendCustomRowFamilyTargets(element, kind, result, seen)
     end
 end
 
+function NSkin:GetRowFamilySurfaceHighlightTargets(element)
+    if not element then return {} end
+    local result = {}
+    local stateKey = element.rowFamily == "sectionRow"
+        and SECTION_ROW_STATE or ROW_STATE
+    for _, target in ipairs(ResolveRowFamilyTargets(element)) do
+        local state = self:GetSkinData(target, stateKey, false)
+        result[#result + 1] =
+            state and state.surfaceAnchor or target
+    end
+    return result
+end
+
 function NSkin:GetRowFamilyMemberTargets(element, member)
     if not element or not member then return {} end
     if member.rowFamilySurface == true then
+        -- Movement must own the actual Blizzard row frames. The owned
+        -- surfaceAnchor is presentation-only and is exposed separately to
+        -- Skinning Mode through highlightTargets.
         return ResolveRowFamilyTargets(element)
     end
 
@@ -1229,8 +1459,33 @@ end
 
 local function GetRowFamilySurfaceOptions()
     return {
-        { id = "shared.surfaceAppearance", label = "Surface",
-            category = "CUSTOMIZE" },
+        {
+            id = "shared.surfaceGeometry",
+            label = "Surface",
+            category = "CUSTOMIZE",
+            contextualInline = true,
+        },
+        {
+            id = "shared.surfaceBackground",
+            label = "Background",
+            category = "CUSTOMIZE",
+            contextualInline = false,
+            headerToggleKey = "showBackground",
+        },
+        {
+            id = "shared.surfaceBorder",
+            label = "Border",
+            category = "CUSTOMIZE",
+            contextualInline = false,
+            headerToggleKey = "showBorder",
+        },
+        {
+            id = "shared.surfaceHighlight",
+            label = "Highlight",
+            category = "CUSTOMIZE",
+            contextualInline = false,
+            headerToggleKey = "showHighlight",
+        },
     }
 end
 
@@ -1267,20 +1522,24 @@ local function MakeRowFamilyMember(elementID, definition, kind, surface)
             or (kind:sub(1, 1) .. kind:sub(2):lower()),
         appearanceWindowID = definition.appearanceWindowID,
         appearanceID = elementID .. "." .. suffix,
-        appearanceParentID = surface and elementID
+        appearanceParentID = surface
+            and (definition.rowFamilyTagAppearanceID or elementID)
             or (elementID .. "." .. suffix),
         targets = function(element, current)
             return NSkin:GetRowFamilyMemberTargets(element, current)
         end,
         movementFamilyID = surface and "ROW_SURFACE" or ("ROW_" .. kind),
         movable = false,
-        allowOverrides = false,
+        allowOverrides = surface == true,
         highlightMode = "REGIONS",
     }
     if surface then
         member.editorSurface = true
         member.rowFamilySurface = true
         member.surfaceStyle = definition.rowFamily
+        member.highlightTargets = function(element)
+            return NSkin:GetRowFamilySurfaceHighlightTargets(element)
+        end
         member.editorOptions = GetRowFamilySurfaceOptions()
         for key, value in pairs(
             definition.rowFamilySurfaceDefinition or {})
@@ -1325,6 +1584,15 @@ function NSkin:PrepareRowFamilyDefinition(elementID, definition)
     -- Repeated/pooled row families are disjoint editor regions. Empty space
     -- between visible rows is not part of the Composite hit surface.
     composition.separateRegions = true
+    composition.tag = composition.tag
+        or (family == "sectionRow" and "Header Row" or "Row")
+    local tagAppearanceID = NSkin.GetCompositeTagAppearanceID
+        and NSkin:GetCompositeTagAppearanceID(composition.tag)
+    definition.rowFamilyTagAppearanceID = tagAppearanceID
+    if tagAppearanceID and NSkin.RegisterAppearanceParentID then
+        NSkin:RegisterAppearanceParentID(
+            elementID, tagAppearanceID, elementID)
+    end
 
     local surface
     for _, member in ipairs(composition.members) do
@@ -1341,13 +1609,14 @@ function NSkin:PrepareRowFamilyDefinition(elementID, definition)
             member.surfaceStyle = family
             member.highlightMode = "REGIONS"
             member.movable = false
-            member.allowOverrides = false
+            member.allowOverrides = true
             member.movementFamilyID = "ROW_SURFACE"
             member.appearanceWindowID =
                 member.appearanceWindowID or definition.appearanceWindowID
             member.appearanceID = member.appearanceID
                 or (elementID .. ".Surface")
-            member.appearanceParentID = elementID
+            member.appearanceParentID =
+                definition.rowFamilyTagAppearanceID or elementID
             member.editorOptions = GetRowFamilySurfaceOptions()
             surface = member
         end

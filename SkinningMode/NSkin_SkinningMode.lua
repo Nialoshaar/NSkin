@@ -662,6 +662,14 @@ local function OpenCompositeMemberContextMenu(input, element, member)
             end
         end)
     end)
+    C_Timer.After(0, function()
+        local manager = Menu and Menu.GetManager and Menu.GetManager()
+        local menu = manager and manager.GetOpenMenu
+            and manager:GetOpenMenu()
+        if menu and menu:IsShown() then
+            NSkin:SkinDropdownMenu(menu)
+        end
+    end)
     return true
 end
 
@@ -876,10 +884,17 @@ RefreshCompositeMemberSurfaces = function(element)
     for _, member in ipairs(composition.members or {}) do
         SetCompositeMemberNativeHoverSuppressed(element, member, true)
         if member.highlightMode == "REGIONS" then
-            for _, target in ipairs(
-                NSkin:GetCompositionMemberTargets(
-                    element, member, false) or {})
-            do
+            local targets
+            if type(member.highlightTargets) == "function" then
+                local ok, resolved = pcall(
+                    member.highlightTargets, element, member)
+                targets = ok and resolved or nil
+            elseif type(member.highlightTargets) == "table" then
+                targets = member.highlightTargets
+            end
+            targets = targets or NSkin:GetCompositionMemberTargets(
+                element, member, false) or {}
+            for _, target in ipairs(targets) do
                 RefreshSurface(member, target)
             end
         else
@@ -1303,6 +1318,9 @@ end
 
 CanShiftDragElement = function(element)
     if not element then return false end
+    if element.rowFamily then
+        return false
+    end
     if element.isAnchorGroup then
         return type(element.getPlacement) == "function"
             and type(element.applyPlacement) == "function"

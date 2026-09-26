@@ -1213,6 +1213,10 @@ local function ApplyDungeonCheckboxComponent(choice, styleID)
     })
 end
 
+local ReapplyDungeonMemberFamilyOffsets
+local ReapplyDungeonRowFamilyOffsets
+local RefreshDungeonRowRenderingParent
+
 local function SkinDungeonCollapseButton(choice)
     local button = choice and choice.expandOrCollapseButton
     if not button or not button.CreateTexture then return end
@@ -1251,6 +1255,7 @@ local function SkinDungeonCollapseButton(choice)
                 C_Timer.After(0, function()
                     if data.choice then
                         PVESkin:StyleDungeonChoice(nil, nil, data.choice)
+                        ReapplyDungeonRowFamilyOffsets()
                     end
                 end)
             end)
@@ -1318,43 +1323,85 @@ local function GetDungeonTextTargetAppearanceID(baseID, target)
     return baseID
 end
 
-local function ApplyDungeonTextExactOffset(
-    region, appearanceID, x, y)
-    if not region or not region.GetNumPoints then return false end
+local function RestoreDungeonTextExactBaseline(region)
+    local data = region and NSkin:GetSkinData(
+        region, "dungeonExactTextOffset", false)
+    if not data or not data.points
+        or not region.ClearAllPoints or not region.SetPoint
+    then return false end
+    region:ClearAllPoints()
+    for _, point in ipairs(data.points) do
+        region:SetPoint(unpack(point))
+    end
+    data.active = nil
+    return true
+end
+
+local function CaptureDungeonTextExactBaseline(region)
+    if not region or not region.GetNumPoints then return nil end
     local data = NSkin:GetSkinData(region, "dungeonExactTextOffset")
-
-    -- Restore the un-overridden points first so repeated styling and pool reuse
-    -- never accumulate offsets from a previous logical dungeon.
-    if data.active and data.points then
-        region:ClearAllPoints()
-        for _, point in ipairs(data.points) do
-            region:SetPoint(unpack(point))
+    if not data.points then
+        data.points = {}
+        for index = 1, region:GetNumPoints() do
+            data.points[index] = { region:GetPoint(index) }
         end
-        data.active = nil
     end
+    return data
+end
 
-    local points = {}
-    for index = 1, region:GetNumPoints() do
-        points[index] = { region:GetPoint(index) }
-    end
-    data.points = points
+local function ApplyDungeonTextExactOffset(
+    region, owner, appearanceID, x, y)
+    if not region or not owner or not region.GetLeft or not region.GetTop
+        or not owner.GetLeft or not owner.GetTop
+        or not region.ClearAllPoints or not region.SetPoint
+    then return false end
+
+    local data = CaptureDungeonTextExactBaseline(region)
+    if not data then return false end
     data.appearanceID = appearanceID
 
-    x, y = tonumber(x) or 0, tonumber(y) or 0
-    if x == 0 and y == 0 then return true end
-    region:ClearAllPoints()
-    for _, point in ipairs(points) do
-        region:SetPoint(
-            point[1], point[2], point[3],
-            (tonumber(point[4]) or 0) + x,
-            (tonumber(point[5]) or 0) + y)
+    local regionLeft, regionTop = region:GetLeft(), region:GetTop()
+    local ownerLeft, ownerTop = owner:GetLeft(), owner:GetTop()
+    if not regionLeft or not regionTop or not ownerLeft or not ownerTop then
+        return false
     end
+
+    x, y = tonumber(x) or 0, tonumber(y) or 0
+    if x == 0 and y == 0 then
+        RestoreDungeonTextExactBaseline(region)
+        return true
+    end
+
+    region:ClearAllPoints()
+    region:SetPoint("TOPLEFT", owner, "TOPLEFT",
+        regionLeft - ownerLeft + x,
+        regionTop - ownerTop + y)
     data.active = true
     return true
 end
 
 local dungeonDefaultRowExtent
 local dungeonExtentState = setmetatable({}, { __mode = "k" })
+
+local function HasDungeonExtentOffset()
+    for _, data in pairs(dungeonExtentState) do
+        if data.active then return true end
+    end
+    return false
+end
+
+local function RestoreDungeonExtentOffset(choice)
+    local data = choice and dungeonExtentState[choice]
+    if not data or not data.active or not data.points
+        or not choice.ClearAllPoints or not choice.SetPoint
+    then return false end
+    choice:ClearAllPoints()
+    for _, point in ipairs(data.points) do
+        choice:SetPoint(unpack(point))
+    end
+    data.active = nil
+    return true
+end
 
 local function RestoreDungeonFamilyOffsetTarget(target)
     local data = target and NSkin:GetSkinData(
@@ -1416,11 +1463,218 @@ local function ApplyDungeonFamilyOffsetTarget(target, x, y)
     return true
 end
 
-local function ApplyDungeonMemberFamilyOffset(element, member, x, y)
+local function HasDungeonRowFamilyOffset(elementID)
+    local element = NSkin:GetSkinningElement(elementID)
+    local composition = element and element.composition
+    if not composition then return false end
+    for _, member in ipairs(composition.members or {}) do
+        local x, y = NSkin:GetCompositeMemberFamilyOffset(element, member)
+        if (tonumber(x) or 0) ~= 0 or (tonumber(y) or 0) ~= 0 then
+            return true
+        end
+    end
+    return false
+end
+
+local function ReparentDungeonChoice(choice, parent)
+    if not choice or not parent or not choice.GetParent
+        or not choice.SetParent or choice:GetParent() == parent
+    then return false end
+
+    local oldParent = choice:GetParent()
+    local points = {}
+    for index = 1, choice:GetNumPoints() do
+        local point, relativeTo, relativePoint, x, y =
+            choice:GetPoint(index)
+        points[index] = {
+            point,
+            relativeTo or oldParent,
+            relativePoint,
+            x,
+            y,
+        }
+    end
+
+    choice:SetParent(parent)
+    if #points > 0 then
+        choice:ClearAllPoints()
+        for _, point in ipairs(points) do
+            choice:SetPoint(unpack(point))
+        end
+    end
+    return true
+end
+
+RefreshDungeonRowRenderingParent = function(forceDisplaced)
+    local queueFrame = _G.LFDQueueFrame
+    if not queueFrame then return false end
+    local displaced = forceDisplaced == true
+        or HasDungeonExtentOffset()
+        or HasDungeonRowFamilyOffset(IDs.DungeonSections)
+        or HasDungeonRowFamilyOffset(IDs.SpecificDungeons)
+    local changed
+
+    for _, owner in ipairs({ queueFrame.Specific, queueFrame.Follower }) do
+        local scrollBox = owner and owner.ScrollBox
+        local scrollTarget = scrollBox and scrollBox.GetScrollTarget
+            and scrollBox:GetScrollTarget()
+            or (scrollBox and scrollBox.ScrollTarget)
+        if owner and scrollBox and scrollTarget then
+            NSkin:ForEachScrollBoxFrame(scrollBox, function(choice)
+                local data = NSkin:GetSkinData(
+                    choice, "groupFinderDungeonRowParent")
+                if displaced then
+                    if not data.originalParent then
+                        data.originalParent = choice:GetParent()
+                    end
+                    changed = ReparentDungeonChoice(
+                        choice, owner) or changed
+                elseif data.originalParent then
+                    changed = ReparentDungeonChoice(
+                        choice, data.originalParent) or changed
+                    data.originalParent = nil
+                end
+            end)
+        end
+    end
+    return changed == true
+end
+
+local function ApplyDungeonRowExtentFlow()
+    local queueFrame = _G.LFDQueueFrame
+    if not queueFrame then return false end
+
+    local owners = { queueFrame.Specific, queueFrame.Follower }
+    local hasCustomExtent
+
+    for _, owner in ipairs(owners) do
+        local scrollBox = owner and owner.ScrollBox
+        NSkin:ForEachScrollBoxFrame(scrollBox, function(choice)
+            RestoreDungeonExtentOffset(choice)
+            RestoreDungeonChoiceFamilyOffsets(choice)
+            local _, isHeader = GetDungeonRowFamilyID(choice)
+            local state = NSkin:GetSkinData(
+                choice,
+                isHeader and "sectionRowComponent" or "rowComponent",
+                false)
+            local originalHeight = state and tonumber(state.originalHeight)
+            local currentHeight = choice.GetHeight
+                and tonumber(choice:GetHeight())
+            if originalHeight and currentHeight
+                and math.abs(currentHeight - originalHeight) > 0.01
+            then
+                hasCustomExtent = true
+            end
+        end)
+    end
+
+    RefreshDungeonRowRenderingParent(hasCustomExtent == true)
+
     local applied
-    for _, target in ipairs(
-        NSkin:GetCompositionMemberTargets(element, member, false) or {})
-    do
+    for _, owner in ipairs(owners) do
+        local scrollBox = owner and owner.ScrollBox
+        local rows = {}
+        NSkin:ForEachScrollBoxFrame(scrollBox, function(choice)
+            if choice and choice.IsVisible and choice:IsVisible() then
+                rows[#rows + 1] = choice
+            end
+        end)
+        table.sort(rows, function(left, right)
+            local leftTop = left.GetTop and left:GetTop()
+            local rightTop = right.GetTop and right:GetTop()
+            if leftTop and rightTop and leftTop ~= rightTop then
+                return leftTop > rightTop
+            end
+            return tostring(left) < tostring(right)
+        end)
+
+        local cumulativeOffset = 0
+        for _, choice in ipairs(rows) do
+            local data = dungeonExtentState[choice]
+            if not data then
+                data = {}
+                dungeonExtentState[choice] = data
+            end
+            local points = {}
+            for index = 1, choice:GetNumPoints() do
+                points[index] = { choice:GetPoint(index) }
+            end
+            data.points = points
+
+            if math.abs(cumulativeOffset) > 0.01 and #points > 0 then
+                choice:ClearAllPoints()
+                for _, point in ipairs(points) do
+                    choice:SetPoint(
+                        point[1], point[2], point[3],
+                        tonumber(point[4]) or 0,
+                        (tonumber(point[5]) or 0) - cumulativeOffset)
+                end
+                data.active = true
+                applied = true
+            else
+                data.active = nil
+            end
+
+            local _, isHeader = GetDungeonRowFamilyID(choice)
+            local state = NSkin:GetSkinData(
+                choice,
+                isHeader and "sectionRowComponent" or "rowComponent",
+                false)
+            local originalHeight = state and tonumber(state.originalHeight)
+            local currentHeight = choice.GetHeight
+                and tonumber(choice:GetHeight())
+            if originalHeight and currentHeight then
+                local heightDelta = currentHeight - originalHeight
+                cumulativeOffset = cumulativeOffset + heightDelta
+            end
+        end
+    end
+
+    RefreshDungeonRowRenderingParent(hasCustomExtent == true)
+    NSkin:NotifySkinningElementBoundsChanged(IDs.DungeonSections)
+    NSkin:NotifySkinningElementBoundsChanged(IDs.SpecificDungeons)
+    return applied == true or hasCustomExtent == true
+end
+
+local dungeonExtentFlowPending
+local function QueueDungeonRowExtentFlow()
+    if dungeonExtentFlowPending then return true end
+    dungeonExtentFlowPending = true
+    local function Apply()
+        dungeonExtentFlowPending = nil
+        ApplyDungeonRowExtentFlow()
+        ReapplyDungeonRowFamilyOffsets(true)
+    end
+    if C_Timer and C_Timer.After then
+        C_Timer.After(0, Apply)
+    else
+        Apply()
+    end
+    return true
+end
+
+local function ApplyDungeonMemberFamilyOffset(element, member, x, y)
+    x, y = tonumber(x) or 0, tonumber(y) or 0
+    local displaced = x ~= 0 or y ~= 0
+
+    -- Pooled row surfaces must be moved only after the row has been placed
+    -- under the rendering parent. Re-running the parent pass afterwards is
+    -- redundant and can invalidate the surface anchor we just offset.
+    RefreshDungeonRowRenderingParent(displaced)
+
+    local targets
+    if member.rowFamilySurface == true
+        and type(element.highlightRegions) == "function"
+    then
+        local ok, resolved = pcall(element.highlightRegions, element)
+        targets = ok and resolved or nil
+    end
+    targets = targets
+        or NSkin:GetCompositionMemberTargets(element, member, false)
+        or {}
+
+    local applied
+    for _, target in ipairs(targets) do
         applied = ApplyDungeonFamilyOffsetTarget(
             target, x, y) or applied
     end
@@ -1428,64 +1682,49 @@ local function ApplyDungeonMemberFamilyOffset(element, member, x, y)
     return applied == true
 end
 
-local function ReapplyDungeonMemberFamilyOffsets(elementID)
+ReapplyDungeonMemberFamilyOffsets = function(elementID)
     local element = NSkin:GetSkinningElement(elementID)
     local composition = element and element.composition
-    if not composition then return end
+    if not composition then return false end
+    local applied
     for _, member in ipairs(composition.members or {}) do
         if member.movable ~= false
             and type(member.applyFamilyOffset) == "function"
         then
             local x, y = NSkin:GetCompositeMemberFamilyOffset(
                 element, member)
-            member.applyFamilyOffset(
-                element, member, x or 0, y or 0)
+            x, y = tonumber(x) or 0, tonumber(y) or 0
+            if member.applyFamilyOffset == ApplyDungeonMemberFamilyOffset
+                and member.rowFamilySurface ~= true
+            then
+                for _, target in ipairs(
+                    NSkin:GetCompositionMemberTargets(
+                        element, member, false) or {})
+                do
+                    applied = ApplyDungeonFamilyOffsetTarget(
+                        target, x, y) or applied
+                end
+            else
+                applied = member.applyFamilyOffset(
+                    element, member, x, y) or applied
+            end
         end
     end
+    return applied == true
 end
 
-local function GetConfiguredDungeonRowExtent(isHeader)
-    local fallback = tonumber(dungeonDefaultRowExtent) or 20
-    local styleName = isHeader and "sectionRow" or "row"
-    local appearanceID = isHeader
-        and IDs.DungeonSections or IDs.SpecificDungeons
-    local style = NSkin:GetAppearanceStyle(
-        styleName, IDs.DungeonFinder.Scope, appearanceID)
-    local height = tonumber(style and style.height)
-    return height and height > 0 and height or fallback
-end
-
-local function RefreshDungeonScrollBoxExtent(scrollBox)
-    if not scrollBox or not scrollBox.GetView then return false end
-    local view = scrollBox:GetView()
-    if not view or type(view.SetElementExtentCalculator) ~= "function" then
-        return false
+ReapplyDungeonRowFamilyOffsets = function(skipInitialParentRefresh)
+    if not skipInitialParentRefresh then
+        RefreshDungeonRowRenderingParent()
     end
-
-    local rowExtent = GetConfiguredDungeonRowExtent(false)
-    local sectionExtent = GetConfiguredDungeonRowExtent(true)
-    local signature = tostring(rowExtent) .. ":" .. tostring(sectionExtent)
-    if dungeonExtentState[scrollBox] == signature then return false end
-    dungeonExtentState[scrollBox] = signature
-
-    view:SetElementExtentCalculator(function(_, elementData)
-        local dungeonID = elementData and elementData.dungeonID
-        local isHeader = dungeonID ~= nil
-            and type(_G.LFGIsIDHeader) == "function"
-            and _G.LFGIsIDHeader(dungeonID)
-        return isHeader and sectionExtent or rowExtent
-    end)
-
-    if scrollBox.FullUpdate then
-        local immediately = _G.ScrollBoxConstants
-            and _G.ScrollBoxConstants.UpdateImmediately
-        if immediately ~= nil then
-            scrollBox:FullUpdate(immediately)
-        else
-            scrollBox:FullUpdate()
-        end
-    end
-    return true
+    local applied =
+        ReapplyDungeonMemberFamilyOffsets(IDs.DungeonSections)
+    applied = ReapplyDungeonMemberFamilyOffsets(
+        IDs.SpecificDungeons) or applied
+    RefreshDungeonRowRenderingParent()
+    NSkin:NotifySkinningElementBoundsChanged(IDs.DungeonSections)
+    NSkin:NotifySkinningElementBoundsChanged(IDs.SpecificDungeons)
+    return applied == true
 end
 
 function PVESkin:StyleDungeonChoice(_, _, choice)
@@ -1497,6 +1736,11 @@ function PVESkin:StyleDungeonChoice(_, _, choice)
     RestoreDungeonChoiceFamilyOffsets(choice)
     local id, isHeader = GetDungeonRowFamilyID(choice)
 
+    if isHeader then
+        NSkin:SkinRow(choice, { reset = true })
+    else
+        NSkin:SkinSectionRow(choice, { reset = true })
+    end
     ApplyDungeonChoiceIndent(choice, isHeader)
 
     if isHeader then
@@ -1525,6 +1769,9 @@ function PVESkin:StyleDungeonChoice(_, _, choice)
         return true
     end
 
+    RestoreDungeonTextExactBaseline(choice.instanceName)
+    RestoreDungeonTextExactBaseline(choice.level)
+
     local rowStyle = NSkin:GetAppearanceStyle(
         "row", IDs.DungeonFinder.Scope, id)
     local border = NSkin:GetAppearanceBorderColor(
@@ -1545,7 +1792,6 @@ function PVESkin:StyleDungeonChoice(_, _, choice)
     NSkin:SkinRow(choice, {
         style = rowStyle,
         border = border,
-        showBackground = false,
         columns = {
             { kind = "CHECKBOX", target = choice.enableButton },
             { kind = "TEXT", target = choice.instanceName,
@@ -1572,19 +1818,16 @@ function PVESkin:StyleDungeonChoice(_, _, choice)
             local x, y = NSkin:GetCompositeMemberTargetOffset(
                 rowElement, nameMember, dungeonNameAppearanceID)
             ApplyDungeonTextExactOffset(
-                choice.instanceName, dungeonNameAppearanceID, x, y)
+                choice.instanceName, choice, dungeonNameAppearanceID, x, y)
         end
         if levelMember and choice.level then
             local x, y = NSkin:GetCompositeMemberTargetOffset(
                 rowElement, levelMember, levelRangeAppearanceID)
             ApplyDungeonTextExactOffset(
-                choice.level, levelRangeAppearanceID, x, y)
+                choice.level, choice, levelRangeAppearanceID, x, y)
         end
     end
 
-    local rowBorder = NSkin:GetPixelBorder(
-        choice, "NSkinRowBackgroundBorder")
-    if rowBorder then NSkin:SetPixelBorderShown(rowBorder, false) end
     return true
 end
 
@@ -1603,6 +1846,9 @@ function PVESkin:RegisterDungeonRows()
             label = label,
             kind = kind,
             rowFamily = rowFamily,
+            refreshRowFamilyLayout = function()
+                return QueueDungeonRowExtentFlow()
+            end,
             rowFamilySurfaceDefinition = {
                 movable = true,
                 applyFamilyOffset = ApplyDungeonMemberFamilyOffset,
@@ -1700,9 +1946,9 @@ function PVESkin:RegisterDungeonRows()
                 mode = "COMPOSITE",
                 type = "REGULAR",
                 groupLabel = wantHeaders
-                    and "Dungeon section rows" or "Dungeon rows",
+                    and "Dungeon header rows" or "Dungeon rows",
                 editorLabel = wantHeaders
-                    and "Dungeon section row" or "Dungeon row",
+                    and "Dungeon header row" or "Dungeon row",
                 memberEditorLabels = wantHeaders and {
                     CHECKBOX = "Checkbox",
                     BUTTON = "Collapse/Expand Button",
@@ -1842,7 +2088,7 @@ function PVESkin:RegisterDungeonRows()
         })
     end
 
-    RegisterFamily(IDs.DungeonSections, "Dungeon section rows", true)
+    RegisterFamily(IDs.DungeonSections, "Dungeon header rows", true)
     RegisterFamily(IDs.SpecificDungeons, "Dungeon rows", false)
 
     if not dungeonListContainerRegistered then
@@ -1886,12 +2132,9 @@ function PVESkin:ApplyDungeonSelectionRows()
         NSkin:ForEachScrollBoxFrame(scrollBox, function(choice)
             applied = self:StyleDungeonChoice(nil, owner, choice) or applied
         end)
-        RefreshDungeonScrollBoxExtent(scrollBox)
     end
-    ReapplyDungeonMemberFamilyOffsets(IDs.DungeonSections)
-    ReapplyDungeonMemberFamilyOffsets(IDs.SpecificDungeons)
-    NSkin:NotifySkinningElementBoundsChanged(IDs.DungeonSections)
-    NSkin:NotifySkinningElementBoundsChanged(IDs.SpecificDungeons)
+    ApplyDungeonRowExtentFlow()
+    ReapplyDungeonRowFamilyOffsets(true)
     return applied
 end
 
@@ -2415,6 +2658,8 @@ function PVESkin:HookDungeonScrollBoxes()
     then
         hooksecurefunc("LFGDungeonListButton_SetDungeon", function(choice)
             PVESkin:StyleDungeonChoice(nil, nil, choice)
+            ApplyDungeonRowExtentFlow()
+            ReapplyDungeonRowFamilyOffsets(true)
         end)
         dungeonChoiceUpdateHooked = true
     end
@@ -2431,6 +2676,8 @@ function PVESkin:HookDungeonScrollBoxes()
                 scrollBox:RegisterCallback(scrollEvents.OnInitializedFrame,
                     function(_, choice)
                         PVESkin:StyleDungeonChoice(nil, owner, choice)
+                        ApplyDungeonRowExtentFlow()
+                        ReapplyDungeonRowFamilyOffsets(true)
                     end, self)
             end
             hookedScrollBoxes[scrollBox] = true

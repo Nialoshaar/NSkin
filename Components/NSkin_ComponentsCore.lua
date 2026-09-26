@@ -1234,6 +1234,15 @@ function NSkin:RefreshAppearance(change)
             end
             return
         end
+        if not element
+            and type(self.RefreshCompositeTagAppearance) == "function"
+            and self:RefreshCompositeTagAppearance(change)
+        then
+            if self.RefreshSkinningModeAppearance then
+                self:RefreshSkinningModeAppearance(change)
+            end
+            return
+        end
         if not element and type(self.GetAppearanceOwnerElementID) == "function" then
             local ownerID = self:GetAppearanceOwnerElementID(change.elementID)
             element = ownerID and self:GetSkinningElement(ownerID) or nil
@@ -1927,6 +1936,15 @@ function NSkin:SetPixelBorderSize(border, size)
     local requestedSize = tonumber(size) or border.requestedSize or 1
     if border.requestedSize == requestedSize then return false end
     border.requestedSize = requestedSize
+    ApplyPixelBorderGeometry(border)
+    return true
+end
+
+function NSkin:SetPixelBorderAnchor(border, anchor)
+    if not border or not anchor then return false end
+    if border.anchor == anchor then return false end
+    border.anchor = anchor
+    TrackPixelBorderOwner(border, border.frame, anchor)
     ApplyPixelBorderGeometry(border)
     return true
 end
