@@ -6,7 +6,7 @@ Codex should read this file before making substantial changes to shared componen
 
 Task-specific prompts may add temporary requirements, but they must not silently contradict this document. If a task genuinely changes one of these rules, treat it as an architectural refactor and update this file.
 
-The repository is currently migrating toward this architecture. Existing legacy component/grouping types may remain temporarily while callers are migrated. Their presence in the codebase does not make them part of the target architecture.
+The repository may contain legacy component/grouping paths alongside this architecture while windows are progressively migrated. Legacy code may remain when it is stable and not blocking current work; its presence does not make it part of the target architecture. New work should prefer the target architecture and should not introduce new dependencies on superseded abstractions.
 
 ---
 
@@ -1132,97 +1132,53 @@ Preserve functional state such as:
 
 ---
 
-# 31. Current Repository During Migration
+# 31. Legacy Compatibility and Incremental Migration
 
-After Part 1 of the architecture refactor, the repository is organized around the new ownership boundaries while some legacy implementation files remain temporarily:
+The architecture in this document defines the project-wide destination. It does not require all existing windows or legacy abstractions to be migrated in one dedicated refactor phase.
 
-```text
-NSkin/
-│
-├─ Components/
-│  ├─ NSkin_ComponentsCore.lua
-│  ├─ NSkin_ComponentsWindows.lua
-│  ├─ NSkin_ComponentsInputs.lua
-│  ├─ NSkin_ComponentsNavigation.lua       # transitional
-│  ├─ NSkin_ComponentsContent.lua          # transitional
-│  ├─ NSkin_ComponentsPopup.lua
-│  └─ NSkin_ComponentsMenus.lua
-│
-├─ SkinningMode/
-│  ├─ NSkin_SkinningMode.lua
-│  ├─ NSkin_Composition.lua
-│  └─ DockedWindow/
-│     ├─ NSkin_DockedWindow.lua
-│     ├─ NSkin_ComponentCoreOptions.lua
-│     ├─ NSkin_ComponentWindowsOptions.lua
-│     ├─ NSkin_ComponentInputsOptions.lua
-│     ├─ NSkin_ComponentNavigationOptions.lua  # transitional
-│     ├─ NSkin_ComponentContentOptions.lua     # transitional
-│     └─ NSkin_ComponentMenusOptions.lua
-│
-├─ Windows/
-│  ├─ NSkin_ShellOnly.lua                 # intentionally limited window adapters
-│  └─ NSkin_*.lua
-│
-├─ Options/
-│  ├─ NSkin_WindowsOptions.lua             # transitional
-│  └─ README.md
-│
-├─ Debug/
-│  ├─ NSkin_AppearanceDebug.lua
-│  ├─ NSkin_LFGQueuePopDebug.lua
-│  ├─ NSkin_SkinningDebugInspector.lua
-│  └─ Tests/
-│
-├─ Media/
-├─ NSkin_Menu.lua
-├─ NSkin_Core.lua
-├─ NSkin_Database.lua
-├─ NSkin_Commands.lua
-└─ NSkin.toc
-```
+Existing transitional files, component types, grouping helpers, and compatibility paths may remain while they still serve working windows safely.
 
-Do not treat a transitional file/type as permanent merely because it still exists after Part 1.
+Use these rules:
 
-Later refactor parts should remove or rename transitional files only when their callers have been migrated and the replacement architecture is functional.
+- new work should use the target architecture where practical;
+- do not introduce new dependencies on an abstraction that has already been superseded;
+- migrate legacy structures when they are directly involved in current window work, block canonical behavior, or create a real shared inconsistency;
+- when a legacy abstraction is migrated, prefer a reusable shared replacement rather than a window-specific substitute;
+- preserve stable IDs, reset ownership, Blizzard baselines, interaction ownership, and default behavior during migration;
+- do not require unrelated windows to be migrated or exhaustively revalidated solely to satisfy a refactor milestone;
+- do not perform broad cleanup only for architectural purity when the existing path is stable and does not obstruct current development.
+
+Legacy compatibility is therefore allowed, but architectural debt should not grow.
 
 ---
 
-# 32. Refactor Sequence
+# 32. Development and Migration Strategy
 
-The intended migration sequence is:
+NSkin development is window-driven and incremental.
 
-```text
-Part 1
-Architecture/worktree organization
-        ↓
-Part 2
-Composition foundation
-        ↓
-Part 3
-Skinning Mode + Composite behavior
-        ↓
-Part 4
-Legacy grouping migration
-        ↓
-Part 5
-Container + Editor Group cleanup
-        ↓
-Part 6
-Surface + final legacy cleanup
-```
+The normal priority is to make Blizzard windows correctly skinned, customizable, and consistent with the shared architecture. Architectural migration should support that work rather than block it.
 
-Part 4 may be split into smaller implementation patches by family:
+When working on a window:
 
 ```text
-rows/section structures
-search/pagination
-tabs
-navigation/breadcrumbs
-remaining grouping/card structures
+existing implementation
+        ↓
+keep stable legacy paths that are unrelated to the task
+        ↓
+use current canonical architecture for new work
+        ↓
+migrate touched legacy structures when necessary or clearly beneficial
+        ↓
+validate the affected behavior
+        ↓
+continue normal window development
 ```
 
-Every intermediate patch should leave the addon in a usable/checkable state.
+Shared architectural changes should be validated where they are actually exercised, then reused as additional windows encounter the same pattern.
+
+A project-wide migration pass is appropriate only when a shared legacy system itself becomes a practical blocker, causes repeated defects, or must be removed to support the target architecture safely.
+
+The target architecture remains authoritative even when adoption is incremental.
 
 ---
 
@@ -1317,7 +1273,7 @@ If a proposed Surface starts owning children, selection, or movement, its respon
 
 # 36. Updating This File
 
-`ARCHITECTURE.md` describes stable project-wide rules and the explicit target of an active architecture migration.
+`ARCHITECTURE.md` describes stable project-wide rules and the target architecture. It intentionally does not track per-window migration status or prescribe a mandatory refactor sequence.
 
 Update it when a major architectural decision changes, such as:
 
