@@ -690,22 +690,14 @@ local surfaceGeometryControls = {
 
 local surfaceBackgroundControls = {
     {
-        type = "MIXED_PAIR", order = 1,
-        left = { type = "CHECKBOX", key = "showBackground",
-            label = "Show background" },
-        right = { type = "COLOR", key = "background",
-            modeKey = "backgroundMode", label = "Background",
-            enabledWhen = function(values)
-                return values.showBackground == true
-            end },
+        type = "COLOR_PAIR", order = 1,
+        left = { type = "COLOR", key = "background",
+            modeKey = "backgroundMode", label = "Background" },
     },
     {
         type = "SLIDER", key = "backgroundOpacity",
         label = "Opacity", min = 0, max = 1,
         step = 0.05, decimals = 2, order = 2,
-        enabledWhen = function(values)
-            return values.showBackground == true
-        end,
     },
     {
         type = "MIXED_PAIR", order = 3,
@@ -721,54 +713,32 @@ local surfaceBackgroundControls = {
 local surfaceBorderControls = {
     {
         type = "MIXED_PAIR", order = 1,
-        left = { type = "CHECKBOX", key = "showBorder",
-            label = "Show Border" },
+        left = { type = "COLOR", key = "border",
+            modeKey = "borderMode", label = "Border Color" },
         right = { type = "DROPDOWN", key = "lineType",
             label = "Line Type", values = {
                 { value = "SOLID", label = "Solid" },
             }, enabled = false, override = false },
     },
     {
-        type = "COLOR_PAIR", order = 2,
-        left = { type = "COLOR", key = "border",
-            modeKey = "borderMode", label = "Border Color",
-            enabledWhen = function(values)
-                return values.showBorder == true
-            end },
-    },
-    {
-        type = "SLIDER_PAIR", order = 3,
+        type = "SLIDER_PAIR", order = 2,
         left = { key = "borderSize", label = "Border Size",
-            min = 1, max = 4, step = 1, decimals = 0, suffix = " px",
-            enabledWhen = function(values)
-                return values.showBorder == true
-            end },
+            min = 1, max = 4, step = 1, decimals = 0, suffix = " px" },
         right = { key = "borderPadding", label = "Border Offset",
-            min = -10, max = 20, step = 1, decimals = 0, suffix = " px",
-            enabledWhen = function(values)
-                return values.showBorder == true
-            end },
+            min = -10, max = 20, step = 1, decimals = 0, suffix = " px" },
     },
 }
 
 local surfaceHighlightControls = {
     {
-        type = "MIXED_PAIR", order = 1,
-        left = { type = "CHECKBOX", key = "showHighlight",
-            label = "Show Highlight" },
-        right = { type = "COLOR", key = "highlight",
-            modeKey = "highlightMode", label = "Highlight Color",
-            enabledWhen = function(values)
-                return values.showHighlight == true
-            end },
+        type = "COLOR_PAIR", order = 1,
+        left = { type = "COLOR", key = "highlight",
+            modeKey = "highlightMode", label = "Highlight Color" },
     },
     {
         type = "SLIDER", key = "hoverAlpha",
         label = "Highlight Opacity", min = 0, max = 1,
         step = 0.05, decimals = 2, order = 2,
-        enabledWhen = function(values)
-            return values.showHighlight == true
-        end,
     },
 }
 

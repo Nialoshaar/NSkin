@@ -1681,6 +1681,45 @@ function NSkin:ResetOptionGroup(id, context)
     return false
 end
 
+function NSkin:SetOptionGroupValues(
+    id, context, values, liveInspectorChange)
+    local definition = optionGroups[id]
+    if not definition or not context or type(values) ~= "table" then
+        return false
+    end
+    local current = definition.get(context) or {}
+    local changed
+    for key, value in pairs(values) do
+        if not OptionValuesEqual(current[key], value) then
+            changed = true
+            break
+        end
+    end
+    if not changed then return false end
+
+    local copiedValues = CopyTable(values)
+    local function ApplyValues()
+        return definition.set(context, copiedValues)
+    end
+    local applied
+    if liveInspectorChange == true and context.id ~= nil
+        and self.RunWithLiveInspectorAppearanceChange
+    then
+        applied = self:RunWithLiveInspectorAppearanceChange(
+            context.id, ApplyValues)
+    else
+        applied = ApplyValues()
+    end
+    if applied == true then
+        if context.id and self.NotifySkinningElementBoundsChanged then
+            self:NotifySkinningElementBoundsChanged(context.id)
+        end
+        self:NotifyOptionGroupChanged(id)
+        return true
+    end
+    return false
+end
+
 function NSkin:CreateOptionGroupView(parent, id, layout, context)
     local definition = optionGroups[id]
     local presentation = layout == "COMPACT" and "COMPACT" or "FULL"

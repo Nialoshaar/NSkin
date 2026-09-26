@@ -1294,19 +1294,22 @@ local function GetRowFamilySurfaceOptions()
             id = "shared.surfaceBackground",
             label = "Background",
             category = "CUSTOMIZE",
-            contextualInline = true,
+            contextualInline = false,
+            headerToggleKey = "showBackground",
         },
         {
             id = "shared.surfaceBorder",
             label = "Border",
             category = "CUSTOMIZE",
             contextualInline = false,
+            headerToggleKey = "showBorder",
         },
         {
             id = "shared.surfaceHighlight",
             label = "Highlight",
             category = "CUSTOMIZE",
             contextualInline = false,
+            headerToggleKey = "showHighlight",
         },
     }
 end
