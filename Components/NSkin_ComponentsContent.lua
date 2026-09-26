@@ -1109,10 +1109,10 @@ function NSkin:SkinSectionRow(target, options)
         state.hoverOverlay, 1, 1, 1, tonumber(style.hoverAlpha) or 0.10)
 
     local preserved = {
-        [background] = true,
         [state.selectedOverlay] = true,
         [state.hoverOverlay] = true,
     }
+    if background then preserved[background] = true end
     PreserveContentRegions(preserved, options.preserveTextures)
     ApplyRowNativeDecorations(target, state,
         options.nativeDecorationRegions or options.artworkRegions, preserved)

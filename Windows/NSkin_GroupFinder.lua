@@ -1213,6 +1213,9 @@ local function ApplyDungeonCheckboxComponent(choice, styleID)
     })
 end
 
+local ReapplyDungeonMemberFamilyOffsets
+local RefreshDungeonRowRenderingParent
+
 local function SkinDungeonCollapseButton(choice)
     local button = choice and choice.expandOrCollapseButton
     if not button or not button.CreateTexture then return end
@@ -1251,6 +1254,11 @@ local function SkinDungeonCollapseButton(choice)
                 C_Timer.After(0, function()
                     if data.choice then
                         PVESkin:StyleDungeonChoice(nil, nil, data.choice)
+                        ReapplyDungeonMemberFamilyOffsets(
+                            IDs.DungeonSections)
+                        ReapplyDungeonMemberFamilyOffsets(
+                            IDs.SpecificDungeons)
+                        RefreshDungeonRowRenderingParent()
                     end
                 end)
             end)
@@ -1446,35 +1454,74 @@ local function HasDungeonRowFamilyOffset(elementID)
     return false
 end
 
-local function RefreshDungeonScrollBoxClipping()
+local function ReparentDungeonChoice(choice, parent)
+    if not choice or not parent or not choice.GetParent
+        or not choice.SetParent or choice:GetParent() == parent
+    then return false end
+
+    local oldParent = choice:GetParent()
+    local points = {}
+    for index = 1, choice:GetNumPoints() do
+        local point, relativeTo, relativePoint, x, y =
+            choice:GetPoint(index)
+        points[index] = {
+            point,
+            relativeTo or oldParent,
+            relativePoint,
+            x,
+            y,
+        }
+    end
+
+    choice:SetParent(parent)
+    if #points > 0 then
+        choice:ClearAllPoints()
+        for _, point in ipairs(points) do
+            choice:SetPoint(unpack(point))
+        end
+    end
+    return true
+end
+
+RefreshDungeonRowRenderingParent = function(forceDisplaced)
     local queueFrame = _G.LFDQueueFrame
     if not queueFrame then return false end
-    local displaced = HasDungeonRowFamilyOffset(IDs.DungeonSections)
+    local displaced = forceDisplaced == true
+        or HasDungeonRowFamilyOffset(IDs.DungeonSections)
         or HasDungeonRowFamilyOffset(IDs.SpecificDungeons)
     local changed
+
     for _, owner in ipairs({ queueFrame.Specific, queueFrame.Follower }) do
         local scrollBox = owner and owner.ScrollBox
-        if scrollBox and scrollBox.SetClipsChildren then
-            local data = NSkin:GetSkinData(
-                scrollBox, "groupFinderDungeonScrollClipping")
-            if not data.captured then
-                data.original = scrollBox.DoesClipChildren
-                    and scrollBox:DoesClipChildren() or true
-                data.captured = true
-            end
-            local desired = displaced and false or data.original ~= false
-            local current = scrollBox.DoesClipChildren
-                and scrollBox:DoesClipChildren()
-            if current == nil or current ~= desired then
-                scrollBox:SetClipsChildren(desired)
-                changed = true
-            end
+        local scrollTarget = scrollBox and scrollBox.GetScrollTarget
+            and scrollBox:GetScrollTarget()
+            or (scrollBox and scrollBox.ScrollTarget)
+        if owner and scrollBox and scrollTarget then
+            NSkin:ForEachScrollBoxFrame(scrollBox, function(choice)
+                local data = NSkin:GetSkinData(
+                    choice, "groupFinderDungeonRowParent")
+                if displaced then
+                    if not data.originalParent then
+                        data.originalParent = choice:GetParent()
+                    end
+                    changed = ReparentDungeonChoice(
+                        choice, owner) or changed
+                elseif data.originalParent then
+                    changed = ReparentDungeonChoice(
+                        choice, data.originalParent) or changed
+                    data.originalParent = nil
+                end
+            end)
         end
     end
     return changed == true
 end
 
 local function ApplyDungeonMemberFamilyOffset(element, member, x, y)
+    x, y = tonumber(x) or 0, tonumber(y) or 0
+    local displaced = x ~= 0 or y ~= 0
+    RefreshDungeonRowRenderingParent(displaced)
+
     local applied
     for _, target in ipairs(
         NSkin:GetCompositionMemberTargets(element, member, false) or {})
@@ -1482,12 +1529,12 @@ local function ApplyDungeonMemberFamilyOffset(element, member, x, y)
         applied = ApplyDungeonFamilyOffsetTarget(
             target, x, y) or applied
     end
-    RefreshDungeonScrollBoxClipping()
+    RefreshDungeonRowRenderingParent(displaced)
     NSkin:NotifySkinningElementBoundsChanged(element.id)
     return applied == true
 end
 
-local function ReapplyDungeonMemberFamilyOffsets(elementID)
+ReapplyDungeonMemberFamilyOffsets = function(elementID)
     local element = NSkin:GetSkinningElement(elementID)
     local composition = element and element.composition
     if not composition then return end
@@ -1556,6 +1603,11 @@ function PVESkin:StyleDungeonChoice(_, _, choice)
     RestoreDungeonChoiceFamilyOffsets(choice)
     local id, isHeader = GetDungeonRowFamilyID(choice)
 
+    if isHeader then
+        NSkin:SkinRow(choice, { reset = true })
+    else
+        NSkin:SkinSectionRow(choice, { reset = true })
+    end
     ApplyDungeonChoiceIndent(choice, isHeader)
 
     if isHeader then
@@ -1948,7 +2000,7 @@ function PVESkin:ApplyDungeonSelectionRows()
     end
     ReapplyDungeonMemberFamilyOffsets(IDs.DungeonSections)
     ReapplyDungeonMemberFamilyOffsets(IDs.SpecificDungeons)
-    RefreshDungeonScrollBoxClipping()
+    RefreshDungeonRowRenderingParent()
     NSkin:NotifySkinningElementBoundsChanged(IDs.DungeonSections)
     NSkin:NotifySkinningElementBoundsChanged(IDs.SpecificDungeons)
     return applied
@@ -2476,7 +2528,7 @@ function PVESkin:HookDungeonScrollBoxes()
             PVESkin:StyleDungeonChoice(nil, nil, choice)
             ReapplyDungeonMemberFamilyOffsets(IDs.DungeonSections)
             ReapplyDungeonMemberFamilyOffsets(IDs.SpecificDungeons)
-            RefreshDungeonScrollBoxClipping()
+            RefreshDungeonRowRenderingParent()
         end)
         dungeonChoiceUpdateHooked = true
     end
@@ -2497,7 +2549,7 @@ function PVESkin:HookDungeonScrollBoxes()
                             IDs.DungeonSections)
                         ReapplyDungeonMemberFamilyOffsets(
                             IDs.SpecificDungeons)
-                        RefreshDungeonScrollBoxClipping()
+                        RefreshDungeonRowRenderingParent()
                     end, self)
             end
             hookedScrollBoxes[scrollBox] = true
