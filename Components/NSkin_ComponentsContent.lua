@@ -1285,35 +1285,24 @@ end
 local function GetRowFamilySurfaceOptions()
     return {
         {
-            id = "shared.surfaceAppearance",
+            id = "shared.surfaceGeometry",
             label = "Surface",
             category = "CUSTOMIZE",
-            tabs = {
-                {
-                    id = "background",
-                    label = "Background",
-                    groups = {
-                        "shared.surfaceGeometry",
-                        "shared.surfaceBackground",
-                    },
-                },
-                {
-                    id = "border",
-                    label = "Border",
-                    groups = {
-                        "shared.surfaceGeometry",
-                        "shared.surfaceBorder",
-                    },
-                },
-                {
-                    id = "highlight",
-                    label = "Highlight",
-                    groups = {
-                        "shared.surfaceGeometry",
-                        "shared.surfaceHighlight",
-                    },
-                },
-            },
+        },
+        {
+            id = "shared.surfaceBackground",
+            label = "Background",
+            category = "CUSTOMIZE",
+        },
+        {
+            id = "shared.surfaceBorder",
+            label = "Border",
+            category = "CUSTOMIZE",
+        },
+        {
+            id = "shared.surfaceHighlight",
+            label = "Highlight",
+            category = "CUSTOMIZE",
         },
     }
 end
