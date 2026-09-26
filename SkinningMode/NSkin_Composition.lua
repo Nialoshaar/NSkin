@@ -452,17 +452,13 @@ function NSkin:RefreshCompositeTagAppearance(change)
     local members = tag and compositeElementsByTag[tag]
     if not members then return false end
     local refreshed
-    local refreshedModules = {}
     for elementID in pairs(members) do
         local element = self:GetSkinningElement(elementID)
-        local module = element and element.rowFamily
-            and element.module and self.modules[element.module]
-        if module and type(module.RefreshAppearance) == "function"
-            and not refreshedModules[module]
+        if element and element.rowFamily
+            and type(self.RefreshRowFamilySurfaceAppearance) == "function"
         then
-            module:RefreshAppearance(change)
-            refreshedModules[module] = true
-            refreshed = true
+            refreshed = self:RefreshRowFamilySurfaceAppearance(element)
+                or refreshed
         elseif element and type(element.refreshAppearance) == "function" then
             element.refreshAppearance(self, element)
             refreshed = true

@@ -1212,6 +1212,107 @@ local function ResolveRowFamilyTargets(element)
     return result
 end
 
+local function RefreshRowFamilySurfaceTarget(
+    target, family, style)
+    local stateKey = family == "sectionRow"
+        and SECTION_ROW_STATE or ROW_STATE
+    local backgroundKey = family == "sectionRow"
+        and SECTION_ROW_BACKGROUND or ROW_BACKGROUND
+    local state = NSkin:GetSkinData(target, stateKey, false)
+    if not state or not state.active or not style then return false end
+
+    local surfaceRegion = ResolveContentSurfaceAnchor(
+        target, state, target, style.width, style.height)
+    local surfaceInset = 1
+    local backgroundColor = NSkin:GetResolvedAppearanceColor(
+        style, "background")
+    backgroundColor[4] = tonumber(style.backgroundOpacity)
+        or backgroundColor[4] or 1
+    local borderColor = style.borderMode
+        and NSkin:GetResolvedAppearanceColor(style, "border")
+        or NSkin:GetComponentBorderColor(family, style)
+
+    local background = NSkin:GetFlatBackground(target, backgroundKey)
+    if style.showBackground ~= false then
+        background = background or NSkin:CreateFlatBackground(
+            target, backgroundKey, backgroundColor, borderColor)
+        NSkin:SetOwnedTextureColor(
+            background, backgroundColor[1], backgroundColor[2],
+            backgroundColor[3], backgroundColor[4])
+        if background and background.SetDrawLayer then
+            background:SetDrawLayer("BACKGROUND", -8)
+        end
+        AnchorContentSurface(background, surfaceRegion, surfaceInset)
+        if background then background:Show() end
+    elseif background then
+        background:Hide()
+    end
+
+    local border = NSkin:GetPixelBorder(target, backgroundKey .. "Border")
+        or NSkin:CreatePixelBorder(
+            target, backgroundKey .. "Border",
+            style.borderSize or 1, borderColor, false, target)
+    state.background = background
+    state.border = border
+    if border then border.anchor = surfaceRegion end
+    NSkin:SetPixelBorderColor(border, unpack(borderColor))
+    NSkin:SetPixelBorderSize(border, style.borderSize or 1)
+    NSkin:SetPixelBorderPadding(
+        border, (tonumber(style.borderPadding) or 0) - surfaceInset)
+    local showBorder = family == "sectionRow"
+        and style.showBorder == true or style.showBorder ~= false
+    NSkin:SetPixelBorderShown(
+        border, showBorder and (tonumber(style.borderSize) or 0) > 0)
+
+    if state.selectedOverlay then
+        AnchorContentSurface(
+            state.selectedOverlay, surfaceRegion, surfaceInset)
+        local selectedColor = NSkin:GetResolvedAppearanceColor(
+            style, "selectedBackground")
+        NSkin:SetOwnedTextureColor(
+            state.selectedOverlay,
+            selectedColor[1], selectedColor[2], selectedColor[3],
+            tonumber(style.selectedBackgroundOpacity)
+                or selectedColor[4] or 0.10)
+    end
+    if state.hoverOverlay then
+        AnchorContentSurface(
+            state.hoverOverlay, surfaceRegion, surfaceInset)
+        local highlightColor = NSkin:GetResolvedAppearanceColor(
+            style, "highlight")
+        NSkin:SetOwnedTextureColor(
+            state.hoverOverlay,
+            highlightColor[1], highlightColor[2], highlightColor[3],
+            tonumber(style.hoverAlpha) or highlightColor[4] or 0.10)
+    end
+    state.showHighlight = style.showHighlight ~= false
+    if family == "sectionRow" then
+        RefreshSectionRowPresentation(target)
+    else
+        RefreshRowPresentation(target)
+    end
+    return true
+end
+
+function NSkin:RefreshRowFamilySurfaceAppearance(elementOrID)
+    local element = type(elementOrID) == "table" and elementOrID
+        or self:GetSkinningElement(elementOrID)
+    if not element
+        or (element.rowFamily ~= "row"
+            and element.rowFamily ~= "sectionRow")
+    then
+        return false
+    end
+    local style = self:GetAppearanceStyle(
+        element.rowFamily, element.appearanceWindowID, element.id)
+    local refreshed
+    for _, target in ipairs(ResolveRowFamilyTargets(element)) do
+        refreshed = RefreshRowFamilySurfaceTarget(
+            target, element.rowFamily, style) or refreshed
+    end
+    return refreshed == true
+end
+
 local function AppendUniqueRowFamilyTarget(result, seen, target)
     if target and not seen[target]
         and (not target.IsForbidden or not target:IsForbidden())
