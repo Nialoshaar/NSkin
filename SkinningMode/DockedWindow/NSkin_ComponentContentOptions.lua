@@ -690,17 +690,15 @@ local surfaceGeometryControls = {
 
 local surfaceBackgroundControls = {
     {
-        type = "COLOR_PAIR", order = 1,
+        type = "MIXED_PAIR", order = 1,
         left = { type = "COLOR", key = "background",
             modeKey = "backgroundMode", label = "Background" },
+        right = { type = "SLIDER", key = "backgroundOpacity",
+            label = "Opacity", min = 0, max = 1,
+            step = 0.05, decimals = 2 },
     },
     {
-        type = "SLIDER", key = "backgroundOpacity",
-        label = "Opacity", min = 0, max = 1,
-        step = 0.05, decimals = 2, order = 2,
-    },
-    {
-        type = "MIXED_PAIR", order = 3,
+        type = "MIXED_PAIR", order = 2,
         left = { type = "COLOR", key = "selectedBackground",
             modeKey = "selectedBackgroundMode",
             label = "Selected Background" },
@@ -731,14 +729,12 @@ local surfaceBorderControls = {
 
 local surfaceHighlightControls = {
     {
-        type = "COLOR_PAIR", order = 1,
+        type = "MIXED_PAIR", order = 1,
         left = { type = "COLOR", key = "highlight",
             modeKey = "highlightMode", label = "Highlight Color" },
-    },
-    {
-        type = "SLIDER", key = "hoverAlpha",
-        label = "Highlight Opacity", min = 0, max = 1,
-        step = 0.05, decimals = 2, order = 2,
+        right = { type = "SLIDER", key = "hoverAlpha",
+            label = "Highlight Opacity", min = 0, max = 1,
+            step = 0.05, decimals = 2 },
     },
 }
 

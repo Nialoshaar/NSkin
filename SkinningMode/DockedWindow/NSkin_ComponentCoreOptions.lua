@@ -1813,6 +1813,11 @@ function NSkin:CreateOptionGroupView(parent, id, layout, context)
         self:Refresh()
     end
 
+    function view:SetExternalEnabled(enabled)
+        self.externalEnabled = enabled ~= false
+        self:Refresh()
+    end
+
     function view:SetValues(values)
         return CommitValues(self, values)
     end
@@ -1830,7 +1835,9 @@ function NSkin:CreateOptionGroupView(parent, id, layout, context)
 
     function view:Refresh()
         local enabled = self.context ~= nil
-        local values = enabled and self.definition.get(self.context) or nil
+            and self.externalEnabled ~= false
+        local values = self.context
+            and self.definition.get(self.context) or nil
         self.refreshing = true
         for i = 1, #self.definition.orderedControls do
             local control = self.definition.orderedControls[i].definition
@@ -2002,7 +2009,7 @@ function NSkin:CreateOptionGroupView(parent, id, layout, context)
                 ApplyOptionEnabledState(
                     self,
                     self.definition.orderedControls[i].definition,
-                    values, self.context, true)
+                    values, self.context, enabled)
             end
         end
     end

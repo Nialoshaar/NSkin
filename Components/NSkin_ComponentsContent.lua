@@ -1082,6 +1082,9 @@ function NSkin:SkinSectionRow(target, options)
     end
     local border = self:GetPixelBorder(
         target, SECTION_ROW_BACKGROUND .. "Border")
+        or self:CreatePixelBorder(
+            target, SECTION_ROW_BACKGROUND .. "Border",
+            style.borderSize or 1, borderColor, false, visualRegion)
     state.background = background
     state.border = border
     if border then border.anchor = surfaceRegion end

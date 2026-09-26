@@ -1058,6 +1058,10 @@ local function LoadEditorOptions(element)
                     end
                     if view then
                         view.isSkinningModeInspector = true
+                        if view.SetExternalEnabled then
+                            view:SetExternalEnabled(
+                                headerToggleKey == nil or toggleEnabled)
+                        end
                         view:ClearAllPoints()
                         view:SetPoint("TOPLEFT", state.scrollChild, "TOPLEFT",
                             SnapInspectorOffset(8), -SnapInspectorOffset(y))
