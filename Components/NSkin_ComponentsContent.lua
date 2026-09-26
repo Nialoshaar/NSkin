@@ -1411,6 +1411,10 @@ function NSkin:PrepareRowFamilyDefinition(elementID, definition)
     local tagAppearanceID = NSkin.GetCompositeTagAppearanceID
         and NSkin:GetCompositeTagAppearanceID(composition.tag)
     definition.rowFamilyTagAppearanceID = tagAppearanceID
+    if tagAppearanceID and NSkin.RegisterAppearanceParentID then
+        NSkin:RegisterAppearanceParentID(
+            elementID, tagAppearanceID, elementID)
+    end
 
     local surface
     for _, member in ipairs(composition.members) do
