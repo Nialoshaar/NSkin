@@ -687,7 +687,19 @@ local surfaceAppearanceControls = {
             resetValue = 0 },
     },
     {
-        type = "COLOR_PAIR", order = 2,
+        type = "CHECKBOX", key = "showBackground",
+        label = "Show background", order = 2,
+    },
+    {
+        type = "CHECKBOX", key = "showBorder",
+        label = "Show border", order = 3,
+    },
+    {
+        type = "CHECKBOX", key = "showHighlight",
+        label = "Show hover highlight", order = 4,
+    },
+    {
+        type = "COLOR_PAIR", order = 5,
         left = { type = "COLOR", key = "border",
             modeKey = "borderMode", label = "Border" },
         right = { type = "COLOR", key = "background",
@@ -696,18 +708,21 @@ local surfaceAppearanceControls = {
     {
         type = "SLIDER", key = "hoverAlpha",
         label = "Highlight opacity", min = 0, max = 1,
-        step = 0.05, decimals = 2, order = 3,
+        step = 0.05, decimals = 2, order = 6,
     },
     {
         type = "COLOR", key = "selectedBackground",
         modeKey = "selectedBackgroundMode",
-        label = "Selected background", order = 4,
+        label = "Selected background", order = 7,
     },
 }
 
 local surfaceAppearanceKeys = {
     width = true,
     height = true,
+    showBackground = true,
+    showBorder = true,
+    showHighlight = true,
     background = true,
     backgroundMode = true,
     selectedBackground = true,
@@ -730,9 +745,6 @@ local function GetSurfaceAppearancePaths(context, keys)
             paths[#paths + 1] = styleName .. "." .. key
         end
     end
-    if styleName == "sectionRow" then
-        paths[#paths + 1] = "sectionRow.showBorder"
-    end
     return paths
 end
 
@@ -748,6 +760,10 @@ NSkin:RegisterOptionGroup("shared.surfaceAppearance", {
                 or (target and target.GetWidth and target:GetWidth()) or 20,
             height = tonumber(style.height) and style.height > 0 and style.height
                 or (target and target.GetHeight and target:GetHeight()) or 20,
+            showBackground = style.showBackground ~= false,
+            showBorder = styleName == "sectionRow"
+                and style.showBorder == true or style.showBorder ~= false,
+            showHighlight = style.showHighlight ~= false,
             background = CopyColor(style.background),
             backgroundMode = style.backgroundMode or "CUSTOM",
             selectedBackground = CopyColor(style.selectedBackground),
@@ -765,12 +781,6 @@ NSkin:RegisterOptionGroup("shared.surfaceAppearance", {
                 changed = SetElementValue(
                     context, styleName .. "." .. key, values[key]) or changed
             end
-        end
-        if styleName == "sectionRow"
-            and (values.border ~= nil or values.borderMode ~= nil)
-        then
-            changed = SetElementValue(
-                context, "sectionRow.showBorder", true) or changed
         end
         return changed == true
     end,

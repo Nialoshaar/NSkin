@@ -1318,37 +1318,54 @@ local function GetDungeonTextTargetAppearanceID(baseID, target)
     return baseID
 end
 
-local function ApplyDungeonTextExactOffset(
-    region, appearanceID, x, y)
-    if not region or not region.GetNumPoints then return false end
+local function RestoreDungeonTextExactBaseline(region)
+    local data = region and NSkin:GetSkinData(
+        region, "dungeonExactTextOffset", false)
+    if not data or not data.points
+        or not region.ClearAllPoints or not region.SetPoint
+    then return false end
+    region:ClearAllPoints()
+    for _, point in ipairs(data.points) do
+        region:SetPoint(unpack(point))
+    end
+    data.active = nil
+    return true
+end
+
+local function CaptureDungeonTextExactBaseline(region)
+    if not region or not region.GetNumPoints then return nil end
     local data = NSkin:GetSkinData(region, "dungeonExactTextOffset")
-
-    -- Restore the un-overridden points first so repeated styling and pool reuse
-    -- never accumulate offsets from a previous logical dungeon.
-    if data.active and data.points then
-        region:ClearAllPoints()
-        for _, point in ipairs(data.points) do
-            region:SetPoint(unpack(point))
+    if not data.points then
+        data.points = {}
+        for index = 1, region:GetNumPoints() do
+            data.points[index] = { region:GetPoint(index) }
         end
-        data.active = nil
     end
+    return data
+end
 
-    local points = {}
-    for index = 1, region:GetNumPoints() do
-        points[index] = { region:GetPoint(index) }
-    end
-    data.points = points
+local function ApplyDungeonTextExactOffset(
+    region, owner, appearanceID, x, y)
+    if not region or not owner or not region.GetLeft or not region.GetTop
+        or not owner.GetLeft or not owner.GetTop
+        or not region.ClearAllPoints or not region.SetPoint
+    then return false end
+
+    local data = CaptureDungeonTextExactBaseline(region)
+    if not data then return false end
     data.appearanceID = appearanceID
 
-    x, y = tonumber(x) or 0, tonumber(y) or 0
-    if x == 0 and y == 0 then return true end
-    region:ClearAllPoints()
-    for _, point in ipairs(points) do
-        region:SetPoint(
-            point[1], point[2], point[3],
-            (tonumber(point[4]) or 0) + x,
-            (tonumber(point[5]) or 0) + y)
+    local regionLeft, regionTop = region:GetLeft(), region:GetTop()
+    local ownerLeft, ownerTop = owner:GetLeft(), owner:GetTop()
+    if not regionLeft or not regionTop or not ownerLeft or not ownerTop then
+        return false
     end
+
+    x, y = tonumber(x) or 0, tonumber(y) or 0
+    region:ClearAllPoints()
+    region:SetPoint("TOPLEFT", owner, "TOPLEFT",
+        regionLeft - ownerLeft + x,
+        regionTop - ownerTop + y)
     data.active = true
     return true
 end
@@ -1416,6 +1433,47 @@ local function ApplyDungeonFamilyOffsetTarget(target, x, y)
     return true
 end
 
+local function HasDungeonRowFamilyOffset(elementID)
+    local element = NSkin:GetSkinningElement(elementID)
+    local composition = element and element.composition
+    if not composition then return false end
+    for _, member in ipairs(composition.members or {}) do
+        local x, y = NSkin:GetCompositeMemberFamilyOffset(element, member)
+        if (tonumber(x) or 0) ~= 0 or (tonumber(y) or 0) ~= 0 then
+            return true
+        end
+    end
+    return false
+end
+
+local function RefreshDungeonScrollBoxClipping()
+    local queueFrame = _G.LFDQueueFrame
+    if not queueFrame then return false end
+    local displaced = HasDungeonRowFamilyOffset(IDs.DungeonSections)
+        or HasDungeonRowFamilyOffset(IDs.SpecificDungeons)
+    local changed
+    for _, owner in ipairs({ queueFrame.Specific, queueFrame.Follower }) do
+        local scrollBox = owner and owner.ScrollBox
+        if scrollBox and scrollBox.SetClipsChildren then
+            local data = NSkin:GetSkinData(
+                scrollBox, "groupFinderDungeonScrollClipping")
+            if not data.captured then
+                data.original = scrollBox.DoesClipChildren
+                    and scrollBox:DoesClipChildren() or true
+                data.captured = true
+            end
+            local desired = displaced and false or data.original ~= false
+            local current = scrollBox.DoesClipChildren
+                and scrollBox:DoesClipChildren()
+            if current == nil or current ~= desired then
+                scrollBox:SetClipsChildren(desired)
+                changed = true
+            end
+        end
+    end
+    return changed == true
+end
+
 local function ApplyDungeonMemberFamilyOffset(element, member, x, y)
     local applied
     for _, target in ipairs(
@@ -1424,6 +1482,7 @@ local function ApplyDungeonMemberFamilyOffset(element, member, x, y)
         applied = ApplyDungeonFamilyOffsetTarget(
             target, x, y) or applied
     end
+    RefreshDungeonScrollBoxClipping()
     NSkin:NotifySkinningElementBoundsChanged(element.id)
     return applied == true
 end
@@ -1525,6 +1584,9 @@ function PVESkin:StyleDungeonChoice(_, _, choice)
         return true
     end
 
+    RestoreDungeonTextExactBaseline(choice.instanceName)
+    RestoreDungeonTextExactBaseline(choice.level)
+
     local rowStyle = NSkin:GetAppearanceStyle(
         "row", IDs.DungeonFinder.Scope, id)
     local border = NSkin:GetAppearanceBorderColor(
@@ -1545,7 +1607,6 @@ function PVESkin:StyleDungeonChoice(_, _, choice)
     NSkin:SkinRow(choice, {
         style = rowStyle,
         border = border,
-        showBackground = false,
         columns = {
             { kind = "CHECKBOX", target = choice.enableButton },
             { kind = "TEXT", target = choice.instanceName,
@@ -1572,19 +1633,16 @@ function PVESkin:StyleDungeonChoice(_, _, choice)
             local x, y = NSkin:GetCompositeMemberTargetOffset(
                 rowElement, nameMember, dungeonNameAppearanceID)
             ApplyDungeonTextExactOffset(
-                choice.instanceName, dungeonNameAppearanceID, x, y)
+                choice.instanceName, choice, dungeonNameAppearanceID, x, y)
         end
         if levelMember and choice.level then
             local x, y = NSkin:GetCompositeMemberTargetOffset(
                 rowElement, levelMember, levelRangeAppearanceID)
             ApplyDungeonTextExactOffset(
-                choice.level, levelRangeAppearanceID, x, y)
+                choice.level, choice, levelRangeAppearanceID, x, y)
         end
     end
 
-    local rowBorder = NSkin:GetPixelBorder(
-        choice, "NSkinRowBackgroundBorder")
-    if rowBorder then NSkin:SetPixelBorderShown(rowBorder, false) end
     return true
 end
 
@@ -1890,6 +1948,7 @@ function PVESkin:ApplyDungeonSelectionRows()
     end
     ReapplyDungeonMemberFamilyOffsets(IDs.DungeonSections)
     ReapplyDungeonMemberFamilyOffsets(IDs.SpecificDungeons)
+    RefreshDungeonScrollBoxClipping()
     NSkin:NotifySkinningElementBoundsChanged(IDs.DungeonSections)
     NSkin:NotifySkinningElementBoundsChanged(IDs.SpecificDungeons)
     return applied
@@ -2415,6 +2474,9 @@ function PVESkin:HookDungeonScrollBoxes()
     then
         hooksecurefunc("LFGDungeonListButton_SetDungeon", function(choice)
             PVESkin:StyleDungeonChoice(nil, nil, choice)
+            ReapplyDungeonMemberFamilyOffsets(IDs.DungeonSections)
+            ReapplyDungeonMemberFamilyOffsets(IDs.SpecificDungeons)
+            RefreshDungeonScrollBoxClipping()
         end)
         dungeonChoiceUpdateHooked = true
     end
@@ -2431,6 +2493,11 @@ function PVESkin:HookDungeonScrollBoxes()
                 scrollBox:RegisterCallback(scrollEvents.OnInitializedFrame,
                     function(_, choice)
                         PVESkin:StyleDungeonChoice(nil, owner, choice)
+                        ReapplyDungeonMemberFamilyOffsets(
+                            IDs.DungeonSections)
+                        ReapplyDungeonMemberFamilyOffsets(
+                            IDs.SpecificDungeons)
+                        RefreshDungeonScrollBoxClipping()
                     end, self)
             end
             hookedScrollBoxes[scrollBox] = true

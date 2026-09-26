@@ -618,10 +618,17 @@ RefreshRowPresentation = function(target)
     if not state or not state.active then return end
     local selected = ResolveContentState(
         state.getSelected, state.selectedRegion, target)
-    local hovered = ResolveContentState(
-        state.getHovered, state.hoverRegion, target)
+    local hovered
+    if type(state.getHovered) == "function" then
+        hovered = ResolveContentState(
+            state.getHovered, state.hoverRegion, target)
+    else
+        hovered = state.pointerHovered == true
+    end
     if state.selectedOverlay then state.selectedOverlay:SetShown(selected) end
-    if state.hoverOverlay then state.hoverOverlay:SetShown(hovered) end
+    if state.hoverOverlay then
+        state.hoverOverlay:SetShown(state.showHighlight ~= false and hovered)
+    end
     RefreshRowContentAppearance(target)
 end
 
@@ -668,6 +675,11 @@ function NSkin:SkinRow(target, options)
     state.selectedRegion = ResolveContentValue(options.selectedRegion, target)
     state.getHovered = options.getHovered
     state.getSelected = options.getSelected
+    if state.pointerHovered == nil then state.pointerHovered = false end
+    state.showHighlight = options.showHighlight
+    if state.showHighlight == nil then
+        state.showHighlight = style.showHighlight ~= false
+    end
     state.contentStyle = options.contentStyle
     state.contentTextOptions = options.contentTextOptions
     local visualRegion = ResolveContentValue(options.visualRegion, target)
@@ -706,8 +718,12 @@ function NSkin:SkinRow(target, options)
         or self:GetComponentBorderColor("row", style)
     local surfaceInset = tonumber(options.surfaceInset)
     if surfaceInset == nil then surfaceInset = 1 end
+    local showBackground = options.showBackground
+    if showBackground == nil then showBackground = style.showBackground ~= false end
+    local showBorder = options.showBorder
+    if showBorder == nil then showBorder = style.showBorder ~= false end
     local background = self:GetFlatBackground(target, ROW_BACKGROUND)
-    if options.showBackground ~= false then
+    if showBackground then
         background = self:CreateFlatBackground(
             target, ROW_BACKGROUND, backgroundColor, borderColor)
         -- Table templates commonly place their cell FontStrings on BACKGROUND.
@@ -728,8 +744,10 @@ function NSkin:SkinRow(target, options)
     if border then border.anchor = visualRegion end
     self:SetPixelBorderColor(border, unpack(borderColor))
     self:SetPixelBorderSize(border, style.borderSize or 1)
-    self:SetPixelBorderPadding(border, style.borderPadding or 0)
-    self:SetPixelBorderShown(border, true)
+    self:SetPixelBorderPadding(border,
+        (tonumber(style.borderPadding) or 0) - surfaceInset)
+    self:SetPixelBorderShown(border,
+        showBorder and (tonumber(style.borderSize) or 0) > 0)
 
     if not state.selectedOverlay then
         state.selectedOverlay = target:CreateTexture(nil, "ARTWORK", nil, 6)
@@ -763,9 +781,21 @@ function NSkin:SkinRow(target, options)
         columnTargets)
     ApplyRowColumns(target, state, columns, options)
     if not state.hooked and target.HookScript then
-        for _, script in ipairs({ "OnEnter", "OnLeave", "OnShow" }) do
-            target:HookScript(script, RefreshRowPresentation)
-        end
+        target:HookScript("OnEnter", function(row)
+            local rowState = NSkin:GetSkinData(row, ROW_STATE, false)
+            if rowState then rowState.pointerHovered = true end
+            RefreshRowPresentation(row)
+        end)
+        target:HookScript("OnLeave", function(row)
+            local rowState = NSkin:GetSkinData(row, ROW_STATE, false)
+            if rowState then rowState.pointerHovered = false end
+            RefreshRowPresentation(row)
+        end)
+        target:HookScript("OnShow", function(row)
+            local rowState = NSkin:GetSkinData(row, ROW_STATE, false)
+            if rowState then rowState.pointerHovered = false end
+            RefreshRowPresentation(row)
+        end)
         state.hooked = true
     end
     if not state.methodHooksInstalled and _G.hooksecurefunc then
@@ -938,14 +968,16 @@ RefreshSectionRowPresentation = function(target)
     local selected = ResolveContentState(
         state.getSelected, state.selectedRegion, target)
     local hovered
-    if state.hoverEventsManaged then
-        hovered = state.pointerHovered == true
-    else
+    if type(state.getHovered) == "function" then
         hovered = ResolveContentState(
             state.getHovered, state.hoverRegion, target)
+    else
+        hovered = state.pointerHovered == true
     end
     if state.selectedOverlay then state.selectedOverlay:SetShown(selected) end
-    if state.hoverOverlay then state.hoverOverlay:SetShown(hovered) end
+    if state.hoverOverlay then
+        state.hoverOverlay:SetShown(state.showHighlight ~= false and hovered)
+    end
     RefreshSectionRowContentAppearance(target)
     RefreshSectionRowCollapseGlow(state)
 end
@@ -991,6 +1023,11 @@ function NSkin:SkinSectionRow(target, options)
     state.selectedRegion = ResolveContentValue(options.selectedRegion, target)
     state.getHovered = options.getHovered
     state.getSelected = options.getSelected
+    if state.pointerHovered == nil then state.pointerHovered = false end
+    state.showHighlight = options.showHighlight
+    if state.showHighlight == nil then
+        state.showHighlight = style.showHighlight ~= false
+    end
     state.hoverEventsManaged = type(options.getHovered) == "function"
     state.pointerHovered = false
     state.contentStyle = options.contentStyle
@@ -1027,12 +1064,23 @@ function NSkin:SkinSectionRow(target, options)
     local borderColor = options.border
         or (style.borderMode and self:GetResolvedAppearanceColor(style, "border"))
         or self:GetComponentBorderColor("sectionRow", style)
-    local background = self:CreateFlatBackground(
-        target, SECTION_ROW_BACKGROUND, backgroundColor, borderColor)
-    if background and background.SetDrawLayer then
-        background:SetDrawLayer("BACKGROUND", -8)
+    local showBackground = options.showBackground
+    if showBackground == nil then showBackground = style.showBackground ~= false end
+    local showBorder = options.showBorder
+    if showBorder == nil then showBorder = style.showBorder == true end
+    local surfaceInset = 1
+    local background = self:GetFlatBackground(target, SECTION_ROW_BACKGROUND)
+    if showBackground then
+        background = self:CreateFlatBackground(
+            target, SECTION_ROW_BACKGROUND, backgroundColor, borderColor)
+        if background and background.SetDrawLayer then
+            background:SetDrawLayer("BACKGROUND", -8)
+        end
+        AnchorContentSurface(background, visualRegion, surfaceInset)
+        if background then background:Show() end
+    elseif background then
+        background:Hide()
     end
-    AnchorContentSurface(background, visualRegion, 1)
     local border = self:GetPixelBorder(
         target, SECTION_ROW_BACKGROUND .. "Border")
     state.background = background
@@ -1040,9 +1088,10 @@ function NSkin:SkinSectionRow(target, options)
     if border then border.anchor = visualRegion end
     self:SetPixelBorderColor(border, unpack(borderColor))
     self:SetPixelBorderSize(border, style.borderSize or 1)
-    self:SetPixelBorderPadding(border, style.borderPadding or 0)
+    self:SetPixelBorderPadding(border,
+        (tonumber(style.borderPadding) or 0) - surfaceInset)
     self:SetPixelBorderShown(border,
-        style.showBorder == true and (tonumber(style.borderSize) or 0) > 0)
+        showBorder and (tonumber(style.borderSize) or 0) > 0)
 
     if not state.selectedOverlay then
         state.selectedOverlay = target:CreateTexture(nil, "ARTWORK", nil, 6)
@@ -1084,9 +1133,7 @@ function NSkin:SkinSectionRow(target, options)
         target:HookScript("OnEnter", function(row)
             local rowState = NSkin:GetSkinData(
                 row, SECTION_ROW_STATE, false)
-            if rowState and rowState.hoverEventsManaged then
-                rowState.pointerHovered = true
-            end
+            if rowState then rowState.pointerHovered = true end
             RefreshSectionRowPresentation(row)
         end)
         target:HookScript("OnLeave", function(row)

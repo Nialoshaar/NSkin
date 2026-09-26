@@ -1713,17 +1713,24 @@ function NSkin:SetCompositeMemberFamilyOffset(
     local key = GetCompositeMemberFamilyKey(member)
     if not element or not key then return false end
     x, y = tonumber(x) or 0, tonumber(y) or 0
-    if not self:ApplyCompositeMemberFamilyOffset(
-        element, member, x, y)
-    then return false end
 
     local store = GetCompositeFamilyOffsetStore(element, true)
+    local previous = store[key]
     if x == 0 and y == 0 then
         store[key] = nil
-        PruneCompositeFamilyOffsetStore(element)
     else
         store[key] = { x = x, y = y }
     end
+
+    if not self:ApplyCompositeMemberFamilyOffset(
+        element, member, x, y)
+    then
+        store[key] = previous
+        PruneCompositeFamilyOffsetStore(element)
+        return false
+    end
+
+    PruneCompositeFamilyOffsetStore(element)
     self:NotifySkinningElementBoundsChanged(element.id)
     return true
 end
