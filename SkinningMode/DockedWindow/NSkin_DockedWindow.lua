@@ -160,6 +160,68 @@ local function IsInlineEditorDefinition(definition)
         and definition.contextualInline == true
 end
 
+local function ExpandContextualTabbedDefinitions(groups)
+    local expanded = {}
+    for _, definition in ipairs(groups or {}) do
+        local tabs = type(definition) == "table"
+            and definition.contextualInline == true
+            and definition.tabs
+        if type(tabs) ~= "table" or #tabs == 0 then
+            expanded[#expanded + 1] = definition
+        else
+            local firstGroups = tabs[1].groups or { tabs[1].id }
+            local common = {}
+            for _, groupID in ipairs(firstGroups) do
+                local inEveryTab = true
+                for tabIndex = 2, #tabs do
+                    local tabGroups = tabs[tabIndex].groups
+                        or { tabs[tabIndex].id }
+                    local found
+                    for _, candidate in ipairs(tabGroups) do
+                        if candidate == groupID then
+                            found = true
+                            break
+                        end
+                    end
+                    if not found then
+                        inEveryTab = false
+                        break
+                    end
+                end
+                if inEveryTab then common[groupID] = true end
+            end
+
+            for _, groupID in ipairs(firstGroups) do
+                expanded[#expanded + 1] = {
+                    id = groupID,
+                    category = definition.category,
+                    context = definition.context,
+                    contextID = definition.contextID,
+                    contextualInline = true,
+                    presentation = "INLINE",
+                }
+            end
+
+            for tabIndex = 2, #tabs do
+                local tab = tabs[tabIndex]
+                for _, groupID in ipairs(tab.groups or { tab.id }) do
+                    if not common[groupID] then
+                        expanded[#expanded + 1] = {
+                            id = groupID,
+                            label = tab.label,
+                            category = definition.category,
+                            context = definition.context,
+                            contextID = definition.contextID,
+                            contextualInline = false,
+                        }
+                    end
+                end
+            end
+        end
+    end
+    return expanded
+end
+
 local function GetPreferredEditorSectionID(element, memberID)
     if not element then return nil end
     local member = memberID and NSkin:GetCompositeMember(element, memberID)
@@ -694,6 +756,7 @@ local function LoadEditorOptions(element)
         groups = editorOptions
     end
     if not groups then groups = {} end
+    groups = ExpandContextualTabbedDefinitions(groups)
 
     local overrideEntries = {}
     if element and focusedMember then
