@@ -362,20 +362,44 @@ local function GetMemberAppearanceOptionGroups(member)
     local component = member and member.kind
         and NSkin:GetSharedElementType(member.kind)
     if not component then return {} end
-    local groups = {}
-    for _, definition in ipairs(
-        NSkin:CreateEditorOptionsPreset(component.editorPreset) or {})
-    do
+    local groups, seen = {}, {}
+    local function Add(definition)
         local id = type(definition) == "table"
             and definition.id or definition
         local category = type(definition) == "table"
             and definition.category
         if type(id) == "string" and id ~= "shared.movable"
             and category ~= "POSITION" and category ~= "LAYOUT"
-            and NSkin:GetOptionGroupDefinition(id)
+            and NSkin:GetOptionGroupDefinition(id) and not seen[id]
         then
+            seen[id] = true
             groups[#groups + 1] = id
         end
+    end
+    if type(member.editorOptions) == "table"
+        and #member.editorOptions > 0
+    then
+        for _, definition in ipairs(member.editorOptions) do
+            if type(definition) == "table"
+                and type(definition.tabs) == "table"
+            then
+                for _, tab in ipairs(definition.tabs) do
+                    for _, groupID in ipairs(
+                        tab.groups or { tab.id })
+                    do
+                        Add(groupID)
+                    end
+                end
+            else
+                Add(definition)
+            end
+        end
+        return groups
+    end
+    for _, definition in ipairs(
+        NSkin:CreateEditorOptionsPreset(component.editorPreset) or {})
+    do
+        Add(definition)
     end
     return groups
 end
@@ -929,7 +953,8 @@ local function LoadEditorOptions(element)
                     state.selectedEditorSubtabs[key] = selected
                     local tab = tabs[selected]
                     viewIDs = tab.groups or { tab.id }
-                    viewContext = ResolveEditorContext(tab, element)
+                    viewContext = ResolveEditorContext(
+                        tab, optionContext)
                     local bar = section.tabBar
                     if not bar then
                         bar = CreateFrame("Frame", nil, state.scrollChild)

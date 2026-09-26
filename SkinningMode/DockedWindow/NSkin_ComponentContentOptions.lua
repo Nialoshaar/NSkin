@@ -674,7 +674,7 @@ NSkin:RegisterOptionGroup("shared.sectionRowAppearance", {
     end,
 })
 
-local surfaceAppearanceControls = {
+local surfaceGeometryControls = {
     {
         type = "SLIDER_PAIR", order = 1, centerReset = true,
         resetSubset = true,
@@ -686,36 +686,103 @@ local surfaceAppearanceControls = {
             max = 300, step = 1, decimals = 0, suffix = " px",
             resetValue = 0 },
     },
+}
+
+local surfaceBackgroundControls = {
     {
-        type = "CHECKBOX", key = "showBackground",
-        label = "Show background", order = 2,
-    },
-    {
-        type = "CHECKBOX", key = "showBorder",
-        label = "Show border", order = 3,
-    },
-    {
-        type = "CHECKBOX", key = "showHighlight",
-        label = "Show hover highlight", order = 4,
-    },
-    {
-        type = "COLOR_PAIR", order = 5,
-        left = { type = "COLOR", key = "border",
-            modeKey = "borderMode", label = "Border" },
+        type = "MIXED_PAIR", order = 1,
+        left = { type = "CHECKBOX", key = "showBackground",
+            label = "Show background" },
         right = { type = "COLOR", key = "background",
-            modeKey = "backgroundMode", label = "Background" },
+            modeKey = "backgroundMode", label = "Background",
+            enabledWhen = function(values)
+                return values.showBackground == true
+            end },
+    },
+    {
+        type = "SLIDER", key = "backgroundOpacity",
+        label = "Opacity", min = 0, max = 1,
+        step = 0.05, decimals = 2, order = 2,
+        enabledWhen = function(values)
+            return values.showBackground == true
+        end,
+    },
+    {
+        type = "MIXED_PAIR", order = 3,
+        left = { type = "COLOR", key = "selectedBackground",
+            modeKey = "selectedBackgroundMode",
+            label = "Selected Background" },
+        right = { type = "SLIDER", key = "selectedBackgroundOpacity",
+            label = "Selected Background Opacity", min = 0, max = 1,
+            step = 0.05, decimals = 2 },
+    },
+}
+
+local surfaceBorderControls = {
+    {
+        type = "MIXED_PAIR", order = 1,
+        left = { type = "CHECKBOX", key = "showBorder",
+            label = "Show Border" },
+        right = { type = "DROPDOWN", key = "lineType",
+            label = "Line Type", values = {
+                { value = "SOLID", label = "Solid" },
+            }, enabled = false, override = false },
+    },
+    {
+        type = "COLOR_PAIR", order = 2,
+        left = { type = "COLOR", key = "border",
+            modeKey = "borderMode", label = "Border Color",
+            enabledWhen = function(values)
+                return values.showBorder == true
+            end },
+    },
+    {
+        type = "SLIDER_PAIR", order = 3,
+        left = { key = "borderSize", label = "Border Size",
+            min = 1, max = 4, step = 1, decimals = 0, suffix = " px",
+            enabledWhen = function(values)
+                return values.showBorder == true
+            end },
+        right = { key = "borderPadding", label = "Border Offset",
+            min = -10, max = 20, step = 1, decimals = 0, suffix = " px",
+            enabledWhen = function(values)
+                return values.showBorder == true
+            end },
+    },
+}
+
+local surfaceHighlightControls = {
+    {
+        type = "MIXED_PAIR", order = 1,
+        left = { type = "CHECKBOX", key = "showHighlight",
+            label = "Show Highlight" },
+        right = { type = "COLOR", key = "highlight",
+            modeKey = "highlightMode", label = "Highlight Color",
+            enabledWhen = function(values)
+                return values.showHighlight == true
+            end },
     },
     {
         type = "SLIDER", key = "hoverAlpha",
-        label = "Highlight opacity", min = 0, max = 1,
-        step = 0.05, decimals = 2, order = 6,
-    },
-    {
-        type = "COLOR", key = "selectedBackground",
-        modeKey = "selectedBackgroundMode",
-        label = "Selected background", order = 7,
+        label = "Highlight Opacity", min = 0, max = 1,
+        step = 0.05, decimals = 2, order = 2,
+        enabledWhen = function(values)
+            return values.showHighlight == true
+        end,
     },
 }
+
+local surfaceAppearanceControls = {}
+for _, controls in ipairs({
+    surfaceGeometryControls,
+    surfaceBackgroundControls,
+    surfaceBorderControls,
+    surfaceHighlightControls,
+}) do
+    for _, control in ipairs(controls) do
+        surfaceAppearanceControls[#surfaceAppearanceControls + 1] = control
+    end
+end
 
 local surfaceAppearanceKeys = {
     width = true,
@@ -725,10 +792,16 @@ local surfaceAppearanceKeys = {
     showHighlight = true,
     background = true,
     backgroundMode = true,
+    backgroundOpacity = true,
     selectedBackground = true,
     selectedBackgroundMode = true,
+    selectedBackgroundOpacity = true,
     border = true,
     borderMode = true,
+    borderSize = true,
+    borderPadding = true,
+    highlight = true,
+    highlightMode = true,
     hoverAlpha = true,
 }
 
@@ -748,42 +821,77 @@ local function GetSurfaceAppearancePaths(context, keys)
     return paths
 end
 
+local function GetSurfaceAppearanceValues(context)
+    local styleName = GetSurfaceAppearanceStyleName(context)
+    local style = NSkin:GetAppearanceStyle(
+        styleName, GetAppearanceWindowID(context), context.id)
+    local target = context.target
+    return {
+        width = tonumber(style.width) and style.width > 0 and style.width
+            or (target and target.GetWidth and target:GetWidth()) or 20,
+        height = tonumber(style.height) and style.height > 0 and style.height
+            or (target and target.GetHeight and target:GetHeight()) or 20,
+        showBackground = style.showBackground ~= false,
+        showBorder = styleName == "sectionRow"
+            and style.showBorder == true or style.showBorder ~= false,
+        showHighlight = style.showHighlight ~= false,
+        background = CopyColor(style.background),
+        backgroundMode = style.backgroundMode or "CUSTOM",
+        backgroundOpacity = tonumber(style.backgroundOpacity)
+            or (style.background and style.background[4]) or 1,
+        selectedBackground = CopyColor(style.selectedBackground),
+        selectedBackgroundMode = style.selectedBackgroundMode or "CUSTOM",
+        selectedBackgroundOpacity =
+            tonumber(style.selectedBackgroundOpacity)
+            or (style.selectedBackground
+                and style.selectedBackground[4]) or 0.10,
+        border = CopyColor(style.border),
+        borderMode = style.borderMode or "CUSTOM",
+        borderSize = tonumber(style.borderSize) or 1,
+        borderPadding = tonumber(style.borderPadding) or 0,
+        highlight = CopyColor(style.highlight or { 1, 1, 1, 1 }),
+        highlightMode = style.highlightMode or "CUSTOM",
+        hoverAlpha = tonumber(style.hoverAlpha) or 0.10,
+        lineType = "SOLID",
+    }
+end
+
+local function SetSurfaceAppearanceValues(context, values)
+    local styleName = GetSurfaceAppearanceStyleName(context)
+    local changed = false
+    for key in pairs(surfaceAppearanceKeys) do
+        if values[key] ~= nil then
+            changed = SetElementValue(
+                context, styleName .. "." .. key, values[key]) or changed
+        end
+    end
+    return changed == true
+end
+
+local function RegisterSurfaceAppearanceGroup(id, controls, keys)
+    NSkin:RegisterOptionGroup(id, {
+        controls = controls,
+        get = GetSurfaceAppearanceValues,
+        set = SetSurfaceAppearanceValues,
+        reset = function(context)
+            return ResetElementPaths(
+                context, GetSurfaceAppearancePaths(context, keys))
+        end,
+        resetSubset = function(context, subset)
+            local filtered = {}
+            for key in pairs(subset or {}) do
+                if keys[key] then filtered[key] = true end
+            end
+            return ResetElementPaths(
+                context, GetSurfaceAppearancePaths(context, filtered))
+        end,
+    })
+end
+
 NSkin:RegisterOptionGroup("shared.surfaceAppearance", {
     controls = surfaceAppearanceControls,
-    get = function(context)
-        local styleName = GetSurfaceAppearanceStyleName(context)
-        local style = NSkin:GetAppearanceStyle(
-            styleName, GetAppearanceWindowID(context), context.id)
-        local target = context.target
-        return {
-            width = tonumber(style.width) and style.width > 0 and style.width
-                or (target and target.GetWidth and target:GetWidth()) or 20,
-            height = tonumber(style.height) and style.height > 0 and style.height
-                or (target and target.GetHeight and target:GetHeight()) or 20,
-            showBackground = style.showBackground ~= false,
-            showBorder = styleName == "sectionRow"
-                and style.showBorder == true or style.showBorder ~= false,
-            showHighlight = style.showHighlight ~= false,
-            background = CopyColor(style.background),
-            backgroundMode = style.backgroundMode or "CUSTOM",
-            selectedBackground = CopyColor(style.selectedBackground),
-            selectedBackgroundMode = style.selectedBackgroundMode or "CUSTOM",
-            border = CopyColor(style.border),
-            borderMode = style.borderMode or "CUSTOM",
-            hoverAlpha = tonumber(style.hoverAlpha) or 0.10,
-        }
-    end,
-    set = function(context, values)
-        local styleName = GetSurfaceAppearanceStyleName(context)
-        local changed = false
-        for key in pairs(surfaceAppearanceKeys) do
-            if values[key] ~= nil then
-                changed = SetElementValue(
-                    context, styleName .. "." .. key, values[key]) or changed
-            end
-        end
-        return changed == true
-    end,
+    get = GetSurfaceAppearanceValues,
+    set = SetSurfaceAppearanceValues,
     reset = function(context)
         return ResetElementPaths(
             context, GetSurfaceAppearancePaths(context))
@@ -793,6 +901,37 @@ NSkin:RegisterOptionGroup("shared.surfaceAppearance", {
             context, GetSurfaceAppearancePaths(context, keys))
     end,
 })
+
+RegisterSurfaceAppearanceGroup("shared.surfaceGeometry",
+    surfaceGeometryControls, {
+        width = true,
+        height = true,
+    })
+RegisterSurfaceAppearanceGroup("shared.surfaceBackground",
+    surfaceBackgroundControls, {
+        showBackground = true,
+        background = true,
+        backgroundMode = true,
+        backgroundOpacity = true,
+        selectedBackground = true,
+        selectedBackgroundMode = true,
+        selectedBackgroundOpacity = true,
+    })
+RegisterSurfaceAppearanceGroup("shared.surfaceBorder",
+    surfaceBorderControls, {
+        showBorder = true,
+        border = true,
+        borderMode = true,
+        borderSize = true,
+        borderPadding = true,
+    })
+RegisterSurfaceAppearanceGroup("shared.surfaceHighlight",
+    surfaceHighlightControls, {
+        showHighlight = true,
+        highlight = true,
+        highlightMode = true,
+        hoverAlpha = true,
+    })
 
 local sectionCardAppearanceControls = {
     { type = "SECTION", label = "Card", order = 10 },

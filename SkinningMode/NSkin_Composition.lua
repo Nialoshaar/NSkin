@@ -402,6 +402,65 @@ local editorGroupByElementID = {}
 local appearanceParentByID = {}
 local appearanceOwnerByID = {}
 local appearanceStateByID = {}
+local compositeTagByElementID = {}
+local compositeElementsByTag = {}
+local compositeTagByAppearanceID = {}
+
+local function NormalizeCompositeTag(tag)
+    if type(tag) ~= "string" then return nil end
+    tag = tag:match("^%s*(.-)%s*$")
+    return tag ~= "" and tag or nil
+end
+
+function NSkin:GetCompositeTagAppearanceID(tag)
+    tag = NormalizeCompositeTag(tag)
+    if not tag then return nil end
+    local token = tag:gsub("[^%w_%-]", "_")
+    local id = "CompositeTag." .. token
+    compositeTagByAppearanceID[id] = tag
+    return id
+end
+
+function NSkin:GetCompositeTag(elementOrID)
+    local element = type(elementOrID) == "table" and elementOrID
+        or self:GetSkinningElement(elementOrID)
+    return element and compositeTagByElementID[element.id] or nil
+end
+
+local function RegisterCompositeTag(element)
+    if not element then return end
+    local oldTag = compositeTagByElementID[element.id]
+    if oldTag and compositeElementsByTag[oldTag] then
+        compositeElementsByTag[oldTag][element.id] = nil
+        if not next(compositeElementsByTag[oldTag]) then
+            compositeElementsByTag[oldTag] = nil
+        end
+    end
+    local composition = element.composition
+    local tag = composition and composition.mode == "COMPOSITE"
+        and NormalizeCompositeTag(composition.tag) or nil
+    compositeTagByElementID[element.id] = tag
+    if not tag then return end
+    composition.tag = tag
+    compositeElementsByTag[tag] = compositeElementsByTag[tag] or {}
+    compositeElementsByTag[tag][element.id] = true
+    NSkin:GetCompositeTagAppearanceID(tag)
+end
+
+function NSkin:RefreshCompositeTagAppearance(change)
+    local tag = change and compositeTagByAppearanceID[change.elementID]
+    local members = tag and compositeElementsByTag[tag]
+    if not members then return false end
+    local refreshed
+    for elementID in pairs(members) do
+        local element = self:GetSkinningElement(elementID)
+        if element and type(element.refreshAppearance) == "function" then
+            element.refreshAppearance(self, element)
+            refreshed = true
+        end
+    end
+    return refreshed == true
+end
 
 function NSkin:GetAppearanceParentID(elementID)
     return appearanceParentByID[elementID]
@@ -841,6 +900,8 @@ function NSkin:GetCompositeMemberExactAppearanceContext(
         member.appearanceWindowID or element.appearanceWindowID
     context.compositeOwner = element
     context.compositeMember = member
+    context.surfaceStyle = member.surfaceStyle
+    context.compositeTag = self:GetCompositeTag(element)
     context.exactMemberOverride = true
     context.exactAppearanceID = appearanceID
     return context
@@ -1364,6 +1425,7 @@ end
 
 function NSkin:InitializeElementComposition(element)
     local composition = NormalizeComposition(element)
+    RegisterCompositeTag(element)
     if composition.mode == "COMPOSITE"
         and type(element.module) == "string"
     then
@@ -2036,6 +2098,7 @@ function NSkin:GetCompositeMemberAppearanceContext(elementOrID, memberOrID)
     context.compositeOwner = element
     context.compositeMember = member
     context.surfaceStyle = member.surfaceStyle
+    context.compositeTag = self:GetCompositeTag(element)
     context.specificElementOverride = specific
     return context
 end

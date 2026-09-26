@@ -1234,6 +1234,15 @@ function NSkin:RefreshAppearance(change)
             end
             return
         end
+        if not element
+            and type(self.RefreshCompositeTagAppearance) == "function"
+            and self:RefreshCompositeTagAppearance(change)
+        then
+            if self.RefreshSkinningModeAppearance then
+                self:RefreshSkinningModeAppearance(change)
+            end
+            return
+        end
         if not element and type(self.GetAppearanceOwnerElementID) == "function" then
             local ownerID = self:GetAppearanceOwnerElementID(change.elementID)
             element = ownerID and self:GetSkinningElement(ownerID) or nil

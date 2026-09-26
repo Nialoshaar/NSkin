@@ -225,6 +225,47 @@ local function SetViewEnabled(view, enabled)
     end
 end
 
+local function ResolveOptionEnabled(definition, values, context)
+    if not definition then return true end
+    if definition.enabled == false then return false end
+    if type(definition.enabledWhen) == "function" then
+        return definition.enabledWhen(values or {}, context) == true
+    end
+    return true
+end
+
+local function SetOptionKeyEnabled(view, key, enabled)
+    if type(key) ~= "string" or key == "" then return end
+    local control = view.controlByKey[key]
+    if control and control.SetEnabled then control:SetEnabled(enabled) end
+    if control and control.SetAlpha then
+        control:SetAlpha(enabled and 1 or 0.35)
+    end
+    local valueLabel = view.valueByKey[key]
+    if valueLabel and valueLabel.SetAlpha then
+        valueLabel:SetAlpha(enabled and 1 or 0.35)
+    end
+    local label = view.labelByKey and view.labelByKey[key]
+    if label and label.SetAlpha then
+        label:SetAlpha(enabled and 1 or 0.35)
+    end
+end
+
+local function ApplyOptionEnabledState(
+    view, definition, values, context, parentEnabled)
+    if not definition then return end
+    local enabled = parentEnabled ~= false
+        and ResolveOptionEnabled(definition, values, context)
+    if definition.left or definition.right then
+        ApplyOptionEnabledState(
+            view, definition.left, values, context, enabled)
+        ApplyOptionEnabledState(
+            view, definition.right, values, context, enabled)
+        return
+    end
+    SetOptionKeyEnabled(view, definition.key, enabled)
+end
+
 local function OptionValuesEqual(left, right)
     if left == right then return true end
     if type(left) ~= type(right) then return false end
@@ -444,6 +485,7 @@ local function CreateDropdownPairItem(view, control, x, width, y, mirrored)
         or (mirrored and "RIGHT" or "LEFT"))
     label:SetJustifyV("MIDDLE")
     label:SetText(control.label)
+    view.labelByKey[control.key] = label
     AddCompactGridControlDivider(view, label, mirrored)
     AddCompactOptionResetMenu(view, label, control.label,
         { control.key, control.modeKey }, mirrored)
@@ -681,6 +723,7 @@ local function CreateControlPairItem(view, control, x, width, y, mirrored)
         label:SetJustifyH("CENTER")
         label:SetJustifyV("MIDDLE")
         label:SetText(control.label)
+        view.labelByKey[control.key] = label
         if mirrored then
             checkbox:SetPoint("LEFT", view, "TOPLEFT", x, y)
             label:SetPoint("RIGHT", view, "TOPLEFT", x + width, y)
@@ -958,6 +1001,7 @@ CreateColor = function(view, control, y, layout)
         label:SetPoint("TOPLEFT", view, "TOPLEFT", x, y - 6)
     end
     label:SetText(control.label)
+    view.labelByKey[control.key] = label
     if layout.inline then
         AddCompactGridControlDivider(view, label, layout.mirrored)
         AddCompactOptionResetMenu(view, label,
@@ -1067,6 +1111,7 @@ CreateColor = function(view, control, y, layout)
 end
 
 local function RefreshColorControl(view, control, values)
+    if not control then return end
     local value = values and values[control.key]
     if type(value) ~= "table" then return end
     local dropdown = view.colorByKey[control.key]
@@ -1133,6 +1178,7 @@ local function CreateSliderPairItem(view, definition, x, width, y, mirroredSide,
         label:SetJustifyV("MIDDLE")
     end
     label:SetText(definition.label)
+    view.labelByKey[definition.key] = label
     if mirroredSide then
         AddCompactGridControlDivider(parent, label, mirroredSide == "RIGHT")
         AddCompactOptionResetMenu(view, label, definition.label,
@@ -1295,7 +1341,10 @@ end
 
 local function CreateMixedPairItem(view, definition, x, width, y, mirrored, cell)
     if not definition then return end
-    if definition.type == "DROPDOWN" then
+    if definition.type == "CHECKBOX" then
+        CreateControlPairItem(view, definition, x, width,
+            y - COMPACT_GRID_HEIGHT / 2, mirrored)
+    elseif definition.type == "DROPDOWN" then
         CreateDropdownPairItem(view, definition, x, width,
             y - COMPACT_GRID_HEIGHT / 2, mirrored)
     elseif definition.type == "SLIDER" then
@@ -1451,7 +1500,7 @@ local function CopyOverrideControl(control)
 end
 
 local function AddOverrideProperty(properties, control, forcedType)
-    if type(control) ~= "table" then return end
+    if type(control) ~= "table" or control.override == false then return end
     local controlType = control.type or forcedType
 
     if controlType == "SECTION" or controlType == "RESET" then return end
@@ -1647,6 +1696,7 @@ function NSkin:CreateOptionGroupView(parent, id, layout, context)
     view.valueLabels = {}
     view.controlByKey = {}
     view.valueByKey = {}
+    view.labelByKey = {}
     view.colorByKey = {}
     view.colorDefinitionByKey = {}
     view.colorModeByKey = {}
@@ -1908,6 +1958,14 @@ function NSkin:CreateOptionGroupView(parent, id, layout, context)
         end
         self.refreshing = false
         SetViewEnabled(self, enabled)
+        if enabled then
+            for i = 1, #self.definition.orderedControls do
+                ApplyOptionEnabledState(
+                    self,
+                    self.definition.orderedControls[i].definition,
+                    values, self.context, true)
+            end
+        end
     end
 
     function view:ApplyAppearance()

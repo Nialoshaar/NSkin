@@ -662,6 +662,14 @@ local function OpenCompositeMemberContextMenu(input, element, member)
             end
         end)
     end)
+    C_Timer.After(0, function()
+        local manager = Menu and Menu.GetManager and Menu.GetManager()
+        local menu = manager and manager.GetOpenMenu
+            and manager:GetOpenMenu()
+        if menu and menu:IsShown() then
+            NSkin:SkinDropdownMenu(menu)
+        end
+    end)
     return true
 end
 

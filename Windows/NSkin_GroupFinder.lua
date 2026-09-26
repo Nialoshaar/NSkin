@@ -1550,50 +1550,6 @@ ReapplyDungeonMemberFamilyOffsets = function(elementID)
     end
 end
 
-local function GetConfiguredDungeonRowExtent(isHeader)
-    local fallback = tonumber(dungeonDefaultRowExtent) or 20
-    local styleName = isHeader and "sectionRow" or "row"
-    local appearanceID = isHeader
-        and IDs.DungeonSections or IDs.SpecificDungeons
-    local style = NSkin:GetAppearanceStyle(
-        styleName, IDs.DungeonFinder.Scope, appearanceID)
-    local height = tonumber(style and style.height)
-    return height and height > 0 and height or fallback
-end
-
-local function RefreshDungeonScrollBoxExtent(scrollBox)
-    if not scrollBox or not scrollBox.GetView then return false end
-    local view = scrollBox:GetView()
-    if not view or type(view.SetElementExtentCalculator) ~= "function" then
-        return false
-    end
-
-    local rowExtent = GetConfiguredDungeonRowExtent(false)
-    local sectionExtent = GetConfiguredDungeonRowExtent(true)
-    local signature = tostring(rowExtent) .. ":" .. tostring(sectionExtent)
-    if dungeonExtentState[scrollBox] == signature then return false end
-    dungeonExtentState[scrollBox] = signature
-
-    view:SetElementExtentCalculator(function(_, elementData)
-        local dungeonID = elementData and elementData.dungeonID
-        local isHeader = dungeonID ~= nil
-            and type(_G.LFGIsIDHeader) == "function"
-            and _G.LFGIsIDHeader(dungeonID)
-        return isHeader and sectionExtent or rowExtent
-    end)
-
-    if scrollBox.FullUpdate then
-        local immediately = _G.ScrollBoxConstants
-            and _G.ScrollBoxConstants.UpdateImmediately
-        if immediately ~= nil then
-            scrollBox:FullUpdate(immediately)
-        else
-            scrollBox:FullUpdate()
-        end
-    end
-    return true
-end
-
 function PVESkin:StyleDungeonChoice(_, _, choice)
     if not choice or not choice.id then return false end
     if dungeonDefaultRowExtent == nil and choice.GetHeight then
@@ -1996,7 +1952,6 @@ function PVESkin:ApplyDungeonSelectionRows()
         NSkin:ForEachScrollBoxFrame(scrollBox, function(choice)
             applied = self:StyleDungeonChoice(nil, owner, choice) or applied
         end)
-        RefreshDungeonScrollBoxExtent(scrollBox)
     end
     ReapplyDungeonMemberFamilyOffsets(IDs.DungeonSections)
     ReapplyDungeonMemberFamilyOffsets(IDs.SpecificDungeons)
