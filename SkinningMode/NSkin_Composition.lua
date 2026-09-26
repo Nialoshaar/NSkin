@@ -2155,8 +2155,12 @@ function NSkin:GetCompositeMemberEditorOptions(elementOrID, memberOrID)
             end
             copy.id = id
             copy.context = appearanceContext or element
-            copy.contextualInline = true
-            copy.presentation = "INLINE"
+            if copy.contextualInline == nil then
+                copy.contextualInline = true
+            end
+            if copy.contextualInline then
+                copy.presentation = "INLINE"
+            end
             if labels and labels[id] then copy.label = labels[id] end
             options[#options + 1] = copy
         end

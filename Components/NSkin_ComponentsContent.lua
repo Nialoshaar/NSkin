@@ -1288,21 +1288,25 @@ local function GetRowFamilySurfaceOptions()
             id = "shared.surfaceGeometry",
             label = "Surface",
             category = "CUSTOMIZE",
+            contextualInline = true,
         },
         {
             id = "shared.surfaceBackground",
             label = "Background",
             category = "CUSTOMIZE",
+            contextualInline = true,
         },
         {
             id = "shared.surfaceBorder",
             label = "Border",
             category = "CUSTOMIZE",
+            contextualInline = false,
         },
         {
             id = "shared.surfaceHighlight",
             label = "Highlight",
             category = "CUSTOMIZE",
+            contextualInline = false,
         },
     }
 end
