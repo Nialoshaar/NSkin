@@ -349,10 +349,11 @@ NSkin.baseAppearance = {
     },
 
     skinningMode = {
-        highlight = { 0, 0.65, 1, 0.16 },
-        hover = { 0, 0.65, 1, 0.28 },
+        highlight = { 0, 0.65, 1, 0.24 },
+        hover = { 0, 0.65, 1, 1 },
         dropZone = { 0, 0.65, 1, 0.22 },
         activeDropZone = { 0, 0.65, 1, 0.55 },
+        selected = { 1, 0.82, 0, 1 },
         override = { 1, 0.65, 0, 0.82 },
         gridAlpha = 0.4,
         ghost = { 0, 0.65, 1, 0.35 },

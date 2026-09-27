@@ -4,6 +4,7 @@ local controller
 local GRID_SIZES = { 2, 4, 8, 16 }
 local VALID_GRID_SIZES = { [2] = true, [4] = true, [8] = true, [16] = true }
 local TRANSPARENT = { 0, 0, 0, 0 }
+local OVERRIDE_CORNER = { 1, 92 / 255, 0, 1 }
 local StopDrag
 local RefreshGrid
 local HideGrid
@@ -48,6 +49,15 @@ local function GetCursorPositionForWindow(window)
     local scale = window and window:GetEffectiveScale() or UIParent:GetEffectiveScale()
     local x, y = GetCursorPosition()
     return x / scale, y / scale
+end
+
+local function IsDockedWindowHovered()
+    local docked = controller and controller.dockedWindow
+    local frame = docked and docked.frame
+    return frame
+        and frame.IsShown and frame:IsShown()
+        and frame.IsMouseOver and frame:IsMouseOver()
+        or false
 end
 
 local function GetElementBounds(element)
@@ -455,14 +465,25 @@ local function RefreshAnchorGroupOverlay(element)
         and NSkin:IsSkinningElementEditable(element)
         and AnchorOverlay(overlay, element)
     local selected = controller.selectedElement == element
-    local visible = eligible
-        and (selected
-            or (not controller.modalInputBlocked
-                and not controller.dragging
-                and controller.hoveredElement == element))
+    local memberFocused = selected
+        and controller.focusedCompositeMemberID ~= nil
+    local memberHovered = controller.hoveredElement == element
+        and controller.hoveredCompositeMemberID ~= nil
+    local groupHovered = not controller.modalInputBlocked
+        and not controller.dragging
+        and controller.hoveredElement == element
+        and not memberHovered
+    local showSelected = selected and not memberFocused
+    local visible = eligible and (showSelected or groupHovered)
 
-    overlay.texture:SetColorTexture(unpack(visible and style.highlight or TRANSPARENT))
-    NSkin:SetPixelBorderColor(overlay.border, unpack(style.hover))
+    overlay.texture:SetColorTexture(
+        unpack(groupHovered and not showSelected
+            and style.highlight or TRANSPARENT))
+    NSkin:SetPixelBorderColor(
+        overlay.border,
+        unpack(showSelected
+            and (style.selected or { 1, 0.82, 0, 1 })
+            or style.hover))
     NSkin:SetPixelBorderShown(overlay.border, visible)
     overlay:SetShown(eligible == true)
     overlay:SetAlpha(controller.modalInputBlocked and not selected and 0 or 1)
@@ -499,15 +520,34 @@ local function RefreshOverlayAppearance(element)
     if not overlay then return end
     local style = NSkin:GetStyle("skinningMode")
     local selected = controller.selectedElement == element
+    local composition = element.composition
+    local composite = composition and composition.mode == "COMPOSITE"
+    local memberFocused = composite and selected
+        and controller.focusedCompositeMemberID ~= nil
+    local memberHovered = composite
+        and controller.hoveredElement == element
+        and controller.hoveredCompositeMemberID ~= nil
+    local groupHovered = composite
+        and overlay.hovered == true
+        and controller.hoveredCompositeMemberID == nil
+        and not controller.dragging
     local visible = not overlay.dragHidden
-        and (selected or (not controller.dragging and overlay.hovered == true))
+        and not memberHovered
+        and ((selected and not memberFocused)
+            or groupHovered
+            or (not composite and (selected
+                or (not controller.dragging and overlay.hovered == true))))
     local hovered = controller.hoveredElement
-    if hovered and (EditorElementBelongsToParent(hovered, element)
-        or EditorElementBelongsToParent(element, hovered))
+    local selectedElement = controller.selectedElement
+    local selectedChild = selectedElement
+        and selectedElement ~= element
+        and EditorElementBelongsToParent(selectedElement, element)
+    if selectedChild
+        or (hovered and (EditorElementBelongsToParent(hovered, element)
+            or EditorElementBelongsToParent(element, hovered)))
     then
         visible = false
     elseif element.kind == "WINDOW" then
-        local selectedElement = controller.selectedElement
         local childHovered = hovered and hovered ~= element
             and hovered.window == element.window
         local childSelected = selectedElement and selectedElement ~= element
@@ -525,26 +565,41 @@ local function RefreshOverlayAppearance(element)
         NSkin:SetPixelBorderShown(overlay.border, false)
         for _, surface in ipairs(overlay.regionSurfaces or {}) do
             if surface.visual then
+                local surfaceHovered = surface.hovered == true
+                    and not controller.dragging
+                    and not memberHovered
                 surface.visual.texture:SetColorTexture(
-                    unpack(visible and style.highlight or TRANSPARENT))
+                    unpack(surfaceHovered and not selected
+                        and style.highlight or TRANSPARENT))
                 NSkin:SetPixelBorderColor(
-                    surface.visual.border, unpack(style.hover))
+                    surface.visual.border,
+                    unpack(selected
+                        and (style.selected or { 1, 0.82, 0, 1 })
+                        or style.hover))
+                local memberFocused = selected
+                    and controller.focusedCompositeMemberID ~= nil
+                local showSurface = surface.active == true
+                    and not memberFocused
+                    and not memberHovered
+                    and (selected or surfaceHovered)
                 NSkin:SetPixelBorderShown(
-                    surface.visual.border, visible and surface.active == true)
+                    surface.visual.border, showSurface)
             end
         end
     else
-        local composition = element.composition
-        local composite = composition and composition.mode == "COMPOSITE"
-        local groupHovered = composite and overlay.hovered == true
-            and controller.hoveredCompositeMemberID == nil
-        local border = groupHovered
-            and style.activeDropZone or style.hover
+        local showSelected = selected and not memberFocused
+        local border = showSelected
+            and (style.selected or { 1, 0.82, 0, 1 })
+            or style.hover
+        local elementHovered = visible
+            and overlay.hovered == true
+            and not controller.dragging
+            and not showSelected
         overlay.texture:SetColorTexture(
-            unpack(visible and style.highlight or TRANSPARENT))
+            unpack(elementHovered
+                and style.highlight or TRANSPARENT))
         if overlay.hoverGlow then
-            overlay.hoverGlow:SetShown(
-                visible and groupHovered == true)
+            overlay.hoverGlow:Hide()
         end
         NSkin:SetPixelBorderColor(overlay.border, unpack(border))
         NSkin:SetPixelBorderShown(overlay.border, visible)
@@ -621,20 +676,54 @@ local function SetCompositeMemberNativeHoverSuppressed(
     end
 end
 
-local function GetCompositeMemberBorderColor(
-    style, element, member, emphasized, target)
-    local hasOverride =
-        NSkin:HasCompositeMemberOverride(element, member, target)
-    if hasOverride then
-        local override = style.override or { 1, 0.65, 0, 0.82 }
-        return {
-            override[1] or 1,
-            override[2] or 0.65,
-            override[3] or 0,
-            emphasized and 1 or (override[4] or 0.82),
-        }
+local COMPACT_MEMBER_HIGHLIGHT_SIZE = 40
+
+local function CopyCompositeMemberColor(color, alpha)
+    color = color or { 1, 1, 1, 1 }
+    return {
+        color[1] or 1,
+        color[2] or 1,
+        color[3] or 1,
+        alpha == nil and (color[4] or 1) or alpha,
+    }
+end
+
+local function IsCompactCompositeMemberVisual(visual, member)
+    if not visual or member.editorSurface == true
+        or not visual.GetWidth or not visual.GetHeight
+    then
+        return false
     end
-    return emphasized and style.activeDropZone or style.hover
+    if member.kind == "CHECKBOX" then
+        return true
+    end
+    local width = tonumber(visual:GetWidth()) or 0
+    local height = tonumber(visual:GetHeight()) or 0
+    if width <= 0 or height <= 0 then return false end
+    if member.kind == "BUTTON" then
+        return width <= COMPACT_MEMBER_HIGHLIGHT_SIZE
+            and height <= COMPACT_MEMBER_HIGHLIGHT_SIZE
+    end
+    return width <= 32 and height <= 32
+end
+
+local function GetCompositeMemberBorderColor(
+    style, element, member, emphasized, target, compact)
+    local border = emphasized and style.hover or style.hover
+    if emphasized then
+        return CopyCompositeMemberColor(border, 1)
+    end
+    if compact then
+        return CopyCompositeMemberColor(border, 0.92)
+    end
+    return border
+end
+
+local function GetCompositeMemberFillColor(
+    style, member, compact, emphasized)
+    -- Composite members are border-only while idle/selected. Hover feedback
+    -- comes from hoverGlow, avoiding a permanent tinted fill over the UI.
+    return TRANSPARENT
 end
 
 local function OpenCompositeMemberContextMenu(input, element, member)
@@ -673,6 +762,35 @@ local function OpenCompositeMemberContextMenu(input, element, member)
     return true
 end
 
+local function SetOverrideCornersShown(visual, shown)
+    for _, texture in pairs(visual.overrideCorners or {}) do
+        texture:SetShown(shown == true)
+    end
+end
+
+local function LayoutOverrideCorners(visual, padding, length)
+    local corners = visual.overrideCorners
+    if not corners then return end
+    local offset = padding + 1
+
+    local function Anchor(texture, point, width, height)
+        texture:ClearAllPoints()
+        local x = point:find("RIGHT", 1, true) and offset or -offset
+        local y = point:find("TOP", 1, true) and offset or -offset
+        texture:SetPoint(point, visual, point, x, y)
+        texture:SetSize(width, height)
+    end
+
+    Anchor(corners.topLeftH, "TOPLEFT", length, 3)
+    Anchor(corners.topLeftV, "TOPLEFT", 3, length)
+    Anchor(corners.topRightH, "TOPRIGHT", length, 3)
+    Anchor(corners.topRightV, "TOPRIGHT", 3, length)
+    Anchor(corners.bottomLeftH, "BOTTOMLEFT", length, 3)
+    Anchor(corners.bottomLeftV, "BOTTOMLEFT", 3, length)
+    Anchor(corners.bottomRightH, "BOTTOMRIGHT", length, 3)
+    Anchor(corners.bottomRightV, "BOTTOMRIGHT", 3, length)
+end
+
 local function EnsureCompositeMemberSurface(element, member, surfaceKey)
     controller.compositeMemberSurfaces[element.id] =
         controller.compositeMemberSurfaces[element.id] or {}
@@ -705,6 +823,23 @@ local function EnsureCompositeMemberSurface(element, member, surfaceKey)
         visual, "NSkinSkinningModeCompositeMember", 1,
         NSkin:GetStyle("skinningMode").hover, false, visual)
     NSkin:SetPixelBorderShown(visual.border, false)
+    visual.overrideCornerLayer = CreateFrame("Frame", nil, visual)
+    visual.overrideCornerLayer:SetAllPoints(visual)
+    visual.overrideCornerLayer:EnableMouse(false)
+    visual.overrideCornerLayer:SetFrameLevel(visual:GetFrameLevel() + 10)
+    visual.overrideCorners = {}
+    for _, key in ipairs({
+        "topLeftH", "topLeftV",
+        "topRightH", "topRightV",
+        "bottomLeftH", "bottomLeftV",
+        "bottomRightH", "bottomRightV",
+    }) do
+        local texture =
+            visual.overrideCornerLayer:CreateTexture(nil, "OVERLAY", nil, 7)
+        texture:SetColorTexture(unpack(OVERRIDE_CORNER))
+        texture:Hide()
+        visual.overrideCorners[key] = texture
+    end
 
     local input = CreateFrame("Button", nil, UIParent)
     input.nskinSkinningInput = true
@@ -742,6 +877,8 @@ local function EnsureCompositeMemberSurface(element, member, surfaceKey)
         surface.hovered = IsInteractive(self) or nil
         if surface.hovered then
             controller.hoveredCompositeMemberID = surface.member.id
+            controller.hoveredCompositeRuntimeTarget =
+                surface.runtimeTarget
             local overlay = controller.overlays[element.id]
             if overlay then overlay.hovered = true end
             controller.hoveredElement = element
@@ -755,8 +892,12 @@ local function EnsureCompositeMemberSurface(element, member, surfaceKey)
     end)
     input:SetScript("OnLeave", function()
         surface.hovered = nil
-        if controller.hoveredCompositeMemberID == surface.member.id then
+        if controller.hoveredCompositeMemberID == surface.member.id
+            and controller.hoveredCompositeRuntimeTarget
+                == surface.runtimeTarget
+        then
             controller.hoveredCompositeMemberID = nil
+            controller.hoveredCompositeRuntimeTarget = nil
         end
         local overlay = controller.overlays[element.id]
         if overlay and not IsPointerWithinElementBounds(element) then
@@ -827,10 +968,18 @@ RefreshCompositeMemberSurfaces = function(element)
         local visualAnchored
         local inputAnchored
         if target then
+            local highlightTarget = target
+            if member.kind == "CHECKBOX" and NSkin.GetFlatBackground then
+                local checkboxVisual = NSkin:GetFlatBackground(target)
+                if checkboxVisual then highlightTarget = checkboxVisual end
+            end
+            surface.highlightTarget = highlightTarget
             visualAnchored = AnchorCompositeMemberRegionSurface(
-                surface.visual, member, target, member.highlightPadding)
+                surface.visual, member, highlightTarget,
+                member.highlightPadding)
             inputAnchored = AnchorCompositeMemberRegionSurface(
-                surface.input, member, target, member.highlightPadding)
+                surface.input, member, highlightTarget,
+                member.highlightPadding)
         else
             visualAnchored =
                 AnchorCompositeMemberSurface(surface.visual, element, member)
@@ -839,33 +988,71 @@ RefreshCompositeMemberSurfaces = function(element)
         end
 
         local attached = NSkin:IsCompositeMemberAttached(element, member)
-        local focused = selected
+        local focusedMember = selected
             and controller.focusedCompositeMemberID == member.id
-            and (not target
-                or not controller.focusedCompositeRuntimeTarget
-                or target == controller.focusedCompositeRuntimeTarget)
+        local focusedRuntimeTarget =
+            focusedMember and controller.focusedCompositeRuntimeTarget or nil
+        local focusedRuntimeOverride = focusedRuntimeTarget
+            and NSkin:HasCompositeMemberOverride(
+                element, member, focusedRuntimeTarget)
+        local targetOverride = target
+            and NSkin:HasCompositeMemberOverride(element, member, target)
+        local focused = focusedMember
+            and ((focusedRuntimeOverride
+                    and target == focusedRuntimeTarget)
+                or (not focusedRuntimeOverride and not targetOverride))
         local memberHovered = surface.hovered == true
+            and controller.hoveredCompositeMemberID == member.id
+            and (not target
+                or controller.hoveredCompositeRuntimeTarget == target)
+        local memberHoveredAnywhere =
+            controller.hoveredCompositeMemberID == member.id
         local showSubglow = visualAnchored and not controller.dragging
-            and (compositeHovered or selected or memberHovered
-                or not attached)
+            and (focused or memberHovered or not attached)
 
         if showSubglow then
-            local fill = member.editorSurface
-                and style.highlight or style.hover
-            local border = GetCompositeMemberBorderColor(
-                style, element, member, focused or memberHovered, target)
-            surface.visual.texture:SetColorTexture(unpack(fill))
+            local emphasized = focused or memberHoveredAnywhere
+            local compact = IsCompactCompositeMemberVisual(
+                surface.visual, member)
+            local fill = GetCompositeMemberFillColor(
+                style, member, compact, emphasized)
+            local hasOverride =
+                NSkin:HasCompositeMemberOverride(element, member, target)
+            local border = focused
+                and (style.selected or { 1, 0.82, 0, 1 })
+                or style.hover
+            surface.visual.texture:SetColorTexture(
+                unpack(memberHovered and not focused
+                    and style.highlight or TRANSPARENT))
             if surface.visual.hoverGlow then
-                surface.visual.hoverGlow:SetShown(memberHovered == true)
+                surface.visual.hoverGlow:Hide()
             end
+            local borderPadding =
+                IsDockedWindowHovered() and 5 or 0
             NSkin:SetPixelBorderColor(
                 surface.visual.border, unpack(border))
+            NSkin:SetPixelBorderSize(surface.visual.border, 1)
+            NSkin:SetPixelBorderPadding(
+                surface.visual.border, borderPadding)
             NSkin:SetPixelBorderShown(surface.visual.border, true)
+            if surface.visual.overrideCorners then
+                local totalWidth =
+                    surface.visual:GetWidth() + borderPadding * 2
+                local totalHeight =
+                    surface.visual:GetHeight() + borderPadding * 2
+                local cornerLength =
+                    math.max(3, math.min(totalWidth, totalHeight) * 0.25)
+                LayoutOverrideCorners(
+                    surface.visual, borderPadding, cornerLength)
+                SetOverrideCornersShown(
+                    surface.visual, hasOverride == true)
+            end
             surface.visual:Show()
         else
             if surface.visual.hoverGlow then
                 surface.visual.hoverGlow:Hide()
             end
+            SetOverrideCornersShown(surface.visual, false)
             surface.visual:Hide()
             NSkin:SetPixelBorderShown(surface.visual.border, false)
         end
@@ -902,11 +1089,206 @@ RefreshCompositeMemberSurfaces = function(element)
         end
     end
 
+    local focusedMemberID = selected
+        and controller.focusedCompositeMemberID or nil
+    local focusedMember = focusedMemberID
+        and NSkin:GetCompositeMember(element, focusedMemberID)
+    local focusedMemberHovered =
+        focusedMemberID ~= nil
+        and controller.hoveredCompositeMemberID == focusedMemberID
+
+    local focusedRuntimeOverride = focusedMember
+        and controller.focusedCompositeRuntimeTarget
+        and NSkin:HasCompositeMemberOverride(
+            element, focusedMember, controller.focusedCompositeRuntimeTarget)
+
+    if focusedMember and not focusedRuntimeOverride then
+        local candidates = {}
+        for surfaceKey, surface in pairs(existing or {}) do
+            if active[surfaceKey]
+                and surface.member
+                and surface.member.id == focusedMemberID
+                and surface.runtimeTarget
+                and surface.highlightTarget
+                and not NSkin:HasCompositeMemberOverride(
+                    element, focusedMember, surface.runtimeTarget)
+            then
+                local left, right, bottom, top =
+                    GetNormalizedRegionBounds(surface.visual, 0)
+                if left then
+                    candidates[#candidates + 1] = {
+                        surface = surface,
+                        left = left, right = right,
+                        bottom = bottom, top = top,
+                    }
+                end
+            end
+        end
+        table.sort(candidates, function(a, b)
+            if a.top ~= b.top then return a.top > b.top end
+            return a.left < b.left
+        end)
+
+        local clusters = {}
+        local groupPadding = 5
+        for _, candidate in ipairs(candidates) do
+            local cluster = clusters[#clusters]
+            local overlapsPaddedBounds = cluster
+                and candidate.left - groupPadding
+                    <= cluster.right + groupPadding
+                and candidate.right + groupPadding
+                    >= cluster.left - groupPadding
+                and candidate.top + groupPadding
+                    >= cluster.bottom - groupPadding
+                and candidate.bottom - groupPadding
+                    <= cluster.top + groupPadding
+            if cluster and overlapsPaddedBounds then
+                cluster.left = math.min(cluster.left, candidate.left)
+                cluster.right = math.max(cluster.right, candidate.right)
+                cluster.bottom = math.min(cluster.bottom, candidate.bottom)
+                cluster.top = math.max(cluster.top, candidate.top)
+                cluster.members[#cluster.members + 1] = candidate.surface
+            else
+                clusters[#clusters + 1] = {
+                    left = candidate.left,
+                    right = candidate.right,
+                    bottom = candidate.bottom,
+                    top = candidate.top,
+                    members = { candidate.surface },
+                }
+            end
+        end
+
+        for index, cluster in ipairs(clusters) do
+            if #cluster.members > 1 then
+                for _, memberSurface in ipairs(cluster.members) do
+                    local memberOverride =
+                        NSkin:HasCompositeMemberOverride(
+                            element, focusedMember,
+                            memberSurface.runtimeTarget)
+                    memberSurface.visual.texture:SetColorTexture(
+                        unpack(TRANSPARENT))
+                    NSkin:SetPixelBorderShown(
+                        memberSurface.visual.border, false)
+                    SetOverrideCornersShown(
+                        memberSurface.visual, memberOverride == true)
+                    memberSurface.visual:SetShown(memberOverride == true)
+                end
+                local groupKey = "__NSKIN_GROUP__"
+                    .. focusedMemberID .. ":" .. tostring(index)
+                local groupSurface = EnsureCompositeMemberSurface(
+                    element, focusedMember, groupKey)
+                groupSurface.runtimeTarget = nil
+                groupSurface.input:Hide()
+                groupSurface.input:EnableMouse(false)
+                groupSurface.visual:ClearAllPoints()
+                groupSurface.visual:SetPoint(
+                    "TOPLEFT", UIParent, "BOTTOMLEFT",
+                    cluster.left, cluster.top)
+                groupSurface.visual:SetPoint(
+                    "BOTTOMRIGHT", UIParent, "BOTTOMLEFT",
+                    cluster.right, cluster.bottom)
+                groupSurface.visual.texture:SetColorTexture(
+                    unpack(TRANSPARENT))
+                if groupSurface.visual.hoverGlow then
+                    groupSurface.visual.hoverGlow:Hide()
+                end
+                SetOverrideCornersShown(groupSurface.visual, false)
+                local border =
+                    style.selected or { 1, 0.82, 0, 1 }
+                NSkin:SetPixelBorderColor(
+                    groupSurface.visual.border, unpack(border))
+                NSkin:SetPixelBorderSize(groupSurface.visual.border, 1)
+                NSkin:SetPixelBorderPadding(
+                    groupSurface.visual.border,
+                    IsDockedWindowHovered() and 5 or 0)
+                NSkin:SetPixelBorderShown(
+                    groupSurface.visual.border, true)
+                groupSurface.visual:Show()
+                active[groupKey] = true
+            end
+        end
+    end
+
     for surfaceKey, surface in pairs(existing or {}) do
         if not active[surfaceKey] then
+            SetOverrideCornersShown(surface.visual, false)
             surface.visual:Hide()
             surface.input:Hide()
             surface.hovered = nil
+        end
+    end
+
+    -- Input surfaces can be created/reanchored underneath an already stationary
+    -- cursor. WoW does not reliably emit a new OnEnter in that case, which can
+    -- leave the broad row Surface marked hovered until the cursor exits/re-enters.
+    -- Resolve the actual top member under the cursor from the live input frames.
+    if not controller.dragging
+        and not controller.reconcilingCompositeMemberHover
+    then
+        local bestSurface
+        local bestLevel = -math.huge
+        local bestArea = math.huge
+        for surfaceKey, surface in pairs(existing or {}) do
+            if active[surfaceKey]
+                and surface.input and surface.input:IsShown()
+                and surface.input.IsMouseOver
+                and surface.input:IsMouseOver()
+            then
+                local level = surface.input.GetFrameLevel
+                    and surface.input:GetFrameLevel() or 0
+                local width = surface.input.GetWidth
+                    and tonumber(surface.input:GetWidth()) or 0
+                local height = surface.input.GetHeight
+                    and tonumber(surface.input:GetHeight()) or 0
+                local area = math.max(0, width) * math.max(0, height)
+                if not bestSurface
+                    or level > bestLevel
+                    or (level == bestLevel and area < bestArea)
+                then
+                    bestSurface = surface
+                    bestLevel = level
+                    bestArea = area
+                end
+            end
+        end
+
+        local changed
+        for surfaceKey, surface in pairs(existing or {}) do
+            if active[surfaceKey] then
+                local hovered = surface == bestSurface
+                if surface.hovered ~= (hovered and true or nil) then
+                    surface.hovered = hovered and true or nil
+                    changed = true
+                end
+            end
+        end
+
+        if bestSurface then
+            if controller.hoveredCompositeMemberID
+                    ~= bestSurface.member.id
+                or controller.hoveredCompositeRuntimeTarget
+                    ~= bestSurface.runtimeTarget
+            then
+                controller.hoveredCompositeMemberID =
+                    bestSurface.member.id
+                controller.hoveredCompositeRuntimeTarget =
+                    bestSurface.runtimeTarget
+                changed = true
+            end
+        elseif controller.hoveredElement == element
+            and controller.hoveredCompositeMemberID ~= nil
+        then
+            controller.hoveredCompositeMemberID = nil
+            controller.hoveredCompositeRuntimeTarget = nil
+            changed = true
+        end
+
+        if changed then
+            controller.reconcilingCompositeMemberHover = true
+            RefreshOverlayAppearance(element)
+            RefreshCompositeMemberSurfaces(element)
+            controller.reconcilingCompositeMemberHover = nil
         end
     end
 end
@@ -1818,9 +2200,14 @@ local function CreateOverlay(element)
                 input:SetPropagateMouseClicks(true)
             end
             input:SetScript("OnEnter", function(self)
+                local regionSurface = self.nskinRegionSurface
+                if regionSurface then regionSurface.hovered = true end
                 RefreshInputEligibility(self)
             end)
-            input:SetScript("OnLeave", function()
+            input:SetScript("OnLeave", function(self)
+                local regionSurface = self.nskinRegionSurface
+                if regionSurface then regionSurface.hovered = nil end
+                RefreshOverlayAppearance(element)
                 if _G.GetCursorPosition then
                     local x, y = _G.GetCursorPosition()
                     local scale = UIParent and UIParent:GetEffectiveScale() or 1
@@ -1857,6 +2244,7 @@ local function CreateOverlay(element)
             end)
 
             local surface = { visual = visual, input = input, index = index }
+            input.nskinRegionSurface = surface
             overlay.regionSurfaces[index] = surface
             return surface
         end
@@ -1882,6 +2270,7 @@ local function CreateOverlay(element)
                 local surface = self.regionSurfaces[index]
                 surface.active = nil
                 surface.region = nil
+                surface.hovered = nil
                 surface.visual:Hide()
                 surface.input:Hide()
                 surface.input:EnableMouse(false)
@@ -2031,6 +2420,25 @@ local function CreateController()
 
     NSkin:CreateDockedWindow(controller)
 
+    local dockedFrame = controller.dockedWindow
+        and controller.dockedWindow.frame
+    if dockedFrame then
+        if dockedFrame.EnableMouse then dockedFrame:EnableMouse(true) end
+        if dockedFrame.HookScript then
+            local function RefreshDockedHoverSpacing()
+                local element = controller and controller.selectedElement
+                if element and RefreshCompositeMemberSurfaces then
+                    RefreshCompositeMemberSurfaces(element)
+                end
+            end
+            dockedFrame:HookScript("OnEnter", RefreshDockedHoverSpacing)
+            dockedFrame:HookScript("OnLeave", function(self)
+                if self.IsMouseOver and self:IsMouseOver() then return end
+                RefreshDockedHoverSpacing()
+            end)
+        end
+    end
+
     local popupCount = tonumber(_G.STATICPOPUP_NUMDIALOGS) or 4
     for index = 1, popupCount do
         local popup = _G["StaticPopup" .. index]
@@ -2085,6 +2493,10 @@ function NSkin:RefreshSkinningCompositeMemberEditor(
         return false
     end
     controller.dockedWindow:Refresh(element, memberID)
+    RefreshOverlayAppearance(element)
+    if RefreshCompositeMemberSurfaces then
+        RefreshCompositeMemberSurfaces(element)
+    end
     if self.RefreshSkinningDebugInspector then
         self:RefreshSkinningDebugInspector(
             element, controller.dockedWindow.frame)
@@ -2095,6 +2507,13 @@ end
 function NSkin:RefreshSkinningModeAppearance(change)
     if not controller or not controller.enabled then return end
     if change and change.scope == "element" then
+        local changedElement = self:GetSkinningElement(change.elementID)
+        if changedElement then
+            RefreshOverlayAppearance(changedElement)
+            if RefreshCompositeMemberSurfaces then
+                RefreshCompositeMemberSurfaces(changedElement)
+            end
+        end
         local selected = controller.selectedElement
         if selected and selected.id == change.elementID
             and self:ShouldRefreshSkinningModeInspector(change, selected.id)

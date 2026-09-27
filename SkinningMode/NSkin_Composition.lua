@@ -672,6 +672,7 @@ function NSkin:SetCompositeMemberTargetOffset(
     else
         memberStore[appearanceID] = { x = x, y = y }
     end
+    self:NotifySkinningElementBoundsChanged(element.id)
     return true
 end
 
