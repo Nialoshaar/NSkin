@@ -4,7 +4,7 @@ local controller
 local GRID_SIZES = { 2, 4, 8, 16 }
 local VALID_GRID_SIZES = { [2] = true, [4] = true, [8] = true, [16] = true }
 local TRANSPARENT = { 0, 0, 0, 0 }
-local OVERRIDE_CORNER = { 1, 92 / 255, 0, 1 }
+local OVERRIDE_CORNER = { 1, 125 / 255, 10 / 255, 1 }
 local StopDrag
 local RefreshGrid
 local HideGrid
@@ -614,6 +614,10 @@ local function AnchorCompositeMemberSurface(frame, element, member)
         frame:Hide()
         return false
     end
+    if member and member.kind == "TEXT" then
+        left = left - 3
+        right = right + 3
+    end
     frame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top)
     frame:SetPoint("BOTTOMRIGHT", UIParent, "BOTTOMLEFT", right, bottom)
     frame:Show()
@@ -655,6 +659,10 @@ local function AnchorCompositeMemberRegionSurface(
     if not left then
         frame:Hide()
         return false
+    end
+    if member and member.kind == "TEXT" then
+        left = left - 3
+        right = right + 3
     end
     frame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top)
     frame:SetPoint("BOTTOMRIGHT", UIParent, "BOTTOMLEFT", right, bottom)
