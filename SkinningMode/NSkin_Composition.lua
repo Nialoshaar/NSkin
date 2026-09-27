@@ -401,6 +401,7 @@ local editorGroups = {}
 local editorGroupByElementID = {}
 local appearanceParentByID = {}
 local appearanceOwnerByID = {}
+local appearanceMemberByID = {}
 local appearanceStateByID = {}
 local compositeTagByElementID = {}
 local compositeElementsByTag = {}
@@ -475,6 +476,35 @@ function NSkin:GetAppearanceOwnerElementID(elementID)
     return appearanceOwnerByID[elementID]
 end
 
+local function RegisterCompositeMemberAppearance(
+    element, member, appearanceID)
+    if not element or not member
+        or type(appearanceID) ~= "string" or appearanceID == ""
+    then return end
+    appearanceMemberByID[appearanceID] = {
+        elementID = element.id,
+        memberID = member.id,
+    }
+end
+
+function NSkin:RefreshCompositeMemberAppearance(change)
+    local entry = change and appearanceMemberByID[change.elementID]
+    if not entry then return false end
+
+    local element = self:GetSkinningElement(entry.elementID)
+    local member = element
+        and self:GetCompositeMember(element, entry.memberID)
+    if not element or not member
+        or type(member.refreshAppearance) ~= "function"
+    then
+        return false
+    end
+
+    local ok, refreshed = pcall(
+        member.refreshAppearance, element, member, change)
+    return ok and refreshed ~= false
+end
+
 function NSkin:RegisterAppearanceParentID(elementID, parentID, ownerID)
     if type(elementID) ~= "string" or elementID == ""
         or type(parentID) ~= "string" or parentID == ""
@@ -535,6 +565,7 @@ function NSkin:GetCompositeMemberTargetAppearanceID(
     end
     appearanceID = appearanceID or member.appearanceID or member.id
 
+    RegisterCompositeMemberAppearance(element, member, appearanceID)
     if appearanceID ~= (member.appearanceID or member.id) then
         self:RegisterAppearanceParentID(
             appearanceID, member.appearanceID or member.id, element.id)
@@ -1277,6 +1308,8 @@ local function NormalizeCompositeMembers(element, composition)
                         member.appearanceParentID
                 end
                 appearanceOwnerByID[member.appearanceID] = element.id
+                RegisterCompositeMemberAppearance(
+                    element, member, member.appearanceID)
                 for _, stateDefinition in ipairs(member.states or {}) do
                     local stateID = stateDefinition.appearanceID
                         or (member.appearanceID .. ".State."
@@ -1343,6 +1376,8 @@ local function NormalizeCompositeMembers(element, composition)
                     surface.appearanceParentID
             end
             appearanceOwnerByID[surface.appearanceID] = element.id
+            RegisterCompositeMemberAppearance(
+                element, surface, surface.appearanceID)
         end
     end
 

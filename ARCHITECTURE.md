@@ -164,6 +164,31 @@ Each canonical atomic component should have one shared implementation for:
 - inheritance behavior
 - common lifecycle handling
 
+Atomic components may also expose the shared Surface capability when they own
+an editable visual area. Surface capability does not create a second editor
+identity: it is a presentation layer of the same atomic component.
+
+The first canonical atomic Surface users are:
+
+```text
+ICON
+├─ Surface: Background / Border / Highlight
+└─ Icon-specific: Shape / Size / Crop / Zoom
+
+CHECKBOX
+├─ Surface: Background / Border / Highlight
+└─ Checkbox-specific: Shape / Size / Checkmark
+```
+
+For CHECKBOX, the existing checkbox background and border are the Surface
+implementation; do not draw a second box around the checkbox. The normal
+Surface background remains the base layer while checked/selected background is
+a state overlay on that same Surface, so checking a box does not replace or
+erase its configured base background. For ICON, the existing icon border
+becomes Surface-owned while texture presentation remains ICON-owned.
+Component-specific geometry such as icon shape may constrain how a Surface is
+rendered without moving that property into the Surface schema.
+
 A new option added to a canonical component should normally become available everywhere that component is used without modifying individual window adapters.
 
 Do not create page-specific copies of canonical appearance logic.
@@ -480,9 +505,15 @@ Surface
 └─ Highlight
 ```
 
-Every Composite exposes a Surface member. Window adapters may declare the Surface explicitly when Blizzard provides a meaningful visual target; otherwise shared composition infrastructure may provide the canonical Surface member from the Composite owner. Repeated families use the same Surface contract rather than inventing family-specific editor schemas.
+Every Composite exposes a group Surface member. Window adapters may declare the Surface explicitly when Blizzard provides a meaningful visual target; otherwise shared composition infrastructure may provide the canonical Surface member from the Composite owner. Repeated families use the same Surface contract rather than inventing family-specific editor schemas.
 
-The Surface member is the primary presentation member for the Composite and uses the same canonical Docked Window options and sparse override system as other editable members. This does not make Surface a semantic child object: selection, movement ownership, children, and composition relationships still belong to the owning editor structure.
+Atomic components may additionally expose Surface capability on their own
+appearance identity. An atomic Surface is not another Composite member and
+does not acquire editor, movement, or composition ownership. It simply moves
+overlapping generic presentation properties such as background, border, and
+highlight out of the component-specific option schema.
+
+The group Surface member is the primary presentation member for the Composite and uses the same canonical Docked Window options and sparse override system as other editable members. This does not make Surface a semantic child object: selection, movement ownership, children, and composition relationships still belong to the owning editor structure.
 
 A Surface may skin an existing Blizzard visual surface or use NSkin-owned non-interactive decoration. NSkin-created regions must not steal Blizzard clicks, tooltips, or hit regions.
 
@@ -524,16 +555,29 @@ Canonical option definitions belong with shared component/capability infrastruct
 
 The Docked Window consumes those canonical definitions rather than reconstructing reduced copies.
 
+For a Composite, the header names the logical group once and exposes one
+horizontal member selector directly below the header actions. The first tab is
+`Group` (the Composite Surface/editor group), followed by the canonical member
+labels. Repeated concrete members that share the same component kind and
+appearance parent are one Docked Window tab; for example three registered card
+icons produce one `Icon` tab. Same-kind members with different appearance
+parents remain separate editor tabs because they are distinct appearance
+families. Switching tabs changes editor focus only; it must not create a second
+appearance identity or require clicking the underlying Blizzard control again.
+The selected tab uses explicit selected-state presentation while inactive tabs
+remain visually neutral.
+
 Conceptually:
 
 ```text
 STANDALONE
-→ canonical component options
-→ eligible capability options
+→ canonical component-specific options
+→ eligible Surface capability options
 
 COMPOSITE
-→ shared Surface options
-→ canonical member options
+→ shared group Surface options
+→ canonical member-specific options
+→ eligible member Surface capability options
 → structural/position controls
 → sparse property overrides
 
@@ -1017,7 +1061,7 @@ EDITOR_GROUP
 → independent member appearance remains canonical
 ```
 
-An override is selected by member and property, then resolves against either the shared member identity or the currently focused exact runtime identity. Resetting shared presentation must not silently erase independent exact-target exceptions.
+An override is selected by member, presentation category, and property, then resolves against either the shared member identity or the currently focused exact runtime identity. The override picker groups properties as Element specific option, Background, Border, and Highlight; these categories are presentation UI only and do not change appearance ownership. Resetting shared presentation must not silently erase independent exact-target exceptions.
 
 A window adapter may declare identity, target resolution, and presentation metadata, but it must not reconstruct generic dock or override controls.
 

@@ -1061,7 +1061,12 @@ CreateColor = function(view, control, y, layout)
         } or {
             { value = "CUSTOM", label = "Custom" },
         }
-        if control.allowItemQuality and hasColorMode then
+        local allowItemQuality = control.allowItemQuality
+        if type(allowItemQuality) == "function" then
+            local ok, allowed = pcall(allowItemQuality, view.context)
+            allowItemQuality = ok and allowed == true
+        end
+        if allowItemQuality and hasColorMode then
             table.insert(modes, 1,
                 { value = "QUALITY", label = "Item Quality" })
         end

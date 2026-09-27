@@ -2781,11 +2781,113 @@ local function ResolveIconInteractionState(provider, fallback, target)
         or false
 end
 
+local function ApplyIconSurfaceBackground(
+    self, data, target, texture, owner, style, options)
+    if not data or not texture or not owner or not owner.CreateTexture then
+        return false
+    end
+    options = options or {}
+
+    if data.surfaceBackgroundOwner ~= owner then
+        if data.surfaceBackground then data.surfaceBackground:Hide() end
+        data.surfaceBackground = nil
+        data.surfaceBackgroundMask = nil
+        data.surfaceBackgroundMaskAdded = nil
+        data.surfaceBackgroundOwner = owner
+    end
+
+    local background = data.surfaceBackground
+    if not background then
+        background = owner:CreateTexture(nil, "BACKGROUND", nil, 7)
+        self:ConfigureOwnedPixelTexture(background)
+        data.surfaceBackground = background
+    end
+    background:ClearAllPoints()
+    background:SetPoint("TOPLEFT", texture, "TOPLEFT", 0, 0)
+    background:SetPoint("BOTTOMRIGHT", texture, "BOTTOMRIGHT", 0, 0)
+
+    local baseColor =
+        self:GetResolvedAppearanceColor(style, "background")
+        or style.background or { 0, 0, 0, 0 }
+    data.surfaceBackgroundColor = {
+        baseColor[1] or 0, baseColor[2] or 0, baseColor[3] or 0,
+        tonumber(style.backgroundOpacity) or baseColor[4] or 1,
+    }
+    local selectedColor =
+        self:GetResolvedAppearanceColor(style, "selectedBackground")
+        or style.selectedBackground or data.surfaceBackgroundColor
+    data.surfaceSelectedBackgroundColor = {
+        selectedColor[1] or data.surfaceBackgroundColor[1],
+        selectedColor[2] or data.surfaceBackgroundColor[2],
+        selectedColor[3] or data.surfaceBackgroundColor[3],
+        tonumber(style.selectedBackgroundOpacity)
+            or selectedColor[4] or data.surfaceBackgroundColor[4],
+    }
+    local highlight =
+        self:GetResolvedAppearanceColor(style, "highlight")
+        or style.highlight or { 1, 1, 1, 1 }
+    data.surfaceHighlightColor = {
+        highlight[1] or 1, highlight[2] or 1, highlight[3] or 1,
+        tonumber(style.hoverAlpha) or highlight[4] or 0.10,
+    }
+    data.surfaceShowBackground = options.showBackground
+    if data.surfaceShowBackground == nil then
+        data.surfaceShowBackground = style.showBackground == true
+    end
+    data.surfaceShowHighlight = options.showHighlight
+    if data.surfaceShowHighlight == nil then
+        data.surfaceShowHighlight = style.showHighlight ~= false
+    end
+
+    self:SetOwnedTextureColor(
+        background, unpack(data.surfaceBackgroundColor))
+    background:SetShown(data.surfaceShowBackground == true)
+
+    if data.shape ~= "square" and background.AddMaskTexture
+        and owner.CreateMaskTexture
+    then
+        local mask = data.surfaceBackgroundMask
+        if not mask then
+            mask = owner:CreateMaskTexture(nil, "BACKGROUND")
+            data.surfaceBackgroundMask = mask
+        end
+        if ConfigureIconShapeMask(mask, data.shape, background) then
+            if not data.surfaceBackgroundMaskAdded then
+                background:AddMaskTexture(mask)
+                data.surfaceBackgroundMaskAdded = true
+            end
+        end
+    elseif data.surfaceBackgroundMaskAdded
+        and background.RemoveMaskTexture
+    then
+        background:RemoveMaskTexture(data.surfaceBackgroundMask)
+        data.surfaceBackgroundMaskAdded = nil
+    end
+    return true
+end
+
 local function RefreshIconInteractionGlow(target)
     local data = NSkin:GetSkinData(target, ICON_COMPONENT_STATE, false)
-    local glow = data and data.interactionGlow
+    if not data or not data.active then return end
+
+    local selected = ResolveIconInteractionState(
+        data.getSelected, data.selectedRegion, target)
+    if data.surfaceBackground then
+        local color = selected
+            and data.surfaceSelectedBackgroundColor
+            or data.surfaceBackgroundColor
+        if type(color) == "table" then
+            NSkin:SetOwnedTextureColor(
+                data.surfaceBackground, unpack(color))
+        end
+        data.surfaceBackground:SetShown(
+            data.surfaceShowBackground == true)
+    end
+
+    local glow = data.interactionGlow
     if not glow then return end
-    if not data.active or not data.interactionActive
+    if not data.interactionActive
+        or data.surfaceShowHighlight == false
         or (target.IsEnabled and not target:IsEnabled())
     then
         glow:Hide()
@@ -2793,8 +2895,6 @@ local function RefreshIconInteractionGlow(target)
     end
     local hovered = ResolveIconInteractionState(
         data.getHovered, data.hoverRegion, target)
-    local selected = ResolveIconInteractionState(
-        data.getSelected, data.selectedRegion, target)
     glow:SetShown(hovered or selected)
 end
 
@@ -2891,6 +2991,8 @@ local function ApplyIconInteraction(self, data, target, texture, options)
     end
     local buttonStyle = self:GetStyle("button") or {}
     local alpha = tonumber(options.interactionAlpha)
+        or (data.surfaceHighlightColor
+            and tonumber(data.surfaceHighlightColor[4]))
         or tonumber(buttonStyle.hoverAlpha) or 0.10
     local glowOwner = target
     if target.GetObjectType and target:GetObjectType() == "Texture" then
@@ -2916,6 +3018,14 @@ local function ApplyIconInteraction(self, data, target, texture, options)
     end
     local glow = self:CreateFlatButtonGlow(glowOwner, alpha, true)
     if not glow then return end
+    if type(data.surfaceHighlightColor) == "table" then
+        self:SetOwnedTextureColor(
+            glow,
+            data.surfaceHighlightColor[1] or 1,
+            data.surfaceHighlightColor[2] or 1,
+            data.surfaceHighlightColor[3] or 1,
+            alpha)
+    end
     glow:ClearAllPoints()
     local pixel = self:GetPhysicalPixelSize(texture)
     local inset = pixel * math.max(1,
@@ -2939,15 +3049,21 @@ local function ApplyIconInteraction(self, data, target, texture, options)
         glow:RemoveMaskTexture(data.interactionGlowMask)
         data.interactionGlowMasked = nil
     end
-    if not data.interactionHooksInstalled and target.HookScript then
-        local function RefreshInteraction(shownTarget)
-            RefreshIconInteractionGlow(shownTarget)
+    local interactionTarget = options.interactionTarget or target
+    if not data.interactionHooksInstalled
+        and interactionTarget and interactionTarget.HookScript
+    then
+        local function RefreshInteraction()
+            RefreshIconInteractionGlow(target)
         end
-        target:HookScript("OnEnter", RefreshInteraction)
-        target:HookScript("OnLeave", RefreshInteraction)
-        target:HookScript("OnShow", RefreshInteraction)
-        target:HookScript("OnHide", HideIconInteractionGlow)
+        interactionTarget:HookScript("OnEnter", RefreshInteraction)
+        interactionTarget:HookScript("OnLeave", RefreshInteraction)
+        interactionTarget:HookScript("OnShow", RefreshInteraction)
+        interactionTarget:HookScript("OnHide", function()
+            HideIconInteractionGlow(target)
+        end)
         data.interactionHooksInstalled = true
+        data.interactionHookTarget = interactionTarget
     end
     if not data.interactionMethodHooksInstalled and _G.hooksecurefunc then
         local function RefreshInteractionMethod(changedTarget)
@@ -3137,7 +3253,13 @@ local function RefreshActiveIconPresentation(target)
             data.shape = "square"
         end
     end
+    ApplyIconSurfaceBackground(
+        NSkin, data, target, data.texture,
+        data.surfaceOwner or data.borderOwner,
+        data.surfaceStyle or data.borderStyle or {},
+        data.surfaceOptions or {})
     ApplyIconBorderAppearance(NSkin, data, target)
+    RefreshIconInteractionGlow(target)
 end
 
 local function EnsureIconTextureBaseline(self, texture, baselineID)
@@ -3217,6 +3339,7 @@ local function SkinSingleIconPresentation(self, target, options, secondary)
                 data.interactionGlowMasked = nil
             end
         end
+        if data.surfaceBackground then data.surfaceBackground:Hide() end
         data.borderStyle = nil
         data.configuredBorderColor = nil
         data.borderMode = nil
@@ -3228,6 +3351,9 @@ local function SkinSingleIconPresentation(self, target, options, secondary)
     local style = options.style or self:GetStyle("icon")
     if not style then return false end
     local shape = ResolveIconShape(style, options)
+    data.surfaceOwner = owner
+    data.surfaceStyle = style
+    data.surfaceOptions = options
 
     -- Treat clipping and border as one shape presentation. Clear the old
     -- pair before either resource can be configured for a different shape.
@@ -3340,6 +3466,8 @@ local function SkinSingleIconPresentation(self, target, options, secondary)
             data.activeShape = shape
         end
     end
+    ApplyIconSurfaceBackground(
+        self, data, target, texture, owner, style, options)
     ApplyIconNativeDecorations(data, target, texture,
         options.nativeDecorationRegions or options.nativeBorderRegions)
     if not data.nativeDecorationControlHooksInstalled
@@ -3421,6 +3549,9 @@ local function SkinSingleIconPresentation(self, target, options, secondary)
         data.borderColorProvider = options.borderColorProvider
         data.quality = options.quality
         data.showBorder = options.showBorder
+        if data.showBorder == nil then
+            data.showBorder = style.showBorder ~= false
+        end
         data.borderSize = borderSize
         ApplyIconBorderAppearance(self, data, target)
     else

@@ -170,21 +170,14 @@ local iconAppearanceControls = {
     { type = "MIXED_PAIR", order = 1,
         left = { type = "DROPDOWN", key = "shape", label = "Shape",
             values = ICON_SHAPE_OPTIONS },
-        right = { type = "COLOR", key = "border", modeKey = "borderMode",
-            label = "Border color", allowDefaultAlways = true,
-            allowItemQuality = true } },
+        right = { type = "SLIDER", key = "size", label = "Icon size",
+            min = 0, max = 256, step = 1, decimals = 0,
+            suffix = " px" } },
     { type = "SLIDER_PAIR", order = 2,
-        left = { key = "borderSize", label = "Border size",
-            min = 0, max = 8, step = 1, decimals = 0, suffix = " px" },
-        right = { key = "borderPadding", label = "Border padding",
-            min = -8, max = 16, step = 1, decimals = 0, suffix = " px" } },
-    { type = "SLIDER_PAIR", order = 3,
-        left = { key = "size", label = "Icon size",
-            min = 0, max = 256, step = 1, decimals = 0, suffix = " px" },
-        right = { key = "crop", label = "Crop ratio",
-            min = 0.1, max = 1, step = 0.01, decimals = 2 } },
-    { type = "SLIDER", key = "zoom", label = "Zoom",
-        min = 0, max = 0.45, step = 0.01, decimals = 2, order = 4 },
+        left = { key = "crop", label = "Crop ratio",
+            min = 0.1, max = 1, step = 0.01, decimals = 2 },
+        right = { key = "zoom", label = "Zoom",
+            min = 0, max = 0.45, step = 0.01, decimals = 2 } },
 }
 
 local function GetIconAppearanceSize(style)
@@ -236,10 +229,6 @@ local function NormalizeIconBorderMode(mode)
 end
 
 local iconResetPaths = {
-    border = { "icon.border", "icon.borderMode" },
-    borderMode = { "icon.border", "icon.borderMode" },
-    borderSize = "icon.borderSize",
-    borderPadding = "icon.borderPadding",
     size = { "icon.size", "icon.width", "icon.height" },
     crop = "icon.crop",
     zoom = "icon.zoom",
@@ -301,10 +290,6 @@ NSkin:RegisterOptionGroup("shared.iconAppearance", {
         local style = NSkin:GetAppearanceStyle(
             "icon", GetAppearanceWindowID(context), context.id)
         return {
-            border = CopyColor(style.border),
-            borderMode = NormalizeIconBorderMode(style.borderMode),
-            borderSize = style.borderSize,
-            borderPadding = style.borderPadding,
             size = GetIconAppearanceSize(style),
             zoom = style.zoom,
             crop = style.crop,
@@ -313,14 +298,7 @@ NSkin:RegisterOptionGroup("shared.iconAppearance", {
     end,
     set = function(context, values)
         local changed = false
-        if values.borderMode == "DEFAULT" then
-            changed = ResetElementPaths(context, { "icon.border" }) or changed
-        elseif values.border ~= nil then
-            changed = SetElementValue(
-                context, "icon.border", values.border) or changed
-        end
-        for _, key in ipairs({ "borderMode", "borderSize",
-            "borderPadding", "size", "zoom", "crop" }) do
+        for _, key in ipairs({ "size", "zoom", "crop" }) do
             if values[key] ~= nil then
                 changed = SetElementValue(
                     context, "icon." .. key, values[key]) or changed
@@ -341,8 +319,7 @@ NSkin:RegisterOptionGroup("shared.iconAppearance", {
     end,
     reset = function(context)
         return ResetElementPaths(context, {
-            "icon.border", "icon.borderMode", "icon.borderSize",
-            "icon.borderPadding", "icon.size", "icon.width", "icon.height",
+            "icon.size", "icon.width", "icon.height",
             "icon.zoom", "icon.crop", "icon.shape", "icon.shapeMode",
         })
     end,
@@ -712,7 +689,11 @@ local surfaceBorderControls = {
     {
         type = "MIXED_PAIR", order = 1,
         left = { type = "COLOR", key = "border",
-            modeKey = "borderMode", label = "Border Color" },
+            modeKey = "borderMode", label = "Border Color",
+            allowDefaultAlways = true,
+            allowItemQuality = function(context)
+                return context and context.kind == "ICON"
+            end },
         right = { type = "DROPDOWN", key = "lineType",
             label = "Line Type", values = {
                 { value = "SOLID", label = "Solid" },
@@ -778,6 +759,14 @@ local function GetSurfaceAppearanceStyleName(context)
     if type(styleName) == "string" and styleName ~= "" then
         return styleName
     end
+    local component = context and context.kind
+        and NSkin:GetSharedElementType(context.kind)
+    if component and component.surfaceCapability == true
+        and type(component.style) == "string"
+        and component.style ~= ""
+    then
+        return component.style
+    end
     return "row"
 end
 
@@ -819,7 +808,8 @@ local function GetSurfaceAppearanceValues(context)
                 and style.selectedBackground[4]) or 0.10,
         border = CopyColor(
             style.border, NSkin:GetSharedBorderColor()),
-        borderMode = style.borderMode or "CUSTOM",
+        borderMode = string.upper(tostring(
+            style.borderMode or "CUSTOM")),
         borderSize = tonumber(style.borderSize) or 1,
         borderPadding = tonumber(style.borderPadding) or 0,
         highlight = CopyColor(style.highlight or { 1, 1, 1, 1 }),

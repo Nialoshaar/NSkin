@@ -1243,6 +1243,15 @@ function NSkin:RefreshAppearance(change)
             end
             return
         end
+        if not element
+            and type(self.RefreshCompositeMemberAppearance) == "function"
+            and self:RefreshCompositeMemberAppearance(change)
+        then
+            if self.RefreshSkinningModeAppearance then
+                self:RefreshSkinningModeAppearance(change)
+            end
+            return
+        end
         if not element and type(self.GetAppearanceOwnerElementID) == "function" then
             local ownerID = self:GetAppearanceOwnerElementID(change.elementID)
             element = ownerID and self:GetSkinningElement(ownerID) or nil
@@ -2448,6 +2457,15 @@ local EDITOR_PRESETS = {
             presentation = "INLINE", category = "POSITION" },
         { id = "shared.checkboxAppearance", label = "Checkbox",
             presentation = "INLINE", category = "CUSTOMIZE" },
+        { id = "shared.surfaceBackground", label = "Background",
+            category = "CUSTOMIZE", contextualInline = false,
+            headerToggleKey = "showBackground" },
+        { id = "shared.surfaceBorder", label = "Border",
+            category = "CUSTOMIZE", contextualInline = false,
+            headerToggleKey = "showBorder" },
+        { id = "shared.surfaceHighlight", label = "Highlight",
+            category = "CUSTOMIZE", contextualInline = false,
+            headerToggleKey = "showHighlight" },
     },
     SCROLLBAR = {
         { id = "shared.movable", label = "Position",
@@ -2466,6 +2484,15 @@ local EDITOR_PRESETS = {
             presentation = "INLINE", category = "POSITION" },
         { id = "shared.iconAppearance", label = "Icon",
             presentation = "INLINE", category = "CUSTOMIZE" },
+        { id = "shared.surfaceBackground", label = "Background",
+            category = "CUSTOMIZE", contextualInline = false,
+            headerToggleKey = "showBackground" },
+        { id = "shared.surfaceBorder", label = "Border",
+            category = "CUSTOMIZE", contextualInline = false,
+            headerToggleKey = "showBorder" },
+        { id = "shared.surfaceHighlight", label = "Highlight",
+            category = "CUSTOMIZE", contextualInline = false,
+            headerToggleKey = "showHighlight" },
     },
     TEXT = {
         { id = "shared.textAppearance", label = "Text",
@@ -2563,7 +2590,7 @@ local SHARED_TYPE_DEFINITIONS = {
     BUTTON = { style = "button", skin = "SkinButton",
         editorPreset = "BUTTON" },
     CHECKBOX = { style = "button", skin = "SkinCheckButton",
-        editorPreset = "CHECKBOX" },
+        editorPreset = "CHECKBOX", surfaceCapability = true },
     DROPDOWN = { style = "button", skin = "SkinDropdown", editorPreset = "MOVABLE" },
     SLIDER = { style = "slider", skin = "SkinSlider", editorPreset = "SLIDER",
         preserveAnchorSpan = true },
@@ -2577,7 +2604,7 @@ local SHARED_TYPE_DEFINITIONS = {
     PROGRESS_BAR = { style = "progressBar", skin = "SkinProgressBar",
         editorPreset = "MOVABLE" },
     ICON = { style = "icon", skin = "SkinIcon", editorPreset = "ICON",
-        preserveAnchorSpan = true },
+        preserveAnchorSpan = true, surfaceCapability = true },
     SCROLLBAR = { style = "scrollBar", skin = "SkinScrollBar",
         editorPreset = "SCROLLBAR", preserveAnchorSpan = true },
     SECTION_HEADER = { style = "sectionHeader", editorPreset = "SECTION_HEADERS" },
