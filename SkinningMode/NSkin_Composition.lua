@@ -1107,6 +1107,49 @@ local function MakeStableMemberID(element, member, index, used)
     return candidate
 end
 
+local function GetCompositeSurfaceEditorOptions()
+    return {
+        {
+            id = "shared.surfaceGeometry",
+            label = "Surface",
+            category = "CUSTOMIZE",
+            contextualInline = true,
+        },
+        {
+            id = "shared.surfaceBackground",
+            label = "Background",
+            category = "CUSTOMIZE",
+            contextualInline = false,
+            headerToggleKey = "showBackground",
+        },
+        {
+            id = "shared.surfaceBorder",
+            label = "Border",
+            category = "CUSTOMIZE",
+            contextualInline = false,
+            headerToggleKey = "showBorder",
+        },
+        {
+            id = "shared.surfaceHighlight",
+            label = "Highlight",
+            category = "CUSTOMIZE",
+            contextualInline = false,
+            headerToggleKey = "showHighlight",
+        },
+    }
+end
+
+function NSkin:GetCompositeSurfaceEditorOptions()
+    local options = {}
+    for index, definition in ipairs(GetCompositeSurfaceEditorOptions()) do
+        options[index] = {}
+        for key, value in pairs(definition) do
+            options[index][key] = value
+        end
+    end
+    return options
+end
+
 local function NormalizeCompositeMembers(element, composition)
     local normalized, byID, used = {}, {}, {}
     for index, source in ipairs(composition.members or {}) do
@@ -1126,6 +1169,21 @@ local function NormalizeCompositeMembers(element, composition)
                 -- regardless of which Composite/window registered it.
                 if member.kind == "TEXT" then
                     member.allowOverrides = true
+                end
+                if member.editorSurface == true then
+                    member.allowOverrides = true
+                    if not member.surfaceStyle then
+                        local component = member.kind
+                            and NSkin:GetSharedElementType(member.kind)
+                        member.surfaceStyle =
+                            component and component.style or nil
+                    end
+                    if type(member.editorOptions) ~= "table"
+                        or #member.editorOptions == 0
+                    then
+                        member.editorOptions =
+                            GetCompositeSurfaceEditorOptions()
+                    end
                 end
                 if type(member.appearanceParentID) == "string"
                     and member.appearanceParentID ~= ""
@@ -1165,6 +1223,45 @@ local function NormalizeCompositeMembers(element, composition)
             end
         end
     end
+    local hasSurface
+    for _, member in ipairs(normalized) do
+        if member.editorSurface == true then
+            hasSurface = true
+            break
+        end
+    end
+    if not hasSurface and element.target then
+        local component = element.kind
+            and NSkin:GetSharedElementType(element.kind)
+        local surfaceID = element.id .. ".Surface"
+        if not used[surfaceID] then
+            local surface = {
+                id = surfaceID,
+                kind = element.kind or "BUTTON",
+                role = "PRIMARY",
+                label = (composition.editorLabel
+                    or element.label or element.id) .. " Surface",
+                target = element.target,
+                appearanceWindowID = element.appearanceWindowID,
+                appearanceID = surfaceID,
+                appearanceParentID = element.id,
+                editorSurface = true,
+                surfaceStyle = component and component.style or nil,
+                allowOverrides = true,
+                editorOptions = GetCompositeSurfaceEditorOptions(),
+                movable = false,
+            }
+            table.insert(normalized, 1, surface)
+            byID[surfaceID] = surface
+            used[surfaceID] = true
+            if surface.appearanceParentID ~= surface.appearanceID then
+                appearanceParentByID[surface.appearanceID] =
+                    surface.appearanceParentID
+            end
+            appearanceOwnerByID[surface.appearanceID] = element.id
+        end
+    end
+
     composition.members = normalized
     composition.membersByID = byID
 end
@@ -1659,6 +1756,10 @@ ApplyCompositeMemberGeometry = function(element, member, x, y)
         end
         member._detachedBasePoints = member._stableBasePoints
         points = member._detachedBasePoints
+    elseif member.kind == "TEXT" then
+        member._detachedBasePoints = nil
+        member._stableBasePoints = nil
+        points = baseline.points
     elseif member._forceStableAnchor or x ~= 0 or y ~= 0 then
         if not CaptureStableMemberAnchor(element, member, target) then
             return false

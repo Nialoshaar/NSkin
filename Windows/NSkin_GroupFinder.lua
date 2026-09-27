@@ -1314,13 +1314,80 @@ local function GetDungeonRowExactAppearanceID(baseID, choice)
     return baseID .. ".Row." .. tostring(rowID)
 end
 
-local function GetDungeonTextTargetAppearanceID(baseID, target)
-    for _, choice in ipairs(GetVisibleDungeonRows(false)) do
-        if choice.instanceName == target or choice.level == target then
-            return GetDungeonRowExactAppearanceID(baseID, choice)
+local function CopyAppearanceValue(value)
+    if type(value) ~= "table" then return value end
+    local copy = {}
+    for key, child in pairs(value) do
+        copy[key] = CopyAppearanceValue(child)
+    end
+    return copy
+end
+
+local function MergeAppearanceValues(base, overrides)
+    local merged = CopyAppearanceValue(base or {})
+    for key, value in pairs(overrides or {}) do
+        if type(value) == "table" and type(merged[key]) == "table" then
+            merged[key] = MergeAppearanceValues(merged[key], value)
+        else
+            merged[key] = CopyAppearanceValue(value)
         end
     end
-    return baseID
+    return merged
+end
+
+local function GetDungeonRowSurfaceStyle(styleName, elementID, exactID)
+    local base = NSkin:GetAppearanceStyle(
+        styleName, IDs.DungeonFinder.Scope, elementID)
+    local profile = NSkin:GetProfile()
+    local exact = profile.appearanceOverrides
+        and profile.appearanceOverrides.elements
+        and profile.appearanceOverrides.elements[exactID]
+        and profile.appearanceOverrides.elements[exactID][styleName]
+    return MergeAppearanceValues(base, exact)
+end
+
+local function GetDungeonTextTargetOwner(target)
+    for _, choice in ipairs(GetVisibleDungeonRows(false)) do
+        if choice.instanceName == target or choice.level == target then
+            return choice
+        end
+    end
+end
+
+local function GetDungeonTextTargetAppearanceID(baseID, target)
+    local choice = GetDungeonTextTargetOwner(target)
+    return choice
+        and GetDungeonRowExactAppearanceID(baseID, choice)
+        or baseID
+end
+
+local dungeonExactOffsetRegions = setmetatable({}, { __mode = "k" })
+
+local function RefreshDungeonExactOffsetClipping()
+    local hasActive
+    for region in pairs(dungeonExactOffsetRegions) do
+        local data = NSkin:GetSkinData(
+            region, "dungeonExactTextOffset", false)
+        if data and data.active then
+            hasActive = true
+            break
+        end
+    end
+
+    local queueFrame = _G.LFDQueueFrame
+    for _, owner in ipairs({
+        queueFrame and queueFrame.Specific,
+        queueFrame and queueFrame.Follower,
+    }) do
+        local scrollBox = owner and owner.ScrollBox
+        if scrollBox and scrollBox.SetClipsChildren then
+            scrollBox:SetClipsChildren(not hasActive)
+        end
+        local scrollTarget = scrollBox and scrollBox.ScrollTarget
+        if scrollTarget and scrollTarget.SetClipsChildren then
+            scrollTarget:SetClipsChildren(not hasActive)
+        end
+    end
 end
 
 local function RestoreDungeonTextExactBaseline(region)
@@ -1334,6 +1401,8 @@ local function RestoreDungeonTextExactBaseline(region)
         region:SetPoint(unpack(point))
     end
     data.active = nil
+    dungeonExactOffsetRegions[region] = nil
+    RefreshDungeonExactOffsetClipping()
     return true
 end
 
@@ -1351,32 +1420,31 @@ end
 
 local function ApplyDungeonTextExactOffset(
     region, owner, appearanceID, x, y)
-    if not region or not owner or not region.GetLeft or not region.GetTop
-        or not owner.GetLeft or not owner.GetTop
-        or not region.ClearAllPoints or not region.SetPoint
-    then return false end
+    if not region or not region.ClearAllPoints or not region.SetPoint then
+        return false
+    end
 
     local data = CaptureDungeonTextExactBaseline(region)
     if not data then return false end
     data.appearanceID = appearanceID
 
-    local regionLeft, regionTop = region:GetLeft(), region:GetTop()
-    local ownerLeft, ownerTop = owner:GetLeft(), owner:GetTop()
-    if not regionLeft or not regionTop or not ownerLeft or not ownerTop then
-        return false
-    end
-
     x, y = tonumber(x) or 0, tonumber(y) or 0
-    if x == 0 and y == 0 then
-        RestoreDungeonTextExactBaseline(region)
-        return true
+    region:ClearAllPoints()
+    for _, point in ipairs(data.points) do
+        region:SetPoint(
+            point[1], point[2], point[3],
+            (tonumber(point[4]) or 0) + x,
+            (tonumber(point[5]) or 0) + y)
     end
 
-    region:ClearAllPoints()
-    region:SetPoint("TOPLEFT", owner, "TOPLEFT",
-        regionLeft - ownerLeft + x,
-        regionTop - ownerTop + y)
-    data.active = true
+    if x ~= 0 or y ~= 0 then
+        data.active = true
+        dungeonExactOffsetRegions[region] = true
+    else
+        data.active = nil
+        dungeonExactOffsetRegions[region] = nil
+    end
+    RefreshDungeonExactOffsetClipping()
     return true
 end
 
@@ -1508,10 +1576,11 @@ end
 RefreshDungeonRowRenderingParent = function(forceDisplaced)
     local queueFrame = _G.LFDQueueFrame
     if not queueFrame then return false end
-    local displaced = forceDisplaced == true
-        or HasDungeonExtentOffset()
-        or HasDungeonRowFamilyOffset(IDs.DungeonSections)
-        or HasDungeonRowFamilyOffset(IDs.SpecificDungeons)
+    -- Row-family surfaces and their Skinning Mode overlays must stay outside
+    -- the ScrollTarget rendering parent even at the default 0/0 offsets.
+    -- Reparenting only after an offset was applied made the pooled row contents
+    -- disappear whenever every member returned to its Blizzard position.
+    local displaced = true
     local changed
 
     for _, owner in ipairs({ queueFrame.Specific, queueFrame.Follower }) do
@@ -1743,9 +1812,16 @@ function PVESkin:StyleDungeonChoice(_, _, choice)
     end
     ApplyDungeonChoiceIndent(choice, isHeader)
 
+    local surfaceBaseID = id .. ".Surface"
+    local surfaceAppearanceID =
+        GetDungeonRowExactAppearanceID(surfaceBaseID, choice)
+    NSkin:RegisterAppearanceParentID(surfaceBaseID, id, id)
+    NSkin:RegisterAppearanceParentID(
+        surfaceAppearanceID, surfaceBaseID, id)
+
     if isHeader then
-        local sectionStyle = NSkin:GetAppearanceStyle(
-            "sectionRow", IDs.DungeonFinder.Scope, id)
+        local sectionStyle = GetDungeonRowSurfaceStyle(
+            "sectionRow", id, surfaceAppearanceID)
         local textStyle = NSkin:GetAppearanceStyle(
             "text", IDs.DungeonFinder.Scope, id .. ".TEXT")
         NSkin:SkinSectionRow(choice, {
@@ -1766,16 +1842,28 @@ function PVESkin:StyleDungeonChoice(_, _, choice)
         })
         ApplyDungeonCheckboxComponent(choice, id)
         SkinDungeonCollapseButton(choice)
+        if choice.instanceName then
+            choice.instanceName:SetAlpha(1)
+            choice.instanceName:Show()
+        end
+        if choice.level then
+            choice.level:SetAlpha(1)
+            choice.level:Show()
+        end
+        if choice.enableButton then
+            choice.enableButton:SetAlpha(1)
+            choice.enableButton:Show()
+        end
         return true
     end
 
     RestoreDungeonTextExactBaseline(choice.instanceName)
     RestoreDungeonTextExactBaseline(choice.level)
 
-    local rowStyle = NSkin:GetAppearanceStyle(
-        "row", IDs.DungeonFinder.Scope, id)
+    local rowStyle = GetDungeonRowSurfaceStyle(
+        "row", id, surfaceAppearanceID)
     local border = NSkin:GetAppearanceBorderColor(
-        "row", rowStyle, IDs.DungeonFinder.Scope, id)
+        "row", rowStyle, IDs.DungeonFinder.Scope, surfaceAppearanceID)
     local dungeonNameBaseID =
         IDs.SpecificDungeons .. ".DungeonNameText"
     local levelRangeBaseID =
@@ -1807,6 +1895,18 @@ function PVESkin:StyleDungeonChoice(_, _, choice)
         appearanceWindowID = IDs.DungeonFinder.Scope,
     })
     ApplyDungeonCheckboxComponent(choice, id)
+    if choice.instanceName then
+        choice.instanceName:SetAlpha(1)
+        choice.instanceName:Show()
+    end
+    if choice.level then
+        choice.level:SetAlpha(1)
+        choice.level:Show()
+    end
+    if choice.enableButton then
+        choice.enableButton:SetAlpha(1)
+        choice.enableButton:Show()
+    end
 
     local rowElement = NSkin:GetSkinningElement(IDs.SpecificDungeons)
     if rowElement then
@@ -1852,6 +1952,10 @@ function PVESkin:RegisterDungeonRows()
             rowFamilySurfaceDefinition = {
                 movable = true,
                 applyFamilyOffset = ApplyDungeonMemberFamilyOffset,
+                getTargetAppearanceID = function(_, member, target)
+                    return GetDungeonRowExactAppearanceID(
+                        member.appearanceID or (id .. ".Surface"), target)
+                end,
             },
             rowFamilyMemberDefinitions = wantHeaders and {
                 TEXT = {
@@ -1978,8 +2082,9 @@ function PVESkin:RegisterDungeonRows()
                         end,
                         applyTargetOffset = function(
                             _, _, target, appearanceID, x, y)
-                            return ApplyDungeonTextExactOffset(
-                                target, appearanceID, x, y)
+                            local owner = GetDungeonTextTargetOwner(target)
+                            return owner and ApplyDungeonTextExactOffset(
+                                target, owner, appearanceID, x, y) or false
                         end,
                         targets = function()
                             local targets = {}
@@ -2011,8 +2116,9 @@ function PVESkin:RegisterDungeonRows()
                         end,
                         applyTargetOffset = function(
                             _, _, target, appearanceID, x, y)
-                            return ApplyDungeonTextExactOffset(
-                                target, appearanceID, x, y)
+                            local owner = GetDungeonTextTargetOwner(target)
+                            return owner and ApplyDungeonTextExactOffset(
+                                target, owner, appearanceID, x, y) or false
                         end,
                         targets = function()
                             local targets = {}
@@ -2500,6 +2606,10 @@ function PVESkin:ApplyFinderNavigation()
                                     appearanceID = id .. ".Surface",
                                     appearanceParentID = IDs.Navigation.Group,
                                     editorSurface = true,
+                                    surfaceStyle = "sideTab",
+                                    allowOverrides = true,
+                                    editorOptions =
+                                        NSkin:GetCompositeSurfaceEditorOptions(),
                                 }
                             end
                             if button and button.icon then

@@ -2061,8 +2061,14 @@ function NSkin:NotifyOptionGroupChanged(id, excludedView)
 end
 
 local _, NSkin = ...
-local function CopyColor(color)
-    return { color[1], color[2], color[3], color[4] or 1 }
+local function CopyColor(color, fallback)
+    color = color or fallback or { 1, 1, 1, 1 }
+    return {
+        color[1] or 1,
+        color[2] or 1,
+        color[3] or 1,
+        color[4] or 1,
+    }
 end
 
 local function ColorsEqual(left, right)
@@ -2234,8 +2240,14 @@ NSkin:RegisterOptionsPage({
 do
 local _, NSkin = ...
 
-local function CopyColor(color)
-    return { color[1], color[2], color[3], color[4] or 1 }
+local function CopyColor(color, fallback)
+    color = color or fallback or { 1, 1, 1, 1 }
+    return {
+        color[1] or 1,
+        color[2] or 1,
+        color[3] or 1,
+        color[4] or 1,
+    }
 end
 
 local function BuildBorderOptions(parent)
@@ -2378,8 +2390,14 @@ NSkin:RegisterOptionsPage({
 
 end
 local _, NSkin = ...
-local function CopyColor(color)
-    return { color[1], color[2], color[3], color[4] or 1 }
+local function CopyColor(color, fallback)
+    color = color or fallback or { 1, 1, 1, 1 }
+    return {
+        color[1] or 1,
+        color[2] or 1,
+        color[3] or 1,
+        color[4] or 1,
+    }
 end
 
 function NSkin:NormalizeGridPlacementForEditor(context, values)

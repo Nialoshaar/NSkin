@@ -2351,6 +2351,12 @@ function NSkin:CreateOptionsSlider(parent, options)
         end
     end
     slider:SetScript("OnValueChanged", RefreshSlider)
+    slider:HookScript("OnSizeChanged", function(self)
+        RefreshSliderVisual(self:GetValue())
+    end)
+    slider:HookScript("OnShow", function(self)
+        RefreshSliderVisual(self:GetValue())
+    end)
     RefreshSliderVisual(slider:GetValue())
     return slider
 end

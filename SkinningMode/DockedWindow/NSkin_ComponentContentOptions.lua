@@ -772,8 +772,11 @@ local surfaceAppearanceKeys = {
 }
 
 local function GetSurfaceAppearanceStyleName(context)
-    return context and context.surfaceStyle == "sectionRow"
-        and "sectionRow" or "row"
+    local styleName = context and context.surfaceStyle
+    if type(styleName) == "string" and styleName ~= "" then
+        return styleName
+    end
+    return "row"
 end
 
 local function GetSurfaceAppearancePaths(context, keys)
@@ -801,17 +804,19 @@ local function GetSurfaceAppearanceValues(context)
         showBorder = styleName == "sectionRow"
             and style.showBorder == true or style.showBorder ~= false,
         showHighlight = style.showHighlight ~= false,
-        background = CopyColor(style.background),
+        background = CopyColor(style.background, { 0, 0, 0, 0 }),
         backgroundMode = style.backgroundMode or "CUSTOM",
         backgroundOpacity = tonumber(style.backgroundOpacity)
             or (style.background and style.background[4]) or 1,
-        selectedBackground = CopyColor(style.selectedBackground),
+        selectedBackground = CopyColor(
+            style.selectedBackground, style.background or { 0, 0, 0, 0 }),
         selectedBackgroundMode = style.selectedBackgroundMode or "CUSTOM",
         selectedBackgroundOpacity =
             tonumber(style.selectedBackgroundOpacity)
             or (style.selectedBackground
                 and style.selectedBackground[4]) or 0.10,
-        border = CopyColor(style.border),
+        border = CopyColor(
+            style.border, NSkin:GetSharedBorderColor()),
         borderMode = style.borderMode or "CUSTOM",
         borderSize = tonumber(style.borderSize) or 1,
         borderPadding = tonumber(style.borderPadding) or 0,

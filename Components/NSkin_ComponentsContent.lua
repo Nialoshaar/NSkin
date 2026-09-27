@@ -1458,35 +1458,7 @@ local function CopyRowFamilyEditorOption(option)
 end
 
 local function GetRowFamilySurfaceOptions()
-    return {
-        {
-            id = "shared.surfaceGeometry",
-            label = "Surface",
-            category = "CUSTOMIZE",
-            contextualInline = true,
-        },
-        {
-            id = "shared.surfaceBackground",
-            label = "Background",
-            category = "CUSTOMIZE",
-            contextualInline = false,
-            headerToggleKey = "showBackground",
-        },
-        {
-            id = "shared.surfaceBorder",
-            label = "Border",
-            category = "CUSTOMIZE",
-            contextualInline = false,
-            headerToggleKey = "showBorder",
-        },
-        {
-            id = "shared.surfaceHighlight",
-            label = "Highlight",
-            category = "CUSTOMIZE",
-            contextualInline = false,
-            headerToggleKey = "showHighlight",
-        },
-    }
+    return NSkin:GetCompositeSurfaceEditorOptions()
 end
 
 local function CollectRowFamilyKinds(definition)
