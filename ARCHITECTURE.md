@@ -263,11 +263,12 @@ A Composite provides:
 - combined bounds
 - stable member identities
 - canonical appearance for every member
+- one Surface member representing the Composite's editable visual surface
 - member-local X/Y
 - generic member attach/detach
 - dock aggregation of member options
 
-The Composite itself does not duplicate member appearance schemas.
+The Composite itself does not duplicate member appearance schemas. Surface is a shared presentation member/capability, not a new semantic component type.
 
 ## 7.1 Composite Types
 
@@ -455,102 +456,65 @@ Movement availability and movement ownership must remain independent from select
 
 # 11. Surface Capability
 
-Surface is an optional appearance capability.
+Surface is the shared presentation contract for the visual area owned by an editor object.
 
 It is not:
 
-- an atomic component type
+- a new atomic component type
 - a composition mode
 - a Container
 - an Editor Group
-- an editor identity by itself
+- a replacement for the owner's semantic identity
 
 Surface answers:
 
-> What visual decoration surrounds or backs this owning element?
+> What editable visual area surrounds or backs this owning element?
 
 A Surface may provide shared behavior such as:
 
 ```text
 Surface
+├─ Geometry
 ├─ Background
-│  ├─ Default / None / Color / Texture
-│  ├─ color
-│  ├─ opacity
-│  ├─ texture / atlas / file
-│  └─ optional crop/tiling where supported
-│
 ├─ Border
-│  ├─ mode
-│  ├─ color
-│  └─ size
-│
-└─ Padding
+└─ Highlight
 ```
 
-Surface may either skin an explicitly declared existing Blizzard visual surface or create NSkin-owned non-interactive decoration around the owner's bounds.
+Every Composite exposes a Surface member. Window adapters may declare the Surface explicitly when Blizzard provides a meaningful visual target; otherwise shared composition infrastructure may provide the canonical Surface member from the Composite owner. Repeated families use the same Surface contract rather than inventing family-specific editor schemas.
 
-Surface must not own:
+The Surface member is the primary presentation member for the Composite and uses the same canonical Docked Window options and sparse override system as other editable members. This does not make Surface a semantic child object: selection, movement ownership, children, and composition relationships still belong to the owning editor structure.
 
-- selection
-- movement
-- children
-- member anchors
-- editor grouping
-- semantic identity
+A Surface may skin an existing Blizzard visual surface or use NSkin-owned non-interactive decoration. NSkin-created regions must not steal Blizzard clicks, tooltips, or hit regions.
 
-NSkin-created Surface regions must not steal Blizzard clicks, tooltips, or hit regions.
+## 11.1 Surface Inheritance
 
-## 11.1 Surface Eligibility and Defaults
+Surface capability and Surface-default inheritance remain separate policies.
 
-Surface capability and Surface-default inheritance are separate policies.
+A Surface resolves through the appearance style appropriate to its owner. Different owners may therefore use the same Surface editor contract while retaining their canonical visual style and defaults.
 
-Initial use is intended primarily for eligible standalone atomic elements.
-
-For example:
-
-```text
-STANDALONE + TEXT
-→ may expose Surface
-
-global "standalone TEXT Surface" defaults
-→ apply only to eligible standalone TEXT elements
-```
-
-A TEXT member inside a Composite still receives normal TEXT appearance defaults, but must not automatically receive standalone-TEXT Surface defaults.
-
-The capability must remain generic enough that future architecture can allow:
-
-```text
-COMPOSITE + Surface
-CONTAINER + Surface
-WINDOW + Surface
-```
-
-where that makes sense, without causing those owners to inherit standalone-component Surface defaults.
+Standalone-component Surface defaults must not leak into Composite, Container, or Window owners merely because they expose a Surface.
 
 ---
 
 # 12. Appearance Inheritance
 
-Canonical component appearance resolves through the established hierarchy:
+Canonical appearance resolves through a parent-to-child identity chain:
 
 ```text
 NSkin defaults
-→ global canonical component type
+→ global canonical component/style
 → window/scope override
-→ individual appearance identity override
+→ shared element/member appearance identity
+→ exact target appearance identity where the runtime family supports it
 ```
 
-Lower-level overrides should remain sparse.
+Lower-level overrides remain sparse. An exact target override changes only the selected properties and inherits all non-overridden values from its shared parent identity.
 
-Composition does not create a hidden appearance tier.
+Composition does not create an implicit visual schema. Composite members retain their canonical appearance identities, while Surface uses the visual style owned by its Composite.
 
-Composite members resolve appearance through their canonical component identities.
+For repeated or pooled families, persistent customization must follow a stable semantic target identity rather than the recycled frame object or viewport position. The shared family appearance remains authoritative unless an explicit exact-target exception exists.
 
-Surface defaults use their own eligibility/inheritance policy as described above; they must not blur structural relationships with appearance inheritance.
-
-Editor grouping and appearance grouping are separate concerns.
+Editor grouping and appearance grouping remain separate concerns.
 
 ---
 
@@ -558,18 +522,20 @@ Editor grouping and appearance grouping are separate concerns.
 
 Canonical option definitions belong with shared component/capability infrastructure, not in individual window adapters.
 
-The Docked Window should consume canonical option definitions rather than reconstruct reduced copies.
+The Docked Window consumes those canonical definitions rather than reconstructing reduced copies.
 
 Conceptually:
 
 ```text
 STANDALONE
 → canonical component options
-→ eligible capabilities such as Surface
+→ eligible capability options
 
 COMPOSITE
-→ Composite structural options
-→ canonical member option groups
+→ shared Surface options
+→ canonical member options
+→ structural/position controls
+→ sparse property overrides
 
 CONTAINER
 → parent structural controls where relevant
@@ -579,6 +545,10 @@ EDITOR_GROUP
 → editor-group controls
 → member appearance remains independently canonical
 ```
+
+All Surfaces use one shared editor contract. A window may identify which visual style its Surface represents, but must not define a private Surface option schema.
+
+Overrides are property-level exceptions layered on canonical option groups. Adding an override must not clone a whole component configuration or fork its schema.
 
 The future main addon menu should reuse the same canonical schemas/contracts wherever possible.
 
@@ -664,6 +634,10 @@ On the relevant acquire/init/update lifecycle:
 - re-resolve semantic state/membership
 - apply canonical shared behavior
 - refresh only the relevant element/family
+
+A repeated family may expose one shared member identity across many runtime targets while also providing stable target-resolved appearance identities. This allows one family-wide configuration plus sparse exact-target exceptions without treating recycled frame identity as persistent state.
+
+Exact-target position and appearance state must be keyed by that stable semantic identity. Recycling, scrolling, or reacquiring a physical frame must rebind the correct semantic customization rather than inheriting customization from the frame's previous content.
 
 Do not use:
 
@@ -982,12 +956,15 @@ It owns:
 - input ownership
 - Shift-drag activation
 - modal/occlusion handling
+- runtime-target focus for repeated families
 - editor interaction policy
 
 It must distinguish:
 
 ```text
 atomic appearance identity
+shared member identity
+exact runtime appearance identity
 editor identity
 composition relationship
 movement ownership
@@ -999,6 +976,8 @@ input ownership / occlusion
 Do not couple these concepts unnecessarily.
 
 Highlight presentation and input ownership are separate surfaces.
+
+For repeated members, Skinning Mode may focus one exact runtime target while the member remains part of a shared family. Exact overrides belong only to that target's stable appearance identity; ordinary shared selection/customization continues to address the family.
 
 An editor element is interactive only when its underlying Blizzard element is the topmost valid UI target at the pointer. Modal UI and unrelated windows must win over Skinning Mode.
 
@@ -1012,21 +991,22 @@ Selection policy must remain replaceable without changing canonical IDs, composi
 
 The Docked Window is the compact inspector for the selected editor object.
 
-It should render canonical option groups rather than duplicate schemas.
+It renders canonical option groups rather than duplicate schemas.
 
 Target presentation:
 
 ```text
 STANDALONE
-→ canonical atomic options
-→ eligible capability options
+→ canonical atomic/capability options
 
 COMPOSITE
+→ shared Surface options
+→ canonical member options
 → structural/position controls
-→ primary/member canonical options
-→ member sections/tabs as appropriate
-→ attach/detach
-→ member-local X/Y
+→ sparse override list
+→ attach/detach where supported
+→ member/family X/Y
+→ exact-target X/Y where the member exposes stable runtime identities
 
 CONTAINER
 → parent structural controls
@@ -1037,7 +1017,9 @@ EDITOR_GROUP
 → independent member appearance remains canonical
 ```
 
-A window adapter may declare identity and presentation metadata, but it must not reconstruct generic dock controls.
+An override is selected by member and property, then resolves against either the shared member identity or the currently focused exact runtime identity. Resetting shared presentation must not silently erase independent exact-target exceptions.
+
+A window adapter may declare identity, target resolution, and presentation metadata, but it must not reconstruct generic dock or override controls.
 
 ---
 
@@ -1222,8 +1204,10 @@ For major shared-component/editor changes, check for:
 - appearance sharing coupled unnecessarily to Editor Group
 - selection policy baked into structural semantics
 - movement semantics baked into component identity
-- Surface gaining structural/editor responsibilities
+- Surface decoration gaining semantic child/container responsibilities
+- Composite surfaces bypassing the shared Surface editor contract
 - standalone Surface defaults leaking into Composite/Container owners
+- exact-target overrides keyed to recycled frame identity rather than stable semantic identity
 - broad refreshes
 - timers or `OnUpdate`
 - native Blizzard functional state being suppressed
@@ -1314,16 +1298,16 @@ NSkin
 │  ├─ canonical reset ownership
 │  └─ canonical inheritance
 │
-├─ Optional Appearance Capabilities
+├─ Shared Appearance Capabilities
 │  └─ Surface
-│     ├─ background
-│     ├─ border
-│     └─ padding
+│     ├─ geometry/background/border/highlight
+│     └─ canonical Docked Window + override contract
 │
 ├─ Composition
 │  ├─ STANDALONE
 │  ├─ COMPOSITE
-│  │  └─ type: REGULAR by default
+│  │  ├─ type: REGULAR by default
+│  │  └─ canonical Surface member
 │  ├─ CONTAINER
 │  └─ EDITOR_GROUP
 │
@@ -1331,12 +1315,14 @@ NSkin
 │  ├─ selection
 │  ├─ hover/highlights
 │  ├─ input ownership
+│  ├─ exact runtime-target focus
 │  ├─ Shift-drag movement
 │  └─ modal/occlusion policy
 │
 ├─ Docked Window
 │  ├─ canonical option presentation
-│  ├─ Composite member editing
+│  ├─ shared Surface/member editing
+│  ├─ sparse shared/exact overrides
 │  └─ structural editor controls
 │
 ├─ Window Adapters
