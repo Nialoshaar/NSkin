@@ -979,14 +979,19 @@ RefreshCompositeMemberSurfaces = function(element)
             local highlightTarget = target
             if member.kind == "CHECKBOX" and NSkin.GetFlatBackground then
                 local checkboxVisual = NSkin:GetFlatBackground(target)
-                if checkboxVisual then highlightTarget = checkboxVisual end
+                if checkboxVisual then
+                    highlightTarget = checkboxVisual
+                end
             end
             surface.highlightTarget = highlightTarget
             visualAnchored = AnchorCompositeMemberRegionSurface(
                 surface.visual, member, highlightTarget,
                 member.highlightPadding)
+            -- Input ownership must never depend on decorative Surface
+            -- visibility. A checkbox with Background disabled remains fully
+            -- selectable in Skinning Mode.
             inputAnchored = AnchorCompositeMemberRegionSurface(
-                surface.input, member, highlightTarget,
+                surface.input, member, target,
                 member.highlightPadding)
         else
             visualAnchored =
@@ -1462,6 +1467,23 @@ SelectElement = function(element, memberID, runtimeTarget)
     RefreshWindowFallbackAppearance(element.window)
     DockInspector(element)
     RefreshInspector()
+end
+
+function NSkin:SelectSkinningCompositeMember(
+    elementOrID, memberID, runtimeTarget)
+    if not controller or not controller.enabled then return false end
+    local element = type(elementOrID) == "table" and elementOrID
+        or self:GetSkinningElement(elementOrID)
+    local composition = element and element.composition
+    if not element or not composition
+        or composition.mode ~= "COMPOSITE"
+        or not memberID
+        or not self:GetCompositeMember(element, memberID)
+    then
+        return false
+    end
+    SelectElement(element, memberID, runtimeTarget)
+    return true
 end
 
 local function RoundToGrid(value, size)

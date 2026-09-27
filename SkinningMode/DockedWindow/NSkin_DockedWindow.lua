@@ -186,48 +186,165 @@ local function GetPreferredEditorSectionID(element, memberID)
     return composition and composition.primaryEditorOptionID
 end
 
-local function GetDockSelectionLabel(element, member)
+local function GetDockMemberLabel(element, member)
+    if not element or not member then return nil end
+    local composition = element.composition
+    if not composition or composition.mode ~= "COMPOSITE" then
+        return element.label or element.id
+    end
+    if member.editorSurface == true then return "Surface" end
+
+    local stateID, stateDefinition =
+        NSkin:GetCompositeMemberEditorState(element, member)
+    if stateID and stateDefinition then
+        return stateDefinition.selectedLabel
+            or ((stateDefinition.label or stateDefinition.id) .. " button")
+    end
+
+    local memberLabel = member.editorLabel
+    if not memberLabel then
+        local labels = composition.memberEditorLabels
+        memberLabel = labels
+            and (labels[member.id] or labels[member.kind])
+    end
+    memberLabel = memberLabel or member.label or member.id
+
+    local groupLabel = composition.groupLabel
+        or composition.editorLabel or element.label or element.id
+    -- Member labels historically often embedded the Composite label
+    -- ("Dungeons & Raids Cards Text"). The header already provides the
+    -- group, so normalize that globally to "Group - Text".
+    if type(groupLabel) == "string" and type(memberLabel) == "string"
+        and #memberLabel >= #groupLabel
+        and memberLabel:sub(1, #groupLabel):lower()
+            == groupLabel:lower()
+    then
+        local remainder = memberLabel:sub(#groupLabel + 1)
+            :gsub("^%s*[-:–—]?%s*", "")
+        if remainder ~= "" then memberLabel = remainder end
+    end
+    return memberLabel
+end
+
+local function GetDockSelectionLabel(element)
     if not element then return nil end
     local composition = element.composition
     if composition and composition.mode == "COMPOSITE" then
-        local groupLabel = composition.groupLabel
+        return composition.groupLabel
             or composition.editorLabel or element.label or element.id
-        if not member or member.editorSurface == true then
-            return groupLabel
-        end
-
-        local stateID, stateDefinition =
-            NSkin:GetCompositeMemberEditorState(element, member)
-        if stateID and stateDefinition then
-            local stateLabel = stateDefinition.selectedLabel
-                or ((stateDefinition.label or stateDefinition.id) .. " button")
-            return groupLabel .. " - " .. stateLabel
-        end
-
-        local memberLabel = member.editorLabel
-        if not memberLabel then
-            local labels = composition.memberEditorLabels
-            memberLabel = labels
-                and (labels[member.id] or labels[member.kind])
-        end
-        memberLabel = memberLabel or member.label or member.id
-
-        -- Member labels historically often embedded the Composite label
-        -- ("Dungeons & Raids Cards Text"). The header already provides the
-        -- group, so normalize that globally to "Group - Text".
-        if type(groupLabel) == "string" and type(memberLabel) == "string"
-            and #memberLabel >= #groupLabel
-            and memberLabel:sub(1, #groupLabel):lower()
-                == groupLabel:lower()
-        then
-            local remainder = memberLabel:sub(#groupLabel + 1)
-                :gsub("^%s*[-:–—]?%s*", "")
-            if remainder ~= "" then memberLabel = remainder end
-        end
-
-        return groupLabel .. " - " .. memberLabel
     end
     return element.label or element.id
+end
+
+local function GetCompositeDockMemberFamilyKey(member)
+    if not member then return nil end
+    if type(member.editorTabID) == "string"
+        and member.editorTabID ~= ""
+    then
+        return member.editorTabID
+    end
+
+    local owner = member.appearanceParentID
+        or member.appearanceID or member.id
+    local prefix = member.editorSurface == true
+        and "SURFACE" or tostring(member.kind or "MEMBER")
+    return prefix .. "\031" .. tostring(owner)
+end
+
+local function GetCompositeDockMembers(element)
+    local composition = element and element.composition
+    if not composition or composition.mode ~= "COMPOSITE" then return {} end
+
+    local result, seen = {}, {}
+    for _, member in ipairs(composition.members or {}) do
+        local targets = NSkin:GetCompositionMemberTargets(
+            element, member, false)
+        local familyKey = #targets > 0
+            and GetCompositeDockMemberFamilyKey(member) or nil
+        if familyKey and not seen[familyKey] then
+            seen[familyKey] = true
+            result[#result + 1] = {
+                member = member,
+                familyKey = familyKey,
+            }
+        end
+    end
+
+    table.sort(result, function(left, right)
+        local leftSurface = left.member.editorSurface == true
+        local rightSurface = right.member.editorSurface == true
+        if leftSurface ~= rightSurface then return leftSurface end
+        return false
+    end)
+    return result
+end
+
+local function RefreshCompositeMemberTabs(element)
+    local inspector = state.inspector
+    local bar = inspector and inspector.memberTabs
+    if not bar then return false end
+
+    local members = GetCompositeDockMembers(element)
+    if #members == 0 then
+        bar:Hide()
+        for _, button in ipairs(bar.buttons or {}) do button:Hide() end
+        state.memberTabsShown = nil
+        return false
+    end
+
+    local focused = GetContextualCompositeMember(element)
+    local selectedFamilyKey =
+        GetCompositeDockMemberFamilyKey(focused)
+    local totalWidth = math.max(1, (inspector:GetWidth() or 520) - 24)
+    local buttonWidth = totalWidth / #members
+
+    for index, entry in ipairs(members) do
+        local member = entry.member
+        local button = bar.buttons[index]
+        if not button then
+            button = CreateFrame("Button", nil, bar)
+            button.background =
+                button:CreateTexture(nil, "BACKGROUND")
+            button.background:SetAllPoints()
+            button.label = button:CreateFontString(
+                nil, "OVERLAY", "GameFontNormal")
+            button.label:SetPoint("CENTER")
+            button:SetScript("OnClick", function(self)
+                local current = state.selectedElement
+                if not current or not self.memberID then return end
+                NSkin:SelectSkinningCompositeMember(
+                    current, self.memberID, nil)
+            end)
+            bar.buttons[index] = button
+        end
+
+        local selected = entry.familyKey == selectedFamilyKey
+        button.memberID = member.id
+        button.familyKey = entry.familyKey
+        button.label:SetText(
+            member.editorSurface == true
+                and "Group"
+                or (GetDockMemberLabel(element, member)
+                    or member.label or member.id))
+        button.label:SetTextColor(
+            selected and 1 or 0.55,
+            selected and 1 or 0.55,
+            selected and 1 or 0.55, 1)
+        button.background:SetColorTexture(
+            1, 1, 1, selected and 0.08 or 0)
+        button:ClearAllPoints()
+        button:SetPoint(
+            "TOPLEFT", bar, "TOPLEFT",
+            (index - 1) * buttonWidth, 0)
+        button:SetSize(buttonWidth, 24)
+        button:Show()
+    end
+    for index = #members + 1, #(bar.buttons or {}) do
+        bar.buttons[index]:Hide()
+    end
+    bar:Show()
+    state.memberTabsShown = true
+    return true
 end
 
 local function RefreshStateSelector(element, member)
@@ -237,6 +354,11 @@ local function RefreshStateSelector(element, member)
     local hasStates = states and #states > 0
     inspector.stateLabel:SetShown(hasStates == true)
     inspector.selection:Show()
+
+    local stateY = state.memberTabsShown and -84 or -48
+    inspector.stateLabel:ClearAllPoints()
+    inspector.stateLabel:SetPoint(
+        "TOPLEFT", inspector, "TOPLEFT", 12, stateY)
 
     for _, button in ipairs(inspector.stateButtons or {}) do
         button:Hide()
@@ -268,7 +390,9 @@ local function RefreshStateSelector(element, member)
         button:SetWidth(math.max(58, #tostring(label) * 7 + 18))
         NSkin:SkinFlatButton(button, label, nil, nil, 12)
         button:ClearAllPoints()
-        button:SetPoint("TOPLEFT", inspector, "TOPLEFT", x, -45)
+        button:SetPoint(
+            "TOPLEFT", inspector, "TOPLEFT", x,
+            state.memberTabsShown and -81 or -45)
         button:SetAlpha(definition.id == selectedState and 1 or 0.55)
         local fontString = button.GetFontString and button:GetFontString()
         if fontString then
@@ -314,9 +438,14 @@ local function RefreshHeaderActions(element)
         inspector.resetElement.resetLabel = "Reset All"
     end
 
+    local hasMemberTabs = RefreshCompositeMemberTabs(element)
     local hasStates = overrideMember
         and #(overrideMember.states or {}) > 0
-    state.inspectorHeaderHeight = hasStates and 78 or 59
+    if hasMemberTabs then
+        state.inspectorHeaderHeight = hasStates and 110 or 84
+    else
+        state.inspectorHeaderHeight = hasStates and 78 or 59
+    end
 
     inspector.selection:ClearAllPoints()
     inspector.selection:SetPoint(
@@ -329,7 +458,7 @@ local function RefreshHeaderActions(element)
     inspector.resetElement:ClearAllPoints()
     inspector.resetElement:SetPoint(
         "TOPRIGHT", inspector, "TOPRIGHT", -12,
-        hasStates and -40 or -27)
+        hasMemberTabs and -27 or (hasStates and -40 or -27))
 
     if state.scrollFrame then
         state.scrollFrame:ClearAllPoints()
@@ -406,33 +535,87 @@ local function GetMemberAppearanceOptionGroups(member)
     return groups
 end
 
-local function GetOverridePropertiesForMember(member)
-    local properties = {}
-    for _, property in ipairs(
-        NSkin:GetOptionGroupOverrideProperties("shared.movable"))
-    do
-        properties[#properties + 1] = {
-            groupID = "shared.movable",
-            propertyKey = property.key,
-            propertyLabel = property.label,
-        }
+local SURFACE_OVERRIDE_PROPERTY_CATEGORY = {
+    showBackground = "BACKGROUND",
+    background = "BACKGROUND",
+    backgroundMode = "BACKGROUND",
+    backgroundOpacity = "BACKGROUND",
+    selectedBackground = "BACKGROUND",
+    selectedBackgroundMode = "BACKGROUND",
+    selectedBackgroundOpacity = "BACKGROUND",
+
+    showBorder = "BORDER",
+    border = "BORDER",
+    borderMode = "BORDER",
+    borderSize = "BORDER",
+    borderPadding = "BORDER",
+
+    showHighlight = "HIGHLIGHT",
+    highlight = "HIGHLIGHT",
+    highlightMode = "HIGHLIGHT",
+    hoverAlpha = "HIGHLIGHT",
+}
+
+local OVERRIDE_CATEGORIES = {
+    { id = "SPECIFIC" },
+    { id = "BACKGROUND", label = "Background" },
+    { id = "BORDER", label = "Border" },
+    { id = "HIGHLIGHT", label = "Highlight" },
+}
+
+local function ClassifyOverrideProperty(groupID, propertyKey)
+    if groupID == "shared.surfaceBackground" then return "BACKGROUND" end
+    if groupID == "shared.surfaceBorder" then return "BORDER" end
+    if groupID == "shared.surfaceHighlight" then return "HIGHLIGHT" end
+    if groupID == "shared.surfaceAppearance" then
+        return SURFACE_OVERRIDE_PROPERTY_CATEGORY[propertyKey] or "SPECIFIC"
     end
-    for _, groupID in ipairs(GetMemberAppearanceOptionGroups(member)) do
+    return "SPECIFIC"
+end
+
+local function GetOverridePropertiesForMember(member, categoryID)
+    local properties = {}
+    local function AddGroup(groupID)
         for _, property in ipairs(
             NSkin:GetOptionGroupOverrideProperties(groupID))
         do
-            properties[#properties + 1] = {
-                groupID = groupID,
-                propertyKey = property.key,
-                propertyLabel = property.label,
-            }
+            local category = ClassifyOverrideProperty(
+                groupID, property.key)
+            if not categoryID or category == categoryID then
+                properties[#properties + 1] = {
+                    groupID = groupID,
+                    propertyKey = property.key,
+                    propertyLabel = property.label,
+                }
+            end
         end
+    end
+
+    AddGroup("shared.movable")
+    for _, groupID in ipairs(GetMemberAppearanceOptionGroups(member)) do
+        AddGroup(groupID)
     end
     table.sort(properties, function(left, right)
         return tostring(left.propertyLabel)
             < tostring(right.propertyLabel)
     end)
     return properties
+end
+
+local function GetOverrideCategoriesForMember(element, member)
+    local categories = {}
+    for _, category in ipairs(OVERRIDE_CATEGORIES) do
+        if #GetOverridePropertiesForMember(member, category.id) > 0 then
+            categories[#categories + 1] = {
+                id = category.id,
+                label = category.id == "SPECIFIC"
+                    and (GetDockMemberLabel(element, member)
+                        or member.label or member.id)
+                    or category.label,
+            }
+        end
+    end
+    return categories
 end
 
 local function GetOverrideSubsetID(element, entry)
@@ -1124,7 +1307,7 @@ RefreshInspector = function()
     local member = element and state.focusedCompositeMemberID
         and NSkin:GetCompositeMember(
             element, state.focusedCompositeMemberID)
-    local selectionLabel = GetDockSelectionLabel(element, member)
+    local selectionLabel = GetDockSelectionLabel(element)
     state.inspector.selection:SetText(
         selectionLabel or "Select an element"
     )
@@ -1436,6 +1619,16 @@ function NSkin:CreateDockedWindow(owner)
     end)
     addOverride:Hide()
 
+    local memberTabs = CreateFrame("Frame", nil, inspector)
+    memberTabs:SetPoint(
+        "TOPLEFT", inspector, "TOPLEFT", 12, -55)
+    memberTabs:SetPoint(
+        "TOPRIGHT", inspector, "TOPRIGHT", -12, -55)
+    memberTabs:SetHeight(24)
+    memberTabs.buttons = {}
+    memberTabs:Hide()
+    inspector.memberTabs = memberTabs
+
     inspector.selection:SetPoint("RIGHT", resetElement, "LEFT", -8, 0)
     inspector.selection:SetJustifyH("LEFT")
     inspector.resetElement = resetElement
@@ -1459,7 +1652,7 @@ function NSkin:CreateDockedWindow(owner)
 
     local overridePopup = NSkin:CreateSelectionPopup({
         title = "Add Override",
-        width = 520,
+        width = 760,
         height = 360,
         confirmLabel = "Add Override",
         cancelLabel = "Cancel",
@@ -1478,11 +1671,26 @@ function NSkin:CreateDockedWindow(owner)
                 end,
             },
             {
+                label = "Category",
+                items = function(element, selections)
+                    return GetOverrideCategoriesForMember(
+                        element, selections and selections[1])
+                end,
+                getID = function(category)
+                    return category and category.id
+                end,
+                getLabel = function(category)
+                    return category and category.label
+                end,
+            },
+            {
                 label = "Option",
                 multiSelect = true,
                 items = function(_, selections)
+                    local category = selections and selections[2]
                     return GetOverridePropertiesForMember(
-                        selections and selections[1])
+                        selections and selections[1],
+                        category and category.id)
                 end,
                 getID = function(property)
                     return property and (
@@ -1498,12 +1706,13 @@ function NSkin:CreateDockedWindow(owner)
             return element ~= nil
                 and selections
                 and selections[1] ~= nil
-                and type(selections[2]) == "table"
-                and #selections[2] > 0
+                and selections[2] ~= nil
+                and type(selections[3]) == "table"
+                and #selections[3] > 0
         end,
         onConfirm = function(element, selections)
             local member = selections and selections[1]
-            local properties = selections and selections[2]
+            local properties = selections and selections[3]
             if not element or not member
                 or type(properties) ~= "table" or #properties == 0
             then return end

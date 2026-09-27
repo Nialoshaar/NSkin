@@ -562,7 +562,8 @@ local function GetRoleSurfaceFrame()
 end
 
 local function RefreshRolePresentation(
-    roleButton, previewTargetType, previewFamilyX, previewFamilyY)
+    roleButton, previewTargetType, previewFamilyX, previewFamilyY,
+    refreshOnly)
     local checkButton = roleButton and roleButton.checkButton
     local nativeIcon = GetRoleIconTexture(roleButton)
     if not roleButton or not checkButton or not nativeIcon then return false end
@@ -635,33 +636,68 @@ local function RefreshRolePresentation(
     icon:SetPoint("CENTER", clipFrame, "CENTER", 0, 0)
     icon:SetSize(width, height)
 
-    NSkin:SkinIcon(icon, {
-        texture = icon,
-        borderOwner = borderFrame,
-        shapeMaskOwner = clipFrame,
-        style = iconStyle,
-        crop = 1,
-        borderCrop = crop,
-        borderColor = NSkin:GetResolvedAppearanceColor(iconStyle, "border"),
-        borderMode = iconStyle.borderMode,
-        defaultShape = "circle",
-        nativeDecorationRegions = {
-            nativeIcon,
-            roleButton.background,
-            roleButton.shortageBorder,
-            roleButton.IconPulse,
-            roleButton.EdgePulse,
-        },
-    })
-    NSkin:SkinCheckButton(checkButton, {
-        style = NSkin:GetAppearanceStyle(
-            "button", scopeID, checkboxAppearanceID),
-    })
-    -- Blizzard updates the role selection state from the checkbox click.
-    -- Reapply on the next frame so Skinning Mode member surfaces stay in sync
-    -- with the checked/unchecked presentation without relying on mouse motion.
-    HookRefresh(checkButton)
+    if refreshOnly == nil or refreshOnly == "ICON" then
+        NSkin:SkinIcon(icon, {
+            texture = icon,
+            borderOwner = borderFrame,
+            shapeMaskOwner = clipFrame,
+            style = iconStyle,
+            crop = 1,
+            borderCrop = crop,
+            borderColor = NSkin:GetResolvedAppearanceColor(iconStyle, "border"),
+            borderMode = iconStyle.borderMode,
+            defaultShape = "circle",
+            interactionTarget = roleButton,
+            getHovered = function()
+                return roleButton.IsMouseOver
+                    and roleButton:IsMouseOver() or false
+            end,
+            getSelected = function()
+                return checkButton.GetChecked
+                    and checkButton:GetChecked() == true or false
+            end,
+            nativeDecorationRegions = {
+                nativeIcon,
+                roleButton.background,
+                roleButton.shortageBorder,
+                roleButton.IconPulse,
+                roleButton.EdgePulse,
+            },
+        })
+    end
+    if refreshOnly == nil or refreshOnly == "CHECKBOX" then
+        NSkin:SkinCheckButton(checkButton, {
+            style = NSkin:GetAppearanceStyle(
+                "button", scopeID, checkboxAppearanceID),
+        })
+        -- Blizzard updates the role selection state from the checkbox click.
+        -- Reapply on the next frame so Skinning Mode member surfaces stay in sync
+        -- with the checked/unchecked presentation without relying on mouse motion.
+        HookRefresh(checkButton)
+    end
     return true
+end
+
+local function RefreshRoleMemberAppearance(
+    element, member, change, targetType)
+    local appearanceID = change and change.elementID
+    if appearanceID and appearanceID ~= member.appearanceID then
+        local target = NSkin:GetCompositeMemberTargetForAppearanceID(
+            element, member, appearanceID)
+        local roleButton = target
+            and GetRoleButtonForTarget(target, targetType)
+        if roleButton then
+            return RefreshRolePresentation(
+                roleButton, nil, nil, nil, targetType)
+        end
+    end
+
+    local refreshed = false
+    for _, definition in ipairs(GetRoleDefinitions()) do
+        refreshed = RefreshRolePresentation(
+            definition[3], nil, nil, nil, targetType) or refreshed
+    end
+    return refreshed == true
 end
 
 function PVESkin:ApplyRoleCheckboxes()
@@ -737,6 +773,13 @@ function PVESkin:ApplyRoleCheckboxes()
                             allowOverrides = true,
                             editorOptions =
                                 NSkin:GetCompositeSurfaceEditorOptions(),
+                            refreshAppearance = function()
+                                local surface = GetRoleSurfaceFrame()
+                                if not surface then return false end
+                                NSkin:ApplyCompositeLayout(
+                                    IDs.DungeonFinder.RolesGroup)
+                                return true
+                            end,
                         },
                         {
                             id = IDs.DungeonFinder.RolesIcon,
@@ -756,12 +799,17 @@ function PVESkin:ApplyRoleCheckboxes()
                                         or IDs.DungeonFinder.RolesIcon,
                                     target, "ICON")
                             end,
+                            refreshAppearance = function(
+                                element, member, change)
+                                return RefreshRoleMemberAppearance(
+                                    element, member, change, "ICON")
+                            end,
                             applyFamilyOffset = function(_, _, x, y)
                                 for _, definition in ipairs(
                                     GetRoleDefinitions())
                                 do
                                     RefreshRolePresentation(
-                                        definition[3], "ICON", x, y)
+                                        definition[3], "ICON", x, y, "ICON")
                                 end
                                 GetRoleSurfaceFrame()
                                 return true
@@ -770,7 +818,8 @@ function PVESkin:ApplyRoleCheckboxes()
                                 local roleButton =
                                     GetRoleButtonForTarget(target, "ICON")
                                 if not roleButton then return false end
-                                RefreshRolePresentation(roleButton)
+                                RefreshRolePresentation(
+                                    roleButton, nil, nil, nil, "ICON")
                                 GetRoleSurfaceFrame()
                                 return true
                             end,
@@ -795,12 +844,18 @@ function PVESkin:ApplyRoleCheckboxes()
                                         or IDs.DungeonFinder.RolesCheckbox,
                                     target, "CHECKBOX")
                             end,
+                            refreshAppearance = function(
+                                element, member, change)
+                                return RefreshRoleMemberAppearance(
+                                    element, member, change, "CHECKBOX")
+                            end,
                             applyFamilyOffset = function(_, _, x, y)
                                 for _, definition in ipairs(
                                     GetRoleDefinitions())
                                 do
                                     RefreshRolePresentation(
-                                        definition[3], "CHECKBOX", x, y)
+                                        definition[3], "CHECKBOX", x, y,
+                                        "CHECKBOX")
                                 end
                                 GetRoleSurfaceFrame()
                                 return true
@@ -810,7 +865,8 @@ function PVESkin:ApplyRoleCheckboxes()
                                     GetRoleButtonForTarget(
                                         target, "CHECKBOX")
                                 if not roleButton then return false end
-                                RefreshRolePresentation(roleButton)
+                                RefreshRolePresentation(
+                                    roleButton, nil, nil, nil, "CHECKBOX")
                                 GetRoleSurfaceFrame()
                                 return true
                             end,
@@ -2639,7 +2695,7 @@ function PVESkin:RegisterDungeonRows()
                 or { "row", "text", "button" },
             appearanceTypeIDs = wantHeaders
                 and { "TEXT", "CHECKBOX", "BUTTON" }
-                or { "TEXT", "BUTTON", "CHECKBOX" },
+                or { "TEXT", "CHECKBOX" },
             rowFamilyMemberTargets = wantHeaders and {
                 CHECKBOX = function()
                     local targets = {}

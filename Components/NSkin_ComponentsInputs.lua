@@ -523,6 +523,23 @@ local function RefreshCheckButtonVisual(checkButton)
     if data.checkButtonCheckedTexture then
         data.checkButtonCheckedTexture:SetShown(checked == true)
     end
+    local visual = data.checkButtonVisual
+    if visual then
+        local color = data.checkButtonBackgroundColor
+        if type(color) == "table" then
+            NSkin:SetOwnedTextureColor(visual, unpack(color))
+        end
+        visual:SetShown(data.checkButtonShowBackground == true)
+    end
+    local selectedVisual = data.checkButtonSelectedVisual
+    if selectedVisual then
+        local color = data.checkButtonSelectedBackgroundColor
+        if type(color) == "table" then
+            NSkin:SetOwnedTextureColor(selectedVisual, unpack(color))
+        end
+        selectedVisual:SetShown(
+            data.checkButtonShowBackground == true and checked == true)
+    end
 end
 
 local function SuppressCheckButtonNativeTexture(checkButton, data, texture)
@@ -623,6 +640,10 @@ local function ApplyCheckButtonShape(self, checkButton, data, visual, border,
     if visualMask then
         ConfigureCheckButtonCircleMask(visualMask, visual, visualSize)
         SetCheckButtonMask(visual, visualMask, circle)
+        if data.checkButtonSelectedVisual then
+            SetCheckButtonMask(
+                data.checkButtonSelectedVisual, visualMask, circle)
+        end
     end
 
     if glow then
@@ -635,6 +656,13 @@ local function ApplyCheckButtonShape(self, checkButton, data, visual, border,
             SetCheckButtonMask(glow, glowMask, circle)
         end
     end
+
+    local requestedBorderSize = math.max(
+        0, tonumber(data.checkButtonBorderSize) or 1)
+    local requestedBorderPadding =
+        tonumber(data.checkButtonBorderPadding) or 0
+    local showBorder = data.checkButtonShowBorder ~= false
+        and requestedBorderSize > 0
 
     if circle then
         local backing = data.checkButtonCircleBorder
@@ -649,23 +677,31 @@ local function ApplyCheckButtonShape(self, checkButton, data, visual, border,
             data.checkButtonCircleBorderMask = mask
         end
         local pixel = self:GetPhysicalPixelSize(checkButton)
-        local borderSize = self:SnapToPhysicalPixel(
-            checkButton, visualSize + pixel * 2)
+        local extent = math.max(pixel,
+            visualSize + pixel * 2
+                * (requestedBorderSize + requestedBorderPadding))
+        local borderExtent = self:SnapToPhysicalPixel(
+            checkButton, extent)
         backing:ClearAllPoints()
         backing:SetPoint("CENTER", visual, "CENTER")
-        backing:SetSize(borderSize, borderSize)
+        backing:SetSize(borderExtent, borderExtent)
         self:SetOwnedTextureColor(backing, unpack(borderColor))
         if mask then
-            ConfigureCheckButtonCircleMask(mask, backing, borderSize)
+            ConfigureCheckButtonCircleMask(mask, backing, borderExtent)
             SetCheckButtonMask(backing, mask, true)
         end
-        backing:Show()
+        backing:SetShown(showBorder)
         if border then self:SetPixelBorderShown(border, false) end
     else
         if data.checkButtonCircleBorder then
             data.checkButtonCircleBorder:Hide()
         end
-        if border then self:SetPixelBorderShown(border, true) end
+        if border then
+            self:SetPixelBorderSize(
+                border, math.max(1, requestedBorderSize))
+            self:SetPixelBorderPadding(border, requestedBorderPadding)
+            self:SetPixelBorderShown(border, showBorder)
+        end
     end
 end
 
@@ -691,6 +727,12 @@ local function RefreshCheckButtonPixelGeometry(checkButton)
     visual:SetSize(visualSize, visualSize)
     visual:SetPoint("CENTER", checkButton, "CENTER",
         visualOffsetX, visualOffsetY)
+
+    local selectedVisual = data.checkButtonSelectedVisual
+    if selectedVisual then
+        selectedVisual:ClearAllPoints()
+        selectedVisual:SetAllPoints(visual)
+    end
 
     local border = data.checkButtonBorder
     if border then
@@ -751,12 +793,53 @@ function NSkin:SkinCheckButton(checkButton, options)
         or (style.backgroundMode
             and self:GetResolvedAppearanceColor(style, "background"))
         or style.background
+        or { 0, 0, 0, 0 }
+    backgroundColor = {
+        backgroundColor[1] or 0, backgroundColor[2] or 0,
+        backgroundColor[3] or 0,
+        tonumber(style.backgroundOpacity) or backgroundColor[4] or 1,
+    }
+    local selectedBackground =
+        self:GetResolvedAppearanceColor(style, "selectedBackground")
+        or style.selectedBackground or backgroundColor
+    selectedBackground = {
+        selectedBackground[1] or backgroundColor[1],
+        selectedBackground[2] or backgroundColor[2],
+        selectedBackground[3] or backgroundColor[3],
+        tonumber(style.selectedBackgroundOpacity)
+            or selectedBackground[4] or backgroundColor[4],
+    }
+
     local visual = self:CreateFlatBackground(checkButton, nil,
         backgroundColor, borderColor, true)
     if not visual then return false end
+    local selectedVisual = data.checkButtonSelectedVisual
+    if not selectedVisual then
+        selectedVisual =
+            checkButton:CreateTexture(nil, "BACKGROUND", nil, 7)
+        self:ConfigureOwnedPixelTexture(selectedVisual)
+        data.checkButtonSelectedVisual = selectedVisual
+    end
+    if selectedVisual.SetDrawLayer then
+        selectedVisual:SetDrawLayer("BACKGROUND", 7)
+    end
+    self:SetOwnedTextureColor(
+        selectedVisual, unpack(selectedBackground))
     local border = self:GetPixelBorder(checkButton,
         "NSkinFlatBackgroundBorder")
-    local glow = self:CreateFlatButtonGlow(checkButton, style.hoverAlpha)
+    local glow = self:CreateFlatButtonGlow(
+        checkButton, tonumber(style.hoverAlpha) or 0.10)
+    local highlightColor =
+        self:GetResolvedAppearanceColor(style, "highlight")
+        or style.highlight or { 1, 1, 1, 1 }
+    if glow then
+        self:SetOwnedTextureColor(
+            glow, highlightColor[1] or 1, highlightColor[2] or 1,
+            highlightColor[3] or 1,
+            tonumber(style.hoverAlpha) or highlightColor[4] or 0.10)
+    end
+    self:SetFlatButtonGlowSuppressed(
+        checkButton, style.showHighlight == false)
 
     local checked = data.checkButtonCheckedTexture
     if not checked then
@@ -787,8 +870,15 @@ function NSkin:SkinCheckButton(checkButton, options)
     if shape ~= "circle" then shape = "square" end
 
     data.checkButtonVisual = visual
+    data.checkButtonSelectedVisual = selectedVisual
     data.checkButtonBorder = border
     data.checkButtonGlow = glow
+    data.checkButtonShowBackground = style.showBackground ~= false
+    data.checkButtonShowBorder = style.showBorder ~= false
+    data.checkButtonBackgroundColor = backgroundColor
+    data.checkButtonSelectedBackgroundColor = selectedBackground
+    data.checkButtonBorderSize = tonumber(style.borderSize) or 1
+    data.checkButtonBorderPadding = tonumber(style.borderPadding) or 0
     data.checkButtonRequestedVisualSize = math.max(1,
         tonumber(options.visualSize) or tonumber(style.checkboxSize) or 14)
     local checkedInset = tonumber(options.checkedInset)

@@ -189,11 +189,6 @@ NSkin:RegisterOptionGroup("shared.checkboxAppearance", {
             right = { type = "SLIDER", key = "checkedInset",
                 label = "Checkmark inset", min = 0, max = 15,
                 step = 1, decimals = 0, suffix = " px" } },
-        { type = "COLOR_PAIR", order = 3,
-            left = { type = "COLOR", key = "background",
-                modeKey = "backgroundMode", label = "Background color" },
-            right = { type = "COLOR", key = "border",
-                modeKey = "borderMode", label = "Border color" } },
     },
     get = function(context)
         local style = NSkin:GetAppearanceStyle(
@@ -206,11 +201,6 @@ NSkin:RegisterOptionGroup("shared.checkboxAppearance", {
             checkedInset = tonumber(style.checkboxCheckedInset)
                 or math.max(0, ((tonumber(style.checkboxSize) or 14)
                     - (tonumber(style.checkboxCheckedSize) or 8)) / 2),
-            background = CopyColor(style.background),
-            backgroundMode = style.backgroundMode or "CUSTOM",
-            border = CopyColor(NSkin:GetAppearanceBorderColor(
-                "button", style, GetAppearanceWindowID(context), context.id)),
-            borderMode = style.borderMode or "CUSTOM",
         }
     end,
     set = function(context, values)
@@ -221,10 +211,6 @@ NSkin:RegisterOptionGroup("shared.checkboxAppearance", {
             checked = "checked",
             checkedMode = "checkedMode",
             checkedInset = "checkboxCheckedInset",
-            background = "background",
-            backgroundMode = "backgroundMode",
-            border = "border",
-            borderMode = "borderMode",
         }
         for key, path in pairs(mapping) do
             if values[key] ~= nil then
@@ -239,8 +225,6 @@ NSkin:RegisterOptionGroup("shared.checkboxAppearance", {
             "button.checkboxShape", "button.checkboxSize",
             "button.checked", "button.checkedMode",
             "button.checkboxCheckedInset", "button.checkboxCheckedSize",
-            "button.background", "button.backgroundMode",
-            "button.border", "button.borderMode", "button.hoverAlpha",
         })
     end,
     resetSubset = function(context, keys)
@@ -250,10 +234,6 @@ NSkin:RegisterOptionGroup("shared.checkboxAppearance", {
             checked = "button.checked",
             checkedMode = "button.checkedMode",
             checkedInset = "button.checkboxCheckedInset",
-            background = "button.background",
-            backgroundMode = "button.backgroundMode",
-            border = "button.border",
-            borderMode = "button.borderMode",
         }
         return ResetMappedElementKeys(context, keys, mapping)
     end,
