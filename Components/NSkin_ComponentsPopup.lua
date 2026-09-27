@@ -194,6 +194,14 @@ local function SelectionPopupItemsEqual(column, left, right)
         == GetSelectionPopupItemID(column, right)
 end
 
+local function SelectionPopupListContains(column, selections, item)
+    for index, selected in ipairs(selections or {}) do
+        if SelectionPopupItemsEqual(column, selected, item) then
+            return index
+        end
+    end
+end
+
 function NSkin:RefreshSelectionPopupAppearance(popup)
     if not popup or not popup.definition then return false end
     self:SkinWindow(popup)
@@ -233,6 +241,17 @@ function NSkin:CreateSelectionPopup(definition)
     frame:SetFrameStrata(definition.frameStrata or "FULLSCREEN_DIALOG")
     frame:SetFrameLevel(tonumber(definition.frameLevel) or 600)
     frame:SetClampedToScreen(true)
+    if definition.movable ~= false then
+        frame:SetMovable(true)
+        frame:RegisterForDrag("LeftButton")
+        frame:SetScript("OnDragStart", function(self)
+            self:StartMoving()
+        end)
+        frame:SetScript("OnDragStop", function(self)
+            self:StopMovingOrSizing()
+            self.userPositioned = true
+        end)
+    end
     -- The popup surface itself owns mouse input, not only its child buttons.
     -- This prevents Skinning Mode or other underlying UI from receiving hover
     -- while the cursor is over otherwise-empty popup background.
@@ -269,6 +288,23 @@ function NSkin:CreateSelectionPopup(definition)
         column.header = CreateSelectionPopupLabel(
             frame, columnDefinition.label or ("Column " .. index))
         column.header:SetPoint("TOPLEFT", frame, "TOPLEFT", x, -36)
+
+        column.scrollFrame = CreateFrame("ScrollFrame", nil, frame)
+        column.scrollFrame:SetPoint(
+            "TOPLEFT", frame, "TOPLEFT", x, -58)
+        column.scrollFrame:SetSize(
+            columnWidth, math.max(40, height - 104))
+        column.scrollFrame:EnableMouseWheel(true)
+        column.scrollChild = CreateFrame(
+            "Frame", nil, column.scrollFrame)
+        column.scrollChild:SetSize(columnWidth, 1)
+        column.scrollFrame:SetScrollChild(column.scrollChild)
+        column.scrollFrame:SetScript("OnMouseWheel", function(self, delta)
+            local range = self:GetVerticalScrollRange() or 0
+            local value = self:GetVerticalScroll() - delta * rowHeight * 2
+            self:SetVerticalScroll(
+                math.max(0, math.min(range, value)))
+        end)
     end
 
     function frame:Refresh()
@@ -276,27 +312,66 @@ function NSkin:CreateSelectionPopup(definition)
             local columnDefinition = column.definition
             local items = ResolveSelectionPopupItems(self, columnIndex)
             local selected = self.selections[columnIndex]
-            local selectedStillValid
-            for _, item in ipairs(items) do
-                if SelectionPopupItemsEqual(
-                    columnDefinition, selected, item)
-                then
-                    selectedStillValid = item
-                    break
+            if columnDefinition.multiSelect == true then
+                local valid = {}
+                for _, selectedItem in ipairs(
+                    type(selected) == "table" and selected or {})
+                do
+                    for _, item in ipairs(items) do
+                        if SelectionPopupItemsEqual(
+                            columnDefinition, selectedItem, item)
+                        then
+                            valid[#valid + 1] = item
+                            break
+                        end
+                    end
                 end
+                self.selections[columnIndex] = valid
+            else
+                local selectedStillValid
+                for _, item in ipairs(items) do
+                    if SelectionPopupItemsEqual(
+                        columnDefinition, selected, item)
+                    then
+                        selectedStillValid = item
+                        break
+                    end
+                end
+                self.selections[columnIndex] = selectedStillValid
             end
-            self.selections[columnIndex] = selectedStillValid
 
             for itemIndex, item in ipairs(items) do
                 local button = column.buttons[itemIndex]
                 if not button then
                     button = CreateSelectionPopupButton(
-                        self, "", column.width, function(selfButton)
+                        column.scrollChild, "", column.width,
+                        function(selfButton)
                             local owner = selfButton.selectionPopup
                             local indexValue =
                                 selfButton.selectionColumnIndex
-                            owner.selections[indexValue] =
-                                selfButton.selectionItem
+                            local ownerColumn =
+                                owner.columns[indexValue].definition
+                            if ownerColumn.multiSelect == true then
+                                local selections =
+                                    owner.selections[indexValue]
+                                if type(selections) ~= "table" then
+                                    selections = {}
+                                    owner.selections[indexValue] = selections
+                                end
+                                local selectedIndex =
+                                    SelectionPopupListContains(
+                                        ownerColumn, selections,
+                                        selfButton.selectionItem)
+                                if selectedIndex then
+                                    table.remove(selections, selectedIndex)
+                                else
+                                    selections[#selections + 1] =
+                                        selfButton.selectionItem
+                                end
+                            else
+                                owner.selections[indexValue] =
+                                    selfButton.selectionItem
+                            end
                             for later = indexValue + 1,
                                 #owner.columns
                             do
@@ -326,13 +401,19 @@ function NSkin:CreateSelectionPopup(definition)
                 button:SetSize(column.width, 22)
                 button:ClearAllPoints()
                 button:SetPoint(
-                    "TOPLEFT", self, "TOPLEFT",
-                    column.x,
-                    -58 - (itemIndex - 1) * rowHeight)
-                local isSelected = SelectionPopupItemsEqual(
-                    columnDefinition,
-                    self.selections[columnIndex],
-                    item)
+                    "TOPLEFT", column.scrollChild, "TOPLEFT",
+                    0, -(itemIndex - 1) * rowHeight)
+                local isSelected
+                if columnDefinition.multiSelect == true then
+                    isSelected = SelectionPopupListContains(
+                        columnDefinition,
+                        self.selections[columnIndex], item) ~= nil
+                else
+                    isSelected = SelectionPopupItemsEqual(
+                        columnDefinition,
+                        self.selections[columnIndex],
+                        item)
+                end
                 button:SetAlpha(isSelected and 1 or 0.72)
                 local border = NSkin:GetPixelBorder(
                     button, "NSkinFlatButtonBorder")
@@ -348,6 +429,20 @@ function NSkin:CreateSelectionPopup(definition)
             for itemIndex = #items + 1, #column.buttons do
                 column.buttons[itemIndex]:Hide()
             end
+
+            column.scrollChild:SetHeight(
+                math.max(1, #items * rowHeight))
+            if column.scrollFrame.UpdateScrollChildRect then
+                column.scrollFrame:UpdateScrollChildRect()
+            end
+            local range =
+                column.scrollFrame:GetVerticalScrollRange() or 0
+            if column.itemCount ~= #items then
+                column.scrollFrame:SetVerticalScroll(0)
+            elseif column.scrollFrame:GetVerticalScroll() > range then
+                column.scrollFrame:SetVerticalScroll(range)
+            end
+            column.itemCount = #items
         end
 
         local enabled = true
@@ -357,8 +452,14 @@ function NSkin:CreateSelectionPopup(definition)
                 self.context, self.selections, self)
             enabled = ok and result == true
         else
-            for index = 1, #self.columns do
-                if self.selections[index] == nil then
+            for index, column in ipairs(self.columns) do
+                local selection = self.selections[index]
+                if column.definition.multiSelect == true then
+                    if type(selection) ~= "table" or #selection == 0 then
+                        enabled = false
+                        break
+                    end
+                elseif selection == nil then
                     enabled = false
                     break
                 end
@@ -375,11 +476,18 @@ function NSkin:CreateSelectionPopup(definition)
         for index, item in ipairs(initialSelections or {}) do
             self.selections[index] = item
         end
-        self:ClearAllPoints()
-        if type(definition.anchor) == "function" then
-            definition.anchor(self, context)
-        else
-            self:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+        if not self.userPositioned then
+            self:ClearAllPoints()
+            if type(definition.anchor) == "function" then
+                definition.anchor(self, context)
+            else
+                self:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+            end
+        end
+        for _, column in ipairs(self.columns or {}) do
+            if column.scrollFrame then
+                column.scrollFrame:SetVerticalScroll(0)
+            end
         end
         self:Refresh()
         self:Show()

@@ -2524,7 +2524,19 @@ NSkin:RegisterOptionGroup("shared.movable", {
         return NSkin:NormalizeGridPlacementForEditor(context, values)
     end,
     set = function(context, values)
-        return context.setPlacement(context, NSkin:NormalizeSharedPlacementValues(context, values))
+        local current = context.getPlacement(context) or {}
+        current = NSkin:NormalizeGridPlacementForEditor(
+            context, current) or current
+        local merged = {}
+        for key, value in pairs(current) do
+            merged[key] = value
+        end
+        for key, value in pairs(values or {}) do
+            merged[key] = value
+        end
+        return context.setPlacement(
+            context,
+            NSkin:NormalizeSharedPlacementValues(context, merged))
     end,
     reset = function(context)
         return context.resetPlacement(context)

@@ -1494,9 +1494,7 @@ local function MakeRowFamilyMember(elementID, definition, kind, surface)
             or (kind:sub(1, 1) .. kind:sub(2):lower()),
         appearanceWindowID = definition.appearanceWindowID,
         appearanceID = elementID .. "." .. suffix,
-        appearanceParentID = surface
-            and (definition.rowFamilyTagAppearanceID or elementID)
-            or (elementID .. "." .. suffix),
+        appearanceParentID = elementID,
         targets = function(element, current)
             return NSkin:GetRowFamilyMemberTargets(element, current)
         end,
@@ -1508,7 +1506,9 @@ local function MakeRowFamilyMember(elementID, definition, kind, surface)
     if surface then
         member.editorSurface = true
         member.rowFamilySurface = true
-        member.surfaceStyle = definition.rowFamily
+        member.surfaceStyle = definition.rowFamily == "sectionRow"
+            and "Header Row" or "Row"
+        member.surfaceAppearanceKey = definition.rowFamily
         member.highlightTargets = function(element)
             return NSkin:GetRowFamilySurfaceHighlightTargets(element)
         end
@@ -1555,16 +1555,9 @@ function NSkin:PrepareRowFamilyDefinition(elementID, definition)
     end
     -- Repeated/pooled row families are disjoint editor regions. Empty space
     -- between visible rows is not part of the Composite hit surface.
+    -- The semantic surfaceStyle is metadata only; this concrete Composite
+    -- remains the appearance owner.
     composition.separateRegions = true
-    composition.tag = composition.tag
-        or (family == "sectionRow" and "Header Row" or "Row")
-    local tagAppearanceID = NSkin.GetCompositeTagAppearanceID
-        and NSkin:GetCompositeTagAppearanceID(composition.tag)
-    definition.rowFamilyTagAppearanceID = tagAppearanceID
-    if tagAppearanceID and NSkin.RegisterAppearanceParentID then
-        NSkin:RegisterAppearanceParentID(
-            elementID, tagAppearanceID, elementID)
-    end
 
     local surface
     for _, member in ipairs(composition.members) do
@@ -1578,7 +1571,9 @@ function NSkin:PrepareRowFamilyDefinition(elementID, definition)
             member.rowFamily = nil
             member.editorSurface = true
             member.rowFamilySurface = true
-            member.surfaceStyle = family
+            member.surfaceStyle = family == "sectionRow"
+                and "Header Row" or "Row"
+            member.surfaceAppearanceKey = family
             member.highlightMode = "REGIONS"
             member.movable = false
             member.allowOverrides = true
@@ -1587,8 +1582,7 @@ function NSkin:PrepareRowFamilyDefinition(elementID, definition)
                 member.appearanceWindowID or definition.appearanceWindowID
             member.appearanceID = member.appearanceID
                 or (elementID .. ".Surface")
-            member.appearanceParentID =
-                definition.rowFamilyTagAppearanceID or elementID
+            member.appearanceParentID = elementID
             member.editorOptions = GetRowFamilySurfaceOptions()
             surface = member
         end

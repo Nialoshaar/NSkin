@@ -301,6 +301,8 @@ local function RefreshHeaderActions(element)
         local label = "Reset Surface"
         if member and member.kind == "ICON" then
             label = "Reset Icon"
+        elseif member and member.kind == "CHECKBOX" then
+            label = "Reset Checkbox"
         elseif member and member.kind == "TEXT" then
             label = "Reset Text"
         end
@@ -453,13 +455,39 @@ local function GetOverrideEntryContext(element, member, entry)
         element, member, entry.appearanceID)
 end
 
-local function ClearCompositeOverrides(element, memberID)
+local function GetFocusedOverrideAppearanceID(element, member, runtimeTarget)
+    if not element or not member or not runtimeTarget then return nil end
+    local appearanceID = NSkin:GetCompositeMemberTargetAppearanceID(
+        element, member, runtimeTarget)
+    if appearanceID == (member.appearanceID or member.id) then
+        return nil
+    end
+    return appearanceID
+end
+
+local function OverrideEntryMatchesRuntimeTarget(
+    element, member, entry, runtimeTarget)
+    if not element or not member or not entry
+        or entry.memberID ~= member.id
+    then return false end
+    if type(member.getTargetAppearanceID) ~= "function" then
+        return entry.appearanceID == nil
+    end
+    return entry.appearanceID == GetFocusedOverrideAppearanceID(
+        element, member, runtimeTarget)
+end
+
+local function ClearCompositeOverrides(element, memberID, runtimeTarget)
     if not element or not memberID then return false end
+    local member = NSkin:GetCompositeMember(element, memberID)
+    if not member then return false end
     local entries = {}
     for _, entry in ipairs(
         NSkin:GetCompositePropertyOverrides(element))
     do
-        if entry.memberID == memberID then
+        if OverrideEntryMatchesRuntimeTarget(
+            element, member, entry, runtimeTarget)
+        then
             entries[#entries + 1] = entry
         end
     end
@@ -533,13 +561,18 @@ local function LayoutOverrideRowControl(row, view, propertyKey)
     return 34
 end
 
-local function RefreshOverrideListView(frame, element, memberID)
+local function RefreshOverrideListView(
+    frame, element, memberID, runtimeTarget)
     frame.rows = frame.rows or {}
     local entries = {}
+    local member = memberID
+        and NSkin:GetCompositeMember(element, memberID)
     for _, entry in ipairs(
         NSkin:GetCompositePropertyOverrides(element))
     do
-        if memberID and entry.memberID == memberID then
+        if member and OverrideEntryMatchesRuntimeTarget(
+            element, member, entry, runtimeTarget)
+        then
             entries[#entries + 1] = entry
         end
     end
@@ -700,7 +733,10 @@ local function LoadEditorOptions(element)
         for _, entry in ipairs(
             NSkin:GetCompositePropertyOverrides(element))
         do
-            if entry.memberID == focusedMember.id then
+            if OverrideEntryMatchesRuntimeTarget(
+                element, focusedMember, entry,
+                state.focusedCompositeRuntimeTarget)
+            then
                 overrideEntries[#overrideEntries + 1] = entry
             end
         end
@@ -895,6 +931,8 @@ local function LoadEditorOptions(element)
                             nil, {
                                 element = self.overrideOwner,
                                 memberID = self.overrideMemberID,
+                                runtimeTarget =
+                                    self.overrideRuntimeTarget,
                             })
                     end
                 end)
@@ -905,7 +943,7 @@ local function LoadEditorOptions(element)
                         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
                         GameTooltip:SetText("Clear all overrides")
                         GameTooltip:AddLine(
-                            "Removes every exact-member override in this Composite.",
+                            "Removes every exact override for the current selection.",
                             1, 1, 1, true)
                         GameTooltip:Show()
                     end
@@ -968,6 +1006,9 @@ local function LoadEditorOptions(element)
             section.trash.overrideMemberID =
                 customOverrideList and focusedMember
                     and focusedMember.id or nil
+            section.trash.overrideRuntimeTarget =
+                customOverrideList
+                    and state.focusedCompositeRuntimeTarget or nil
             section.trash:SetShown(
                 customOverrideList
                     and focusedMember ~= nil)
@@ -999,7 +1040,8 @@ local function LoadEditorOptions(element)
                     view:Show()
                     local height = RefreshOverrideListView(
                         view, element,
-                        focusedMember and focusedMember.id or nil)
+                        focusedMember and focusedMember.id or nil,
+                        state.focusedCompositeRuntimeTarget)
                     y = SnapInspectorOffset(y + height)
                 else
                 local tabs = type(definition) == "table" and definition.tabs
@@ -1210,7 +1252,8 @@ function NSkin:CreateDockedWindow(owner)
             OnAccept = function(_, data)
                 if data and data.element and data.memberID then
                     ClearCompositeOverrides(
-                        data.element, data.memberID)
+                        data.element, data.memberID,
+                        data.runtimeTarget)
                 end
             end,
             timeout = 0,
@@ -1383,7 +1426,7 @@ function NSkin:CreateDockedWindow(owner)
         if GameTooltip then
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
             GameTooltip:SetText("Add specific override")
-            GameTooltip:AddLine("Choose one member and one property to make a sparse exception to the Composite's shared appearance.",
+            GameTooltip:AddLine("Choose one member and one or more properties to make sparse exceptions to the Composite's shared appearance.",
                 1, 1, 1, true)
             GameTooltip:Show()
         end
@@ -1436,6 +1479,7 @@ function NSkin:CreateDockedWindow(owner)
             },
             {
                 label = "Option",
+                multiSelect = true,
                 items = function(_, selections)
                     return GetOverridePropertiesForMember(
                         selections and selections[1])
@@ -1454,33 +1498,46 @@ function NSkin:CreateDockedWindow(owner)
             return element ~= nil
                 and selections
                 and selections[1] ~= nil
-                and selections[2] ~= nil
+                and type(selections[2]) == "table"
+                and #selections[2] > 0
         end,
         onConfirm = function(element, selections)
             local member = selections and selections[1]
-            local property = selections and selections[2]
-            if not element or not member or not property then return end
+            local properties = selections and selections[2]
+            if not element or not member
+                or type(properties) ~= "table" or #properties == 0
+            then return end
+
             local runtimeTarget = state.focusedCompositeRuntimeTarget
-            if NSkin:AddCompositePropertyOverride(
-                element, member.id, property.groupID,
-                property.propertyKey, property.propertyLabel, runtimeTarget)
-            then
-                local exactAppearanceID =
-                    NSkin:GetCompositeMemberTargetAppearanceID(
-                        element, member, runtimeTarget)
-                if exactAppearanceID == (member.appearanceID or member.id) then
-                    exactAppearanceID = nil
+            local exactAppearanceID =
+                NSkin:GetCompositeMemberTargetAppearanceID(
+                    element, member, runtimeTarget)
+            if exactAppearanceID == (member.appearanceID or member.id) then
+                exactAppearanceID = nil
+            end
+
+            local changed
+            for _, property in ipairs(properties) do
+                if NSkin:AddCompositePropertyOverride(
+                    element, member.id, property.groupID,
+                    property.propertyKey, property.propertyLabel,
+                    runtimeTarget)
+                then
+                    local entry = {
+                        memberID = member.id,
+                        groupID = property.groupID,
+                        propertyKey = property.propertyKey,
+                        propertyLabel = property.propertyLabel,
+                        appearanceID = exactAppearanceID,
+                        label = (member.label or member.id)
+                            .. " - " .. property.propertyLabel,
+                    }
+                    GetOverrideSubsetID(element, entry)
+                    changed = true
                 end
-                local entry = {
-                    memberID = member.id,
-                    groupID = property.groupID,
-                    propertyKey = property.propertyKey,
-                    propertyLabel = property.propertyLabel,
-                    appearanceID = exactAppearanceID,
-                    label = (member.label or member.id)
-                        .. " - " .. property.propertyLabel,
-                }
-                GetOverrideSubsetID(element, entry)
+            end
+
+            if changed then
                 local prefix = element.id .. "\031"
                 for key in pairs(state.expandedEditorSections) do
                     if key:sub(1, #prefix) == prefix then

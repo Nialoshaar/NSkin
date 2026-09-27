@@ -1027,8 +1027,10 @@ RefreshCompositeMemberSurfaces = function(element)
             if surface.visual.hoverGlow then
                 surface.visual.hoverGlow:Hide()
             end
-            local borderPadding =
-                IsDockedWindowHovered() and 5 or 0
+            local borderPadding = tonumber(member.highlightBorderPadding)
+            if borderPadding == nil then
+                borderPadding = IsDockedWindowHovered() and 5 or 0
+            end
             NSkin:SetPixelBorderColor(
                 surface.visual.border, unpack(border))
             NSkin:SetPixelBorderSize(surface.visual.border, 1)
@@ -1102,7 +1104,9 @@ RefreshCompositeMemberSurfaces = function(element)
         and NSkin:HasCompositeMemberOverride(
             element, focusedMember, controller.focusedCompositeRuntimeTarget)
 
-    if focusedMember and not focusedRuntimeOverride then
+    if focusedMember and not focusedRuntimeOverride
+        and focusedMember.separateHighlightRegions ~= true
+    then
         local candidates = {}
         for surfaceKey, surface in pairs(existing or {}) do
             if active[surfaceKey]
@@ -1721,19 +1725,60 @@ CanShiftDragElement = function(element)
     return true
 end
 
+local function GetCompositeMemberPositionOverrideAxes(
+    element, member, runtimeTarget)
+    if not element or not member then return false, false end
+
+    local appearanceID
+    if runtimeTarget then
+        appearanceID = NSkin:GetCompositeMemberTargetAppearanceID(
+            element, member, runtimeTarget)
+        if appearanceID == (member.appearanceID or member.id) then
+            appearanceID = nil
+        end
+    end
+
+    local hasX, hasY
+    for _, entry in ipairs(NSkin:GetCompositePropertyOverrides(element)) do
+        if entry.memberID == member.id
+            and entry.groupID == "shared.movable"
+            and entry.appearanceID == appearanceID
+        then
+            if entry.propertyKey == "alongOffset" then
+                hasX = true
+            elseif entry.propertyKey == "edgeOffset" then
+                hasY = true
+            end
+        end
+    end
+    return hasX == true, hasY == true
+end
+
 local function UpdateCompositeMemberDrag()
     local drag = controller and controller.compositeMemberDrag
     if not drag then return end
     local cursorX, cursorY = GetCursorPositionForWindow(drag.element.window)
     local size = NSkin:GetSkinningGridSize()
-    local x = RoundToGrid(
-        drag.originalX + cursorX - drag.startCursorX, size)
-    local y = RoundToGrid(
-        drag.originalY + cursorY - drag.startCursorY, size)
+    local deltaX = cursorX - drag.startCursorX
+    local deltaY = cursorY - drag.startCursorY
+    local x = drag.overrideX == false and drag.originalX
+        or RoundToGrid(drag.originalX + deltaX, size)
+    local y = drag.overrideY == false and drag.originalY
+        or RoundToGrid(drag.originalY + deltaY, size)
     if x == drag.previewX and y == drag.previewY then return end
     drag.previewX, drag.previewY = x, y
-    NSkin:ApplyCompositeMemberFamilyOffset(
-        drag.element, drag.member, x, y)
+
+    if drag.exactPositionContext then
+        drag.exactPositionContext.setPlacement(
+            drag.exactPositionContext, {
+                mode = "OFFSET",
+                alongOffset = x,
+                edgeOffset = y,
+            })
+    else
+        NSkin:ApplyCompositeMemberFamilyOffset(
+            drag.element, drag.member, x, y)
+    end
     RefreshCompositeMemberSurfaces(drag.element)
 end
 
@@ -1746,12 +1791,40 @@ BeginCompositeMemberDrag = function(element, member)
     local family = NSkin:GetCompositeMemberFamily(element, member)
     if not family or #family == 0 then return false end
 
-    local x, y = NSkin:GetCompositeMemberFamilyOffset(element, member)
+    local runtimeTarget = controller.focusedCompositeRuntimeTarget
+    local overrideX, overrideY =
+        GetCompositeMemberPositionOverrideAxes(
+            element, member, runtimeTarget)
+    local exactPositionContext
+    local x, y
+    if overrideX or overrideY then
+        exactPositionContext =
+            NSkin:GetCompositeMemberExactPositionContext(
+                element, member, runtimeTarget)
+        local placement = exactPositionContext
+            and exactPositionContext.getPlacement
+            and exactPositionContext.getPlacement(exactPositionContext)
+        if placement then
+            x = tonumber(placement.alongOffset or placement.x) or 0
+            y = tonumber(placement.edgeOffset or placement.y) or 0
+        else
+            exactPositionContext = nil
+        end
+    end
+    if not exactPositionContext then
+        x, y = NSkin:GetCompositeMemberFamilyOffset(element, member)
+        overrideX, overrideY = nil, nil
+    end
+
     local cursorX, cursorY = GetCursorPositionForWindow(element.window)
     controller.dragging = true
     controller.compositeMemberDrag = {
         element = element,
         member = member,
+        runtimeTarget = runtimeTarget,
+        exactPositionContext = exactPositionContext,
+        overrideX = overrideX,
+        overrideY = overrideY,
         originalX = tonumber(x) or 0,
         originalY = tonumber(y) or 0,
         startCursorX = cursorX,
@@ -1783,7 +1856,16 @@ StopCompositeMemberDrag = function(apply)
 
     local x = drag.previewX ~= nil and drag.previewX or drag.originalX
     local y = drag.previewY ~= nil and drag.previewY or drag.originalY
-    if apply then
+    if drag.exactPositionContext then
+        local finalX = apply and x or drag.originalX
+        local finalY = apply and y or drag.originalY
+        drag.exactPositionContext.setPlacement(
+            drag.exactPositionContext, {
+                mode = "OFFSET",
+                alongOffset = finalX,
+                edgeOffset = finalY,
+            })
+    elseif apply then
         NSkin:SetCompositeMemberFamilyOffset(
             drag.element, drag.member, x, y)
     else

@@ -772,7 +772,9 @@ local surfaceAppearanceKeys = {
 }
 
 local function GetSurfaceAppearanceStyleName(context)
-    local styleName = context and context.surfaceStyle
+    -- surfaceStyle is semantic metadata reserved for the future shared-style
+    -- menu. It must never select the storage owner or appearance table.
+    local styleName = context and context.surfaceAppearanceKey
     if type(styleName) == "string" and styleName ~= "" then
         return styleName
     end

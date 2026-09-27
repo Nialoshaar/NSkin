@@ -16,7 +16,9 @@ local IDs = {
     DungeonFinder = {
         Scope = "GroupFinder.DungeonFinder",
         RolesGroup = "GroupFinder.DungeonFinder.Roles",
-        RolesEditorGroup = "GroupFinder.DungeonFinder.Roles.EditorGroup",
+        RolesSurface = "GroupFinder.DungeonFinder.Roles.Surface",
+        RolesIcon = "GroupFinder.DungeonFinder.Roles.Icon",
+        RolesCheckbox = "GroupFinder.DungeonFinder.Roles.Checkbox",
         DungeonListContainer =
             "GroupFinder.DungeonFinder.DungeonList.Container",
         TypeSelector = "GroupFinder.DungeonFinder.TypeSelector",
@@ -124,7 +126,7 @@ local navigationRegistered = false
 local navigationSelectionHooked = false
 local dungeonRowsRegistered = false
 local dungeonListContainerRegistered = false
-local dungeonRoleEditorGroupRegistered = false
+local dungeonRolesRegistered = false
 local dungeonChoiceUpdateHooked = false
 local hookedControls = setmetatable({}, { __mode = "k" })
 local hookedShowControls = setmetatable({}, { __mode = "k" })
@@ -299,132 +301,6 @@ local function GetRolePresentation(roleButton)
     return data.texture, data
 end
 
-local function RegisterRoleComposite(
-    id, label, scopeID, groupID, groupLabel, frame, visibilityOwner, roleButton)
-    local checkButton = roleButton and roleButton.checkButton
-    local nativeIcon = GetRoleIconTexture(roleButton)
-    if not roleButton or not checkButton or not nativeIcon then return false end
-    local icon, rolePresentation = GetRolePresentation(roleButton)
-
-    local function Refresh()
-        ConcealTexture(nativeIcon)
-        ConcealTexture(roleButton.background)
-        ConcealTexture(roleButton.shortageBorder)
-        ConcealTexture(roleButton.IconPulse)
-        ConcealTexture(roleButton.EdgePulse)
-
-        local role = roleButton.role
-        if not role and roleButton.GetID and roleButton:GetID() == 4 then
-            role = "GUIDE"
-        end
-        local mediaFile = role and ROLE_ICON_MEDIA[role]
-        if mediaFile then
-            icon:SetTexture(NSkin.mediaPath .. mediaFile)
-            icon:SetTexCoord(0, 1, 0, 1)
-        end
-        if icon.SetDesaturated and roleButton.IsEnabled then
-            icon:SetDesaturated(not roleButton:IsEnabled())
-        end
-
-        local iconStyle = WithIconDefaults(
-            NSkin:GetAppearanceStyle("icon", scopeID, groupID),
-            { zoom = 0.14 })
-
-        -- Role icons use an NSkin-owned presentation texture. Crop its visible
-        -- canvas instead of masking that texture directly: intersecting the
-        -- generic crop mask with the circular shape mask makes the role artwork
-        -- appear to scale down before the vertical crop is applied.
-        local crop = math.max(0.01, math.min(1,
-            tonumber(iconStyle.crop) or 1))
-        local customSize = tonumber(iconStyle.size)
-        customSize = customSize and customSize > 0 and customSize or nil
-        local width = customSize or roleButton:GetWidth()
-        local height = customSize or roleButton:GetHeight()
-        local clipFrame = rolePresentation.clipFrame
-        local borderFrame = rolePresentation.borderFrame
-        clipFrame:ClearAllPoints()
-        clipFrame:SetPoint("CENTER", roleButton, "CENTER", 0, 0)
-        clipFrame:SetSize(width, height * crop)
-        clipFrame:SetFrameLevel(roleButton:GetFrameLevel() + 1)
-        borderFrame:ClearAllPoints()
-        borderFrame:SetPoint("CENTER", roleButton, "CENTER", 0, 0)
-        borderFrame:SetSize(width, height)
-        borderFrame:SetFrameLevel(clipFrame:GetFrameLevel() + 1)
-        -- The role icon outline intentionally sits above the icon artwork, but
-        -- the checkbox is a separate secondary control and must remain above
-        -- that outline.
-        if checkButton.SetFrameLevel then
-            checkButton:SetFrameLevel(borderFrame:GetFrameLevel() + 1)
-        end
-        icon:ClearAllPoints()
-        icon:SetPoint("CENTER", clipFrame, "CENTER", 0, 0)
-        icon:SetSize(width, height)
-
-        NSkin:SkinIcon(icon, {
-            texture = icon,
-            borderOwner = borderFrame,
-            shapeMaskOwner = clipFrame,
-            style = iconStyle,
-            crop = 1,
-            borderCrop = crop,
-            borderColor = NSkin:GetResolvedAppearanceColor(
-                iconStyle, "border"),
-            borderMode = iconStyle.borderMode,
-            defaultShape = "circle",
-            nativeDecorationRegions = {
-                nativeIcon,
-                roleButton.background,
-                roleButton.shortageBorder,
-                roleButton.IconPulse,
-                roleButton.EdgePulse,
-            },
-        })
-        NSkin:SkinCheckButton(checkButton, {
-            style = NSkin:GetAppearanceStyle("button", scopeID, groupID),
-        })
-        NSkin:NotifySkinningElementBoundsChanged(id)
-        return true
-    end
-
-    local registered = NSkin:RegisterSkinningElement(id, {
-        module = "GroupFinder",
-        appearanceWindowID = scopeID,
-        label = label,
-        kind = "ICON",
-        window = frame,
-        target = roleButton,
-        priority = 82,
-        draggable = false,
-        defaultShape = "circle",
-        anchorGroupID = groupID,
-        anchorGroupLabel = groupLabel,
-        anchorGroupAppearanceSource = groupID,
-        composition = {
-            mode = "COMPOSITE",
-            movementOwner = roleButton,
-            members = {
-                { id = id .. ".Icon", kind = "ICON", role = "PRIMARY",
-                    target = icon, label = "Role icon",
-                    appearanceID = groupID },
-                { id = id .. ".Checkbox", kind = "CHECKBOX",
-                    role = "SECONDARY", target = checkButton,
-                    label = "Role selection", appearanceID = groupID },
-            },
-        },
-        highlightRegions = { icon, checkButton },
-        pixelBorderTargets = { roleButton },
-        refreshAppearance = Refresh,
-        refreshLayout = Refresh,
-        isEditable = function()
-            return frame:IsVisible()
-                and (not visibilityOwner or visibilityOwner:IsVisible())
-                and roleButton:IsVisible()
-        end,
-    })
-    Refresh()
-    return registered == true
-end
-
 local function GetRoleDefinitions()
     local queueFrame = _G.LFDQueueFrame
     if not queueFrame then return {} end
@@ -440,33 +316,537 @@ local function GetRoleDefinitions()
     }
 end
 
+local function GetRoleTargets(targetType)
+    local targets = {}
+    for _, definition in ipairs(GetRoleDefinitions()) do
+        local roleButton = definition[3]
+        if roleButton and roleButton:IsVisible() then
+            if targetType == "ICON" then
+                local data = NSkin:GetSkinData(
+                    roleButton, "groupFinderRolePresentation", false)
+                if data and data.texture then
+                    targets[#targets + 1] = data.texture
+                end
+            elseif targetType == "CHECKBOX" then
+                if roleButton.checkButton then
+                    targets[#targets + 1] = roleButton.checkButton
+                end
+            else
+                targets[#targets + 1] = roleButton
+            end
+        end
+    end
+    return targets
+end
+
+local function GetRoleTargetAppearanceID(baseID, target, targetType)
+    for _, definition in ipairs(GetRoleDefinitions()) do
+        local roleButton = definition[3]
+        local candidate
+        if targetType == "ICON" then
+            local data = roleButton and NSkin:GetSkinData(
+                roleButton, "groupFinderRolePresentation", false)
+            candidate = data and data.texture
+        elseif targetType == "CHECKBOX" then
+            candidate = roleButton and roleButton.checkButton
+        end
+        if candidate == target then
+            local suffix = targetType == "ICON" and "Icon" or "Checkbox"
+            return definition[1] .. "." .. suffix
+        end
+    end
+    return baseID
+end
+
+local function GetRoleButtonAppearanceID(roleButton, baseID, suffix)
+    for _, definition in ipairs(GetRoleDefinitions()) do
+        if definition[3] == roleButton then
+            return definition[1] .. "." .. suffix
+        end
+    end
+    return baseID
+end
+
+local function GetRoleButtonForTarget(target, targetType)
+    for _, definition in ipairs(GetRoleDefinitions()) do
+        local roleButton = definition[3]
+        local candidate
+        if targetType == "ICON" then
+            local data = roleButton and NSkin:GetSkinData(
+                roleButton, "groupFinderRolePresentation", false)
+            candidate = data and data.texture
+        elseif targetType == "CHECKBOX" then
+            candidate = roleButton and roleButton.checkButton
+        end
+        if candidate == target then return roleButton end
+    end
+end
+
+local function GetRoleMemberOffset(
+    roleButton, targetType, previewFamilyX, previewFamilyY)
+    local element = NSkin:GetSkinningElement(IDs.DungeonFinder.RolesGroup)
+    local memberID = targetType == "ICON"
+        and IDs.DungeonFinder.RolesIcon
+        or IDs.DungeonFinder.RolesCheckbox
+    local member = element and NSkin:GetCompositeMember(element, memberID)
+    if not member then return 0, 0 end
+
+    local target
+    if targetType == "ICON" then
+        local data = NSkin:GetSkinData(
+            roleButton, "groupFinderRolePresentation", false)
+        target = data and data.texture
+    else
+        target = roleButton and roleButton.checkButton
+    end
+    if not target then return 0, 0 end
+
+    local familyX, familyY
+    if previewFamilyX ~= nil or previewFamilyY ~= nil then
+        familyX = tonumber(previewFamilyX) or 0
+        familyY = tonumber(previewFamilyY) or 0
+    else
+        familyX, familyY =
+            NSkin:GetCompositeMemberFamilyOffset(element, member)
+    end
+    local appearanceID = GetRoleTargetAppearanceID(
+        member.appearanceID or memberID, target, targetType)
+    return NSkin:GetCompositeMemberEffectiveTargetOffset(
+        element, member, appearanceID, familyX, familyY)
+end
+
+local function ApplyRoleCheckboxOffset(checkButton, x, y)
+    if not checkButton or not checkButton.GetNumPoints then return false end
+    local data = NSkin:GetSkinData(
+        checkButton, "groupFinderRoleCheckboxPlacement")
+    if not data.points then
+        data.points = {}
+        for index = 1, checkButton:GetNumPoints() do
+            data.points[index] = { checkButton:GetPoint(index) }
+        end
+    end
+    if #data.points == 0 then return false end
+
+    checkButton:ClearAllPoints()
+    for _, point in ipairs(data.points) do
+        checkButton:SetPoint(
+            point[1], point[2], point[3],
+            (tonumber(point[4]) or 0) + (tonumber(x) or 0),
+            (tonumber(point[5]) or 0) + (tonumber(y) or 0))
+    end
+    return true
+end
+
+local ROLE_SURFACE_BACKGROUND = "NSkinDungeonFinderRoleSurface"
+
+local function RefreshRoleSurfaceAppearance(surface)
+    if not surface then return false end
+    local scopeID = IDs.DungeonFinder.Scope
+    local appearanceID = IDs.DungeonFinder.RolesSurface
+    NSkin:RegisterAppearanceParentID(
+        appearanceID, IDs.DungeonFinder.RolesGroup,
+        IDs.DungeonFinder.RolesGroup)
+    local style = NSkin:GetAppearanceStyle("row", scopeID, appearanceID)
+    if not style then return false end
+
+    local backgroundColor =
+        NSkin:GetResolvedAppearanceColor(style, "background")
+    backgroundColor[4] = tonumber(style.backgroundOpacity)
+        or backgroundColor[4] or 1
+    local borderColor =
+        NSkin:GetResolvedAppearanceColor(style, "border")
+
+    local background =
+        NSkin:GetFlatBackground(surface, ROLE_SURFACE_BACKGROUND)
+    if style.showBackground ~= false then
+        background = background or NSkin:CreateFlatBackground(
+            surface, ROLE_SURFACE_BACKGROUND,
+            backgroundColor, borderColor)
+        NSkin:SetOwnedTextureColor(
+            background, backgroundColor[1], backgroundColor[2],
+            backgroundColor[3], backgroundColor[4])
+        background:Show()
+    elseif background then
+        background:Hide()
+    end
+
+    local border = NSkin:GetPixelBorder(
+        surface, ROLE_SURFACE_BACKGROUND .. "Border")
+        or NSkin:CreatePixelBorder(
+            surface, ROLE_SURFACE_BACKGROUND .. "Border",
+            style.borderSize or 1, borderColor)
+    NSkin:SetPixelBorderColor(border, unpack(borderColor))
+    NSkin:SetPixelBorderSize(border, style.borderSize or 1)
+    NSkin:SetPixelBorderPadding(border, style.borderPadding or 0)
+    NSkin:SetPixelBorderShown(
+        border, style.showBorder ~= false
+            and (tonumber(style.borderSize) or 0) > 0)
+    return true
+end
+
+local function GetRoleSurfaceFrame()
+    local queueFrame = _G.LFDQueueFrame
+    if not queueFrame then return nil end
+    local data = NSkin:GetSkinData(queueFrame, "groupFinderRolesSurface")
+    if not data.frame then
+        local surface = _G.CreateFrame("Frame", nil, queueFrame)
+        surface:EnableMouse(false)
+        data.frame = surface
+    end
+    if not data.anchor then
+        local anchor = _G.CreateFrame("Frame", nil, queueFrame)
+        anchor:EnableMouse(false)
+        data.anchor = anchor
+    end
+
+    local roles = GetRoleTargets("SURFACE")
+    local first = roles[1]
+    if first and not data.anchorCaptured then
+        local left, right, bottom, top
+        for _, roleButton in ipairs(roles) do
+            local roleLeft, roleRight, roleBottom, roleTop =
+                NSkin:GetUIParentNormalizedBounds(roleButton)
+            if roleLeft and roleRight and roleBottom and roleTop then
+                left = not left and roleLeft or math.min(left, roleLeft)
+                right = not right and roleRight or math.max(right, roleRight)
+                bottom = not bottom and roleBottom
+                    or math.min(bottom, roleBottom)
+                top = not top and roleTop or math.max(top, roleTop)
+            end
+        end
+
+        local queueLeft, _, _, queueTop =
+            NSkin:GetUIParentNormalizedBounds(queueFrame)
+        local uiScale = UIParent and UIParent:GetEffectiveScale() or 1
+        local queueScale = queueFrame.GetEffectiveScale
+            and queueFrame:GetEffectiveScale() or uiScale
+        if left and right and bottom and top
+            and queueLeft and queueTop
+            and uiScale and uiScale ~= 0
+            and queueScale and queueScale ~= 0
+        then
+            local scale = uiScale / queueScale
+            data.anchor:ClearAllPoints()
+            data.anchor:SetPoint(
+                "TOPLEFT", queueFrame, "TOPLEFT",
+                (left - queueLeft) * scale - 5,
+                (top - queueTop) * scale + 5)
+            data.anchor:SetSize(
+                (right - left) * scale + 10,
+                (top - bottom) * scale + 10)
+            data.anchorCaptured = true
+        end
+    end
+
+    if first and data.anchorCaptured then
+        local style = NSkin:GetAppearanceStyle(
+            "row", IDs.DungeonFinder.Scope, IDs.DungeonFinder.RolesSurface)
+        local customWidth = tonumber(style and style.width)
+        local customHeight = tonumber(style and style.height)
+        local width = customWidth and customWidth > 0
+            and customWidth or data.anchor:GetWidth()
+        local height = customHeight and customHeight > 0
+            and customHeight or data.anchor:GetHeight()
+
+        data.frame:ClearAllPoints()
+        data.frame:SetPoint("CENTER", data.anchor, "CENTER", 0, 0)
+        data.frame:SetSize(math.max(1, width), math.max(1, height))
+        if data.frame.SetFrameLevel and first.GetFrameLevel then
+            data.frame:SetFrameLevel(math.max(
+                queueFrame:GetFrameLevel(), first:GetFrameLevel() - 1))
+        end
+    end
+    data.frame:Show()
+    RefreshRoleSurfaceAppearance(data.frame)
+    return data.frame
+end
+
+local function RefreshRolePresentation(
+    roleButton, previewTargetType, previewFamilyX, previewFamilyY)
+    local checkButton = roleButton and roleButton.checkButton
+    local nativeIcon = GetRoleIconTexture(roleButton)
+    if not roleButton or not checkButton or not nativeIcon then return false end
+    local icon, rolePresentation = GetRolePresentation(roleButton)
+
+    ConcealTexture(nativeIcon)
+    ConcealTexture(roleButton.background)
+    ConcealTexture(roleButton.shortageBorder)
+    ConcealTexture(roleButton.IconPulse)
+    ConcealTexture(roleButton.EdgePulse)
+
+    local role = roleButton.role
+    if not role and roleButton.GetID and roleButton:GetID() == 4 then
+        role = "GUIDE"
+    end
+    local mediaFile = role and ROLE_ICON_MEDIA[role]
+    if mediaFile then
+        icon:SetTexture(NSkin.mediaPath .. mediaFile)
+        icon:SetTexCoord(0, 1, 0, 1)
+    end
+    if icon.SetDesaturated and roleButton.IsEnabled then
+        icon:SetDesaturated(not roleButton:IsEnabled())
+    end
+
+    local scopeID = IDs.DungeonFinder.Scope
+    local iconAppearanceID = GetRoleButtonAppearanceID(
+        roleButton, IDs.DungeonFinder.RolesIcon, "Icon")
+    local checkboxAppearanceID = GetRoleButtonAppearanceID(
+        roleButton, IDs.DungeonFinder.RolesCheckbox, "Checkbox")
+    NSkin:RegisterAppearanceParentID(
+        iconAppearanceID, IDs.DungeonFinder.RolesIcon,
+        IDs.DungeonFinder.RolesGroup)
+    NSkin:RegisterAppearanceParentID(
+        checkboxAppearanceID, IDs.DungeonFinder.RolesCheckbox,
+        IDs.DungeonFinder.RolesGroup)
+    local iconStyle = WithIconDefaults(
+        NSkin:GetAppearanceStyle("icon", scopeID, iconAppearanceID),
+        { zoom = 0.14 })
+    local crop = math.max(0.01, math.min(1,
+        tonumber(iconStyle.crop) or 1))
+    local customSize = tonumber(iconStyle.size)
+    customSize = customSize and customSize > 0 and customSize or nil
+    local width = customSize or roleButton:GetWidth()
+    local height = customSize or roleButton:GetHeight()
+    local iconX, iconY = GetRoleMemberOffset(
+        roleButton, "ICON",
+        previewTargetType == "ICON" and previewFamilyX or nil,
+        previewTargetType == "ICON" and previewFamilyY or nil)
+    local checkboxX, checkboxY = GetRoleMemberOffset(
+        roleButton, "CHECKBOX",
+        previewTargetType == "CHECKBOX" and previewFamilyX or nil,
+        previewTargetType == "CHECKBOX" and previewFamilyY or nil)
+    local clipFrame = rolePresentation.clipFrame
+    local borderFrame = rolePresentation.borderFrame
+    clipFrame:ClearAllPoints()
+    clipFrame:SetPoint(
+        "CENTER", roleButton, "CENTER", iconX, iconY)
+    clipFrame:SetSize(width, height * crop)
+    clipFrame:SetFrameLevel(roleButton:GetFrameLevel() + 1)
+    borderFrame:ClearAllPoints()
+    borderFrame:SetPoint(
+        "CENTER", roleButton, "CENTER", iconX, iconY)
+    borderFrame:SetSize(width, height)
+    borderFrame:SetFrameLevel(clipFrame:GetFrameLevel() + 1)
+    if checkButton.SetFrameLevel then
+        checkButton:SetFrameLevel(borderFrame:GetFrameLevel() + 1)
+    end
+    ApplyRoleCheckboxOffset(checkButton, checkboxX, checkboxY)
+    icon:ClearAllPoints()
+    icon:SetPoint("CENTER", clipFrame, "CENTER", 0, 0)
+    icon:SetSize(width, height)
+
+    NSkin:SkinIcon(icon, {
+        texture = icon,
+        borderOwner = borderFrame,
+        shapeMaskOwner = clipFrame,
+        style = iconStyle,
+        crop = 1,
+        borderCrop = crop,
+        borderColor = NSkin:GetResolvedAppearanceColor(iconStyle, "border"),
+        borderMode = iconStyle.borderMode,
+        defaultShape = "circle",
+        nativeDecorationRegions = {
+            nativeIcon,
+            roleButton.background,
+            roleButton.shortageBorder,
+            roleButton.IconPulse,
+            roleButton.EdgePulse,
+        },
+    })
+    NSkin:SkinCheckButton(checkButton, {
+        style = NSkin:GetAppearanceStyle(
+            "button", scopeID, checkboxAppearanceID),
+    })
+    -- Blizzard updates the role selection state from the checkbox click.
+    -- Reapply on the next frame so Skinning Mode member surfaces stay in sync
+    -- with the checked/unchecked presentation without relying on mouse motion.
+    HookRefresh(checkButton)
+    return true
+end
+
 function PVESkin:ApplyRoleCheckboxes()
     local frame = _G.PVEFrame
     local queueFrame = _G.LFDQueueFrame
     if not frame or not queueFrame then return false end
     SuppressDungeonFinderArtwork()
+
+    local definitions = GetRoleDefinitions()
     local applied = false
-    local editorMembers = {}
-    for _, definition in ipairs(GetRoleDefinitions()) do
-        applied = RegisterRoleComposite(
-            definition[1], definition[2], IDs.DungeonFinder.Scope,
-            IDs.DungeonFinder.RolesGroup, "Dungeon Finder roles",
-            frame, queueFrame, definition[3]) or applied
-        if NSkin:GetSkinningElement(definition[1]) then
-            editorMembers[#editorMembers + 1] = definition[1]
+    for _, definition in ipairs(definitions) do
+        applied = RefreshRolePresentation(definition[3]) or applied
+    end
+
+    local roleSurface = GetRoleSurfaceFrame()
+    if not dungeonRolesRegistered and #definitions > 0 and roleSurface then
+        dungeonRolesRegistered = NSkin:RegisterSkinningElement(
+            IDs.DungeonFinder.RolesGroup, {
+                module = "GroupFinder",
+                appearanceWindowID = IDs.DungeonFinder.Scope,
+                label = "Dungeon Finder Roles",
+                kind = "BUTTON",
+                window = frame,
+                target = roleSurface,
+                priority = 82,
+                draggable = false,
+                appearanceStyles = { "row", "icon", "button" },
+                appearanceTypeIDs = { "BUTTON", "ICON", "CHECKBOX" },
+                editorOptions = {
+                    { id = "shared.surfaceAppearance", label = "Surface",
+                        presentation = "INLINE", category = "CUSTOMIZE" },
+                    { id = "shared.iconAppearance", label = "Icon",
+                        category = "CUSTOMIZE" },
+                    { id = "shared.checkboxAppearance", label = "Checkbox",
+                        category = "CUSTOMIZE" },
+                },
+                composition = {
+                    mode = "COMPOSITE",
+                    type = "REGULAR",
+                    editorLabel = "Dungeon Finder Roles",
+                    memberEditorLabels = {
+                        BUTTON = "Surface",
+                        ICON = "Icon",
+                        CHECKBOX = "Checkbox",
+                    },
+                    editorOptionLabels = {
+                        ["shared.surfaceAppearance"] = "Surface",
+                        ["shared.iconAppearance"] = "Icon",
+                        ["shared.checkboxAppearance"] = "Checkbox",
+                    },
+                    primaryEditorOptionID = "shared.surfaceAppearance",
+                    layout = {
+                        orientation = "HORIZONTAL",
+                        distribution = "EQUAL_SLOTS",
+                        surfaceMemberID = IDs.DungeonFinder.RolesSurface,
+                        targets = function()
+                            return GetRoleTargets("SURFACE")
+                        end,
+                    },
+                    members = {
+                        {
+                            id = IDs.DungeonFinder.RolesSurface,
+                            kind = "BUTTON",
+                            role = "PRIMARY",
+                            label = "Dungeon Finder roles",
+                            target = roleSurface,
+                            appearanceWindowID = IDs.DungeonFinder.Scope,
+                            appearanceID = IDs.DungeonFinder.RolesSurface,
+                            appearanceParentID = IDs.DungeonFinder.RolesGroup,
+                            editorSurface = true,
+                            surfaceStyle = "Role Select",
+                            surfaceAppearanceKey = "row",
+                            allowOverrides = true,
+                            editorOptions =
+                                NSkin:GetCompositeSurfaceEditorOptions(),
+                        },
+                        {
+                            id = IDs.DungeonFinder.RolesIcon,
+                            kind = "ICON",
+                            role = "SECONDARY",
+                            label = "Role icons",
+                            appearanceWindowID = IDs.DungeonFinder.Scope,
+                            appearanceID = IDs.DungeonFinder.RolesIcon,
+                            appearanceParentID = IDs.DungeonFinder.RolesGroup,
+                            defaultShape = "circle",
+                            highlightMode = "REGIONS",
+                            separateHighlightRegions = true,
+                            highlightBorderPadding = 0,
+                            getTargetAppearanceID = function(_, member, target)
+                                return GetRoleTargetAppearanceID(
+                                    member.appearanceID
+                                        or IDs.DungeonFinder.RolesIcon,
+                                    target, "ICON")
+                            end,
+                            applyFamilyOffset = function(_, _, x, y)
+                                for _, definition in ipairs(
+                                    GetRoleDefinitions())
+                                do
+                                    RefreshRolePresentation(
+                                        definition[3], "ICON", x, y)
+                                end
+                                GetRoleSurfaceFrame()
+                                return true
+                            end,
+                            applyTargetOffset = function(_, _, target)
+                                local roleButton =
+                                    GetRoleButtonForTarget(target, "ICON")
+                                if not roleButton then return false end
+                                RefreshRolePresentation(roleButton)
+                                GetRoleSurfaceFrame()
+                                return true
+                            end,
+                            targets = function()
+                                return GetRoleTargets("ICON")
+                            end,
+                        },
+                        {
+                            id = IDs.DungeonFinder.RolesCheckbox,
+                            kind = "CHECKBOX",
+                            role = "SECONDARY",
+                            label = "Role checkboxes",
+                            appearanceWindowID = IDs.DungeonFinder.Scope,
+                            appearanceID = IDs.DungeonFinder.RolesCheckbox,
+                            appearanceParentID = IDs.DungeonFinder.RolesGroup,
+                            highlightMode = "REGIONS",
+                            separateHighlightRegions = true,
+                            highlightBorderPadding = 0,
+                            getTargetAppearanceID = function(_, member, target)
+                                return GetRoleTargetAppearanceID(
+                                    member.appearanceID
+                                        or IDs.DungeonFinder.RolesCheckbox,
+                                    target, "CHECKBOX")
+                            end,
+                            applyFamilyOffset = function(_, _, x, y)
+                                for _, definition in ipairs(
+                                    GetRoleDefinitions())
+                                do
+                                    RefreshRolePresentation(
+                                        definition[3], "CHECKBOX", x, y)
+                                end
+                                GetRoleSurfaceFrame()
+                                return true
+                            end,
+                            applyTargetOffset = function(_, _, target)
+                                local roleButton =
+                                    GetRoleButtonForTarget(
+                                        target, "CHECKBOX")
+                                if not roleButton then return false end
+                                RefreshRolePresentation(roleButton)
+                                GetRoleSurfaceFrame()
+                                return true
+                            end,
+                            targets = function()
+                                return GetRoleTargets("CHECKBOX")
+                            end,
+                        },
+                    },
+                },
+                highlightRegions = { roleSurface },
+                pixelBorderTargets = { roleSurface },
+                refreshAppearance = function()
+                    return PVESkin:ApplyRoleCheckboxes()
+                end,
+                refreshLayout = function()
+                    return PVESkin:ApplyRoleCheckboxes()
+                end,
+                isEditable = function()
+                    return frame:IsVisible() and queueFrame:IsVisible()
+                        and roleSurface:IsVisible()
+                end,
+            }) == true
+        if dungeonRolesRegistered then
+            for _, definition in ipairs(definitions) do
+                RefreshRolePresentation(definition[3])
+            end
+            GetRoleSurfaceFrame()
         end
     end
-    if #editorMembers > 0 then
-        dungeonRoleEditorGroupRegistered =
-            NSkin:RegisterEditorGroup({
-                id = IDs.DungeonFinder.RolesEditorGroup,
-                label = "Dungeon Finder roles",
-                window = frame,
-                appearanceWindowID = IDs.DungeonFinder.Scope,
-                members = editorMembers,
-            }) ~= nil
+
+    if dungeonRolesRegistered then
+        NSkin:ApplyCompositeLayout(IDs.DungeonFinder.RolesGroup)
+        NSkin:NotifySkinningElementBoundsChanged(
+            IDs.DungeonFinder.RolesGroup)
     end
-    return applied
+    return applied or dungeonRolesRegistered
 end
 
 function PVESkin:ApplyTypeDropdown()
@@ -945,6 +1325,112 @@ function PVESkin:ApplyRandomDungeonContent()
     return applied
 end
 
+local function RegisterRaidFinderRoleComposite(
+    id, label, scopeID, groupID, groupLabel, frame, visibilityOwner, roleButton)
+    local checkButton = roleButton and roleButton.checkButton
+    local nativeIcon = GetRoleIconTexture(roleButton)
+    if not roleButton or not checkButton or not nativeIcon then return false end
+    local icon, rolePresentation = GetRolePresentation(roleButton)
+
+    local function Refresh()
+        ConcealTexture(nativeIcon)
+        ConcealTexture(roleButton.background)
+        ConcealTexture(roleButton.shortageBorder)
+        ConcealTexture(roleButton.IconPulse)
+        ConcealTexture(roleButton.EdgePulse)
+
+        local role = roleButton.role
+        if not role and roleButton.GetID and roleButton:GetID() == 4 then
+            role = "GUIDE"
+        end
+        local mediaFile = role and ROLE_ICON_MEDIA[role]
+        if mediaFile then
+            icon:SetTexture(NSkin.mediaPath .. mediaFile)
+            icon:SetTexCoord(0, 1, 0, 1)
+        end
+        if icon.SetDesaturated and roleButton.IsEnabled then
+            icon:SetDesaturated(not roleButton:IsEnabled())
+        end
+
+        local iconStyle = WithIconDefaults(
+            NSkin:GetAppearanceStyle("icon", scopeID, groupID),
+            { zoom = 0.14 })
+        local crop = math.max(0.01, math.min(1,
+            tonumber(iconStyle.crop) or 1))
+        local customSize = tonumber(iconStyle.size)
+        customSize = customSize and customSize > 0 and customSize or nil
+        local width = customSize or roleButton:GetWidth()
+        local height = customSize or roleButton:GetHeight()
+        local clipFrame = rolePresentation.clipFrame
+        local borderFrame = rolePresentation.borderFrame
+        clipFrame:ClearAllPoints()
+        clipFrame:SetPoint("CENTER", roleButton, "CENTER", 0, 0)
+        clipFrame:SetSize(width, height * crop)
+        borderFrame:ClearAllPoints()
+        borderFrame:SetPoint("CENTER", roleButton, "CENTER", 0, 0)
+        borderFrame:SetSize(width, height)
+        icon:ClearAllPoints()
+        icon:SetPoint("CENTER", clipFrame, "CENTER", 0, 0)
+        icon:SetSize(width, height)
+
+        NSkin:SkinIcon(icon, {
+            texture = icon,
+            borderOwner = borderFrame,
+            shapeMaskOwner = clipFrame,
+            style = iconStyle,
+            crop = 1,
+            borderCrop = crop,
+            borderColor = NSkin:GetResolvedAppearanceColor(
+                iconStyle, "border"),
+            borderMode = iconStyle.borderMode,
+            defaultShape = "circle",
+        })
+        NSkin:SkinCheckButton(checkButton, {
+            style = NSkin:GetAppearanceStyle("button", scopeID, groupID),
+        })
+        NSkin:NotifySkinningElementBoundsChanged(id)
+        return true
+    end
+
+    local registered = NSkin:RegisterSkinningElement(id, {
+        module = "GroupFinder",
+        appearanceWindowID = scopeID,
+        label = label,
+        kind = "ICON",
+        window = frame,
+        target = roleButton,
+        priority = 82,
+        draggable = false,
+        defaultShape = "circle",
+        anchorGroupID = groupID,
+        anchorGroupLabel = groupLabel,
+        anchorGroupAppearanceSource = groupID,
+        composition = {
+            mode = "COMPOSITE",
+            movementOwner = roleButton,
+            members = {
+                { id = id .. ".Icon", kind = "ICON", role = "PRIMARY",
+                    target = icon, label = "Role icon",
+                    appearanceID = groupID },
+                { id = id .. ".Checkbox", kind = "CHECKBOX",
+                    role = "SECONDARY", target = checkButton,
+                    label = "Role selection", appearanceID = groupID },
+            },
+        },
+        highlightRegions = { icon, checkButton },
+        pixelBorderTargets = { roleButton },
+        refreshAppearance = Refresh,
+        refreshLayout = Refresh,
+        isEditable = function()
+            return frame:IsVisible()
+                and (not visibilityOwner or visibilityOwner:IsVisible())
+                and roleButton:IsVisible()
+        end,
+    })
+    Refresh()
+    return registered == true
+end
+
 function PVESkin:ApplyRaidFinderControls()
     local frame = _G.PVEFrame
     local raidFinder = _G.RaidFinderFrame
@@ -969,7 +1455,7 @@ function PVESkin:ApplyRaidFinderControls()
                 or queueFrame.RoleButtonLeader },
     }
     for _, definition in ipairs(roleDefinitions) do
-        applied = RegisterRoleComposite(
+        applied = RegisterRaidFinderRoleComposite(
             definition[1], definition[2], scopeID,
             IDs.RaidFinder.RolesGroup, "Raid Finder roles",
             frame, queueFrame, definition[3]) or applied
@@ -2478,6 +2964,20 @@ local function SkinFinderNavigationIcon(button, appearanceID)
     return true
 end
 
+local function GetFinderNavigationDefaultTextColor(button)
+    local fontObject
+    if button and button.IsEnabled and not button:IsEnabled() then
+        fontObject = _G.GameFontDisableLarge
+    else
+        fontObject = _G.GameFontNormalLarge
+    end
+    if fontObject and fontObject.GetTextColor then
+        local red, green, blue, alpha = fontObject:GetTextColor()
+        return { red, green, blue, alpha or 1 }
+    end
+    return { 1, 1, 1, 1 }
+end
+
 local function SkinFinderNavigationButton(frame, button, id, label)
     if not button or not button.icon then return false end
     ConcealTexture(button.bg)
@@ -2533,6 +3033,8 @@ local function SkinFinderNavigationButton(frame, button, id, label)
             NSkin:GetAppearanceStyle(
                 "text", IDs.Scope, textAppearanceID), {
                 elementID = textAppearanceID,
+                defaultColor =
+                    GetFinderNavigationDefaultTextColor(button),
             })
     end
     return true
@@ -2673,12 +3175,18 @@ function PVESkin:ApplyFinderNavigation()
             }) == true
     end
 
-    if not navigationSelectionHooked and _G.hooksecurefunc
-        and type(_G.GroupFinderFrame_SelectGroupButton) == "function"
-    then
-        hooksecurefunc("GroupFinderFrame_SelectGroupButton", function()
-            PVESkin:ApplyFinderNavigation()
-        end)
+    if not navigationSelectionHooked and _G.hooksecurefunc then
+        if type(_G.GroupFinderFrame_SelectGroupButton) == "function" then
+            hooksecurefunc("GroupFinderFrame_SelectGroupButton", function()
+                PVESkin:ApplyFinderNavigation()
+            end)
+        end
+        if type(_G.GroupFinderFrame_EvaluateButtonVisibility) == "function" then
+            hooksecurefunc("GroupFinderFrame_EvaluateButtonVisibility",
+                function()
+                    PVESkin:ApplyFinderNavigation()
+                end)
+        end
         navigationSelectionHooked = true
     end
     return applied

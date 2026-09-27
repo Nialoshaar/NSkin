@@ -648,6 +648,28 @@ function NSkin:GetCompositeMemberTargetOffset(
         tonumber(saved and saved.y) or 0
 end
 
+function NSkin:GetCompositeMemberEffectiveTargetOffset(
+    elementOrID, memberOrID, appearanceID, familyX, familyY)
+    local element = type(elementOrID) == "table" and elementOrID
+        or self:GetSkinningElement(elementOrID)
+    local member = element and (type(memberOrID) == "table" and memberOrID
+        or self:GetCompositeMember(element, memberOrID))
+    if not element or not member or type(appearanceID) ~= "string" then
+        return tonumber(familyX) or 0, tonumber(familyY) or 0
+    end
+
+    local exactX, exactY = self:GetCompositeMemberTargetOffset(
+        element, member, appearanceID)
+    local overrideX = self:HasCompositeMemberPositionOverride(
+        element, member, appearanceID, "alongOffset")
+    local overrideY = self:HasCompositeMemberPositionOverride(
+        element, member, appearanceID, "edgeOffset")
+    return overrideX and (tonumber(exactX) or 0)
+            or (tonumber(familyX) or 0),
+        overrideY and (tonumber(exactY) or 0)
+            or (tonumber(familyY) or 0)
+end
+
 function NSkin:SetCompositeMemberTargetOffset(
     elementOrID, memberOrID, appearanceID, x, y)
     local element = type(elementOrID) == "table" and elementOrID
@@ -726,6 +748,32 @@ local function HasCompositePositionOverrideMetadata(
         end
     end
     return false
+end
+
+local function HasCompositePositionOverrideForAppearance(
+    element, memberID, propertyKey, appearanceID)
+    local store = GetCompositePropertyOverrideStore(element, false)
+    for _, entry in pairs(store or {}) do
+        if entry.memberID == memberID
+            and entry.groupID == "shared.movable"
+            and entry.propertyKey == propertyKey
+            and entry.appearanceID == appearanceID
+        then
+            return true
+        end
+    end
+    return false
+end
+
+function NSkin:HasCompositeMemberPositionOverride(
+    elementOrID, memberOrID, appearanceID, propertyKey)
+    local element = type(elementOrID) == "table" and elementOrID
+        or self:GetSkinningElement(elementOrID)
+    local member = element and (type(memberOrID) == "table" and memberOrID
+        or self:GetCompositeMember(element, memberOrID))
+    if not element or not member then return false end
+    return HasCompositePositionOverrideForAppearance(
+        element, member.id, propertyKey, appearanceID)
 end
 
 local function MakeCompositePropertyOverrideKey(
@@ -823,6 +871,25 @@ function NSkin:AddCompositePropertyOverride(
     local token = MakeCompositePropertyOverrideKey(
         member.id, groupID, propertyKey, exactAppearanceID)
     if store[token] then return true end
+
+    -- Position overrides are absolute on their overridden axis. Seed the
+    -- exact value from the currently resolved family position so adding an
+    -- override never causes the target to jump.
+    local seedPosition =
+        groupID == "shared.movable"
+        and (propertyKey == "alongOffset" or propertyKey == "edgeOffset")
+    local familyX, familyY, exactX, exactY
+    if seedPosition then
+        familyX, familyY =
+            self:GetCompositeMemberFamilyOffset(element, member)
+        if exactAppearanceID then
+            exactX, exactY = self:GetCompositeMemberTargetOffset(
+                element, member, exactAppearanceID)
+        else
+            exactX, exactY = self:GetCompositeMemberOffset(element, member)
+        end
+    end
+
     store[token] = {
         memberID = member.id,
         groupID = groupID,
@@ -832,6 +899,22 @@ function NSkin:AddCompositePropertyOverride(
         label = (member.label or member.id) .. " - "
             .. (propertyLabel or propertyKey),
     }
+
+    if seedPosition then
+        if propertyKey == "alongOffset" then
+            exactX = (tonumber(familyX) or 0) + (tonumber(exactX) or 0)
+        else
+            exactY = (tonumber(familyY) or 0) + (tonumber(exactY) or 0)
+        end
+        if exactAppearanceID then
+            self:SetCompositeMemberTargetOffset(
+                element, member, exactAppearanceID, exactX, exactY)
+        else
+            self:SetCompositeMemberOffset(
+                element, member, exactX, exactY)
+        end
+    end
+
     self:NotifySkinningElementBoundsChanged(element.id)
     return true
 end
@@ -907,6 +990,7 @@ function NSkin:GetCompositeMemberExactAppearanceContext(
     context.compositeOwner = element
     context.compositeMember = member
     context.surfaceStyle = member.surfaceStyle
+    context.surfaceAppearanceKey = member.surfaceAppearanceKey
     context.compositeTag = self:GetCompositeTag(element)
     context.exactMemberOverride = true
     context.exactAppearanceID = appearanceID
@@ -1164,18 +1248,18 @@ local function NormalizeCompositeMembers(element, composition)
                     member.appearanceWindowID or element.appearanceWindowID
                 member.appearanceID =
                     member.appearanceID or member.elementID or member.id
-                -- TEXT is one canonical shared component. Every registered
-                -- TEXT member gets the same exact-property override system,
-                -- regardless of which Composite/window registered it.
-                if member.kind == "TEXT" then
+                -- TEXT and CHECKBOX are canonical shared components. Every
+                -- registered member gets the same exact-property override
+                -- system regardless of which Composite/window registered it.
+                if member.kind == "TEXT" or member.kind == "CHECKBOX" then
                     member.allowOverrides = true
                 end
                 if member.editorSurface == true then
                     member.allowOverrides = true
-                    if not member.surfaceStyle then
+                    if not member.surfaceAppearanceKey then
                         local component = member.kind
                             and NSkin:GetSharedElementType(member.kind)
-                        member.surfaceStyle =
+                        member.surfaceAppearanceKey =
                             component and component.style or nil
                     end
                     if type(member.editorOptions) ~= "table"
@@ -1246,7 +1330,7 @@ local function NormalizeCompositeMembers(element, composition)
                 appearanceID = surfaceID,
                 appearanceParentID = element.id,
                 editorSurface = true,
-                surfaceStyle = component and component.style or nil,
+                surfaceAppearanceKey = component and component.style or nil,
                 allowOverrides = true,
                 editorOptions = GetCompositeSurfaceEditorOptions(),
                 movable = false,
@@ -1349,6 +1433,37 @@ local function NormalizeContainerChildren(composition)
     composition.children = children
 end
 
+local COMPOSITE_LAYOUT_ORIENTATIONS = {
+    HORIZONTAL = true,
+    VERTICAL = true,
+}
+
+local COMPOSITE_LAYOUT_DISTRIBUTIONS = {
+    EQUAL_SLOTS = true,
+}
+
+local function NormalizeCompositeLayout(composition)
+    local layout = composition and composition.layout
+    if type(layout) ~= "table" then
+        composition.layout = nil
+        return
+    end
+
+    local orientation =
+        tostring(layout.orientation or "HORIZONTAL"):upper()
+    local distribution =
+        tostring(layout.distribution or "EQUAL_SLOTS"):upper()
+    if not COMPOSITE_LAYOUT_ORIENTATIONS[orientation]
+        or not COMPOSITE_LAYOUT_DISTRIBUTIONS[distribution]
+    then
+        composition.layout = nil
+        return
+    end
+
+    layout.orientation = orientation
+    layout.distribution = distribution
+end
+
 local function NormalizeComposition(element)
     local composition = element.composition
     if type(composition) ~= "table" then composition = {} end
@@ -1361,6 +1476,7 @@ local function NormalizeComposition(element)
         if not compositeTypes[compositeType] then compositeType = "REGULAR" end
         composition.type = compositeType
         NormalizeCompositeMembers(element, composition)
+        NormalizeCompositeLayout(composition)
         MigrateCompositeFamilyOffsets(element, composition)
     elseif mode == "CONTAINER" then
         NormalizeContainerChildren(composition)
@@ -1608,6 +1724,93 @@ end
 
 function NSkin:GetCompositionMemberTargets(element, member, visibleOnly)
     return ResolveMemberTargets(member, element, visibleOnly == true)
+end
+
+local function ResolveCompositeLayoutTargets(element, composition)
+    local layout = composition and composition.layout
+    if not layout then return {} end
+
+    local provider = layout.targets
+    local targets
+    if type(provider) == "function" then
+        local ok, resolved = pcall(provider, element, layout)
+        if ok and type(resolved) == "table" then
+            targets = resolved
+        end
+    elseif type(provider) == "table" then
+        targets = provider
+    elseif type(layout.memberID) == "string"
+        and composition.membersByID
+    then
+        targets = ResolveMemberTargets(
+            composition.membersByID[layout.memberID], element, true)
+    end
+
+    local result = {}
+    for _, target in ipairs(targets or {}) do
+        if target and target.ClearAllPoints and target.SetPoint
+            and (not target.IsVisible or target:IsVisible())
+        then
+            result[#result + 1] = target
+        end
+    end
+    return result
+end
+
+local function ResolveCompositeLayoutSurface(element, composition)
+    local layout = composition and composition.layout
+    if not layout then return nil end
+
+    local member = layout.surfaceMemberID
+        and composition.membersByID
+        and composition.membersByID[layout.surfaceMemberID]
+    if not member then
+        for _, candidate in ipairs(composition.members or {}) do
+            if candidate.editorSurface == true then
+                member = candidate
+                break
+            end
+        end
+    end
+    if not member then return nil end
+
+    local targets = ResolveMemberTargets(member, element, false)
+    return targets[1]
+end
+
+function NSkin:ApplyCompositeLayout(elementOrID)
+    local element = type(elementOrID) == "table" and elementOrID
+        or self:GetSkinningElement(elementOrID)
+    local composition = element and element.composition
+    local layout = composition and composition.layout
+    if not element or not layout
+        or layout.distribution ~= "EQUAL_SLOTS"
+    then return false end
+
+    local surface = ResolveCompositeLayoutSurface(element, composition)
+    local targets = ResolveCompositeLayoutTargets(element, composition)
+    local count = #targets
+    if not surface or count == 0 then return false end
+
+    local horizontal = layout.orientation == "HORIZONTAL"
+    local extent = horizontal
+        and tonumber(surface:GetWidth())
+        or tonumber(surface:GetHeight())
+    if not extent or extent <= 0 then return false end
+
+    local slot = extent / count
+    for index, target in ipairs(targets) do
+        local along = slot * (index - 0.5)
+        target:ClearAllPoints()
+        if horizontal then
+            target:SetPoint("CENTER", surface, "LEFT", along, 0)
+        else
+            target:SetPoint("CENTER", surface, "TOP", 0, -along)
+        end
+    end
+
+    self:NotifySkinningElementBoundsChanged(element.id)
+    return true
 end
 
 
@@ -1864,10 +2067,18 @@ function NSkin:ApplyCompositeMemberFamilyOffset(
         if GetCompositeMemberFamilyKey(candidate) == key then
             local exactX, exactY =
                 self:GetCompositeMemberOffset(element, candidate)
+            local overrideX = HasCompositePositionOverrideForAppearance(
+                element, candidate.id, "alongOffset", nil)
+            local overrideY = HasCompositePositionOverrideForAppearance(
+                element, candidate.id, "edgeOffset", nil)
+            local resolvedX = overrideX
+                and (tonumber(exactX) or 0)
+                or x + (tonumber(exactX) or 0)
+            local resolvedY = overrideY
+                and (tonumber(exactY) or 0)
+                or y + (tonumber(exactY) or 0)
             applied = ApplyCompositeMemberGeometry(
-                element, candidate,
-                x + (tonumber(exactX) or 0),
-                y + (tonumber(exactY) or 0)) or applied
+                element, candidate, resolvedX, resolvedY) or applied
         end
     end
     return applied == true
@@ -1928,10 +2139,18 @@ function NSkin:ApplyCompositeMemberOffset(elementOrID, memberOrID, x, y)
     if not element or not member then return false end
     local familyX, familyY =
         self:GetCompositeMemberFamilyOffset(element, member)
+    local overrideX = HasCompositePositionOverrideForAppearance(
+        element, member.id, "alongOffset", nil)
+    local overrideY = HasCompositePositionOverrideForAppearance(
+        element, member.id, "edgeOffset", nil)
+    local resolvedX = overrideX
+        and (tonumber(x) or 0)
+        or (tonumber(familyX) or 0) + (tonumber(x) or 0)
+    local resolvedY = overrideY
+        and (tonumber(y) or 0)
+        or (tonumber(familyY) or 0) + (tonumber(y) or 0)
     return ApplyCompositeMemberGeometry(
-        element, member,
-        (tonumber(familyX) or 0) + (tonumber(x) or 0),
-        (tonumber(familyY) or 0) + (tonumber(y) or 0))
+        element, member, resolvedX, resolvedY)
 end
 
 function NSkin:SetCompositeMemberOffset(elementOrID, memberOrID, x, y)
@@ -2205,6 +2424,7 @@ function NSkin:GetCompositeMemberAppearanceContext(elementOrID, memberOrID)
     context.compositeOwner = element
     context.compositeMember = member
     context.surfaceStyle = member.surfaceStyle
+    context.surfaceAppearanceKey = member.surfaceAppearanceKey
     context.compositeTag = self:GetCompositeTag(element)
     context.specificElementOverride = specific
     return context
