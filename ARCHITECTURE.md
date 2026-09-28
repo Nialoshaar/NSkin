@@ -168,7 +168,7 @@ Atomic components may also expose the shared Surface capability when they own
 an editable visual area. Surface capability does not create a second editor
 identity: it is a presentation layer of the same atomic component.
 
-The first canonical atomic Surface users are:
+Surface-capable atomic components currently include:
 
 ```text
 ICON
@@ -189,36 +189,19 @@ DROPDOWN
 
 TEXT
 ├─ Surface: Background / Border / Highlight
-└─ Text-specific: typography / color
-
-A TEXT Surface follows the rendered glyph bounds rather than the FontString's
-full allocated layout width. Right/center/left justification is preserved when
-computing that compact Surface.
-
-A Composite group Surface is an explicit member when the semantic group needs
-its own visual Surface or movement contract. Its Position may be stacked with
-member-local Position offsets; moving the group must not erase Text/Dropdown
-member offsets, and moving a member must not erase the group offset.
+└─ Text-specific: Typography / Color
 ```
 
-For CHECKBOX, the existing checkbox background and border are the Surface
-implementation; do not draw a second box around the checkbox. The normal
-Surface background remains the base layer while checked/selected background is
-a state overlay on that same Surface, so checking a box does not replace or
-erase its configured base background. For ICON, the existing icon border
-becomes Surface-owned while texture presentation remains ICON-owned.
-Component-specific geometry such as icon shape may constrain how a Surface is
-rendered without moving that property into the Surface schema. For BUTTON,
-width/height and content presentation remain Button-specific inline controls;
-background, border, selected background, and hover highlight are owned only by
-the shared Surface capability. DROPDOWN currently exposes only Position inline;
-its visual background, border, and highlight are Surface-owned. TEXT exposes
-Position and typography/color inline, while optional background, border, and
-highlight are Surface-owned and remain disabled by default. Content mode and content color share one compact
-row. Free-form custom text, texture path, and atlas name are intentionally kept
-out of the Docked Window: a single `Custom content` action opens a transient
-popup containing the three EDIT_BOX-skinned text fields.
+When an atomic component exposes Surface capability, generic presentation
+properties belong to Surface and must not be duplicated in the component's
+specific schema. Component-specific properties remain owned by the atomic
+component. Surface capability does not create another editor identity,
+appearance identity, movement owner, or Composite member.
 
+Existing component visuals may implement the Surface directly. For example,
+CHECKBOX reuses its checkbox background/border instead of drawing a second
+box, and ICON keeps texture/shape behavior component-owned while its generic
+background/border/highlight are Surface-owned.
 A new option added to a canonical component should normally become available everywhere that component is used without modifying individual window adapters.
 
 Do not create page-specific copies of canonical appearance logic.
@@ -318,12 +301,17 @@ A Composite provides:
 - combined bounds
 - stable member identities
 - canonical appearance for every member
-- one Surface member representing the Composite's editable visual surface
+- one group Surface representing Composite presentation
 - member-local X/Y
+- reusable group layout metadata such as orientation/distribution when needed
 - generic member attach/detach
 - dock aggregation of member options
 
-The Composite itself does not duplicate member appearance schemas. Surface is a shared presentation member/capability, not a new semantic component type.
+The Composite root is the structural/layout owner. The group Surface follows
+Composite bounds and presentation state; it does not own the Composite or its
+children. Member families remain independent presentation/layout participants,
+and member-local placement composes with group placement rather than replacing
+it. The Composite itself does not duplicate member appearance schemas.
 
 ## 7.1 Composite Types
 
@@ -543,7 +531,12 @@ does not acquire editor, movement, or composition ownership. It simply moves
 overlapping generic presentation properties such as background, border, and
 highlight out of the component-specific option schema.
 
-The group Surface member is the primary presentation member for the Composite and uses the same canonical Docked Window options and sparse override system as other editable members. This does not make Surface a semantic child object: selection, movement ownership, children, and composition relationships still belong to the owning editor structure.
+The group Surface is the Composite's presentation layer and uses the same
+canonical Docked Window options and sparse override system as other eligible
+Surface owners. It is not the structural owner: selection, movement,
+orientation/distribution, child membership, and composition relationships
+belong to the Composite root. Member-local Surfaces belong to their atomic
+members and do not merge into the group Surface.
 
 A Surface may skin an existing Blizzard visual surface or use NSkin-owned non-interactive decoration. NSkin-created regions must not steal Blizzard clicks, tooltips, or hit regions.
 
@@ -585,19 +578,13 @@ Canonical option definitions belong with shared component/capability infrastruct
 
 The Docked Window consumes those canonical definitions rather than reconstructing reduced copies.
 
-For a Composite, the header names the logical group once and exposes one
-horizontal member selector directly below the header actions. The first tab is
-`Group` (the Composite Surface/editor group), followed by the canonical member
-labels. Repeated concrete members that share the same component kind and
-appearance parent are one Docked Window tab; for example three registered card
-icons produce one `Icon` tab. Same-kind members with different appearance
-parents remain separate editor tabs because they are distinct appearance
-families. Switching tabs changes editor focus only; it must not create a second
-appearance identity or require clicking the underlying Blizzard control again.
-The Docked Window member selector uses the canonical `TAB` skin rather than
-a private presentation, so its background, selected background, border,
-typography, and hover behavior stay visually consistent with regular NSkin
-tabs. Selection still controls editor focus only.
+For a Composite, the Docked Window exposes one group context plus one entry
+per canonical member/appearance family. Repeated runtime targets that share the
+same member identity and appearance parent are represented once; same-kind
+members with distinct appearance parents remain distinct because they are
+different editable families. Switching the focused entry changes editor focus
+only and must not create a second appearance identity or require reselection of
+the underlying Blizzard control.
 
 Conceptually:
 
@@ -1093,7 +1080,16 @@ EDITOR_GROUP
 → independent member appearance remains canonical
 ```
 
-An override is selected by member, presentation category, and property, then resolves against either the shared member identity or the currently focused exact runtime identity. The override picker groups properties as Element specific option, Background, Border, and Highlight; these categories are presentation UI only and do not change appearance ownership. Resetting shared presentation must not silently erase independent exact-target exceptions.
+Overrides are sparse property-level exceptions over canonical member/Surface
+appearance. Shared family settings remain authoritative for non-overridden
+properties; an exact-target override is keyed by the target's stable semantic
+appearance identity, never by recycled frame identity.
+
+Position overrides are axis-local: an exact X or Y override replaces the shared
+family value on that axis, while the non-overridden axis continues to inherit
+the family value. Editing or clearing one target's overrides must not mutate
+sibling targets. Presentation categories in the inspector are UI organization
+only and do not change ownership.
 
 A window adapter may declare identity, target resolution, and presentation metadata, but it must not reconstruct generic dock or override controls.
 
@@ -1124,11 +1120,9 @@ Window/module enablement and genuinely window-specific configuration remain sepa
 
 # 29. Performance Rules
 
-Optimization Passes 1–4 established the current performance baseline.
-
 Do not add speculative optimization passes without a measured user-visible problem.
 
-Preserve targeted invalidation.
+Preserve targeted invalidation and local refresh ownership.
 
 Avoid:
 
@@ -1155,7 +1149,12 @@ local change
 → refresh entire addon/window
 ```
 
-A narrowly scoped same-frame coalescing mechanism is acceptable only when it addresses a demonstrated local dependency such as Composite bounds and does not become general polling/debounce architecture.
+For pooled/recycled lifecycle bursts, repeated work may be coalesced within the
+owning family when measurement shows redundant rescans. Such a transaction
+should snapshot the relevant runtime targets once, reuse that snapshot for the
+local dependency graph, and treat already-applied state as a no-op. This must
+remain local lifecycle handling, not become global polling or generic debounce
+infrastructure.
 
 ---
 

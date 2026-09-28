@@ -1916,20 +1916,60 @@ local function GetDungeonRowFamilyID(choice)
     return isHeader and IDs.DungeonSections or IDs.SpecificDungeons, isHeader
 end
 
-local function GetVisibleDungeonRows(wantHeaders)
+local activeDungeonRowPass
+
+local function BuildDungeonRowPass()
+    local pass = {
+        owners = {},
+        headers = {},
+        rows = {},
+        targetOwners = setmetatable({}, { __mode = "k" }),
+    }
     local queueFrame = _G.LFDQueueFrame
-    local result = {}
-    if not queueFrame then return result end
+    if not queueFrame then return pass end
+
     for _, owner in ipairs({ queueFrame.Specific, queueFrame.Follower }) do
         local scrollBox = owner and owner.ScrollBox
+        local ownerPass = {
+            owner = owner,
+            scrollBox = scrollBox,
+            allRows = {},
+            visibleRows = {},
+        }
+        pass.owners[#pass.owners + 1] = ownerPass
         NSkin:ForEachScrollBoxFrame(scrollBox, function(choice)
-            local _, isHeader = GetDungeonRowFamilyID(choice)
-            if isHeader == wantHeaders and choice:IsVisible() then
-                result[#result + 1] = choice
+            ownerPass.allRows[#ownerPass.allRows + 1] = choice
+            local visible = not choice.IsVisible or choice:IsVisible()
+            if visible then
+                ownerPass.visibleRows[#ownerPass.visibleRows + 1] = choice
+                local _, isHeader = GetDungeonRowFamilyID(choice)
+                local familyRows = isHeader and pass.headers or pass.rows
+                familyRows[#familyRows + 1] = choice
+            end
+            if choice.instanceName then
+                pass.targetOwners[choice.instanceName] = choice
+            end
+            if choice.level then
+                pass.targetOwners[choice.level] = choice
+            end
+            if choice.enableButton then
+                pass.targetOwners[choice.enableButton] = choice
+            end
+            if choice.expandOrCollapseButton then
+                pass.targetOwners[choice.expandOrCollapseButton] = choice
             end
         end)
     end
-    return result
+    return pass
+end
+
+local function GetVisibleDungeonRows(wantHeaders, pass)
+    pass = pass or activeDungeonRowPass
+    if pass then
+        return wantHeaders and pass.headers or pass.rows
+    end
+    local snapshot = BuildDungeonRowPass()
+    return wantHeaders and snapshot.headers or snapshot.rows
 end
 
 local function ApplyDungeonCheckboxComponent(choice, styleID)
@@ -1984,7 +2024,7 @@ local function SkinDungeonCollapseButton(choice)
                 C_Timer.After(0, function()
                     if data.choice then
                         PVESkin:StyleDungeonChoice(nil, nil, data.choice)
-                        ReapplyDungeonRowFamilyOffsets()
+                        QueueDungeonRowLayoutRefresh()
                     end
                 end)
             end)
@@ -2076,7 +2116,10 @@ local function GetDungeonRowSurfaceStyle(styleName, elementID, exactID)
 end
 
 local function GetDungeonTextTargetOwner(target)
-    for _, choice in ipairs(GetVisibleDungeonRows(false)) do
+    local pass = activeDungeonRowPass
+    local owner = pass and pass.targetOwners[target]
+    if owner then return owner end
+    for _, choice in ipairs(GetVisibleDungeonRows(false, pass)) do
         if choice.instanceName == target or choice.level == target then
             return choice
         end
@@ -2211,6 +2254,7 @@ local function RestoreDungeonFamilyOffsetTarget(target)
         target:SetPoint(unpack(point))
     end
     data.active = nil
+    data.appliedX, data.appliedY = nil, nil
 end
 
 local function RestoreDungeonChoiceFamilyOffsets(choice)
@@ -2231,24 +2275,40 @@ local function ApplyDungeonFamilyOffsetTarget(target, x, y)
         or not target.ClearAllPoints or not target.SetPoint
     then return false end
 
+    x, y = tonumber(x) or 0, tonumber(y) or 0
     local data = NSkin:GetSkinData(target, "dungeonRowFamilyOffset")
+
+    -- A stable pooled row may be visited several times in the same Blizzard
+    -- initialization burst. Do not restore/copy/reapply identical anchors.
+    if data.active and data.points
+        and data.appliedX == x and data.appliedY == y
+    then
+        return true
+    end
+
     if data.active and data.points then
         target:ClearAllPoints()
         for _, point in ipairs(data.points) do
             target:SetPoint(unpack(point))
         end
         data.active = nil
+        data.appliedX, data.appliedY = nil, nil
     end
 
-    local points = {}
-    for index = 1, target:GetNumPoints() do
-        points[index] = { target:GetPoint(index) }
-    end
-    if #points == 0 then return false end
-    data.points = points
-
-    x, y = tonumber(x) or 0, tonumber(y) or 0
+    -- Zero family offsets need no baseline allocation. If the target was
+    -- active above it has already been restored to its saved baseline.
     if x == 0 and y == 0 then return true end
+
+    local points = data.points
+    if not points or #points == 0 then
+        points = {}
+        for index = 1, target:GetNumPoints() do
+            points[index] = { target:GetPoint(index) }
+        end
+        if #points == 0 then return false end
+        data.points = points
+    end
+
     target:ClearAllPoints()
     for _, point in ipairs(points) do
         target:SetPoint(
@@ -2257,6 +2317,7 @@ local function ApplyDungeonFamilyOffsetTarget(target, x, y)
             (tonumber(point[5]) or 0) + y)
     end
     data.active = true
+    data.appliedX, data.appliedY = x, y
     return true
 end
 
@@ -2302,23 +2363,24 @@ local function ReparentDungeonChoice(choice, parent)
     return true
 end
 
-RefreshDungeonRowRenderingParent = function(forceDisplaced)
+RefreshDungeonRowRenderingParent = function(forceDisplaced, pass)
     local queueFrame = _G.LFDQueueFrame
     if not queueFrame then return false end
+    pass = pass or activeDungeonRowPass or BuildDungeonRowPass()
+
     -- Row-family surfaces and their Skinning Mode overlays must stay outside
     -- the ScrollTarget rendering parent even at the default 0/0 offsets.
-    -- Reparenting only after an offset was applied made the pooled row contents
-    -- disappear whenever every member returned to its Blizzard position.
     local displaced = true
     local changed
 
-    for _, owner in ipairs({ queueFrame.Specific, queueFrame.Follower }) do
-        local scrollBox = owner and owner.ScrollBox
+    for _, ownerPass in ipairs(pass.owners or {}) do
+        local owner = ownerPass.owner
+        local scrollBox = ownerPass.scrollBox
         local scrollTarget = scrollBox and scrollBox.GetScrollTarget
             and scrollBox:GetScrollTarget()
             or (scrollBox and scrollBox.ScrollTarget)
         if owner and scrollBox and scrollTarget then
-            NSkin:ForEachScrollBoxFrame(scrollBox, function(choice)
+            for _, choice in ipairs(ownerPass.allRows) do
                 local data = NSkin:GetSkinData(
                     choice, "groupFinderDungeonRowParent")
                 if displaced then
@@ -2332,22 +2394,24 @@ RefreshDungeonRowRenderingParent = function(forceDisplaced)
                         choice, data.originalParent) or changed
                     data.originalParent = nil
                 end
-            end)
+            end
         end
     end
+    pass.parentReady = true
     return changed == true
 end
 
-local function ApplyDungeonRowExtentFlow()
+local function ApplyDungeonRowExtentFlow(pass)
     local queueFrame = _G.LFDQueueFrame
     if not queueFrame then return false end
 
-    local owners = { queueFrame.Specific, queueFrame.Follower }
+    pass = pass or activeDungeonRowPass or BuildDungeonRowPass()
+    local previousPass = activeDungeonRowPass
+    activeDungeonRowPass = pass
     local hasCustomExtent
 
-    for _, owner in ipairs(owners) do
-        local scrollBox = owner and owner.ScrollBox
-        NSkin:ForEachScrollBoxFrame(scrollBox, function(choice)
+    for _, ownerPass in ipairs(pass.owners or {}) do
+        for _, choice in ipairs(ownerPass.allRows) do
             RestoreDungeonExtentOffset(choice)
             RestoreDungeonChoiceFamilyOffsets(choice)
             local _, isHeader = GetDungeonRowFamilyID(choice)
@@ -2363,20 +2427,17 @@ local function ApplyDungeonRowExtentFlow()
             then
                 hasCustomExtent = true
             end
-        end)
+        end
     end
 
-    RefreshDungeonRowRenderingParent(hasCustomExtent == true)
+    RefreshDungeonRowRenderingParent(hasCustomExtent == true, pass)
 
     local applied
-    for _, owner in ipairs(owners) do
-        local scrollBox = owner and owner.ScrollBox
+    for _, ownerPass in ipairs(pass.owners or {}) do
         local rows = {}
-        NSkin:ForEachScrollBoxFrame(scrollBox, function(choice)
-            if choice and choice.IsVisible and choice:IsVisible() then
-                rows[#rows + 1] = choice
-            end
-        end)
+        for index, choice in ipairs(ownerPass.visibleRows) do
+            rows[index] = choice
+        end
         table.sort(rows, function(left, right)
             local leftTop = left.GetTop and left:GetTop()
             local rightTop = right.GetTop and right:GetTop()
@@ -2428,9 +2489,9 @@ local function ApplyDungeonRowExtentFlow()
         end
     end
 
-    RefreshDungeonRowRenderingParent(hasCustomExtent == true)
     NSkin:NotifySkinningElementBoundsChanged(IDs.DungeonSections)
     NSkin:NotifySkinningElementBoundsChanged(IDs.SpecificDungeons)
+    activeDungeonRowPass = previousPass
     return applied == true or hasCustomExtent == true
 end
 
@@ -2440,8 +2501,9 @@ local function QueueDungeonRowExtentFlow()
     dungeonExtentFlowPending = true
     local function Apply()
         dungeonExtentFlowPending = nil
-        ApplyDungeonRowExtentFlow()
-        ReapplyDungeonRowFamilyOffsets(true)
+        local pass = BuildDungeonRowPass()
+        ApplyDungeonRowExtentFlow(pass)
+        ReapplyDungeonRowFamilyOffsets(true, pass)
     end
     if C_Timer and C_Timer.After then
         C_Timer.After(0, Apply)
@@ -2456,9 +2518,12 @@ local function ApplyDungeonMemberFamilyOffset(element, member, x, y)
     local displaced = x ~= 0 or y ~= 0
 
     -- Pooled row surfaces must be moved only after the row has been placed
-    -- under the rendering parent. Re-running the parent pass afterwards is
-    -- redundant and can invalidate the surface anchor we just offset.
-    RefreshDungeonRowRenderingParent(displaced)
+    -- under the rendering parent. A row transaction prepares this once for
+    -- every member instead of rescanning/reparenting the ScrollBox per member.
+    local pass = activeDungeonRowPass
+    if not pass or not pass.parentReady then
+        RefreshDungeonRowRenderingParent(displaced, pass)
+    end
 
     local targets
     if member.rowFamilySurface == true
@@ -2511,18 +2576,55 @@ ReapplyDungeonMemberFamilyOffsets = function(elementID)
     return applied == true
 end
 
-ReapplyDungeonRowFamilyOffsets = function(skipInitialParentRefresh)
-    if not skipInitialParentRefresh then
-        RefreshDungeonRowRenderingParent()
+ReapplyDungeonRowFamilyOffsets = function(skipInitialParentRefresh, pass)
+    pass = pass or activeDungeonRowPass or BuildDungeonRowPass()
+    local previousPass = activeDungeonRowPass
+    activeDungeonRowPass = pass
+
+    if not skipInitialParentRefresh or not pass.parentReady then
+        RefreshDungeonRowRenderingParent(nil, pass)
     end
     local applied =
         ReapplyDungeonMemberFamilyOffsets(IDs.DungeonSections)
     applied = ReapplyDungeonMemberFamilyOffsets(
         IDs.SpecificDungeons) or applied
-    RefreshDungeonRowRenderingParent()
+
     NSkin:NotifySkinningElementBoundsChanged(IDs.DungeonSections)
     NSkin:NotifySkinningElementBoundsChanged(IDs.SpecificDungeons)
+    activeDungeonRowPass = previousPass
     return applied == true
+end
+
+local dungeonRowLayoutRefreshPending
+local dungeonRowLayoutRefreshGeneration = 0
+
+local function FlushDungeonRowLayoutRefresh()
+    dungeonRowLayoutRefreshGeneration =
+        dungeonRowLayoutRefreshGeneration + 1
+    dungeonRowLayoutRefreshPending = nil
+    local pass = BuildDungeonRowPass()
+    ApplyDungeonRowExtentFlow(pass)
+    ReapplyDungeonRowFamilyOffsets(true, pass)
+    return true
+end
+
+local function QueueDungeonRowLayoutRefresh()
+    if dungeonRowLayoutRefreshPending then return true end
+    dungeonRowLayoutRefreshPending = true
+    dungeonRowLayoutRefreshGeneration =
+        dungeonRowLayoutRefreshGeneration + 1
+    local generation = dungeonRowLayoutRefreshGeneration
+    local function Apply()
+        if generation ~= dungeonRowLayoutRefreshGeneration then return end
+        dungeonRowLayoutRefreshPending = nil
+        FlushDungeonRowLayoutRefresh()
+    end
+    if C_Timer and C_Timer.After then
+        C_Timer.After(0, Apply)
+    else
+        Apply()
+    end
+    return true
 end
 
 function PVESkin:StyleDungeonChoice(_, _, choice)
@@ -2968,8 +3070,7 @@ function PVESkin:ApplyDungeonSelectionRows()
             applied = self:StyleDungeonChoice(nil, owner, choice) or applied
         end)
     end
-    ApplyDungeonRowExtentFlow()
-    ReapplyDungeonRowFamilyOffsets(true)
+    FlushDungeonRowLayoutRefresh()
     return applied
 end
 
@@ -3519,8 +3620,7 @@ function PVESkin:HookDungeonScrollBoxes()
     then
         hooksecurefunc("LFGDungeonListButton_SetDungeon", function(choice)
             PVESkin:StyleDungeonChoice(nil, nil, choice)
-            ApplyDungeonRowExtentFlow()
-            ReapplyDungeonRowFamilyOffsets(true)
+            QueueDungeonRowLayoutRefresh()
         end)
         dungeonChoiceUpdateHooked = true
     end
@@ -3537,8 +3637,7 @@ function PVESkin:HookDungeonScrollBoxes()
                 scrollBox:RegisterCallback(scrollEvents.OnInitializedFrame,
                     function(_, choice)
                         PVESkin:StyleDungeonChoice(nil, owner, choice)
-                        ApplyDungeonRowExtentFlow()
-                        ReapplyDungeonRowFamilyOffsets(true)
+                        QueueDungeonRowLayoutRefresh()
                     end, self)
             end
             hookedScrollBoxes[scrollBox] = true
