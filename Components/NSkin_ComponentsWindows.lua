@@ -171,9 +171,15 @@ function NSkin:SkinWindow(frame, backgroundAnchor, style, borderColor,
     self:RegisterPhysicalPixelRefresh(
         frame, "windowSurfaces", RefreshWindowPixelGeometry)
     local backgroundColor = self:GetResolvedAppearanceColor(style, "background")
-    self:SetOwnedTextureColor(background, unpack(backgroundColor))
+    local backgroundOpacity = tonumber(style.backgroundOpacity)
+        or backgroundColor[4] or 1
+    self:SetOwnedTextureColor(
+        background, backgroundColor[1], backgroundColor[2],
+        backgroundColor[3], backgroundOpacity)
+    background:SetShown(style.showBackground ~= false)
     data.windowBackgroundColor = {
-        backgroundColor[1], backgroundColor[2], backgroundColor[3], backgroundColor[4],
+        backgroundColor[1], backgroundColor[2], backgroundColor[3],
+        backgroundOpacity,
     }
 
     if data.windowBorderOwner and data.windowBorderOwner ~= borderOwner then
@@ -188,6 +194,24 @@ function NSkin:SkinWindow(frame, backgroundAnchor, style, borderColor,
     self:SetPixelBorderSize(border, style.borderSize)
     self:SetPixelBorderPadding(border, style.borderPadding or 0)
     self:SetPixelBorderColor(border, unpack(borderColor or self:GetWindowBorderColor()))
+    self:SetPixelBorderShown(
+        border, style.showBorder ~= false
+            and (tonumber(style.borderSize) or 1) > 0)
+
+    if self.CreateFlatButtonGlow then
+        local glow = self:CreateFlatButtonGlow(
+            frame, tonumber(style.hoverAlpha) or 0.10)
+        if glow then
+            local highlight = self:GetResolvedAppearanceColor(
+                style, "highlight") or style.highlight or { 1, 1, 1, 1 }
+            self:SetOwnedTextureColor(
+                glow, highlight[1] or 1, highlight[2] or 1,
+                highlight[3] or 1,
+                tonumber(style.hoverAlpha) or highlight[4] or 0.10)
+            self:SetFlatButtonGlowSuppressed(
+                frame, style.showHighlight ~= true, "appearance")
+        end
+    end
     return background, border
 end
 
@@ -210,18 +234,70 @@ function NSkin:SkinWindowHeader(frame, style, owner, defaultHeight, anchor)
         data.windowHeaderAnchor = nil
     end
     self:ConfigureOwnedPixelTexture(background)
+
+    local editorRegion = data.windowHeaderEditorRegion
+    if not editorRegion or editorRegion:GetParent() ~= owner then
+        if editorRegion then editorRegion:Hide() end
+        editorRegion = CreateFrame("Frame", nil, owner)
+        editorRegion:EnableMouse(false)
+        data.windowHeaderEditorRegion = editorRegion
+    end
+
     local height = tonumber(style.height)
         or tonumber(defaultHeight)
         or (frame.nskinOwnedGeometry and 22 or nil)
     data.windowHeaderRequestedHeight = height and math.max(0, height) or 0
     data.windowHeaderAnchor = anchor
     LayoutWindowHeaderBackground(frame, data, anchor)
+
+    editorRegion:ClearAllPoints()
+    editorRegion:SetAllPoints(background)
+    editorRegion:Show()
+
     self:RegisterPhysicalPixelRefresh(
         frame, "windowSurfaces", RefreshWindowPixelGeometry)
     local color = style.matchBackground and data.windowBackgroundColor
         or self:GetResolvedAppearanceColor(style, "background")
     color = color or self:GetResolvedAppearanceColor(style, "background")
-    self:SetOwnedTextureColor(background, unpack(color))
+    local opacity = tonumber(style.backgroundOpacity)
+        or color[4] or 1
+    self:SetOwnedTextureColor(
+        background, color[1], color[2], color[3], opacity)
+    background:SetShown(style.showBackground ~= false)
+
+    local borderColor = self:GetResolvedAppearanceColor(style, "border")
+        or self:GetWindowBorderColor()
+    local border = self:CreatePixelBorder(
+        owner, "NSkinWindowHeaderBorder",
+        tonumber(style.borderSize) or 1, borderColor, false, background)
+    self:SetPixelBorderSize(border, tonumber(style.borderSize) or 1)
+    self:SetPixelBorderPadding(border, tonumber(style.borderPadding) or 0)
+    self:SetPixelBorderColor(border, unpack(borderColor))
+    self:SetPixelBorderShown(
+        border, style.showBorder == true
+            and (tonumber(style.borderSize) or 1) > 0)
+
+    local hoverTarget = data.windowHeaderHoverTarget
+        or frame.TitleContainer
+    if hoverTarget and hoverTarget.CreateTexture then
+        data.windowHeaderHoverTarget = hoverTarget
+        local glow = self:CreateFlatButtonGlow(
+            hoverTarget, tonumber(style.hoverAlpha) or 0.10)
+        if glow then
+            glow:ClearAllPoints()
+            glow:SetPoint("TOPLEFT", background, "TOPLEFT", 0, 0)
+            glow:SetPoint("BOTTOMRIGHT", background, "BOTTOMRIGHT", 0, 0)
+            local highlight = self:GetResolvedAppearanceColor(
+                style, "highlight") or style.highlight or { 1, 1, 1, 1 }
+            self:SetOwnedTextureColor(
+                glow, highlight[1] or 1, highlight[2] or 1,
+                highlight[3] or 1,
+                tonumber(style.hoverAlpha) or highlight[4] or 0.10)
+            self:SetFlatButtonGlowSuppressed(
+                hoverTarget, style.showHighlight == false, "appearance")
+        end
+    end
+
     LayoutWindowBackground(frame, data, data.windowBackgroundAnchor or frame)
     return background
 end
@@ -636,28 +712,44 @@ function NSkin:SkinStandardCloseButton(window, closeButton, options)
     self:SetPixelBorderSize(border, options.borderSize or 1)
     self:SetPixelBorderPadding(border, options.borderPadding or 0)
     if border then
-        -- The window border supplies the two exterior edges. Drawing the
-        -- button edges over them would darken translucent borders and can
-        -- produce an apparent double-thickness seam.
-        border.top:Hide()
-        border.right:Hide()
-        border.left:Show()
-        border.bottom:Show()
+        local style = options.style or self:GetStyle("button")
+        local showBorder = style.showBorder ~= false
+            and (tonumber(options.borderSize)
+                or tonumber(style.borderSize) or 1) > 0
+        if showBorder then
+            self:SetPixelBorderShown(border, true)
+            -- The window border supplies the two exterior edges. Drawing the
+            -- button edges over them would darken translucent borders and can
+            -- produce an apparent double-thickness seam.
+            border.top:Hide()
+            border.right:Hide()
+            border.left:Show()
+            border.bottom:Show()
+        else
+            self:SetPixelBorderShown(border, false)
+        end
     end
     return closeButton
 end
 
 local function ConfigureWindowHeaderControlBorder(
-    control, borderSize, borderPadding)
+    control, borderSize, borderPadding, showBorder)
     local border = NSkin:GetPixelBorder(
         control, "NSkinFlatBackgroundBorder")
     if not border then return end
 
     NSkin:SetPixelBorderSize(border, borderSize or 1)
     NSkin:SetPixelBorderPadding(border, borderPadding or 0)
+    local visible = showBorder ~= false
+        and (tonumber(borderSize) or 1) > 0
+    if not visible then
+        NSkin:SetPixelBorderShown(border, false)
+        return
+    end
     -- The window supplies the shared top edge and the control to the right
     -- supplies the shared vertical edge. Keep only this slot's left and
     -- bottom separators so translucent borders are never drawn twice.
+    NSkin:SetPixelBorderShown(border, true)
     border.top:Hide()
     border.right:Hide()
     border.left:Show()
@@ -729,7 +821,8 @@ function NSkin:RegisterWindowHeaderControls(definition)
                     "TOPRIGHT", previousControl, "TOPLEFT", -spacing, 0)
                 if target.SetSize then target:SetSize(width, height) end
                 ConfigureWindowHeaderControlBorder(
-                    target, definition.borderSize, definition.borderPadding)
+                    target, definition.borderSize, definition.borderPadding,
+                    definition.showBorder)
             end
             previousControl = slotAnchor
         end
@@ -753,6 +846,432 @@ function NSkin:GetWindowHeaderControlRegions(window, groupID)
         end
     end
     return regions
+end
+
+local function GetStandardWindowStructureIDs(definition)
+    local elementID = definition.elementID
+    local headerID = definition.headerCompositeID
+        or (elementID .. ".Header")
+    local containerID = definition.containerID
+        or (elementID .. ".Container")
+    local headerControlsID = definition.headerControlsID
+        or (elementID .. ".HeaderControls")
+    return containerID, headerID,
+        headerID .. ".Surface", headerID .. ".Text",
+        headerControlsID
+end
+
+local function GetWindowHeaderControlTargetAppearanceID(
+    window, groupID, target)
+    local data = NSkin:GetSkinData(window, COMPONENT_STATE, false)
+    local group = data and data.windowHeaderControlGroups
+        and data.windowHeaderControlGroups[groupID]
+    if not group or not target then return nil end
+    if target == group.closeButton then
+        return groupID .. ".Close"
+    end
+    for controlIndex, controlDefinition in ipairs(group.controls or {}) do
+        for targetIndex, resolved in ipairs(
+            ResolveWindowHeaderControlTargets(controlDefinition))
+        do
+            if resolved.target == target then
+                local explicit = controlDefinition.appearanceID
+                    or controlDefinition.id
+                if type(explicit) == "string" and explicit ~= "" then
+                    return explicit
+                end
+                local suffix = ".Control" .. tostring(controlIndex)
+                if targetIndex > 1 then
+                    suffix = suffix .. "." .. tostring(targetIndex)
+                end
+                return groupID .. suffix
+            end
+        end
+    end
+end
+
+local function ApplyStandardWindowHeaderText(
+    self, definition, textID, title)
+    if not definition or not title then return false end
+    local textStyle = self:GetAppearanceStyle(
+        "text", definition.appearanceWindowID, textID)
+    if not textStyle then return false end
+    self:SkinText(title, textStyle, {
+        elementID = textID,
+    })
+    return true
+end
+
+local function CaptureStandardWindowHeaderTargetBaseline(frame, target)
+    if not frame or not target or not target.GetNumPoints then return nil end
+    local data = NSkin:GetSkinData(frame, COMPONENT_STATE)
+    data.standardWindowHeaderMovementBaselines =
+        data.standardWindowHeaderMovementBaselines
+        or setmetatable({}, { __mode = "k" })
+    local baseline = data.standardWindowHeaderMovementBaselines[target]
+    if baseline then return baseline end
+
+    baseline = {}
+    for index = 1, target:GetNumPoints() do
+        baseline[index] = { target:GetPoint(index) }
+    end
+    if #baseline == 0 then return nil end
+    data.standardWindowHeaderMovementBaselines[target] = baseline
+    return baseline
+end
+
+local function ApplyStandardWindowHeaderTargetOffset(
+    frame, target, x, y)
+    local baseline =
+        CaptureStandardWindowHeaderTargetBaseline(frame, target)
+    if not baseline or not target.ClearAllPoints or not target.SetPoint then
+        return false
+    end
+    x, y = tonumber(x) or 0, tonumber(y) or 0
+    target:ClearAllPoints()
+    for _, point in ipairs(baseline) do
+        target:SetPoint(
+            point[1], point[2], point[3],
+            (tonumber(point[4]) or 0) + x,
+            (tonumber(point[5]) or 0) + y)
+    end
+    return true
+end
+
+function NSkin:ApplyStandardWindowHeaderCompositeOffsets(element)
+    local definition = element and element.chromeDefinition
+    local composition = element and element.composition
+    if not definition or not definition.frame
+        or not composition or composition.mode ~= "COMPOSITE"
+    then return false end
+
+    local _, _, surfaceID, textID, headerControlsID =
+        GetStandardWindowStructureIDs(definition)
+    local surfaceMember = self:GetCompositeMember(element, surfaceID)
+    local textMember = self:GetCompositeMember(element, textID)
+    local buttonMember = self:GetCompositeMember(
+        element, headerControlsID)
+    if not surfaceMember then return false end
+
+    local groupX, groupY =
+        self:GetCompositeMemberFamilyOffset(element, surfaceMember)
+    groupX, groupY = tonumber(groupX) or 0, tonumber(groupY) or 0
+
+    local applied
+    local function ApplyMember(member, target, groupOnly)
+        if not member or not target then return end
+        local x, y = 0, 0
+        if not groupOnly then
+            local familyX, familyY =
+                self:GetCompositeMemberFamilyOffset(element, member)
+            local appearanceID =
+                self:GetCompositeMemberTargetAppearanceID(
+                    element, member, target)
+            x, y = self:GetCompositeMemberEffectiveTargetOffset(
+                element, member, appearanceID,
+                familyX or 0, familyY or 0)
+        end
+        applied = ApplyStandardWindowHeaderTargetOffset(
+            definition.frame, target,
+            groupX + (tonumber(x) or 0),
+            groupY + (tonumber(y) or 0)) or applied
+    end
+
+    for _, target in ipairs(
+        self:GetCompositionMemberTargets(
+            element, surfaceMember, false) or {})
+    do
+        ApplyMember(surfaceMember, target, true)
+    end
+    for _, target in ipairs(
+        self:GetCompositionMemberTargets(
+            element, textMember, false) or {})
+    do
+        ApplyMember(textMember, target, false)
+    end
+    for _, target in ipairs(
+        self:GetCompositionMemberTargets(
+            element, buttonMember, false) or {})
+    do
+        ApplyMember(buttonMember, target, false)
+    end
+
+    self:NotifySkinningElementBoundsChanged(element.id)
+    return applied == true
+end
+
+local function ApplyStandardWindowHeaderFamilyOffset(element)
+    return NSkin:ApplyStandardWindowHeaderCompositeOffsets(element)
+end
+
+local function ApplyStandardWindowHeaderTargetOffsetForMember(element)
+    return NSkin:ApplyStandardWindowHeaderCompositeOffsets(element)
+end
+
+function NSkin:RefreshStandardWindowHeaderComposite(element)
+    local definition = element and element.chromeDefinition
+    if not definition or not definition.frame then return false end
+    local frame = definition.frame
+    local appearanceWindowID = definition.appearanceWindowID
+    local elementID = definition.elementID
+    local _, _, surfaceID, textID =
+        GetStandardWindowStructureIDs(definition)
+    local style = definition.style or self:GetAppearanceStyle(
+        "window", appearanceWindowID, elementID)
+    local headerWindowStyle = self:GetAppearanceStyle(
+        "window", appearanceWindowID, surfaceID)
+    local headerStyle = headerWindowStyle and headerWindowStyle.header
+    if not style or not headerStyle then return false end
+
+    local closeButton = definition.closeButton
+    if closeButton == nil then closeButton = frame.CloseButton end
+    local headerHeight = tonumber(definition.headerHeight)
+    if not headerHeight and closeButton and closeButton.GetHeight then
+        local closeHeight = tonumber(closeButton:GetHeight())
+        if closeHeight and closeHeight > 0 then headerHeight = closeHeight end
+    end
+    self:SkinWindowHeader(frame, headerStyle,
+        definition.headerOwner, headerHeight, definition.headerAnchor)
+
+    local title = definition.title
+    if title == nil then
+        title = frame.TitleContainer and frame.TitleContainer.TitleText
+    end
+    if title then
+        ApplyStandardWindowHeaderText(self, definition, textID, title)
+    end
+
+    self:RefreshWindowHeaderControlsElement(element)
+    self:ApplyStandardWindowHeaderCompositeOffsets(element)
+    self:NotifySkinningElementBoundsChanged(element.id)
+    return true
+end
+
+function NSkin:EnsureStandardWindowStructure(definition, bodyDefinition)
+    if type(definition) ~= "table" or not definition.frame
+        or type(definition.elementID) ~= "string"
+    then return false end
+
+    local frame = definition.frame
+    local data = self:GetSkinData(frame, COMPONENT_STATE, false)
+    local visuals = data and data.standardWindowHeaderVisuals
+    if not visuals or not visuals.header then return false end
+
+    local containerID, headerID, surfaceID, textID, headerControlsID =
+        GetStandardWindowStructureIDs(definition)
+    local module = bodyDefinition and bodyDefinition.module
+    local bodyLabel = bodyDefinition and bodyDefinition.label
+        or definition.label or definition.elementID
+    local title = visuals.title
+    local closeButton = visuals.closeButton
+    local editorRegion = visuals.editorRegion or visuals.header
+
+    CaptureStandardWindowHeaderTargetBaseline(frame, visuals.header)
+    if title then
+        CaptureStandardWindowHeaderTargetBaseline(frame, title)
+    end
+    for _, target in ipairs(
+        self:GetWindowHeaderControlRegions(frame, headerControlsID))
+    do
+        CaptureStandardWindowHeaderTargetBaseline(frame, target)
+    end
+
+    self:RegisterAppearanceParentID(
+        surfaceID, definition.elementID, headerID)
+    self:RegisterAppearanceParentID(
+        textID, definition.elementID, headerID)
+
+    local members = {
+        {
+            id = surfaceID,
+            kind = "WINDOW_HEADER",
+            role = "PRIMARY",
+            label = "Surface",
+            target = visuals.header,
+            appearanceWindowID = definition.appearanceWindowID,
+            appearanceID = surfaceID,
+            appearanceParentID = surfaceID,
+            editorSurface = true,
+            surfaceAppearanceKey = "window.header",
+            highlightMode = "REGIONS",
+            separateHighlightRegions = true,
+            highlightTargets = { editorRegion },
+            editorOptions = {
+                { id = "shared.surfaceBackground", label = "Background",
+                    category = "CUSTOMIZE", contextualInline = false,
+                    headerToggleKey = "showBackground" },
+                { id = "shared.surfaceBorder", label = "Border",
+                    category = "CUSTOMIZE", contextualInline = false,
+                    headerToggleKey = "showBorder" },
+                { id = "shared.surfaceHighlight", label = "Highlight",
+                    category = "CUSTOMIZE", contextualInline = false,
+                    headerToggleKey = "showHighlight" },
+            },
+            applyFamilyOffset = ApplyStandardWindowHeaderFamilyOffset,
+            applyTargetOffset =
+                ApplyStandardWindowHeaderTargetOffsetForMember,
+            refreshComponentAppearance = function(element)
+                return NSkin:RefreshStandardWindowHeaderComposite(element)
+            end,
+            refreshAppearance = function(element)
+                return NSkin:RefreshStandardWindowHeaderComposite(element)
+            end,
+        },
+    }
+
+    if title then
+        members[#members + 1] = {
+            id = textID,
+            kind = "TEXT",
+            role = "SECONDARY",
+            label = "Text",
+            target = title,
+            targets = { title },
+            appearanceWindowID = definition.appearanceWindowID,
+            appearanceID = textID,
+            appearanceParentID = textID,
+            surfaceAppearanceKey = "text",
+            tightTextBounds = true,
+            highlightMode = "REGIONS",
+            separateHighlightRegions = true,
+            highlightTargets = { title },
+            editorOptions = self:CreateEditorOptionsPreset("TEXT"),
+            applyFamilyOffset = ApplyStandardWindowHeaderFamilyOffset,
+            applyTargetOffset =
+                ApplyStandardWindowHeaderTargetOffsetForMember,
+            refreshComponentAppearance = function(element)
+                return NSkin:RefreshStandardWindowHeaderComposite(element)
+            end,
+            refreshSurfaceAppearance = function(element)
+                return NSkin:RefreshStandardWindowHeaderComposite(element)
+            end,
+            refreshAppearance = function(element)
+                return NSkin:RefreshStandardWindowHeaderComposite(element)
+            end,
+        }
+    end
+
+    if closeButton and definition.skinCloseButton ~= false then
+        members[#members + 1] = {
+            id = headerControlsID,
+            kind = "BUTTON",
+            role = "SECONDARY",
+            label = "Button",
+            appearanceWindowID = definition.appearanceWindowID,
+            appearanceID = headerControlsID,
+            appearanceParentID = headerControlsID,
+            targets = function()
+                return NSkin:GetWindowHeaderControlRegions(
+                    frame, headerControlsID)
+            end,
+            getTargetAppearanceID = function(_, _, target)
+                return GetWindowHeaderControlTargetAppearanceID(
+                    frame, headerControlsID, target)
+            end,
+            editorOptions = self:CreateEditorOptionsPreset("BUTTON"),
+            applyFamilyOffset = ApplyStandardWindowHeaderFamilyOffset,
+            applyTargetOffset =
+                ApplyStandardWindowHeaderTargetOffsetForMember,
+            refreshSurfaceAppearance = function(element)
+                local refreshed =
+                    NSkin:RefreshWindowHeaderControlsElement(element)
+                NSkin:ApplyStandardWindowHeaderCompositeOffsets(element)
+                return refreshed
+            end,
+            refreshComponentAppearance = function(element)
+                local refreshed =
+                    NSkin:RefreshWindowHeaderControlsElement(element)
+                NSkin:ApplyStandardWindowHeaderCompositeOffsets(element)
+                return refreshed
+            end,
+            refreshAppearance = function(element)
+                local refreshed =
+                    NSkin:RefreshWindowHeaderControlsElement(element)
+                NSkin:ApplyStandardWindowHeaderCompositeOffsets(element)
+                return refreshed
+            end,
+        }
+    end
+
+    self:RegisterSkinningElement(headerID, {
+        label = definition.headerLabel or "Header",
+        kind = "COMPOSITE",
+        module = module,
+        appearanceWindowID = definition.appearanceWindowID,
+        window = frame,
+        target = visuals.header,
+        priority = tonumber(definition.headerPriority) or 90,
+        draggable = false,
+        compositionParentID = containerID,
+        chromeDefinition = definition,
+        composition = {
+            mode = "COMPOSITE",
+            editorLabel = "Header",
+            members = members,
+        },
+        highlightRegions = function()
+            local regions = { editorRegion }
+            if title then regions[#regions + 1] = title end
+            for _, region in ipairs(
+                NSkin:GetWindowHeaderControlRegions(
+                    frame, headerControlsID))
+            do
+                regions[#regions + 1] = region
+            end
+            return regions
+        end,
+        isEditable = function()
+            return frame:IsVisible()
+        end,
+        refreshAppearance = function(_, element)
+            return NSkin:RefreshStandardWindowHeaderComposite(element)
+        end,
+        refreshLayout = function(_, element)
+            return NSkin:RefreshStandardWindowHeaderComposite(element)
+        end,
+    })
+
+    self:RegisterSkinningElement(containerID, {
+        label = (bodyLabel or definition.elementID) .. " Container",
+        kind = "CONTAINER",
+        module = module,
+        appearanceWindowID = definition.appearanceWindowID,
+        window = frame,
+        target = frame,
+        priority = -100,
+        draggable = false,
+        composition = {
+            mode = "CONTAINER",
+            children = { definition.elementID, headerID },
+        },
+        isEditable = function()
+            return false
+        end,
+    })
+
+    local body = self:GetSkinningElement(definition.elementID)
+    if body then
+        body.compositionParentID = containerID
+        self:InitializeElementComposition(body)
+    end
+    return true
+end
+
+function NSkin:PrepareStandardWindowStructureDefinition(
+    elementID, bodyDefinition)
+    if type(bodyDefinition) ~= "table"
+        or bodyDefinition.kind ~= "WINDOW"
+        or not bodyDefinition.target
+    then return false end
+    local data = self:GetSkinData(
+        bodyDefinition.target, COMPONENT_STATE, false)
+    local definition = data and data.standardWindowChromeDefinition
+    if not definition or definition.elementID ~= elementID then return false end
+    local containerID = definition.containerID
+        or (elementID .. ".Container")
+    bodyDefinition.compositionParentID = containerID
+    self:EnsureStandardWindowStructure(definition, bodyDefinition)
+    return true
 end
 
 function NSkin:SkinStandardWindowChrome(definition)
@@ -789,7 +1308,13 @@ function NSkin:SkinStandardWindowChrome(definition)
         local closeHeight = tonumber(closeButton:GetHeight())
         if closeHeight and closeHeight > 0 then headerHeight = closeHeight end
     end
-    local header = self:SkinWindowHeader(frame, style.header,
+    local _, _, headerSurfaceID, headerTextID =
+        GetStandardWindowStructureIDs(definition)
+    local headerWindowStyle = self:GetAppearanceStyle(
+        "window", appearanceWindowID, headerSurfaceID)
+    local headerStyle = headerWindowStyle and headerWindowStyle.header
+        or style.header
+    local header = self:SkinWindowHeader(frame, headerStyle,
         definition.headerOwner, headerHeight,
         definition.headerAnchor)
 
@@ -798,9 +1323,8 @@ function NSkin:SkinStandardWindowChrome(definition)
         title = frame.TitleContainer and frame.TitleContainer.TitleText
     end
     if title then
-        self:SetFontStringColor(title, unpack(
-            self:GetResolvedAppearanceColor(style.header, "text")))
-        self:ApplyResolvedTypography(title, style.header)
+        ApplyStandardWindowHeaderText(
+            self, definition, headerTextID, title)
     end
 
     if closeButton and definition.skinCloseButton ~= false then
@@ -845,38 +1369,21 @@ function NSkin:SkinStandardWindowChrome(definition)
             buttonHeight = buttonHeight,
             borderSize = headerButtonStyle.borderSize,
             borderPadding = headerButtonStyle.borderPadding,
+            showBorder = headerButtonStyle.showBorder,
         })
-        -- Register on every chrome application so an existing runtime element
-        -- keeps the current direct chrome definition and refresh contract.
-        -- RegisterSkinningElement updates existing definitions in place.
-        self:RegisterSkinningElement(headerControlsID, {
-            label = definition.headerControlsLabel
-                or "Window header buttons",
-            kind = "BUTTON",
-            appearanceWindowID = appearanceWindowID,
-            editorOptions = self:CreateEditorOptionsPreset("BUTTON"),
-            appearanceStyles = { "button" },
-            appearanceTypeIDs = { "BUTTON" },
-            window = frame,
-            target = closeButton,
-            chromeDefinition = definition,
-            priority = 95,
-            draggable = false,
-            highlightRegions = function()
-                return NSkin:GetWindowHeaderControlRegions(
-                    frame, headerControlsID)
-            end,
-            isEditable = function()
-                return frame:IsVisible() and closeButton:IsVisible()
-            end,
-            refreshAppearance = function(_, element)
-                return NSkin:RefreshWindowHeaderControlsElement(element)
-            end,
-            refreshLayout = function(_, element)
-                return NSkin:RefreshWindowHeaderControlsElement(element)
-            end,
-        })
-        self:NotifySkinningElementBoundsChanged(headerControlsID)
+        -- Header controls are exposed as the BUTTON family of the shared
+        -- Header Composite. headerControlsID remains the family appearance ID.
+    end
+
+    chromeData.standardWindowHeaderVisuals = {
+        header = header,
+        editorRegion = chromeData.windowHeaderEditorRegion,
+        title = title,
+        closeButton = closeButton,
+    }
+    local bodyElement = self:GetSkinningElement(elementID)
+    if bodyElement and bodyElement.kind == "WINDOW" then
+        self:EnsureStandardWindowStructure(definition, bodyElement)
     end
 
     return {
@@ -962,6 +1469,7 @@ function NSkin:RefreshWindowHeaderControlsElement(element)
         buttonHeight = buttonHeight,
         borderSize = headerButtonStyle.borderSize,
         borderPadding = headerButtonStyle.borderPadding,
+        showBorder = headerButtonStyle.showBorder,
     })
 
     self:NotifySkinningElementBoundsChanged(element.id)

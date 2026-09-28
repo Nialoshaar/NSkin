@@ -173,11 +173,24 @@ windowAppearanceControls[#windowAppearanceControls + 1] = {
     type = "COLOR", key = "headerBackground", modeKey = "headerBackgroundMode",
     label = "Background", order = 21,
 }
+windowAppearanceControls[#windowAppearanceControls + 1] = {
+    type = "MIXED_PAIR", order = 30,
+    left = { type = "COLOR", key = "highlight",
+        modeKey = "highlightMode", label = "Highlight Color" },
+    right = { type = "SLIDER", key = "hoverAlpha",
+        label = "Highlight Opacity", min = 0, max = 1,
+        step = 0.05, decimals = 2 },
+}
 local windowResetPaths = {
+    showBackground = "window.showBackground",
+    showBorder = "window.showBorder",
+    showHighlight = "window.showHighlight",
     background = "window.background", backgroundOpacity = "window.background",
     backgroundMode = "window.backgroundMode", border = "window.border",
     borderMode = "window.borderMode", borderSize = "window.borderSize",
     borderPadding = "window.borderPadding",
+    highlight = "window.highlight", highlightMode = "window.highlightMode",
+    hoverAlpha = "window.hoverAlpha",
     headerBackground = "window.header.background",
     headerOpacity = "window.header.background",
     headerBackgroundMode = "window.header.backgroundMode",
@@ -192,10 +205,17 @@ NSkin:RegisterOptionGroup("shared.windowAppearance", {
     get = function(context)
         local style = NSkin:GetAppearanceStyle(
             "window", GetAppearanceWindowID(context), context.id)
-        local values = { background = CopyColor(style.background),
+        local values = {
+            showBackground = style.showBackground ~= false,
+            showBorder = style.showBorder ~= false,
+            showHighlight = style.showHighlight == true,
+            background = CopyColor(style.background),
             backgroundOpacity = style.background[4] or 1,
             border = CopyColor(style.border), borderMode = style.borderMode,
             borderSize = style.borderSize, borderPadding = style.borderPadding,
+            highlight = CopyColor(style.highlight, { 1, 1, 1, 1 }),
+            highlightMode = style.highlightMode or "CUSTOM",
+            hoverAlpha = tonumber(style.hoverAlpha) or 0.10,
             headerBackground = CopyColor(style.header.background),
             headerText = CopyColor(style.header.text),
             headerTextMode = style.header.textMode,
@@ -212,11 +232,17 @@ NSkin:RegisterOptionGroup("shared.windowAppearance", {
         local style = NSkin:GetAppearanceStyle(
             "window", GetAppearanceWindowID(context), context.id)
         local mapping = {
+            ["window.showBackground"] = values.showBackground,
+            ["window.showBorder"] = values.showBorder,
+            ["window.showHighlight"] = values.showHighlight,
             ["window.backgroundMode"] = values.backgroundMode,
             ["window.border"] = values.border,
             ["window.borderMode"] = values.borderMode,
             ["window.borderSize"] = values.borderSize,
             ["window.borderPadding"] = values.borderPadding,
+            ["window.highlight"] = values.highlight,
+            ["window.highlightMode"] = values.highlightMode,
+            ["window.hoverAlpha"] = values.hoverAlpha,
             ["window.header.backgroundMode"] = values.headerBackgroundMode,
             ["window.header.matchBackground"] = values.matchHeader,
             ["window.header.text"] = values.headerText,
@@ -241,9 +267,13 @@ NSkin:RegisterOptionGroup("shared.windowAppearance", {
         return changed == true
     end,
     reset = function(context)
-        return ResetElementPaths(context, { "window.background", "window.backgroundMode",
+        return ResetElementPaths(context, {
+            "window.showBackground", "window.showBorder",
+            "window.showHighlight",
+            "window.background", "window.backgroundMode",
             "window.border", "window.borderMode", "window.borderSize",
-            "window.borderPadding",
+            "window.borderPadding", "window.highlight",
+            "window.highlightMode", "window.hoverAlpha",
             "window.header.background", "window.header.backgroundMode",
             "window.header.matchBackground",
             "window.header.text", "window.header.textMode",
@@ -271,6 +301,78 @@ NSkin:RegisterOptionGroupSubset("shared.windowSurfaceAppearance", "shared.window
     { type = "COLOR_PAIR", order = 100,
         left = windowColors.left, right = windowColors.right },
 })
+local function RegisterWindowSurfaceGroup(id, controls, keys)
+    NSkin:RegisterOptionGroup(id, {
+        controls = controls,
+        inheritedReset = true,
+        inheritedResetLabel = "Reset to window defaults",
+        get = function(context)
+            return NSkin:GetOptionGroupDefinition(
+                "shared.windowAppearance").get(context)
+        end,
+        set = function(context, values)
+            local filtered = {}
+            for key in pairs(keys) do
+                if values[key] ~= nil then filtered[key] = values[key] end
+            end
+            return NSkin:GetOptionGroupDefinition(
+                "shared.windowAppearance").set(context, filtered)
+        end,
+        reset = function(context)
+            local paths = {}
+            for key in pairs(keys) do
+                local mapped = windowResetPaths[key]
+                if type(mapped) == "table" then
+                    for i = 1, #mapped do paths[#paths + 1] = mapped[i] end
+                elseif mapped then
+                    paths[#paths + 1] = mapped
+                end
+            end
+            return ResetElementPaths(context, paths)
+        end,
+    })
+end
+
+NSkin:RegisterOptionGroupSubset(
+    "shared.windowSpecificAppearance", "shared.windowAppearance", {
+        FindControl(windowAppearanceControls, "CHECKBOX", "matchHeader"),
+    })
+
+RegisterWindowSurfaceGroup("shared.windowSurfaceBackground", {
+    FindControl(windowAppearanceControls, "SLIDER", "backgroundOpacity"),
+    windowColors.right,
+}, {
+    showBackground = true,
+    background = true,
+    backgroundMode = true,
+    backgroundOpacity = true,
+})
+
+RegisterWindowSurfaceGroup("shared.windowSurfaceBorder", {
+    FindControl(windowAppearanceControls, "SLIDER_PAIR", nil, nil),
+    windowColors.left,
+}, {
+    showBorder = true,
+    border = true,
+    borderMode = true,
+    borderSize = true,
+    borderPadding = true,
+})
+
+RegisterWindowSurfaceGroup("shared.windowSurfaceHighlight", {
+    FindControl(windowAppearanceControls, "MIXED_PAIR", nil, nil),
+}, {
+    showHighlight = true,
+    highlight = true,
+    highlightMode = true,
+    hoverAlpha = true,
+})
+
+NSkin:RegisterOptionGroupSubset(
+    "shared.windowHeaderTextAppearance", "shared.windowAppearance", {
+        FindControl(windowAppearanceControls, "TYPOGRAPHY", nil, "Header"),
+    })
+
 NSkin:RegisterOptionGroupSubset("shared.windowHeaderAppearance", "shared.windowAppearance", {
     FindControl(windowAppearanceControls, "TYPOGRAPHY", nil, "Header"),
     FindControl(windowAppearanceControls, "SLIDER", "headerOpacity"),

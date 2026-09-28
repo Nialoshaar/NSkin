@@ -676,10 +676,12 @@ local function SetCompositeMemberNativeHoverSuppressed(
     for _, target in ipairs(
         NSkin:GetCompositionMemberTargets(element, member, false) or {})
     do
-        NSkin:SetFlatButtonGlowSuppressed(target, suppressed)
+        NSkin:SetFlatButtonGlowSuppressed(
+            target, suppressed, "skinningMode")
         local parent = target.GetParent and target:GetParent()
         if parent and parent ~= target then
-            NSkin:SetFlatButtonGlowSuppressed(parent, suppressed)
+            NSkin:SetFlatButtonGlowSuppressed(
+                parent, suppressed, "skinningMode")
         end
     end
 end
@@ -815,8 +817,10 @@ local function EnsureCompositeMemberSurface(element, member, surfaceKey)
     visual:EnableMouse(false)
     visual:SetFrameStrata("FULLSCREEN_DIALOG")
     local memberLevel = member.editorSurface and 0 or 2
+    local parentLevel = element.compositionParentID and 1000 or 0
     visual:SetFrameLevel(
-        220 + memberLevel + (tonumber(element.priority) or 0))
+        220 + parentLevel + memberLevel
+            + (tonumber(element.priority) or 0))
     visual.texture = visual:CreateTexture(nil, "BACKGROUND")
     visual.texture:SetAllPoints()
     visual.texture:SetColorTexture(unpack(TRANSPARENT))
@@ -856,7 +860,8 @@ local function EnsureCompositeMemberSurface(element, member, surfaceKey)
     input:SetFrameStrata("FULLSCREEN_DIALOG")
     local inputMemberLevel = member.editorSurface and 0 or 2
     input:SetFrameLevel(
-        221 + inputMemberLevel + (tonumber(element.priority) or 0))
+        221 + parentLevel + inputMemberLevel
+            + (tonumber(element.priority) or 0))
     if input.SetPropagateMouseMotion then
         input:SetPropagateMouseMotion(true)
     end
@@ -2233,6 +2238,59 @@ local function CreateOverlay(element)
         SetHovered(false)
     end)
 
+    local function ResolveCompositePointerMember(
+        candidate, cursorX, cursorY)
+        local composition = candidate and candidate.composition
+        if not composition or composition.mode ~= "COMPOSITE" then
+            return nil
+        end
+
+        local bestMember, bestTarget, bestPriority, bestArea
+        for _, member in ipairs(composition.members or {}) do
+            local targets = NSkin:GetCompositionMemberTargets(
+                candidate, member, false) or {}
+            local foundTarget
+            local foundArea
+            for _, target in ipairs(targets) do
+                local left, right, bottom, top =
+                    GetNormalizedRegionBounds(
+                        target, member.highlightPadding)
+                if left and cursorX >= left and cursorX <= right
+                    and cursorY >= bottom and cursorY <= top
+                then
+                    local area = math.max(0, right - left)
+                        * math.max(0, top - bottom)
+                    if not foundArea or area < foundArea then
+                        foundTarget, foundArea = target, area
+                    end
+                end
+            end
+
+            if not foundTarget and member.highlightMode ~= "REGIONS" then
+                local left, right, bottom, top =
+                    NSkin:GetCompositeMemberBounds(
+                        candidate, member, true)
+                if left and cursorX >= left and cursorX <= right
+                    and cursorY >= bottom and cursorY <= top
+                then
+                    foundArea = math.max(0, right - left)
+                        * math.max(0, top - bottom)
+                end
+            end
+
+            if foundArea then
+                local priority = member.editorSurface == true and 0 or 100
+                if not bestMember or priority > bestPriority
+                    or (priority == bestPriority and foundArea < bestArea)
+                then
+                    bestMember, bestTarget = member, foundTarget
+                    bestPriority, bestArea = priority, foundArea
+                end
+            end
+        end
+        return bestMember, bestTarget
+    end
+
     local function ResolvePointerElement()
         if not _G.GetCursorPosition then return element end
         local cursorX, cursorY = _G.GetCursorPosition()
@@ -2268,7 +2326,19 @@ local function CreateOverlay(element)
                 end
             end
         end
-        return best or element
+        return best or element, cursorX, cursorY
+    end
+
+    local function ResolvePointerSelection()
+        local pointerElement, cursorX, cursorY =
+            ResolvePointerElement()
+        local member, runtimeTarget
+        if pointerElement and cursorX and cursorY then
+            member, runtimeTarget = ResolveCompositePointerMember(
+                pointerElement, cursorX, cursorY)
+        end
+        return pointerElement or element,
+            member and member.id or nil, runtimeTarget
     end
 
     if element.highlightMode == "REGIONS" then
@@ -2336,9 +2406,15 @@ local function CreateOverlay(element)
                 if button ~= "LeftButton" then return end
                 if not RefreshInputEligibility(self) then return end
                 if not (_G.IsShiftKeyDown and _G.IsShiftKeyDown()) then return end
-                local pointerElement = ResolvePointerElement()
-                SelectElement(pointerElement)
-                if GetEditorElement(pointerElement) == pointerElement
+                local pointerElement, memberID, runtimeTarget =
+                    ResolvePointerSelection()
+                SelectElement(pointerElement, memberID, runtimeTarget)
+                local member = memberID
+                    and NSkin:GetCompositeMember(
+                        pointerElement, memberID)
+                if member then
+                    BeginCompositeMemberDrag(pointerElement, member)
+                elseif GetEditorElement(pointerElement) == pointerElement
                     and CanShiftDragElement(pointerElement)
                 then
                     BeginDrag(pointerElement)
@@ -2352,7 +2428,9 @@ local function CreateOverlay(element)
             input:SetScript("OnClick", function(self)
                 if controller.dragging then return end
                 if not RefreshInputEligibility(self) then return end
-                SelectElement(ResolvePointerElement())
+                local pointerElement, memberID, runtimeTarget =
+                    ResolvePointerSelection()
+                SelectElement(pointerElement, memberID, runtimeTarget)
             end)
 
             local surface = { visual = visual, input = input, index = index }
@@ -2396,9 +2474,14 @@ local function CreateOverlay(element)
         if button ~= "LeftButton" then return end
         if not RefreshInputEligibility(self) then return end
         if not (_G.IsShiftKeyDown and _G.IsShiftKeyDown()) then return end
-        local pointerElement = ResolvePointerElement()
-        SelectElement(pointerElement)
-        if GetEditorElement(pointerElement) == pointerElement
+        local pointerElement, memberID, runtimeTarget =
+            ResolvePointerSelection()
+        SelectElement(pointerElement, memberID, runtimeTarget)
+        local member = memberID
+            and NSkin:GetCompositeMember(pointerElement, memberID)
+        if member then
+            BeginCompositeMemberDrag(pointerElement, member)
+        elseif GetEditorElement(pointerElement) == pointerElement
             and CanShiftDragElement(pointerElement)
         then
             BeginDrag(pointerElement)
@@ -2412,7 +2495,9 @@ local function CreateOverlay(element)
     inputTarget:SetScript("OnClick", function(self)
         if controller.dragging then return end
         if not RefreshInputEligibility(self) then return end
-        SelectElement(ResolvePointerElement())
+        local pointerElement, memberID, runtimeTarget =
+            ResolvePointerSelection()
+        SelectElement(pointerElement, memberID, runtimeTarget)
     end)
 
     overlay:SetScript("OnShow", function(self)

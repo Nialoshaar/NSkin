@@ -2554,10 +2554,18 @@ end
 -- Buttons Skinning
 local EDITOR_PRESETS = {
     WINDOW = {
-        { id = "shared.windowSurfaceAppearance", label = "Window Surface",
-            presentation = "INLINE", category = "CUSTOMIZE" },
-        { id = "shared.windowHeaderAppearance", label = "Header",
+        { id = "shared.windowSpecificAppearance", label = "Window",
+            presentation = "INLINE", contextualInline = true,
             category = "CUSTOMIZE" },
+        { id = "shared.windowSurfaceBackground", label = "Background",
+            category = "CUSTOMIZE", contextualInline = false,
+            headerToggleKey = "showBackground" },
+        { id = "shared.windowSurfaceBorder", label = "Border",
+            category = "CUSTOMIZE", contextualInline = false,
+            headerToggleKey = "showBorder" },
+        { id = "shared.windowSurfaceHighlight", label = "Highlight",
+            category = "CUSTOMIZE", contextualInline = false,
+            headerToggleKey = "showHighlight" },
     },
     BUTTON = {
         { id = "shared.movable", label = "Position",
@@ -2795,7 +2803,8 @@ end
 
 local SHARED_TYPE_DEFINITIONS = {
     WINDOW = { style = "window", skin = "SkinWindow",
-        appearanceControls = "shared.windowAppearance" },
+        appearanceControls = "shared.windowAppearance",
+        surfaceCapability = true },
     WINDOW_HEADER = { style = "window.header", skin = "SkinWindowHeader",
         appearanceControls = "shared.windowHeaderAppearance", editorPreset = "WINDOW" },
     WINDOW_HEADER_CONTROLS = { style = "windowHeaderButton",
@@ -2860,6 +2869,15 @@ function NSkin:RegisterSkinningElement(elementID, definition)
 
     definition.window = definition.window or definition.owner
     definition.target = definition.target or definition.container or definition.owner
+    if definition.kind == "WINDOW" then
+        definition.surfaceAppearanceKey =
+            definition.surfaceAppearanceKey or "window"
+        definition.surfaceStyle = definition.surfaceStyle or "Window"
+        if type(self.PrepareStandardWindowStructureDefinition) == "function" then
+            self:PrepareStandardWindowStructureDefinition(
+                elementID, definition)
+        end
+    end
     if definition.kind == "WINDOW" and not definition.refreshAppearance
         and type(self.RefreshStandardWindowChromeElement) == "function"
     then

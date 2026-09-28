@@ -770,6 +770,21 @@ local function GetSurfaceAppearanceStyleName(context)
     return "row"
 end
 
+local function GetSurfaceAppearanceStyle(context)
+    local styleName = GetSurfaceAppearanceStyleName(context)
+    local rootStyle, nestedPath =
+        styleName:match("^([^.]+)%.(.+)$")
+    local style = NSkin:GetAppearanceStyle(
+        rootStyle or styleName, GetAppearanceWindowID(context), context.id)
+    if not nestedPath then return style, styleName end
+
+    for key in nestedPath:gmatch("[^.]+") do
+        style = type(style) == "table" and style[key] or nil
+        if not style then break end
+    end
+    return style, styleName
+end
+
 local function GetSurfaceAppearancePaths(context, keys)
     local styleName = GetSurfaceAppearanceStyleName(context)
     local paths = {}
@@ -782,9 +797,8 @@ local function GetSurfaceAppearancePaths(context, keys)
 end
 
 local function GetSurfaceAppearanceValues(context)
-    local styleName = GetSurfaceAppearanceStyleName(context)
-    local style = NSkin:GetAppearanceStyle(
-        styleName, GetAppearanceWindowID(context), context.id)
+    local style, styleName = GetSurfaceAppearanceStyle(context)
+    style = style or {}
     local target = context.target
     return {
         width = tonumber(style.width) and style.width > 0 and style.width

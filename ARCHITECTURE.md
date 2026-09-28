@@ -427,6 +427,10 @@ CONTAINER
 
 A Container is appropriate when the parent-child relationship is real and useful independently of movement.
 
+A standard Window Container is a canonical example: the WINDOW body and Header
+Composite are independent editor children that structurally belong to the same
+window.
+
 Container children retain:
 
 - their own canonical IDs
@@ -824,6 +828,42 @@ When NSkin changes geometry, capture the original Blizzard state before mutation
 # 20. Canonical Component Contracts
 
 Detailed component behavior belongs in the relevant canonical component implementation, but several project-wide invariants apply.
+
+## 20.0 WINDOW Container/Header contract
+
+A standard registered window is represented structurally as:
+
+```text
+Window Container
+├─ WINDOW body
+│  └─ Surface
+└─ Header Composite
+   ├─ Surface
+   ├─ TEXT
+   └─ BUTTON family (1..N controls)
+```
+
+The Window Container is structural only. It establishes ownership between the
+independently editable Window body and Header Composite and does not duplicate
+their appearance schemas.
+
+The WINDOW body exposes its presentation through Surface. Window background,
+border, and highlight remain Surface-owned. Window-specific relationship
+controls that are not Surface properties remain inline on the WINDOW body.
+
+The Header is one reusable Composite. Its Surface owns header presentation, its
+TEXT member owns title typography/color, and its BUTTON member is a family that
+may contain the close button plus any number of additional header controls.
+Header buttons remain canonical BUTTON targets; multiple controls do not create
+a nested buttons Composite.
+
+Existing window.header appearance remains the inheritance/default source during
+the migration. Header members receive stable child appearance identities while
+preserving the existing header-controls family appearance identity. Adapters may
+provide exceptional controls/anchors, but must not recreate the standard Window
+Container/Header Composite structure.
+
+This structure is inherited by windows using standard window chrome.
 
 ## 20.1 TEXT
 

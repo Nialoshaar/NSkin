@@ -49,11 +49,25 @@ function NSkin:CreateFlatButtonGlow(button, alpha, managed)
     return glow
 end
 
-function NSkin:SetFlatButtonGlowSuppressed(button, suppressed)
+function NSkin:SetFlatButtonGlowSuppressed(button, suppressed, reason)
     if not button then return false end
     local data = self:GetSkinData(button, COMPONENT_STATE, false)
     if not data or not data.hoverGlow then return false end
-    data.hoverGlowSuppressed = suppressed == true or nil
+
+    reason = type(reason) == "string" and reason ~= ""
+        and reason or "default"
+    data.hoverGlowSuppressions = data.hoverGlowSuppressions or {}
+    data.hoverGlowSuppressions[reason] = suppressed == true or nil
+
+    local effective
+    for _, value in pairs(data.hoverGlowSuppressions) do
+        if value == true then
+            effective = true
+            break
+        end
+    end
+    data.hoverGlowSuppressed = effective == true or nil
+
     if data.hoverGlowSuppressed then
         data.hoverGlow:Hide()
     elseif button.IsMouseOver and button:IsMouseOver()
@@ -145,7 +159,7 @@ function NSkin:ApplyButtonSurface(
             highlight[3] or 1,
             tonumber(style.hoverAlpha) or highlight[4] or 0.10)
         self:SetFlatButtonGlowSuppressed(
-            button, style.showHighlight == false)
+            button, style.showHighlight == false, "appearance")
     end
     return true
 end
@@ -948,7 +962,7 @@ function NSkin:SkinCheckButton(checkButton, options)
             tonumber(style.hoverAlpha) or highlightColor[4] or 0.10)
     end
     self:SetFlatButtonGlowSuppressed(
-        checkButton, style.showHighlight == false)
+        checkButton, style.showHighlight == false, "appearance")
 
     local checked = data.checkButtonCheckedTexture
     if not checked then
@@ -1204,7 +1218,7 @@ function NSkin:SkinDropdown(dropdown, options)
             highlight[3] or 1,
             tonumber(style.hoverAlpha) or highlight[4] or 0.10)
         self:SetFlatButtonGlowSuppressed(
-            dropdown, showHighlight ~= true)
+            dropdown, showHighlight ~= true, "appearance")
     end
     if dropdown.Background then dropdown.Background:SetAlpha(0) end
     if dropdown.Arrow then dropdown.Arrow:SetAlpha(0) end
