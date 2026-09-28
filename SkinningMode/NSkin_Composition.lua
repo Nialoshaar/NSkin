@@ -2567,11 +2567,14 @@ function NSkin:GetCompositeMemberEditorState(elementOrID, memberOrID)
     if not element or not member or #(member.states or {}) == 0 then
         return nil, nil
     end
+    if member._editorStateID == nil then
+        return nil, nil
+    end
     local stateID = member._editorStateID
     local definition = GetCompositeMemberStateDefinition(member, stateID)
     if not definition then
-        definition = member.states[1]
-        stateID = definition and definition.id
+        member._editorStateID = nil
+        return nil, nil
     end
     return stateID, definition
 end
@@ -2582,18 +2585,23 @@ function NSkin:SetCompositeMemberEditorState(
         or self:GetSkinningElement(elementOrID)
     local member = element and (type(memberOrID) == "table" and memberOrID
         or self:GetCompositeMember(element, memberOrID))
-    local definition = member
-        and GetCompositeMemberStateDefinition(member, stateID)
-    if not element or not member or not definition then return false end
+    local allStates = stateID == nil or stateID == "__ALL"
+    local definition = not allStates and member
+        and GetCompositeMemberStateDefinition(member, stateID) or nil
+    if not element or not member
+        or (not allStates and not definition)
+    then return false end
 
-    local stateChanged = member._editorStateID ~= stateID
+    local nextStateID = allStates and nil or stateID
+    local stateChanged = member._editorStateID ~= nextStateID
     local targetChanged = target ~= nil
         and member._editorStateTarget ~= target
-    member._editorStateID = stateID
+    member._editorStateID = nextStateID
     if target then member._editorStateTarget = target end
 
     local previewed
-    if preview == true and member.previewRuntimeState ~= false
+    if not allStates
+        and preview == true and member.previewRuntimeState ~= false
         and type(member.previewState) == "function"
         and member._editorStateTarget
     then

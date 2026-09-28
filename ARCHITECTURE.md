@@ -409,6 +409,39 @@ member X/Y
 
 Direct Shift-drag of attached members is not required. Member-local placement is initially controlled through the dock.
 
+## 7.5 Composite Style Tags
+
+A Composite may declare a style tag when multiple Composite instances are
+intended to share one global appearance family.
+
+The tag is appearance-family metadata. It is not:
+
+- an atomic component type
+- a Composite type
+- an editor identity
+- a movement owner
+- a replacement for stable Composite/member/target IDs
+
+Composites with the same tag are eligible for shared tag-level appearance and
+refresh behavior. Instance/member/exact-target customization remains separate
+and must keep its existing stable identities.
+
+Tags should distinguish global style families when two presentations need
+independent global defaults even if they serve the same semantic role. For
+example, tab collections may use presentation-specific families such as:
+
+```text
+Tabs.Text
+Tabs.Icon
+Tabs.Atlas
+Tabs.Texture
+```
+
+Changing a Composite's presentation family may therefore change its tag without
+changing the Composite ID, member IDs, or stable exact-target IDs. Layout choices
+such as horizontal versus vertical orientation remain normal Composite layout
+metadata unless they intentionally define a separate global style family.
+
 ---
 
 # 8. CONTAINER
@@ -1029,7 +1062,34 @@ Do not mechanically rename legacy grouping types into new component types.
 
 TAB and SIDE_TAB should not exist merely as grouping concepts.
 
-Text tabs and icon side tabs should reuse atomic button/icon-button behavior plus composition/orientation metadata where needed.
+A tab collection should normally be a REGULAR Composite built from canonical
+members and native Blizzard interaction targets. Orientation, spacing, and
+distribution belong to Composite layout metadata; selected/unselected visuals
+use normal component presentation states rather than a TAB-specific atomic
+identity.
+
+For the text-tab presentation, the target editor structure is:
+
+```text
+REGULAR COMPOSITE
+Tag = Tabs.Text
+├─ Surface
+│  └─ shared tab-button surfaces
+└─ TEXT family
+   └─ tab labels
+```
+
+When selected and unselected tabs have different visual treatment, the Surface
+and any affected content member may each expose the same semantic state pair
+through the normal component-state system. The Blizzard buttons remain the
+functional interaction targets; composition only defines how their presentation
+is edited.
+
+Alternative tab presentations reuse the same Composite identity and stable
+target identities while changing presentation/style family, for example
+`Tabs.Icon`, `Tabs.Atlas`, or `Tabs.Texture`. Presentation conversion must
+not replace the Composite or assign new canonical IDs merely because the visible
+content changes.
 
 A breadcrumb bar should normally be a Composite of canonical buttons. Introduce a specialized atomic button contract only if the breadcrumb button itself has genuinely reusable visual/state behavior that normal BUTTON cannot express.
 

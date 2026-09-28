@@ -7,6 +7,8 @@ local IDs = {
     Window = "GroupFinder.Window",
     HeaderControls = "GroupFinder.HeaderControls",
     BottomTabs = "GroupFinder.BottomTabs",
+    BottomTabsSurface = "GroupFinder.BottomTabs.Surface",
+    BottomTabsText = "GroupFinder.BottomTabs.Text",
     BottomTabDungeonsAndRaids =
         "GroupFinder.BottomTabs.DungeonsAndRaids",
     BottomTabPlayerVsPlayer =
@@ -126,7 +128,6 @@ local initialized = false
 local showHooked = false
 local applyPending = false
 local tabsRegistered = false
-local bottomTabsCompositionConfigured = false
 local navigationRegistered = false
 local navigationSelectionHooked = false
 local dungeonRowsRegistered = false
@@ -3702,79 +3703,576 @@ function PVESkin:ApplyFinderNavigation()
     return applied
 end
 
-function PVESkin:ApplyBottomTabs()
-    local frame = _G.PVEFrame
-    if not frame then return false end
-    local tabs = {
+local function GetBottomTabs(frame)
+    return {
         frame.tab1 or _G.PVEFrameTab1,
         frame.tab2 or _G.PVEFrameTab2,
         frame.tab3 or _G.PVEFrameTab3,
     }
-    for i = 1, #tabs do
-        if not tabs[i] then return false end
-    end
+end
 
-    local style = NSkin:GetAppearanceStyle("tab", IDs.Scope, IDs.BottomTabs)
-    local border = NSkin:GetAppearanceBorderColor(
-        "tab", style, IDs.Scope, IDs.BottomTabs)
-    local selected = _G.PanelTemplates_GetSelectedTab
-        and _G.PanelTemplates_GetSelectedTab(frame)
-    for i = 1, #tabs do
-        NSkin:SkinTab(tabs[i], i == selected, style, border)
-        HookRefresh(tabs[i])
-    end
-    if not tabsRegistered then
-        NSkin:RegisterTabGroup(IDs.BottomTabs, {
-            label = "Dungeons & Raids bottom tabs",
-            kind = "TAB_GROUP",
-            module = "GroupFinder",
-            appearanceWindowID = IDs.Scope,
-            window = frame,
-            tabs = tabs,
-            priority = 50,
-            orientation = "HORIZONTAL",
-            edge = "BOTTOM",
-        })
-        tabsRegistered = true
-    end
-    if tabsRegistered and not bottomTabsCompositionConfigured then
-        local element = NSkin:GetSkinningElement(IDs.BottomTabs)
-        if element then
-            bottomTabsCompositionConfigured = NSkin:SetElementComposition(
-                element, {
-                    mode = "COMPOSITE",
-                    type = "REGULAR",
-                    members = {
-                        {
-                            id = IDs.BottomTabDungeonsAndRaids,
-                            kind = "TAB",
-                            role = "PRIMARY",
-                            label = "Dungeons & Raids",
-                            target = tabs[1],
-                            appearanceID = IDs.BottomTabs,
-                        },
-                        {
-                            id = IDs.BottomTabPlayerVsPlayer,
-                            kind = "TAB",
-                            role = "SECONDARY",
-                            label = "Player vs. Player",
-                            target = tabs[2],
-                            appearanceID = IDs.BottomTabs,
-                        },
-                        {
-                            id = IDs.BottomTabMythicPlus,
-                            kind = "TAB",
-                            role = "SECONDARY",
-                            label = "Mythic+",
-                            target = tabs[3],
-                            appearanceID = IDs.BottomTabs,
-                        },
-                    },
-                }) ~= nil
+local function GetBottomTabText(tab)
+    if not tab then return nil end
+    local text = tab.Text or tab.text
+        or (tab.GetFontString and tab:GetFontString())
+    if text then return text end
+    local name = tab.GetName and tab:GetName()
+    return name and _G[name .. "Text"] or nil
+end
+
+local function GetBottomTabStableID(tabs, target)
+    local ids = {
+        IDs.BottomTabDungeonsAndRaids,
+        IDs.BottomTabPlayerVsPlayer,
+        IDs.BottomTabMythicPlus,
+    }
+    for index, tab in ipairs(tabs) do
+        if tab == target or GetBottomTabText(tab) == target then
+            return ids[index]
         end
     end
-    NSkin:ApplyTabGroupLayout(IDs.BottomTabs)
+end
+
+local function IsBottomTabSelected(frame, tabs, target)
+    local selected = _G.PanelTemplates_GetSelectedTab
+        and _G.PanelTemplates_GetSelectedTab(frame)
+    for index, tab in ipairs(tabs) do
+        if tab == target or GetBottomTabText(tab) == target then
+            return index == selected
+        end
+    end
+    return false
+end
+
+local function GetBottomTabStateID(frame, tabs, target)
+    return IsBottomTabSelected(frame, tabs, target)
+        and "Selected" or "Unselected"
+end
+
+local function GetBottomTabStateDefinition(member, stateID)
+    for _, definition in ipairs(member and member.states or {}) do
+        if definition.id == stateID then return definition end
+    end
+end
+
+local function CaptureBottomTabNativeVisualWidth(tab)
+    local data = NSkin:GetSkinData(
+        tab, "groupFinderBottomTabNativeGeometry")
+    if data.visualWidth then return data.visualWidth end
+
+    local left, right
+    if tab.GetRegions then
+        for _, region in ipairs({ tab:GetRegions() }) do
+            local shown = not region.IsShown or region:IsShown()
+            local alpha = region.GetAlpha and region:GetAlpha() or 1
+            local regionLeft = shown and alpha > 0
+                and region.GetLeft and region:GetLeft()
+            local regionRight = shown and alpha > 0
+                and region.GetRight and region:GetRight()
+            if regionLeft and regionRight then
+                left = left and math.min(left, regionLeft) or regionLeft
+                right = right and math.max(right, regionRight) or regionRight
+            end
+        end
+    end
+
+    local nativeWidth = tab.GetWidth and tab:GetWidth() or nil
+    local visualWidth = left and right and right - left or nil
+    data.visualWidth = math.max(
+        tonumber(nativeWidth) or 0,
+        tonumber(visualWidth) or 0)
+    if data.visualWidth <= 0 then data.visualWidth = nil end
+    return data.visualWidth
+end
+
+local function CaptureBottomTabTextDefaults(frame, tabs)
+    local data = NSkin:GetSkinData(
+        frame, "groupFinderBottomTabTextDefaults")
+    if data.captured then return data end
+
+    for _, tab in ipairs(tabs) do
+        local text = GetBottomTabText(tab)
+        local selected = IsBottomTabSelected(frame, tabs, tab)
+        if text and text.GetTextColor then
+            local color = { text:GetTextColor() }
+            if selected and not data.selectedColor then
+                data.selectedColor = color
+            elseif not selected and not data.unselectedColor then
+                data.unselectedColor = color
+            end
+        end
+        if text and not selected and not data.points
+            and text.GetNumPoints
+        then
+            data.points = {}
+            for index = 1, text:GetNumPoints() do
+                local point, relativeTo, relativePoint, x, y =
+                    text:GetPoint(index)
+                data.points[index] = {
+                    point = point,
+                    relativeToTab = relativeTo == tab
+                        or relativeTo == nil,
+                    relativeTo = relativeTo,
+                    relativePoint = relativePoint,
+                    x = x,
+                    y = y,
+                }
+            end
+        end
+    end
+
+    data.captured = data.selectedColor ~= nil
+        and data.unselectedColor ~= nil
+        and data.points ~= nil
+    return data
+end
+
+local function ApplyBottomTabTextGeometry(frame, tabs, tab)
+    local text = GetBottomTabText(tab)
+    if not text or not text.ClearAllPoints or not text.SetPoint then
+        return false
+    end
+    local defaults = CaptureBottomTabTextDefaults(frame, tabs)
+    local points = defaults and defaults.points
+    if type(points) ~= "table" or #points == 0 then return false end
+
+    text:ClearAllPoints()
+    for _, point in ipairs(points) do
+        text:SetPoint(
+            point.point,
+            point.relativeToTab and tab or point.relativeTo,
+            point.relativePoint,
+            tonumber(point.x) or 0,
+            tonumber(point.y) or 0)
+    end
     return true
+end
+
+local function HookBottomTabTextGeometry(frame, tabs, tab)
+    local data = NSkin:GetSkinData(
+        tab, "groupFinderBottomTabTextGeometryHook")
+    if data.hooked or not _G.hooksecurefunc then return end
+
+    local function RestoreGeometry()
+        ApplyBottomTabTextGeometry(
+            frame, GetBottomTabs(frame), tab)
+    end
+    for _, method in ipairs({
+        "SetTabSelected",
+        "SetTabUnselected",
+    }) do
+        if type(tab[method]) == "function" then
+            pcall(_G.hooksecurefunc, tab, method, RestoreGeometry)
+        end
+    end
+    data.hooked = true
+end
+
+local function CopyBottomTabSurfaceStyle(style, selected)
+    local resolved = {}
+    for key, value in pairs(style or {}) do resolved[key] = value end
+    if selected then
+        resolved.background = style.selectedBackground or style.background
+        resolved.backgroundMode =
+            style.selectedBackgroundMode or style.backgroundMode
+        resolved.backgroundOpacity =
+            tonumber(style.selectedBackgroundOpacity)
+            or tonumber(style.backgroundOpacity)
+            or (resolved.background and resolved.background[4])
+    end
+    return resolved
+end
+
+local function SkinBottomTabSurfaceTarget(
+    frame, tabs, element, member, tab)
+    if not element or not member or not tab then return false end
+
+    local stableID = GetBottomTabStableID(tabs, tab)
+    if not stableID then return false end
+    local stateID = GetBottomTabStateID(frame, tabs, tab)
+    local stateDefinition =
+        GetBottomTabStateDefinition(member, stateID)
+    local stateAppearanceID = stateDefinition
+        and stateDefinition.appearanceID
+        or (member.appearanceID or member.id)
+    local appearanceID =
+        stableID .. ".Surface.State." .. stateID
+    NSkin:RegisterAppearanceParentID(
+        appearanceID, stateAppearanceID, element.id)
+
+    local style = NSkin:GetAppearanceStyle(
+        "button", IDs.Scope, appearanceID)
+    if not style then return false end
+    local border = NSkin:GetAppearanceBorderColor(
+        "button", style, IDs.Scope, appearanceID)
+    local nativeVisualWidth = CaptureBottomTabNativeVisualWidth(tab)
+    local baselineID = stableID .. ":BottomTabSurface"
+    local baseline = NSkin:CaptureComponentBaseline(
+        baselineID, tab, { size = true })
+    if not baseline then return false end
+
+    local data = NSkin:GetSkinData(tab, "groupFinderBottomTabSurface")
+    if not data.initialized then
+        local text = GetBottomTabText(tab)
+        NSkin:SkinButton(tab, {
+            style = style,
+            border = border,
+            defaultContent = {
+                type = "TEXT",
+                text = tab.GetText and tab:GetText() or "",
+            },
+            textRegion = text,
+            preserveTextGeometry = true,
+        })
+        data.initialized = true
+    end
+
+    local surfaceStyle = CopyBottomTabSurfaceStyle(
+        style, IsBottomTabSelected(frame, tabs, tab))
+    NSkin:ApplyButtonSurface(
+        tab, surfaceStyle, nil, nil, border)
+
+    local width = tonumber(style.width)
+    local height = tonumber(style.height)
+    width = width and width > 0 and width
+        or nativeVisualWidth or baseline.width
+    height = height and height > 0 and height or baseline.height
+    if width and height and tab.SetSize then
+        local customized = (tonumber(style.width) or 0) > 0
+            or (tonumber(style.height) or 0) > 0
+        NSkin:MarkComponentGeometryModified(
+            baselineID, "size", customized)
+        tab:SetSize(width, height)
+    end
+    return true
+end
+
+local function RefreshBottomTabSurfaceMember(
+    frame, tabs, element, member, change)
+    local appearanceID = change and change.elementID
+    if appearanceID and appearanceID ~= member.appearanceID then
+        local target = NSkin:GetCompositeMemberTargetForAppearanceID(
+            element, member, appearanceID)
+        if target then
+            return SkinBottomTabSurfaceTarget(
+                frame, tabs, element, member, target)
+        end
+    end
+
+    local refreshed
+    for _, tab in ipairs(tabs) do
+        refreshed = SkinBottomTabSurfaceTarget(
+            frame, tabs, element, member, tab) or refreshed
+    end
+    return refreshed == true
+end
+
+local function SkinBottomTabButtonTarget(
+    frame, tabs, element, member, tab)
+    if not element or not member or not tab then return false end
+
+    local stableID = GetBottomTabStableID(tabs, tab)
+    if not stableID then return false end
+    local stateID = GetBottomTabStateID(frame, tabs, tab)
+    local stateDefinition =
+        GetBottomTabStateDefinition(member, stateID)
+    local stateAppearanceID = stateDefinition
+        and stateDefinition.appearanceID
+        or (member.appearanceID or member.id)
+    local appearanceID =
+        stableID .. ".Text.State." .. stateID
+    NSkin:RegisterAppearanceParentID(
+        appearanceID, stateAppearanceID, element.id)
+
+    local style = NSkin:GetAppearanceStyle(
+        "button", IDs.Scope, appearanceID)
+    if not style then return false end
+    local border = NSkin:GetAppearanceBorderColor(
+        "button", style, IDs.Scope, appearanceID)
+    local text = GetBottomTabText(tab)
+    local applied = NSkin:SkinButton(tab, {
+        style = style,
+        border = border,
+        defaultContent = {
+            type = "TEXT",
+            text = tab.GetText and tab:GetText() or "",
+        },
+        textRegion = text,
+        preserveTextGeometry = true,
+    })
+    ApplyBottomTabTextGeometry(frame, tabs, tab)
+    return applied ~= nil
+end
+
+local function RefreshBottomTabButtonMember(
+    frame, tabs, element, member, change)
+    local appearanceID = change and change.elementID
+    if appearanceID and appearanceID ~= member.appearanceID then
+        local target = NSkin:GetCompositeMemberTargetForAppearanceID(
+            element, member, appearanceID)
+        if target then
+            return SkinBottomTabButtonTarget(
+                frame, tabs, element, member, target)
+        end
+    end
+
+    local refreshed
+    for _, tab in ipairs(tabs) do
+        refreshed = SkinBottomTabButtonTarget(
+            frame, tabs, element, member, tab) or refreshed
+    end
+    return refreshed == true
+end
+
+local function RefreshBottomTabGroupSurfaceMember(
+    frame, tabs, element, member, change)
+    local surfaceApplied = RefreshBottomTabSurfaceMember(
+        frame, tabs, element, member, change)
+    local tabMember = element and NSkin:GetCompositeMember(
+        element, IDs.BottomTabsText)
+    local tabApplied = tabMember and RefreshBottomTabButtonMember(
+        frame, tabs, element, tabMember)
+    return surfaceApplied == true or tabApplied == true
+end
+
+function PVESkin:ApplyBottomTabs()
+    local frame = _G.PVEFrame
+    if not frame then return false end
+
+    local tabs = GetBottomTabs(frame)
+    for i = 1, #tabs do
+        if not tabs[i] or not GetBottomTabText(tabs[i]) then
+            return false
+        end
+    end
+
+    CaptureBottomTabTextDefaults(frame, tabs)
+    for _, tab in ipairs(tabs) do
+        ApplyBottomTabTextGeometry(frame, tabs, tab)
+        HookBottomTabTextGeometry(frame, tabs, tab)
+    end
+
+    if not tabsRegistered then
+        tabsRegistered = NSkin:RegisterSkinningElement(
+            IDs.BottomTabs, {
+                label = "Dungeons & Raids bottom tabs",
+                kind = "BUTTON",
+                module = "GroupFinder",
+                appearanceWindowID = IDs.Scope,
+                window = frame,
+                target = tabs[1],
+                priority = 50,
+                draggable = false,
+                composition = {
+                    mode = "COMPOSITE",
+                    type = "REGULAR",
+                    tag = "Tabs.Text",
+                    movementOwner = tabs[1],
+                    editorLabel = "Dungeons & Raids bottom tabs",
+                    members = {
+                        {
+                            id = IDs.BottomTabsSurface,
+                            kind = "BUTTON",
+                            role = "PRIMARY",
+                            label = "Surface",
+                            target = tabs[1],
+                            appearanceWindowID = IDs.Scope,
+                            appearanceID = IDs.BottomTabsSurface,
+                            appearanceParentID = IDs.BottomTabs,
+                            editorSurface = true,
+                            surfaceStyle = "Tabs.Text",
+                            surfaceAppearanceKey = "button",
+                            allowOverrides = true,
+                            editorOptions =
+                                NSkin:GetCompositeSurfaceEditorOptions(),
+                            states = {
+                                {
+                                    id = "Selected",
+                                    label = "Selected",
+                                    previewRuntimeState = false,
+                                },
+                                {
+                                    id = "Unselected",
+                                    label = "Unselected",
+                                    previewRuntimeState = false,
+                                },
+                            },
+                            getStateID = function(_, _, target)
+                                return GetBottomTabStateID(
+                                    frame, GetBottomTabs(frame), target)
+                            end,
+                            targets = function()
+                                return GetBottomTabs(frame)
+                            end,
+                            getTargetAppearanceID = function(
+                                _, _, target)
+                                local currentTabs = GetBottomTabs(frame)
+                                local stableID = GetBottomTabStableID(
+                                    currentTabs, target)
+                                local stateID = GetBottomTabStateID(
+                                    frame, currentTabs, target)
+                                return stableID
+                                    and (stableID
+                                        .. ".Surface.State." .. stateID)
+                            end,
+                            refreshAppearance = function(
+                                element, member, change)
+                                return RefreshBottomTabGroupSurfaceMember(
+                                    frame, GetBottomTabs(frame),
+                                    element, member, change)
+                            end,
+                            refreshStateAppearance = function(
+                                element, member)
+                                return RefreshBottomTabGroupSurfaceMember(
+                                    frame, GetBottomTabs(frame),
+                                    element, member)
+                            end,
+                        },
+                        {
+                            id = IDs.BottomTabsText,
+                            kind = "BUTTON",
+                            role = "SECONDARY",
+                            label = "Tab",
+                            editorLabel = "Tab",
+                            target = tabs[1],
+                            appearanceWindowID = IDs.Scope,
+                            appearanceID = IDs.BottomTabsText,
+                            appearanceParentID = IDs.BottomTabsSurface,
+                            highlightMode = "REGIONS",
+                            separateHighlightRegions = true,
+                            states = {
+                                {
+                                    id = "Selected",
+                                    label = "Selected",
+                                    selectedLabel = "Tab",
+                                    previewRuntimeState = false,
+                                },
+                                {
+                                    id = "Unselected",
+                                    label = "Unselected",
+                                    selectedLabel = "Tab",
+                                    previewRuntimeState = false,
+                                },
+                            },
+                            getStateID = function(_, _, target)
+                                return GetBottomTabStateID(
+                                    frame, GetBottomTabs(frame), target)
+                            end,
+                            targets = function()
+                                return GetBottomTabs(frame)
+                            end,
+                            getTargetAppearanceID = function(
+                                _, _, target)
+                                local currentTabs = GetBottomTabs(frame)
+                                local stableID = GetBottomTabStableID(
+                                    currentTabs, target)
+                                local stateID = GetBottomTabStateID(
+                                    frame, currentTabs, target)
+                                return stableID
+                                    and (stableID
+                                        .. ".Text.State." .. stateID)
+                            end,
+                            refreshSurfaceAppearance = function(
+                                element, member, change)
+                                return RefreshBottomTabButtonMember(
+                                    frame, GetBottomTabs(frame),
+                                    element, member, change)
+                            end,
+                            refreshComponentAppearance = function(
+                                element, member, change)
+                                return RefreshBottomTabButtonMember(
+                                    frame, GetBottomTabs(frame),
+                                    element, member, change)
+                            end,
+                            refreshAppearance = function(
+                                element, member, change)
+                                return RefreshBottomTabButtonMember(
+                                    frame, GetBottomTabs(frame),
+                                    element, member, change)
+                            end,
+                            refreshStateAppearance = function(
+                                element, member)
+                                return RefreshBottomTabButtonMember(
+                                    frame, GetBottomTabs(frame),
+                                    element, member)
+                            end,
+                        },
+                    },
+                },
+                highlightMode = "REGIONS",
+                highlightRegions = function()
+                    return GetBottomTabs(frame)
+                end,
+                pixelBorderTargets = function()
+                    return GetBottomTabs(frame)
+                end,
+                refreshAppearance = function()
+                    local currentTabs = GetBottomTabs(frame)
+                    local element =
+                        NSkin:GetSkinningElement(IDs.BottomTabs)
+                    local surfaceMember = element
+                        and NSkin:GetCompositeMember(
+                            element, IDs.BottomTabsSurface)
+                    local tabMember = element
+                        and NSkin:GetCompositeMember(
+                            element, IDs.BottomTabsText)
+                    local surfaceApplied = surfaceMember
+                        and RefreshBottomTabSurfaceMember(
+                            frame, currentTabs, element, surfaceMember)
+                    local tabApplied = tabMember
+                        and RefreshBottomTabButtonMember(
+                            frame, currentTabs, element, tabMember)
+                    return surfaceApplied == true
+                        and tabApplied == true
+                end,
+                refreshLayout = function(_, element)
+                    local refreshed = element.refreshAppearance(
+                        NSkin, element)
+                    NSkin:NotifySkinningElementBoundsChanged(
+                        IDs.BottomTabs)
+                    return refreshed == true
+                end,
+                isEditable = function()
+                    return frame:IsVisible()
+                        and tabs[1]:IsVisible()
+                end,
+            }) == true
+    end
+
+    local element = NSkin:GetSkinningElement(IDs.BottomTabs)
+    local surfaceMember = element and NSkin:GetCompositeMember(
+        element, IDs.BottomTabsSurface)
+    local tabMember = element and NSkin:GetCompositeMember(
+        element, IDs.BottomTabsText)
+    if surfaceMember and tabMember then
+        for _, stateID in ipairs({ "Selected", "Unselected" }) do
+            local surfaceState =
+                GetBottomTabStateDefinition(surfaceMember, stateID)
+            local tabState =
+                GetBottomTabStateDefinition(tabMember, stateID)
+            if surfaceState and tabState
+                and surfaceState.appearanceID and tabState.appearanceID
+            then
+                NSkin:RegisterAppearanceParentID(
+                    tabState.appearanceID,
+                    surfaceState.appearanceID,
+                    element.id)
+            end
+        end
+    end
+    local surfaceApplied = surfaceMember
+        and RefreshBottomTabSurfaceMember(
+            frame, tabs, element, surfaceMember)
+    local tabApplied = tabMember
+        and RefreshBottomTabButtonMember(
+            frame, tabs, element, tabMember)
+
+    for _, tab in ipairs(tabs) do HookRefresh(tab) end
+    if tabsRegistered then
+        NSkin:NotifySkinningElementBoundsChanged(IDs.BottomTabs)
+    end
+    return tabsRegistered and surfaceApplied == true
+        and tabApplied == true
 end
 
 function PVESkin:HookDungeonScrollBoxes()

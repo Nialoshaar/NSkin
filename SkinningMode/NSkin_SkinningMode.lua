@@ -1015,7 +1015,14 @@ RefreshCompositeMemberSurfaces = function(element)
                 element, member, focusedRuntimeTarget)
         local targetOverride = target
             and NSkin:HasCompositeMemberOverride(element, member, target)
-        local focused = focusedMember
+        local editorStateID = focusedMember and target
+            and NSkin:GetCompositeMemberEditorState(element, member)
+        local targetStateID = editorStateID and target
+            and NSkin:GetCompositeMemberRuntimeState(
+                element, member, target)
+        local stateMatches = not editorStateID
+            or targetStateID == editorStateID
+        local focused = focusedMember and stateMatches
             and ((focusedRuntimeOverride
                     and target == focusedRuntimeTarget)
                 or (not focusedRuntimeOverride and not targetOverride))

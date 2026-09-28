@@ -362,8 +362,15 @@ local function RefreshStateSelector(element, member)
 
     local selectedState = NSkin:GetCompositeMemberEditorState(
         element, member)
+    local definitions = {
+        { id = "__ALL", label = "All", allStates = true },
+    }
+    for _, definition in ipairs(states) do
+        definitions[#definitions + 1] = definition
+    end
+
     local x = 58
-    for index, definition in ipairs(states) do
+    for index, definition in ipairs(definitions) do
         local button = inspector.stateButtons[index]
         if not button then
             button = CreateButton(inspector, "", 70, function(self)
@@ -376,7 +383,12 @@ local function RefreshStateSelector(element, member)
                 NSkin:SetCompositeMemberEditorState(
                     currentElement, currentMember,
                     self.stateID, state.focusedCompositeRuntimeTarget, true)
-                RefreshInspector()
+                if not (NSkin.RefreshSkinningCompositeMemberEditor
+                    and NSkin:RefreshSkinningCompositeMemberEditor(
+                        currentElement, currentMember.id))
+                then
+                    RefreshInspector()
+                end
             end)
             inspector.stateButtons[index] = button
         end
@@ -388,18 +400,19 @@ local function RefreshStateSelector(element, member)
         button:SetPoint(
             "TOPLEFT", inspector, "TOPLEFT", x,
             state.memberTabsShown and -81 or -45)
-        button:SetAlpha(definition.id == selectedState and 1 or 0.55)
+        local selected = definition.allStates == true
+            and selectedState == nil
+            or definition.id == selectedState
+        button:SetAlpha(selected and 1 or 0.55)
         local fontString = button.GetFontString and button:GetFontString()
         if fontString then
             NSkin:SetFontStringColor(fontString,
-                definition.id == selectedState
-                    and NSkin:GetAccentColor() or { 1, 1, 1, 1 })
+                selected and NSkin:GetAccentColor()
+                    or { 1, 1, 1, 1 })
         end
         button:Show()
         x = x + button:GetWidth() + 4
     end
-    -- Selected text is refreshed after state switches so it reflects
-    -- Collapse button / Expand button immediately.
 end
 
 local function RefreshHeaderActions(element)
