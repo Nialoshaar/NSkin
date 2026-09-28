@@ -1,4 +1,4 @@
-## Interface: 120007, 120100
+## Interface: 120007, 120100, 16001
 ## Title: NSkin
 ## Notes: Lightweight, modular skins for the Blizzard interface.
 ## Author: Nialoshaar
