@@ -399,6 +399,164 @@ local function ApplySharedTextFormatting(fontString, options)
     RefreshSharedTextFormatting(fontString)
 end
 
+local TEXT_SURFACE_STATE = "sharedTextSurface"
+
+local function ResolveTextSurfaceColor(self, style, key, opacityKey, fallback)
+    local color = self:GetResolvedAppearanceColor(style, key)
+        or style[key] or fallback or { 0, 0, 0, 0 }
+    return {
+        color[1] or 0, color[2] or 0, color[3] or 0,
+        tonumber(style[opacityKey]) or color[4] or 1,
+    }
+end
+
+local function LayoutTextSurfaceRegion(region, fontString)
+    if not region or not fontString then return end
+    region:ClearAllPoints()
+
+    local allocatedWidth =
+        fontString.GetWidth and tonumber(fontString:GetWidth()) or 0
+    local stringWidth =
+        fontString.GetStringWidth and tonumber(fontString:GetStringWidth()) or 0
+    local height =
+        fontString.GetHeight and tonumber(fontString:GetHeight()) or 0
+    if allocatedWidth > 0 and stringWidth > 0
+        and stringWidth < allocatedWidth and height > 0
+    then
+        local justify = fontString.GetJustifyH
+            and string.upper(tostring(fontString:GetJustifyH() or "LEFT"))
+            or "LEFT"
+        region:SetSize(math.max(1, stringWidth), math.max(1, height))
+        if justify == "RIGHT" then
+            region:SetPoint("RIGHT", fontString, "RIGHT", 0, 0)
+        elseif justify == "CENTER" then
+            region:SetPoint("CENTER", fontString, "CENTER", 0, 0)
+        else
+            region:SetPoint("LEFT", fontString, "LEFT", 0, 0)
+        end
+    else
+        region:SetPoint("TOPLEFT", fontString, "TOPLEFT", 0, 0)
+        region:SetPoint("BOTTOMRIGHT", fontString, "BOTTOMRIGHT", 0, 0)
+    end
+end
+
+local function RefreshTextSurfaceHighlight(fontString)
+    local state = NSkin:GetSkinData(
+        fontString, TEXT_SURFACE_STATE, false)
+    if not state or not state.highlight then return end
+    local hovered = state.showHighlight == true
+        and fontString.IsMouseOver
+        and fontString:IsMouseOver()
+    state.highlight:SetShown(hovered == true)
+end
+
+local function ApplyTextSurface(self, fontString, style, reset)
+    local state = self:GetSkinData(
+        fontString, TEXT_SURFACE_STATE, reset ~= true)
+    if not state then return false end
+
+    if reset == true then
+        if state.background then state.background:Hide() end
+        if state.highlight then state.highlight:Hide() end
+        if state.border then self:SetPixelBorderShown(state.border, false) end
+        if state.watcher then state.watcher:Hide() end
+        state.active = nil
+        return true
+    end
+
+    local owner = fontString.GetParent and fontString:GetParent()
+    if not owner or not owner.CreateTexture then return false end
+    if state.owner ~= owner then
+        if state.background then state.background:Hide() end
+        if state.highlight then state.highlight:Hide() end
+        if state.border then self:SetPixelBorderShown(state.border, false) end
+        if state.watcher then state.watcher:Hide() end
+        state.background = nil
+        state.highlight = nil
+        state.border = nil
+        state.watcher = nil
+        state.owner = owner
+    end
+
+    if not state.background then
+        state.background =
+            owner:CreateTexture(nil, "BACKGROUND", nil, 7)
+        self:ConfigureOwnedPixelTexture(state.background)
+    end
+    LayoutTextSurfaceRegion(state.background, fontString)
+
+    local background = ResolveTextSurfaceColor(
+        self, style, "background", "backgroundOpacity")
+    self:SetOwnedTextureColor(state.background, unpack(background))
+    state.background:SetShown(style.showBackground == true)
+
+    local borderColor =
+        self:GetResolvedAppearanceColor(style, "border")
+        or style.border or self:GetSharedBorderColor()
+    local borderKey = state.borderKey
+        or ("NSkinTextSurface:" .. tostring(fontString))
+    state.borderKey = borderKey
+    state.border = state.border or self:CreatePixelBorder(
+        owner, borderKey, tonumber(style.borderSize) or 1,
+        borderColor, false, state.background)
+    if state.border then
+        self:SetPixelBorderColor(state.border, unpack(borderColor))
+        self:SetPixelBorderSize(
+            state.border, tonumber(style.borderSize) or 1)
+        self:SetPixelBorderPadding(
+            state.border, tonumber(style.borderPadding) or 0)
+        self:SetPixelBorderShown(
+            state.border,
+            style.showBorder == true
+                and (tonumber(style.borderSize) or 1) > 0)
+    end
+
+    if not state.highlight then
+        state.highlight =
+            owner:CreateTexture(nil, "ARTWORK", nil, 7)
+        self:ConfigureOwnedPixelTexture(state.highlight)
+    end
+    LayoutTextSurfaceRegion(state.highlight, fontString)
+    local highlight = self:GetResolvedAppearanceColor(style, "highlight")
+        or style.highlight or { 1, 1, 1, 1 }
+    self:SetOwnedTextureColor(
+        state.highlight,
+        highlight[1] or 1, highlight[2] or 1, highlight[3] or 1,
+        tonumber(style.hoverAlpha) or highlight[4] or 0.10)
+    state.showHighlight = style.showHighlight == true
+
+    if not state.watcher and _G.CreateFrame then
+        local watcher = _G.CreateFrame("Frame", nil, owner)
+        watcher:EnableMouse(false)
+        watcher:SetAllPoints(fontString)
+        if watcher.SetPropagateMouseMotion
+            and watcher.SetPropagateMouseClicks
+        then
+            watcher:EnableMouse(true)
+            watcher:SetPropagateMouseMotion(true)
+            watcher:SetPropagateMouseClicks(true)
+            watcher:SetScript("OnEnter", function()
+                RefreshTextSurfaceHighlight(fontString)
+            end)
+            watcher:SetScript("OnLeave", function()
+                RefreshTextSurfaceHighlight(fontString)
+            end)
+        end
+        state.watcher = watcher
+    elseif state.watcher then
+        state.watcher:ClearAllPoints()
+        state.watcher:SetAllPoints(state.background)
+        state.watcher:Show()
+    end
+    if state.watcher then
+        state.watcher:ClearAllPoints()
+        state.watcher:SetAllPoints(state.background)
+    end
+    state.active = true
+    RefreshTextSurfaceHighlight(fontString)
+    return true
+end
+
 function NSkin:SkinText(fontString, style, options)
     if not fontString or not fontString.GetFont then return false end
     options = options or {}
@@ -417,6 +575,7 @@ function NSkin:SkinText(fontString, style, options)
                 fontString:SetFont(unpack(typography.originalFont))
             end
         end
+        ApplyTextSurface(self, fontString, style or self:GetStyle("text"), true)
         return true
     end
     style = style or self:GetStyle("text")
@@ -464,6 +623,7 @@ function NSkin:SkinText(fontString, style, options)
     if not colored then return false end
     self:ApplyResolvedTypography(fontString, style)
     ApplySharedTextFormatting(fontString, options)
+    ApplyTextSurface(self, fontString, style, false)
     return true
 end
 
@@ -2380,9 +2540,20 @@ local EDITOR_PRESETS = {
     },
     BUTTON = {
         { id = "shared.movable", label = "Position",
-            presentation = "INLINE", category = "POSITION" },
+            presentation = "INLINE", contextualInline = true,
+            category = "POSITION" },
         { id = "shared.buttonAppearance", label = "Button",
-            presentation = "INLINE", category = "CUSTOMIZE" },
+            presentation = "INLINE", contextualInline = true,
+            category = "CUSTOMIZE" },
+        { id = "shared.surfaceBackground", label = "Background",
+            category = "CUSTOMIZE", contextualInline = false,
+            headerToggleKey = "showBackground" },
+        { id = "shared.surfaceBorder", label = "Border",
+            category = "CUSTOMIZE", contextualInline = false,
+            headerToggleKey = "showBorder" },
+        { id = "shared.surfaceHighlight", label = "Highlight",
+            category = "CUSTOMIZE", contextualInline = false,
+            headerToggleKey = "showHighlight" },
     },
     TAB_GROUP = {
         { id = "shared.movable", label = "Position",
@@ -2452,6 +2623,20 @@ local EDITOR_PRESETS = {
         { id = "shared.movable", label = "Position",
             presentation = "INLINE", category = "POSITION" },
     },
+    DROPDOWN = {
+        { id = "shared.movable", label = "Position",
+            presentation = "INLINE", contextualInline = true,
+            category = "POSITION" },
+        { id = "shared.surfaceBackground", label = "Background",
+            category = "CUSTOMIZE", contextualInline = false,
+            headerToggleKey = "showBackground" },
+        { id = "shared.surfaceBorder", label = "Border",
+            category = "CUSTOMIZE", contextualInline = false,
+            headerToggleKey = "showBorder" },
+        { id = "shared.surfaceHighlight", label = "Highlight",
+            category = "CUSTOMIZE", contextualInline = false,
+            headerToggleKey = "showHighlight" },
+    },
     CHECKBOX = {
         { id = "shared.movable", label = "Position",
             presentation = "INLINE", category = "POSITION" },
@@ -2495,8 +2680,21 @@ local EDITOR_PRESETS = {
             headerToggleKey = "showHighlight" },
     },
     TEXT = {
+        { id = "shared.movable", label = "Position",
+            presentation = "INLINE", contextualInline = true,
+            category = "POSITION" },
         { id = "shared.textAppearance", label = "Text",
-            presentation = "INLINE", category = "CUSTOMIZE" },
+            presentation = "INLINE", contextualInline = true,
+            category = "CUSTOMIZE" },
+        { id = "shared.surfaceBackground", label = "Background",
+            category = "CUSTOMIZE", contextualInline = false,
+            headerToggleKey = "showBackground" },
+        { id = "shared.surfaceBorder", label = "Border",
+            category = "CUSTOMIZE", contextualInline = false,
+            headerToggleKey = "showBorder" },
+        { id = "shared.surfaceHighlight", label = "Highlight",
+            category = "CUSTOMIZE", contextualInline = false,
+            headerToggleKey = "showHighlight" },
     },
 }
 
@@ -2588,10 +2786,11 @@ local SHARED_TYPE_DEFINITIONS = {
         appearanceControls = "shared.sideTabAppearance",
         editorPreset = "SIDE_TAB" },
     BUTTON = { style = "button", skin = "SkinButton",
-        editorPreset = "BUTTON" },
+        editorPreset = "BUTTON", surfaceCapability = true },
     CHECKBOX = { style = "button", skin = "SkinCheckButton",
         editorPreset = "CHECKBOX", surfaceCapability = true },
-    DROPDOWN = { style = "button", skin = "SkinDropdown", editorPreset = "MOVABLE" },
+    DROPDOWN = { style = "button", skin = "SkinDropdown",
+        editorPreset = "DROPDOWN", surfaceCapability = true },
     SLIDER = { style = "slider", skin = "SkinSlider", editorPreset = "SLIDER",
         preserveAnchorSpan = true },
     NAVIGATION_BAR = { style = "navigationBar", skin = "SkinNavigationBar",
@@ -2616,7 +2815,8 @@ local SHARED_TYPE_DEFINITIONS = {
         appearanceControls = "shared.columnHeaderAppearance",
         editorPreset = "COLUMN_HEADER" },
     TEXT = { style = "text", skin = "SkinText",
-        appearanceControls = "shared.textAppearance", editorPreset = "TEXT" },
+        appearanceControls = "shared.textAppearance", editorPreset = "TEXT",
+        surfaceCapability = true },
 }
 for typeID, definition in pairs(SHARED_TYPE_DEFINITIONS) do
     NSkin:RegisterSharedElementType(typeID, definition)

@@ -303,12 +303,12 @@ local function RefreshCompositeMemberTabs(element)
         local button = bar.buttons[index]
         if not button then
             button = CreateFrame("Button", nil, bar)
-            button.background =
-                button:CreateTexture(nil, "BACKGROUND")
-            button.background:SetAllPoints()
             button.label = button:CreateFontString(
                 nil, "OVERLAY", "GameFontNormal")
             button.label:SetPoint("CENTER")
+            -- SkinTab consumes the conventional Text field used by Blizzard
+            -- tab buttons. Keep label as the Docked Window's local handle.
+            button.Text = button.label
             button:SetScript("OnClick", function(self)
                 local current = state.selectedElement
                 if not current or not self.memberID then return end
@@ -326,17 +326,12 @@ local function RefreshCompositeMemberTabs(element)
                 and "Group"
                 or (GetDockMemberLabel(element, member)
                     or member.label or member.id))
-        button.label:SetTextColor(
-            selected and 1 or 0.55,
-            selected and 1 or 0.55,
-            selected and 1 or 0.55, 1)
-        button.background:SetColorTexture(
-            1, 1, 1, selected and 0.08 or 0)
         button:ClearAllPoints()
         button:SetPoint(
             "TOPLEFT", bar, "TOPLEFT",
             (index - 1) * buttonWidth, 0)
         button:SetSize(buttonWidth, 24)
+        NSkin:SkinTab(button, selected)
         button:Show()
     end
     for index = #members + 1, #(bar.buttons or {}) do

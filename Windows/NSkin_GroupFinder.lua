@@ -22,6 +22,8 @@ local IDs = {
         DungeonListContainer =
             "GroupFinder.DungeonFinder.DungeonList.Container",
         TypeSelector = "GroupFinder.DungeonFinder.TypeSelector",
+        TypeSelectorSurface =
+            "GroupFinder.DungeonFinder.TypeSelector.Surface",
         TypeLabel = "GroupFinder.DungeonFinder.TypeLabel",
         FollowerHeader = "GroupFinder.DungeonFinder.Follower.Header",
         FollowerTitle = "GroupFinder.DungeonFinder.Follower.Title",
@@ -911,46 +913,231 @@ function PVESkin:ApplyTypeDropdown()
     local dropdown = queueFrame and queueFrame.TypeDropdown
     if not frame or not dropdown then return false end
 
-    NSkin:RegisterDropdown({
-        id = IDs.TypeDropdown,
-        module = "GroupFinder",
-        appearanceWindowID = IDs.DungeonFinder.Scope,
-        label = "Dungeon Finder type dropdown",
-        window = frame,
-        target = dropdown,
-        menus = { "MENU_LFD_FRAME" },
-        priority = 80,
-        anchorGroupID = IDs.DungeonFinder.TypeSelector,
-        anchorGroupLabel = "Dungeon Finder type selector",
-        anchorGroupAppearanceSource = IDs.TypeDropdown,
-        highlightRegions = { dropdown },
-        isEditable = function()
-            return frame:IsVisible() and queueFrame:IsVisible()
-                and dropdown:IsVisible()
-        end,
-    })
     local typeLabel = _G.LFDQueueFrameTypeDropdownName or dropdown.Name
-    if typeLabel then
-        NSkin:RegisterTextElement({
-            id = IDs.DungeonFinder.TypeLabel,
-            module = "GroupFinder",
-            appearanceWindowID = IDs.DungeonFinder.Scope,
-            label = "Dungeon Finder type label",
-            window = frame,
-            target = typeLabel,
-            priority = 79,
-            anchorGroupID = IDs.DungeonFinder.TypeSelector,
-            anchorGroupLabel = "Dungeon Finder type selector",
-            anchorGroupAppearanceSource = IDs.TypeDropdown,
-            highlightRegions = { typeLabel },
-            isEditable = function()
-                return frame:IsVisible() and queueFrame:IsVisible()
-                    and typeLabel:IsVisible()
-            end,
+    if not typeLabel then return false end
+
+    local scopeID = IDs.DungeonFinder.Scope
+    local surfaceID = IDs.DungeonFinder.TypeSelectorSurface
+
+    local surfaceState = NSkin:GetSkinData(
+        queueFrame, "dungeonFinderTypeSelectorSurface")
+    local surface = surfaceState.frame
+    if not surface then
+        surface = CreateFrame("Button", nil, queueFrame)
+        surface:EnableMouse(false)
+        surfaceState.frame = surface
+    end
+
+    local function LayoutSurface()
+        surface:ClearAllPoints()
+        surface:SetPoint("TOPLEFT", typeLabel, "TOPLEFT", 0, 0)
+        surface:SetPoint("BOTTOMRIGHT", dropdown, "BOTTOMRIGHT", 0, 0)
+        if dropdown.GetFrameLevel and surface.SetFrameLevel then
+            surface:SetFrameLevel(
+                math.max(0, (dropdown:GetFrameLevel() or 1) - 1))
+        end
+        return true
+    end
+
+    local function ApplyTargetOffset(target, baselineID, x, y)
+        local baseline = NSkin:CaptureComponentBaseline(
+            baselineID, target, { points = true })
+        local points = baseline and baseline.points
+        if not points or not target.ClearAllPoints or not target.SetPoint then
+            return false
+        end
+        target:ClearAllPoints()
+        for _, point in ipairs(points) do
+            target:SetPoint(
+                point[1], point[2], point[3],
+                (point[4] or 0) + (tonumber(x) or 0),
+                (point[5] or 0) + (tonumber(y) or 0))
+        end
+        return true
+    end
+
+    local function ApplyCompositeOffsets(element)
+        if not element then return false end
+        local surfaceMember = NSkin:GetCompositeMember(element, surfaceID)
+        local textMember = NSkin:GetCompositeMember(
+            element, IDs.DungeonFinder.TypeLabel)
+        local dropdownMember = NSkin:GetCompositeMember(
+            element, IDs.TypeDropdown)
+        if not surfaceMember or not textMember or not dropdownMember then
+            return false
+        end
+
+        local groupX, groupY =
+            NSkin:GetCompositeMemberFamilyOffset(element, surfaceMember)
+        local textX, textY =
+            NSkin:GetCompositeMemberFamilyOffset(element, textMember)
+        local dropdownX, dropdownY =
+            NSkin:GetCompositeMemberFamilyOffset(element, dropdownMember)
+
+        local textApplied = ApplyTargetOffset(
+            typeLabel,
+            IDs.DungeonFinder.TypeLabel .. ":GroupBaseline",
+            (groupX or 0) + (textX or 0),
+            (groupY or 0) + (textY or 0))
+        local dropdownApplied = ApplyTargetOffset(
+            dropdown,
+            IDs.TypeDropdown .. ":GroupBaseline",
+            (groupX or 0) + (dropdownX or 0),
+            (groupY or 0) + (dropdownY or 0))
+        LayoutSurface()
+        return textApplied and dropdownApplied
+    end
+
+    local function SkinDropdownMember(appearanceID)
+        return NSkin:SkinTypedElement("DROPDOWN", {
+            id = appearanceID or IDs.TypeDropdown,
+            appearanceWindowID = scopeID,
+            target = dropdown,
+            menus = { "MENU_LFD_FRAME" },
         })
     end
+
+    local function SkinTextMember(appearanceID)
+        return NSkin:SkinTypedElement("TEXT", {
+            id = appearanceID or IDs.DungeonFinder.TypeLabel,
+            appearanceWindowID = scopeID,
+            target = typeLabel,
+            defaultColor = true,
+        })
+    end
+
+    local function SkinGroupSurface(appearanceID)
+        LayoutSurface()
+        local style = NSkin:GetAppearanceStyle(
+            "row", scopeID, appearanceID or surfaceID)
+        local border = NSkin:GetResolvedAppearanceColor(style, "border")
+            or style.border or NSkin:GetSharedBorderColor()
+        local background = NSkin:GetResolvedAppearanceColor(
+            style, "background") or style.background or { 0, 0, 0, 0 }
+        NSkin:CreateFlatBackground(surface, nil, background, border)
+        NSkin:CreateFlatButtonGlow(surface, style.hoverAlpha)
+        NSkin:ApplyButtonSurface(surface, style)
+        return true
+    end
+
+    SkinDropdownMember(IDs.TypeDropdown)
+    SkinTextMember(IDs.DungeonFinder.TypeLabel)
+    SkinGroupSurface(surfaceID)
+
+    local registered = NSkin:RegisterSkinningElement(
+        IDs.DungeonFinder.TypeSelector, {
+            module = "GroupFinder",
+            appearanceWindowID = scopeID,
+            label = "Dungeon Finder type selector",
+            kind = "COMPOSITE",
+            window = frame,
+            target = dropdown,
+            priority = 80,
+            draggable = false,
+            appearanceStyles = { "text", "button" },
+            appearanceTypeIDs = { "TEXT", "DROPDOWN" },
+            composition = {
+                mode = "COMPOSITE",
+                type = "REGULAR",
+                editorLabel = "Dungeon Finder type selector",
+                memberEditorLabels = {
+                    TEXT = "Text",
+                    DROPDOWN = "Dropdown",
+                },
+                members = {
+                    {
+                        id = surfaceID,
+                        kind = "BUTTON",
+                        role = "PRIMARY",
+                        label = "Dungeon Finder type selector",
+                        target = surface,
+                        appearanceWindowID = scopeID,
+                        appearanceID = surfaceID,
+                        appearanceParentID =
+                            IDs.DungeonFinder.TypeSelector,
+                        editorSurface = true,
+                        surfaceAppearanceKey = "row",
+                        allowOverrides = true,
+                        editorOptions =
+                            NSkin:GetCompositeSurfaceEditorOptions(),
+                        applyFamilyOffset = function(element)
+                            return ApplyCompositeOffsets(element)
+                        end,
+                        refreshAppearance = function(_, member, change)
+                            return SkinGroupSurface(
+                                change and change.elementID
+                                    or member.appearanceID)
+                        end,
+                    },
+                    {
+                        id = IDs.DungeonFinder.TypeLabel,
+                        kind = "TEXT",
+                        role = "PRIMARY",
+                        label = "Text",
+                        target = typeLabel,
+                        appearanceWindowID = scopeID,
+                        appearanceID = IDs.DungeonFinder.TypeLabel,
+                        appearanceParentID = IDs.DungeonFinder.TypeLabel,
+                        tightTextBounds = true,
+                        applyFamilyOffset = function(element)
+                            return ApplyCompositeOffsets(element)
+                        end,
+                        refreshAppearance = function(_, member, change)
+                            return SkinTextMember(
+                                change and change.elementID
+                                    or member.appearanceParentID)
+                        end,
+                    },
+                    {
+                        id = IDs.TypeDropdown,
+                        kind = "DROPDOWN",
+                        role = "SECONDARY",
+                        label = "Dropdown",
+                        target = dropdown,
+                        appearanceWindowID = scopeID,
+                        appearanceID = IDs.TypeDropdown,
+                        appearanceParentID = IDs.TypeDropdown,
+                        applyFamilyOffset = function(element)
+                            return ApplyCompositeOffsets(element)
+                        end,
+                        refreshAppearance = function(_, member, change)
+                            return SkinDropdownMember(
+                                change and change.elementID
+                                    or member.appearanceParentID)
+                        end,
+                    },
+                },
+            },
+            highlightRegions = { surface },
+            pixelBorderTargets = { surface, dropdown },
+            refreshAppearance = function()
+                local groupApplied = SkinGroupSurface(surfaceID)
+                local textApplied =
+                    SkinTextMember(IDs.DungeonFinder.TypeLabel)
+                local dropdownApplied =
+                    SkinDropdownMember(IDs.TypeDropdown)
+                return groupApplied and textApplied and dropdownApplied
+            end,
+            refreshLayout = function(_, element)
+                local positioned = ApplyCompositeOffsets(element)
+                local groupApplied = SkinGroupSurface(surfaceID)
+                local textApplied =
+                    SkinTextMember(IDs.DungeonFinder.TypeLabel)
+                local dropdownApplied =
+                    SkinDropdownMember(IDs.TypeDropdown)
+                NSkin:NotifySkinningElementBoundsChanged(
+                    IDs.DungeonFinder.TypeSelector)
+                return positioned and groupApplied
+                    and textApplied and dropdownApplied
+            end,
+            isEditable = function()
+                return frame:IsVisible() and queueFrame:IsVisible()
+                    and dropdown:IsVisible() and typeLabel:IsVisible()
+            end,
+        })
+
     HookRefresh(dropdown)
-    return true
+    return registered == true
 end
 
 function PVESkin:ApplyFindGroupButton()
@@ -960,7 +1147,7 @@ function PVESkin:ApplyFindGroupButton()
         or (queueFrame and queueFrame.FindGroupButton)
     if not frame or not queueFrame or not button then return false end
 
-    NSkin:RegisterActionButton({
+    NSkin:RegisterButton({
         id = IDs.FindGroupButton,
         module = "GroupFinder",
         appearanceWindowID = IDs.DungeonFinder.Scope,

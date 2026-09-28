@@ -263,6 +263,15 @@ local function ApplyOptionEnabledState(
             view, definition.right, values, context, enabled)
         return
     end
+    if definition.type == "ACTION_BUTTON" then
+        local button = type(definition.key) == "string"
+            and view.controlByKey[definition.key]
+        if button and button.SetEnabled then
+            button:SetEnabled(enabled)
+            button:SetAlpha(enabled and 1 or 0.45)
+        end
+        return
+    end
     SetOptionKeyEnabled(view, definition.key, enabled)
 end
 
@@ -1375,6 +1384,35 @@ local function CreateMixedPair(view, control, y)
     return COMPACT_GRID_HEIGHT - 1
 end
 
+local function CreateActionButton(view, control, y)
+    local button = CreateFrame("Button", nil, view)
+    button:SetSize(
+        view.presentation == "COMPACT"
+            and math.max(120, view:GetWidth() - 20)
+            or 180,
+        24)
+    button:SetPoint("TOP", view, "TOP", 0, y - 18)
+    NSkin:SkinFlatButton(
+        button, control.label or "Open", nil, nil, 12)
+    button:SetScript("OnClick", function()
+        if view.refreshing or not view.context
+            or type(control.onClick) ~= "function"
+        then
+            return
+        end
+        control.onClick(
+            view.context,
+            view.definition.get(view.context),
+            view)
+    end)
+    view.controls[#view.controls + 1] = button
+    if type(control.key) == "string" and control.key ~= "" then
+        view.controlByKey[control.key] = button
+    end
+    return view.presentation == "COMPACT"
+        and COMPACT_GRID_HEIGHT - 1 or 46
+end
+
 local function CreateReset(view, control, y)
     local button = CreateFrame("Button", nil, view)
     if view.presentation == "COMPACT" then
@@ -1805,6 +1843,8 @@ function NSkin:CreateOptionGroupView(parent, id, layout, context)
             height = CreateSliderDropdownPair(view, control, y)
         elseif control.type == "MIXED_PAIR" then
             height = CreateMixedPair(view, control, y)
+        elseif control.type == "ACTION_BUTTON" then
+            height = CreateActionButton(view, control, y)
         elseif control.type == "RESET" then
             height = CreateReset(view, control, y)
         end

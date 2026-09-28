@@ -25,6 +25,126 @@ RegisterColorAppearanceGroup("appearance.button", "button", {
     { type = "COLOR", key = "text", label = "Button text" },
     { type = "RESET", label = "Reset Buttons" },
 })
+local buttonCustomContentPopup
+
+local function CreateButtonCustomContentPopup()
+    if buttonCustomContentPopup then return buttonCustomContentPopup end
+
+    local frame = CreateFrame("Frame", nil, UIParent)
+    frame:SetSize(500, 250)
+    frame:SetFrameStrata("FULLSCREEN_DIALOG")
+    frame:SetFrameLevel(620)
+    frame:SetClampedToScreen(true)
+    frame:SetMovable(true)
+    frame:EnableMouse(true)
+    frame:RegisterForDrag("LeftButton")
+    frame:SetScript("OnDragStart", function(self)
+        self:StartMoving()
+    end)
+    frame:SetScript("OnDragStop", function(self)
+        self:StopMovingOrSizing()
+        self.userPositioned = true
+    end)
+
+    frame.title = frame:CreateFontString(
+        nil, "OVERLAY", "GameFontNormal")
+    frame.title:SetPoint("TOPLEFT", frame, "TOPLEFT", 12, -10)
+    frame.title:SetText("Custom content")
+
+    local definitions = {
+        { key = "contentText", label = "Custom text", maxLetters = 128 },
+        { key = "contentTexture", label = "Custom icon texture",
+            maxLetters = 512 },
+        { key = "contentAtlas", label = "Custom atlas", maxLetters = 256 },
+    }
+    frame.inputs = {}
+    local y = -42
+    for _, definition in ipairs(definitions) do
+        local label = frame:CreateFontString(
+            nil, "OVERLAY", "GameFontNormalSmall")
+        label:SetPoint("TOPLEFT", frame, "TOPLEFT", 14, y)
+        label:SetText(definition.label)
+
+        local editBox = CreateFrame("EditBox", nil, frame)
+        editBox:SetAutoFocus(false)
+        editBox:SetFontObject(GameFontHighlightSmall)
+        editBox:SetTextInsets(7, 7, 0, 0)
+        editBox:SetMaxLetters(definition.maxLetters)
+        editBox:SetSize(470, 24)
+        editBox:SetPoint("TOPLEFT", label, "BOTTOMLEFT", 0, -4)
+        editBox:SetScript("OnEscapePressed", function(self)
+            self:ClearFocus()
+        end)
+        editBox:SetScript("OnEnterPressed", function(self)
+            self:ClearFocus()
+        end)
+        editBox.contentKey = definition.key
+        frame.inputs[#frame.inputs + 1] = editBox
+        y = y - 54
+    end
+
+    frame.apply = CreateFrame("Button", nil, frame)
+    frame.apply:SetSize(100, 24)
+    frame.apply:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -118, 10)
+    frame.cancel = CreateFrame("Button", nil, frame)
+    frame.cancel:SetSize(100, 24)
+    frame.cancel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -12, 10)
+
+    frame.apply:SetScript("OnClick", function(self)
+        local popup = self:GetParent()
+        local view = popup.ownerView
+        if not view or not view.context then
+            popup:Hide()
+            return
+        end
+        local values = {}
+        for _, editBox in ipairs(popup.inputs) do
+            values[editBox.contentKey] = editBox:GetText() or ""
+            editBox:ClearFocus()
+        end
+        view:SetValues(values)
+        popup:Hide()
+    end)
+    frame.cancel:SetScript("OnClick", function(self)
+        local popup = self:GetParent()
+        for _, editBox in ipairs(popup.inputs) do
+            editBox:ClearFocus()
+        end
+        popup:Hide()
+    end)
+
+    NSkin:SkinPopupSurface(frame, {
+        title = frame.title,
+        actionButtons = { frame.apply, frame.cancel },
+        editBoxes = frame.inputs,
+        editBoxStyle = NSkin:GetStyle("editBox"),
+        buttonStyle = NSkin:GetStyle("button"),
+    })
+    NSkin:SkinFlatButton(frame.apply, "Apply", nil, nil, 12)
+    NSkin:SkinFlatButton(frame.cancel, "Cancel", nil, nil, 12)
+
+    frame:Hide()
+    buttonCustomContentPopup = frame
+    return frame
+end
+
+local function OpenButtonCustomContentPopup(_, values, view)
+    if not view then return end
+    local popup = CreateButtonCustomContentPopup()
+    popup.ownerView = view
+    values = values or {}
+    for _, editBox in ipairs(popup.inputs) do
+        editBox:SetText(values[editBox.contentKey] or "")
+        editBox:ClearFocus()
+    end
+    if not popup.userPositioned then
+        popup:ClearAllPoints()
+        popup:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+    end
+    popup:Show()
+    popup:Raise()
+end
+
 local buttonAppearanceControls = {
     {
         type = "SLIDER_PAIR", order = 1, centerReset = true,
@@ -38,33 +158,24 @@ local buttonAppearanceControls = {
             resetValue = 0 },
     },
     {
-        type = "COLOR_PAIR", order = 2,
-        left = { type = "COLOR", key = "border",
-            modeKey = "borderMode", label = "Border" },
-        right = { type = "COLOR", key = "background",
-            modeKey = "backgroundMode", label = "Background" },
-    },
-    CreateBorderGeometryControls(3),
-    {
-        type = "SLIDER", key = "hoverAlpha", label = "Highlight opacity",
-        min = 0, max = 1, step = 0.05, decimals = 2, order = 4,
-    },
-    {
-        type = "DROPDOWN", key = "contentMode", label = "Content",
-        order = 10, values = {
-            { value = "DEFAULT", label = "Blizzard Default" },
-            { value = "TEXT", label = "Text" },
-            { value = "GLYPH", label = "Glyph" },
-            { value = "ICON", label = "Icon" },
-            { value = "ATLAS", label = "Atlas" },
+        type = "MIXED_PAIR", order = 10,
+        left = {
+            type = "DROPDOWN", key = "contentMode", label = "Content",
+            values = {
+                { value = "DEFAULT", label = "Blizzard Default" },
+                { value = "TEXT", label = "Text" },
+                { value = "GLYPH", label = "Glyph" },
+                { value = "ICON", label = "Icon" },
+                { value = "ATLAS", label = "Atlas" },
+            },
+        },
+        right = {
+            type = "COLOR", key = "text", modeKey = "textMode",
+            label = "Content color",
         },
     },
     {
-        type = "COLOR", key = "text", modeKey = "textMode",
-        label = "Content color", order = 11,
-    },
-    {
-        type = "MIXED_PAIR", order = 12,
+        type = "MIXED_PAIR", order = 11,
         left = { type = "SLIDER", key = "contentSize",
             label = "Content size", min = 0, max = 64,
             step = 1, decimals = 0, suffix = " px" },
@@ -77,7 +188,7 @@ local buttonAppearanceControls = {
             } },
     },
     {
-        type = "SLIDER_PAIR", order = 13, centerReset = true,
+        type = "SLIDER_PAIR", order = 12, centerReset = true,
         resetSubset = true,
         resetTooltip = "Reset content offsets",
         left = { key = "contentOffsetX", label = "Content X",
@@ -87,24 +198,19 @@ local buttonAppearanceControls = {
             min = -40, max = 40, step = 1, decimals = 0,
             suffix = " px", resetValue = 0 },
     },
-    { type = "TEXT_INPUT", key = "contentText",
-        label = "Custom text", order = 14, maxLetters = 128 },
-    { type = "TEXT_INPUT", key = "contentTexture",
-        label = "Custom icon texture", order = 15, maxLetters = 512 },
-    { type = "TEXT_INPUT", key = "contentAtlas",
-        label = "Custom atlas", order = 16, maxLetters = 256 },
+    {
+        type = "ACTION_BUTTON",
+        key = "customContentAction",
+        label = "Custom content",
+        order = 13,
+        override = false,
+        onClick = OpenButtonCustomContentPopup,
+    },
 }
 
 local buttonResetPaths = {
     width = "button.width",
     height = "button.height",
-    border = "button.border",
-    borderMode = "button.borderMode",
-    borderSize = "button.borderSize",
-    borderPadding = "button.borderPadding",
-    background = "button.background",
-    backgroundMode = "button.backgroundMode",
-    hoverAlpha = "button.hoverAlpha",
     text = "button.text",
     textMode = "button.textMode",
     contentMode = "button.contentMode",
@@ -128,13 +234,6 @@ NSkin:RegisterOptionGroup("shared.buttonAppearance", {
                 or (target and target.GetWidth and target:GetWidth()) or 24,
             height = tonumber(style.height) and style.height > 0 and style.height
                 or (target and target.GetHeight and target:GetHeight()) or 24,
-            border = CopyColor(style.border),
-            borderMode = style.borderMode or "CUSTOM",
-            borderSize = tonumber(style.borderSize) or 1,
-            borderPadding = tonumber(style.borderPadding) or 0,
-            background = CopyColor(style.background),
-            backgroundMode = style.backgroundMode or "CUSTOM",
-            hoverAlpha = tonumber(style.hoverAlpha) or 0.10,
             text = CopyColor(style.text),
             textMode = style.textMode or "CUSTOM",
             contentMode = style.contentMode or "DEFAULT",

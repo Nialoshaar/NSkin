@@ -65,6 +65,112 @@ function NSkin:SetFlatButtonGlowSuppressed(button, suppressed)
     return true
 end
 
+local function ResolveButtonSurfaceColor(self, style, key, opacityKey, fallback)
+    local color = self:GetResolvedAppearanceColor(style, key)
+        or style[key] or fallback or { 0, 0, 0, 0 }
+    return {
+        color[1] or 0, color[2] or 0, color[3] or 0,
+        tonumber(style[opacityKey]) or color[4] or 1,
+    }
+end
+
+local function IsButtonSurfaceSelected(button)
+    if button.GetChecked and button:GetChecked() == true then return true end
+    if button.GetButtonState then
+        return button:GetButtonState() == "PUSHED"
+    end
+    return false
+end
+
+function NSkin:ApplyButtonSurface(
+    button, style, backgroundKey, backgroundOverride, borderOverride)
+    if not button or not style then return false end
+
+    local data = self:GetSkinData(button, COMPONENT_STATE)
+    data.buttonSurfaces = data.buttonSurfaces or {}
+    local stateKey = backgroundKey or "NSkinFlatBackground"
+    local state = data.buttonSurfaces[stateKey] or {}
+    data.buttonSurfaces[stateKey] = state
+    state.style = style
+    state.backgroundKey = backgroundKey
+    state.backgroundOverride = backgroundOverride
+    state.borderOverride = borderOverride
+
+    local background = self:GetFlatBackground(button, backgroundKey)
+    local border = self:GetPixelBorder(
+        button, (backgroundKey or "NSkinFlatBackground") .. "Border")
+    if not background then return false end
+
+    local selected = IsButtonSurfaceSelected(button)
+    local backgroundColor
+    if selected and style.selectedBackground then
+        backgroundColor = ResolveButtonSurfaceColor(
+            self, style, "selectedBackground",
+            "selectedBackgroundOpacity", backgroundOverride)
+    elseif backgroundOverride then
+        backgroundColor = {
+            backgroundOverride[1] or 0,
+            backgroundOverride[2] or 0,
+            backgroundOverride[3] or 0,
+            tonumber(style.backgroundOpacity)
+                or backgroundOverride[4] or 1,
+        }
+    else
+        backgroundColor = ResolveButtonSurfaceColor(
+            self, style, "background", "backgroundOpacity")
+    end
+    self:SetOwnedTextureColor(background, unpack(backgroundColor))
+    background:SetShown(style.showBackground ~= false)
+
+    if border then
+        local borderColor = borderOverride
+            or self:GetResolvedAppearanceColor(style, "border")
+            or style.border
+            or self:GetSharedBorderColor()
+        self:SetPixelBorderColor(border, unpack(borderColor))
+        self:SetPixelBorderSize(border, tonumber(style.borderSize) or 1)
+        self:SetPixelBorderPadding(
+            border, tonumber(style.borderPadding) or 0)
+        self:SetPixelBorderShown(
+            border, style.showBorder ~= false
+                and (tonumber(style.borderSize) or 1) > 0)
+    end
+
+    local glow = data.hoverGlow
+    if glow then
+        local highlight = self:GetResolvedAppearanceColor(style, "highlight")
+            or style.highlight or { 1, 1, 1, 1 }
+        self:SetOwnedTextureColor(
+            glow, highlight[1] or 1, highlight[2] or 1,
+            highlight[3] or 1,
+            tonumber(style.hoverAlpha) or highlight[4] or 0.10)
+        self:SetFlatButtonGlowSuppressed(
+            button, style.showHighlight == false)
+    end
+    return true
+end
+
+local function RefreshButtonSurfaces(button)
+    local data = NSkin:GetSkinData(button, COMPONENT_STATE, false)
+    for _, state in pairs(data and data.buttonSurfaces or {}) do
+        NSkin:ApplyButtonSurface(
+            button, state.style, state.backgroundKey,
+            state.backgroundOverride, state.borderOverride)
+    end
+end
+
+local function EnsureButtonSurfaceHooks(button)
+    local data = NSkin:GetSkinData(button, COMPONENT_STATE)
+    if data.buttonSurfaceHooksInstalled or not button.HookScript then return end
+    for _, script in ipairs({
+        "OnMouseDown", "OnMouseUp", "OnClick", "OnShow",
+        "OnEnable", "OnDisable",
+    }) do
+        button:HookScript(script, RefreshButtonSurfaces)
+    end
+    data.buttonSurfaceHooksInstalled = true
+end
+
 
 local CENTERED_BUTTON_GLYPHS = {
     close = {
@@ -360,6 +466,9 @@ function NSkin:SkinFlatButton(button, label, backgroundColor, borderColor,
 
     self:CreateFlatBackground(button, nil, backgroundColor, borderColor)
     self:CreateFlatButtonGlow(button, style.hoverAlpha)
+    EnsureButtonSurfaceHooks(button)
+    self:ApplyButtonSurface(
+        button, style, nil, backgroundColor, borderColor)
     local data = self:GetSkinData(button, COMPONENT_STATE)
     local text = preserveLabelGeometry and data.label
         or self:SetFlatButtonLabel(button, label, labelSize, labelOffsetX, labelOffsetY)
@@ -1040,29 +1149,63 @@ function NSkin:SkinDropdown(dropdown, options)
     local style = options.style
         or (options.background and options.text and options)
         or self:GetStyle("button")
-    local showBackground = options.showBackground ~= false
-    local showBorder = options.showBorder ~= false
-    local background = self:GetFlatBackground(dropdown)
+
+    local showBackground = options.showBackground
+    if showBackground == nil then
+        showBackground = style.showBackground ~= false
+    end
+    local showBorder = options.showBorder
+    if showBorder == nil then
+        showBorder = style.showBorder ~= false
+    end
+    local showHighlight = options.showHighlight
+    if showHighlight == nil then
+        showHighlight = style.showHighlight ~= false
+    end
+
+    local sourceBackground = options.background
+        or self:GetResolvedAppearanceColor(style, "background")
+        or style.background or { 0, 0, 0, 0 }
+    local backgroundColor = {
+        sourceBackground[1] or 0,
+        sourceBackground[2] or 0,
+        sourceBackground[3] or 0,
+        tonumber(style.backgroundOpacity)
+            or sourceBackground[4] or 1,
+    }
     local borderColor = options.border
+        or self:GetResolvedAppearanceColor(style, "border")
         or self:GetComponentBorderColor("button", style)
-    if showBackground then
-        background = self:CreateFlatBackground(dropdown, nil,
-            options.background or style.background, borderColor)
-        if background then background:Show() end
-    elseif background then
-        background:Hide()
-    end
-    local border = self:GetPixelBorder(dropdown, "NSkinFlatBackgroundBorder")
-    if showBorder and not border then
-        border = self:CreatePixelBorder(dropdown,
-            "NSkinFlatBackgroundBorder", 1, borderColor)
-    end
+
+    local background = self:CreateFlatBackground(
+        dropdown, nil, backgroundColor, borderColor)
+    if background then background:SetShown(showBackground) end
+
+    local border = self:GetPixelBorder(
+        dropdown, "NSkinFlatBackgroundBorder")
     if border then
         self:SetPixelBorderColor(border, unpack(borderColor))
-        self:SetPixelBorderSize(border, 1)
-        self:SetPixelBorderShown(border, showBorder)
+        self:SetPixelBorderSize(
+            border, tonumber(style.borderSize) or 1)
+        self:SetPixelBorderPadding(
+            border, tonumber(style.borderPadding) or 0)
+        self:SetPixelBorderShown(
+            border, showBorder and (tonumber(style.borderSize) or 1) > 0)
     end
-    self:CreateFlatButtonGlow(dropdown, style.hoverAlpha)
+
+    local glow = self:CreateFlatButtonGlow(
+        dropdown, tonumber(style.hoverAlpha) or 0.10)
+    if glow then
+        local highlight =
+            self:GetResolvedAppearanceColor(style, "highlight")
+            or style.highlight or { 1, 1, 1, 1 }
+        self:SetOwnedTextureColor(
+            glow, highlight[1] or 1, highlight[2] or 1,
+            highlight[3] or 1,
+            tonumber(style.hoverAlpha) or highlight[4] or 0.10)
+        self:SetFlatButtonGlowSuppressed(
+            dropdown, showHighlight ~= true)
+    end
     if dropdown.Background then dropdown.Background:SetAlpha(0) end
     if dropdown.Arrow then dropdown.Arrow:SetAlpha(0) end
     if dropdown.NineSlice then dropdown.NineSlice:Hide() end

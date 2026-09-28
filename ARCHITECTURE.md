@@ -178,6 +178,27 @@ ICON
 CHECKBOX
 ├─ Surface: Background / Border / Highlight
 └─ Checkbox-specific: Shape / Size / Checkmark
+
+BUTTON
+├─ Surface: Background / Border / Highlight
+└─ Button-specific: Size / Content / Content placement
+
+DROPDOWN
+├─ Surface: Background / Border / Highlight
+└─ Dropdown-specific: none currently
+
+TEXT
+├─ Surface: Background / Border / Highlight
+└─ Text-specific: typography / color
+
+A TEXT Surface follows the rendered glyph bounds rather than the FontString's
+full allocated layout width. Right/center/left justification is preserved when
+computing that compact Surface.
+
+A Composite group Surface is an explicit member when the semantic group needs
+its own visual Surface or movement contract. Its Position may be stacked with
+member-local Position offsets; moving the group must not erase Text/Dropdown
+member offsets, and moving a member must not erase the group offset.
 ```
 
 For CHECKBOX, the existing checkbox background and border are the Surface
@@ -187,7 +208,16 @@ a state overlay on that same Surface, so checking a box does not replace or
 erase its configured base background. For ICON, the existing icon border
 becomes Surface-owned while texture presentation remains ICON-owned.
 Component-specific geometry such as icon shape may constrain how a Surface is
-rendered without moving that property into the Surface schema.
+rendered without moving that property into the Surface schema. For BUTTON,
+width/height and content presentation remain Button-specific inline controls;
+background, border, selected background, and hover highlight are owned only by
+the shared Surface capability. DROPDOWN currently exposes only Position inline;
+its visual background, border, and highlight are Surface-owned. TEXT exposes
+Position and typography/color inline, while optional background, border, and
+highlight are Surface-owned and remain disabled by default. Content mode and content color share one compact
+row. Free-form custom text, texture path, and atlas name are intentionally kept
+out of the Docked Window: a single `Custom content` action opens a transient
+popup containing the three EDIT_BOX-skinned text fields.
 
 A new option added to a canonical component should normally become available everywhere that component is used without modifying individual window adapters.
 
@@ -564,8 +594,10 @@ icons produce one `Icon` tab. Same-kind members with different appearance
 parents remain separate editor tabs because they are distinct appearance
 families. Switching tabs changes editor focus only; it must not create a second
 appearance identity or require clicking the underlying Blizzard control again.
-The selected tab uses explicit selected-state presentation while inactive tabs
-remain visually neutral.
+The Docked Window member selector uses the canonical `TAB` skin rather than
+a private presentation, so its background, selected background, border,
+typography, and hover behavior stay visually consistent with regular NSkin
+tabs. Selection still controls editor focus only.
 
 Conceptually:
 

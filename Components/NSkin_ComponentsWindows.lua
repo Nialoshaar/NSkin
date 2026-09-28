@@ -291,8 +291,10 @@ function NSkin:SkinGlyphButton(button, options)
             tonumber(options.borderSize) or tonumber(style.borderSize) or 1)
         self:SetPixelBorderPadding(border,
             tonumber(options.borderPadding) or tonumber(style.borderPadding) or 0)
-        self:SetPixelBorderShown(border, true)
     end
+    self:ApplyButtonSurface(
+        button, style, backgroundKey,
+        options.background, options.border)
 
     local data = self:GetSkinData(button, COMPONENT_STATE)
     local state = data.glyphButton or {}
