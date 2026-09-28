@@ -694,7 +694,8 @@ local function GetAppearanceParentValue(scope, id, windowID, path)
     return style and GetPath(style, relativePath, false), styleName, relativePath
 end
 
-local function SetAppearanceOverride(scope, id, windowID, path, value)
+local function SetAppearanceOverride(
+    scope, id, windowID, path, value, compositeMemberID)
     if (scope ~= "windows" and scope ~= "elements")
         or type(id) ~= "string" or id == ""
         or type(path) ~= "string" or path == ""
@@ -741,6 +742,7 @@ local function SetAppearanceOverride(scope, id, windowID, path, value)
         elementID = scope == "elements" and id or nil,
         windowID = windowID or (scope == "windows" and id or nil),
         style = styleName, path = relativePath,
+        compositeMemberID = scope == "elements" and compositeMemberID or nil,
         origin = scope == "elements" and liveInspectorElementID == id
             and "activeInspectorLive" or nil,
     })
@@ -758,7 +760,8 @@ local function CollectResetChanges(changes, styleName, value, prefix)
     end
 end
 
-local function ResetAppearanceOverride(scope, id, path)
+local function ResetAppearanceOverride(
+    scope, id, path, compositeMemberID)
     if type(id) ~= "string" or id == "" then return false end
     local profile = NSkin:GetProfile()
     local scopes = profile.appearanceOverrides
@@ -801,6 +804,8 @@ local function ResetAppearanceOverride(scope, id, path)
         windowID = element and element.appearanceWindowID
             or (scope == "windows" and id or nil),
         changes = changes,
+        compositeMemberID =
+            scope == "elements" and compositeMemberID or nil,
     }
     if #changes == 1 then
         change.style = changes[1].style
@@ -820,17 +825,23 @@ function NSkin:ResetWindowAppearanceOverride(windowID, path)
     return ResetAppearanceOverride("windows", windowID, path)
 end
 
-function NSkin:SetElementAppearanceOverride(elementID, windowID, path, value)
+function NSkin:SetElementAppearanceOverride(
+    elementID, windowID, path, value, compositeMemberID)
     if not appearanceScopes[windowID] then return false end
-    return SetAppearanceOverride("elements", elementID, windowID, path, value)
+    return SetAppearanceOverride(
+        "elements", elementID, windowID, path, value, compositeMemberID)
 end
 
-function NSkin:ResetElementAppearanceOverride(elementID, path)
-    return ResetAppearanceOverride("elements", elementID, path)
+function NSkin:ResetElementAppearanceOverride(
+    elementID, path, compositeMemberID)
+    return ResetAppearanceOverride(
+        "elements", elementID, path, compositeMemberID)
 end
 
-function NSkin:ResetElementAppearanceOverrides(elementID, paths)
-    return ResetAppearanceOverride("elements", elementID, paths)
+function NSkin:ResetElementAppearanceOverrides(
+    elementID, paths, compositeMemberID)
+    return ResetAppearanceOverride(
+        "elements", elementID, paths, compositeMemberID)
 end
 
 function NSkin:GetBorderAccentColor()
@@ -1385,6 +1396,16 @@ function NSkin:RefreshAppearance(change)
 
     if change and change.scope == "element" then
         local element = self:GetSkinningElement(change.elementID)
+        if element and change.compositeMemberID
+            and type(self.RefreshCompositeMemberByIDAppearance) == "function"
+            and self:RefreshCompositeMemberByIDAppearance(
+                element, change.compositeMemberID, change)
+        then
+            if self.RefreshSkinningModeAppearance then
+                self:RefreshSkinningModeAppearance(change)
+            end
+            return
+        end
         if not element
             and type(self.RefreshCompositeMemberStateAppearance) == "function"
             and self:RefreshCompositeMemberStateAppearance(change)
@@ -3692,6 +3713,9 @@ local SHARED_SKIN_ADAPTERS = {
         options.style = style
         for _, key in ipairs({
             "texture", "quality", "qualityProvider", "borderColor", "borderMode",
+            "iconPresentation", "presentationKey", "presentationOwner",
+            "texturePath", "textureProvider", "getPresentationOffset",
+            "offsetX", "offsetY", "desaturated",
         "presentations", "nativeMasks", "allowMaskedTexCoords", "borderColorProvider",
             "splitVisible", "splitDivider", "splitIndicator",
             "splitIndicatorVisible", "splitIndicatorLeftRotation",
@@ -3712,7 +3736,14 @@ local SHARED_SKIN_ADAPTERS = {
         end
         options.baselineID = definition.iconTextureBaselineID
         options.borderColor = options.borderColor or borderColor
-        skinMethod(self, definition.iconTarget or target, options)
+        local iconPresentation =
+            options.iconPresentation or self.ICON_PRESENTATION_DEFAULT
+        if iconPresentation == self.ICON_PRESENTATION_TEXTURE then
+            self:SkinTextureIcon(
+                options.presentationOwner or target, options)
+        else
+            skinMethod(self, definition.iconTarget or target, options)
+        end
     end,
     TEXT = function(self, skinMethod, target, style, _, definition)
         skinMethod(self, target, style, {

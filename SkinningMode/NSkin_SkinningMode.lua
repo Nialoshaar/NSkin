@@ -2620,7 +2620,13 @@ function NSkin:RefreshSkinningModeAppearance(change)
     if not controller or not controller.enabled then return end
     if change and change.scope == "element" then
         local changedElement = self:GetSkinningElement(change.elementID)
-        if changedElement then
+        -- Live inspector appearance commits already refresh the edited
+        -- presentation directly. Geometry-affecting controls separately emit
+        -- SkinningElementBoundsChanged, which reanchors overlays/member
+        -- surfaces through HandleElementBoundsChanged. Rebuilding those
+        -- editor surfaces here as well makes continuous sliders needlessly
+        -- expensive.
+        if changedElement and change.origin ~= "activeInspectorLive" then
             RefreshOverlayAppearance(changedElement)
             if RefreshCompositeMemberSurfaces then
                 RefreshCompositeMemberSurfaces(changedElement)

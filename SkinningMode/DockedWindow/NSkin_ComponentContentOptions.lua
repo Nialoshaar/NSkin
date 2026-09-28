@@ -819,11 +819,29 @@ local function GetSurfaceAppearanceValues(context)
     }
 end
 
+local function SurfaceAppearanceValuesEqual(left, right)
+    if left == right then return true end
+    if type(left) ~= type(right) then return false end
+    if type(left) ~= "table" then return false end
+    for key, value in pairs(left) do
+        if not SurfaceAppearanceValuesEqual(value, right[key]) then
+            return false
+        end
+    end
+    for key in pairs(right) do
+        if left[key] == nil then return false end
+    end
+    return true
+end
+
 local function SetSurfaceAppearanceValues(context, values)
     local styleName = GetSurfaceAppearanceStyleName(context)
+    local current = GetSurfaceAppearanceValues(context)
     local changed = false
     for key in pairs(surfaceAppearanceKeys) do
-        if values[key] ~= nil then
+        if values[key] ~= nil
+            and not SurfaceAppearanceValuesEqual(values[key], current[key])
+        then
             changed = SetElementValue(
                 context, styleName .. "." .. key, values[key]) or changed
         end
@@ -836,6 +854,7 @@ local function RegisterSurfaceAppearanceGroup(id, controls, keys)
         controls = controls,
         get = GetSurfaceAppearanceValues,
         set = SetSurfaceAppearanceValues,
+        affectsBounds = keys.width == true or keys.height == true,
         reset = function(context)
             return ResetElementPaths(
                 context, GetSurfaceAppearancePaths(context, keys))
@@ -855,6 +874,13 @@ NSkin:RegisterOptionGroup("shared.surfaceAppearance", {
     controls = surfaceAppearanceControls,
     get = GetSurfaceAppearanceValues,
     set = SetSurfaceAppearanceValues,
+    affectsBounds = function(_, values, current)
+        current = current or {}
+        return (values.width ~= nil
+                and values.width ~= current.width)
+            or (values.height ~= nil
+                and values.height ~= current.height)
+    end,
     reset = function(context)
         return ResetElementPaths(
             context, GetSurfaceAppearancePaths(context))

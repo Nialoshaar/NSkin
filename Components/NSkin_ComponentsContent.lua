@@ -3236,7 +3236,7 @@ end
 
 local function RefreshActiveIconPresentation(target)
     local data = NSkin:GetSkinData(target, ICON_COMPONENT_STATE, false)
-    if not data or not data.active then return end
+    if not data or not data.active or data.applyingPresentation then return end
     if not CanModifyIconPresentation(target) or not CanModifyIconPresentation(data.texture)
         or not CanModifyIconPresentation(data.borderOwner) then return end
     ApplyIconGeometry(target)
@@ -3260,6 +3260,157 @@ local function RefreshActiveIconPresentation(target)
         data.surfaceOptions or {})
     ApplyIconBorderAppearance(NSkin, data, target)
     RefreshIconInteractionGlow(target)
+end
+
+NSkin.ICON_PRESENTATION_DEFAULT = "Default Icon"
+NSkin.ICON_PRESENTATION_TEXTURE = "Texture Icon"
+
+local TEXTURE_ICON_PRESENTATION_STATE = "textureIconPresentations"
+
+local function SetCenteredPresentationGeometry(
+    frame, relativeTo, x, y, width, height)
+    if not frame or not relativeTo then return false end
+    x, y = tonumber(x) or 0, tonumber(y) or 0
+    width, height = tonumber(width), tonumber(height)
+    if not width or width <= 0 or not height or height <= 0 then return false end
+
+    local pointMatches = frame.GetNumPoints and frame:GetNumPoints() == 1
+    if pointMatches and frame.GetPoint then
+        local point, relative, relativePoint, currentX, currentY =
+            frame:GetPoint(1)
+        pointMatches = point == "CENTER"
+            and relative == relativeTo
+            and relativePoint == "CENTER"
+            and currentX == x and currentY == y
+    end
+    if not pointMatches then
+        frame:ClearAllPoints()
+        frame:SetPoint("CENTER", relativeTo, "CENTER", x, y)
+    end
+    if frame.GetWidth and frame.GetHeight
+        and (frame:GetWidth() ~= width or frame:GetHeight() ~= height)
+    then
+        frame:SetSize(width, height)
+    end
+    return true
+end
+
+function NSkin:GetTextureIconPresentation(owner, presentationKey, create)
+    if not owner or not owner.CreateTexture then return nil end
+    presentationKey = tostring(presentationKey or "Default")
+    local root = self:GetSkinData(
+        owner, TEXTURE_ICON_PRESENTATION_STATE, create ~= false)
+    if not root then return nil end
+    root.presentations = root.presentations or {}
+    local state = root.presentations[presentationKey]
+    if state or create == false then
+        return state and state.texture, state
+    end
+
+    state = {}
+    root.presentations[presentationKey] = state
+
+    local clipFrame = _G.CreateFrame("Frame", nil, owner)
+    clipFrame:EnableMouse(false)
+    if clipFrame.SetClipsChildren then clipFrame:SetClipsChildren(true) end
+    state.clipFrame = clipFrame
+
+    local borderFrame = _G.CreateFrame("Frame", nil, owner)
+    borderFrame:EnableMouse(false)
+    state.borderFrame = borderFrame
+
+    local texture = clipFrame:CreateTexture(nil, "ARTWORK", nil, 1)
+    state.texture = texture
+    return texture, state
+end
+
+function NSkin:SkinTextureIcon(owner, options)
+    if not owner then return false end
+    options = options or {}
+    local texture, presentation = self:GetTextureIconPresentation(
+        owner, options.presentationKey, true)
+    if not texture or not presentation then return false end
+
+    local texturePath = options.texturePath
+    if type(options.textureProvider) == "function" then
+        local ok, provided = pcall(options.textureProvider, owner, texture)
+        if ok then texturePath = provided end
+    end
+    if type(texturePath) == "string" and texturePath ~= "" then
+        if not texture.GetTexture or texture:GetTexture() ~= texturePath then
+            texture:SetTexture(texturePath)
+        end
+    end
+    if texture.SetDesaturated and options.desaturated ~= nil then
+        texture:SetDesaturated(options.desaturated == true)
+    end
+
+    local style = options.style or self:GetStyle("icon")
+    if not style then return false end
+    local crop = math.max(0.01, math.min(1,
+        tonumber(options.crop) or tonumber(style.crop) or 1))
+    local size = tonumber(options.size) or tonumber(style.size)
+    size = size and size > 0 and size or nil
+    local width = tonumber(options.width) or size
+        or (owner.GetWidth and owner:GetWidth())
+    local height = tonumber(options.height) or size
+        or (owner.GetHeight and owner:GetHeight())
+    if not width or width <= 0 or not height or height <= 0 then return false end
+
+    local offsetX, offsetY = options.offsetX, options.offsetY
+    if type(options.getPresentationOffset) == "function" then
+        local ok, x, y = pcall(
+            options.getPresentationOffset, owner, texture, presentation)
+        if ok then offsetX, offsetY = x, y end
+    end
+    offsetX, offsetY = tonumber(offsetX) or 0, tonumber(offsetY) or 0
+
+    local callerPrepare = options.preparePresentation
+    local config = {}
+    for key, value in pairs(options) do config[key] = value end
+    config.iconPresentation = nil
+    config.presentationKey = nil
+    config.presentationOwner = nil
+    config.texturePath = nil
+    config.textureProvider = nil
+    config.getPresentationOffset = nil
+    config.offsetX, config.offsetY = nil, nil
+    config.desaturated = nil
+    config.texture = texture
+    config.borderOwner = presentation.borderFrame
+    config.shapeMaskOwner = presentation.clipFrame
+    config.crop = 1
+    config.borderCrop = crop
+    config.preparePresentation = function(...)
+        if not SetCenteredPresentationGeometry(
+            presentation.clipFrame, owner,
+            offsetX, offsetY, width, height * crop)
+        then return false end
+        if not SetCenteredPresentationGeometry(
+            presentation.borderFrame, owner,
+            offsetX, offsetY, width, height)
+        then return false end
+        if not SetCenteredPresentationGeometry(
+            texture, presentation.clipFrame, 0, 0, width, height)
+        then return false end
+
+        if presentation.clipFrame.SetFrameLevel and owner.GetFrameLevel then
+            local level = owner:GetFrameLevel() + 1
+            if presentation.clipFrame:GetFrameLevel() ~= level then
+                presentation.clipFrame:SetFrameLevel(level)
+            end
+            if presentation.borderFrame.SetFrameLevel
+                and presentation.borderFrame:GetFrameLevel() ~= level + 1
+            then
+                presentation.borderFrame:SetFrameLevel(level + 1)
+            end
+        end
+        if type(callerPrepare) == "function" then
+            return callerPrepare(...)
+        end
+        return true
+    end
+    return self:SkinIcon(texture, config)
 end
 
 local function EnsureIconTextureBaseline(self, texture, baselineID)
@@ -3298,8 +3449,18 @@ local function SkinSingleIconPresentation(self, target, options, secondary)
     then return false end
 
     local data = self:GetSkinData(target, ICON_COMPONENT_STATE)
+    if data.applyingPresentation then return true end
+    data.applyingPresentation = true
     local textureData = EnsureIconTextureBaseline(
         self, texture, options.baselineID)
+    if type(options.preparePresentation) == "function" then
+        local ok, prepared = pcall(
+            options.preparePresentation, target, texture, owner, maskOwner)
+        if not ok or prepared == false then
+            data.applyingPresentation = nil
+            return false
+        end
+    end
     local borderKey = options.borderKey or (owner == target
         and ICON_BORDER_KEY
         or (ICON_BORDER_KEY .. ":" .. tostring(texture)))
@@ -3345,11 +3506,15 @@ local function SkinSingleIconPresentation(self, target, options, secondary)
         data.borderMode = nil
         data.qualityProvider = nil
         data.quality = nil
+        data.applyingPresentation = nil
         return true
     end
 
     local style = options.style or self:GetStyle("icon")
-    if not style then return false end
+    if not style then
+        data.applyingPresentation = nil
+        return false
+    end
     local shape = ResolveIconShape(style, options)
     data.surfaceOwner = owner
     data.surfaceStyle = style
@@ -3528,7 +3693,10 @@ local function SkinSingleIconPresentation(self, target, options, secondary)
             or self:CreatePixelBorder(borderFrame, borderKey,
                 tonumber(options.borderSize) or tonumber(style.borderSize) or 1,
                 nil, options.outside == true, borderAnchor)
-        if not border then return false end
+        if not border then
+            data.applyingPresentation = nil
+            return false
+        end
         border.anchor = borderAnchor
         data.border = border
         data.borderOwner = owner
@@ -3607,7 +3775,9 @@ local function SkinSingleIconPresentation(self, target, options, secondary)
             for appearanceTarget in pairs(textureData.appearanceTargets) do
                 local state = NSkin:GetSkinData(
                     appearanceTarget, ICON_COMPONENT_STATE, false)
-                if state and state.texture == texture then
+                if state and state.texture == texture
+                    and not state.applyingPresentation
+                then
                     RefreshActiveIconPresentation(appearanceTarget)
                 end
             end
@@ -3636,6 +3806,7 @@ local function SkinSingleIconPresentation(self, target, options, secondary)
         end)
         if hooked then data.nativeMaskHooked = texture end
     end
+    data.applyingPresentation = nil
     return true
 end
 

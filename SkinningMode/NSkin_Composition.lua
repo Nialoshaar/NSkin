@@ -487,22 +487,201 @@ local function RegisterCompositeMemberAppearance(
     }
 end
 
-function NSkin:RefreshCompositeMemberAppearance(change)
-    local entry = change and appearanceMemberByID[change.elementID]
-    if not entry then return false end
+local SURFACE_APPEARANCE_KEYS = {
+    width = true,
+    height = true,
+    showBackground = true,
+    showBorder = true,
+    showHighlight = true,
+    background = true,
+    backgroundMode = true,
+    backgroundOpacity = true,
+    selectedBackground = true,
+    selectedBackgroundMode = true,
+    selectedBackgroundOpacity = true,
+    border = true,
+    borderMode = true,
+    borderSize = true,
+    borderPadding = true,
+    highlight = true,
+    highlightMode = true,
+    hoverAlpha = true,
+}
 
-    local element = self:GetSkinningElement(entry.elementID)
-    local member = element
-        and self:GetCompositeMember(element, entry.memberID)
-    if not element or not member
-        or type(member.refreshAppearance) ~= "function"
+local function IsSurfaceOnlyAppearanceChange(change, styleName)
+    if not change then return false end
+    local entries = change.changes or { change }
+    if #entries == 0 then return false end
+    for i = 1, #entries do
+        local entry = entries[i]
+        if entry.style and styleName and entry.style ~= styleName then
+            return false
+        end
+        local path = entry.path
+        local key = type(path) == "string"
+            and path:match("([^.]+)$") or nil
+        if not key or not SURFACE_APPEARANCE_KEYS[key] then
+            return false
+        end
+    end
+    return true
+end
+
+local function IsComponentAppearanceChange(change, styleName)
+    if not change or type(styleName) ~= "string" or styleName == "" then
+        return false
+    end
+    local entries = change.changes or { change }
+    if #entries == 0 then return false end
+    for i = 1, #entries do
+        if entries[i].style ~= styleName then return false end
+    end
+    return true
+end
+
+local function RefreshCompositeAtomicMemberAppearance(
+    self, element, member, change)
+    local component = member.kind
+        and self:GetSharedElementType(member.kind)
+    if not component
+        or not IsComponentAppearanceChange(change, component.style)
     then
         return false
     end
 
-    local ok, refreshed = pcall(
-        member.refreshAppearance, element, member, change)
-    return ok and refreshed ~= false
+    local targets
+    if change and type(change.elementID) == "string" then
+        local exact = self:GetCompositeMemberTargetForAppearanceID(
+            element, member, change.elementID)
+        if exact then targets = { exact } end
+    end
+    targets = targets
+        or self:GetCompositionMemberTargets(element, member, false)
+        or {}
+
+    local refreshed
+    for _, target in ipairs(targets) do
+        local definition = {}
+        for key, value in pairs(member) do
+            definition[key] = value
+        end
+        definition.id = self:GetCompositeMemberTargetAppearanceID(
+            element, member, target)
+            or member.appearanceID or member.id
+        definition.target = target
+        definition.appearanceWindowID =
+            member.appearanceWindowID or element.appearanceWindowID
+        if self:SkinTypedElement(member.kind, definition) then
+            refreshed = true
+        end
+    end
+    return refreshed == true
+end
+
+local function RefreshCompositeAtomicMemberSurface(
+    self, element, member, change)
+    local component = member.kind
+        and self:GetSharedElementType(member.kind)
+    if not component or component.surfaceCapability ~= true
+        or not IsSurfaceOnlyAppearanceChange(change, component.style)
+    then
+        return false
+    end
+    return RefreshCompositeAtomicMemberAppearance(
+        self, element, member, change)
+end
+
+function NSkin:RefreshCompositeMemberByIDAppearance(
+    elementOrID, memberID, change)
+    local element = type(elementOrID) == "table" and elementOrID
+        or self:GetSkinningElement(elementOrID)
+    local member = element
+        and self:GetCompositeMember(element, memberID)
+    if not element or not member then return false end
+
+    -- Surface-capable atomic members get a specialized Surface-only refresh
+    -- before their broader component refresh. This prevents a local Surface
+    -- edit from re-running member layout/content or the owning Composite.
+    if member.editorSurface ~= true then
+        local component = member.kind
+            and self:GetSharedElementType(member.kind)
+        if component and component.surfaceCapability == true
+            and IsSurfaceOnlyAppearanceChange(change, component.style)
+        then
+            if type(member.refreshSurfaceAppearance) == "function" then
+                local ok, refreshed = pcall(
+                    member.refreshSurfaceAppearance,
+                    element, member, change)
+                if ok and refreshed ~= false then return true end
+            end
+            if RefreshCompositeAtomicMemberSurface(
+                self, element, member, change)
+            then
+                return true
+            end
+        end
+    end
+
+    local component = member.kind
+        and self:GetSharedElementType(member.kind)
+    if component
+        and IsComponentAppearanceChange(change, component.style)
+    then
+        if type(member.refreshComponentAppearance) == "function" then
+            local ok, refreshed = pcall(
+                member.refreshComponentAppearance,
+                element, member, change)
+            if ok and refreshed ~= false then return true end
+        end
+        if RefreshCompositeAtomicMemberAppearance(
+            self, element, member, change)
+        then
+            return true
+        end
+    end
+
+    if type(member.refreshAppearance) == "function" then
+        local ok, refreshed = pcall(
+            member.refreshAppearance, element, member, change)
+        return ok and refreshed ~= false
+    end
+
+    -- Surface is a shared capability, so ordinary Composite surfaces must not
+    -- require every window adapter to provide a bespoke refresh callback.
+    -- Prefer the narrowest existing owner contract and reserve broad
+    -- compatibility refresh for genuinely unsupported/structural elements.
+    if member.editorSurface == true then
+        if member.rowFamilySurface == true
+            and type(self.RefreshRowFamilySurfaceAppearance) == "function"
+        then
+            local ok, refreshed = pcall(
+                self.RefreshRowFamilySurfaceAppearance,
+                self, element, change)
+            if ok and refreshed ~= false then return true end
+        end
+
+        if type(element.refreshAppearance) == "function" then
+            local ok, refreshed = pcall(
+                element.refreshAppearance, self, element, change)
+            if ok and refreshed ~= false then return true end
+        end
+
+        if element.typedRegistration
+            and type(self.RefreshTypedElementAppearance) == "function"
+        then
+            local ok, refreshed = pcall(
+                self.RefreshTypedElementAppearance, self, element)
+            if ok and refreshed ~= false then return true end
+        end
+    end
+    return false
+end
+
+function NSkin:RefreshCompositeMemberAppearance(change)
+    local entry = change and appearanceMemberByID[change.elementID]
+    if not entry then return false end
+    return self:RefreshCompositeMemberByIDAppearance(
+        entry.elementID, entry.memberID, change)
 end
 
 function NSkin:RegisterAppearanceParentID(elementID, parentID, ownerID)

@@ -288,12 +288,26 @@ local function OptionValuesEqual(left, right)
     return true
 end
 
+local function OptionGroupAffectsBounds(
+    definition, context, values, current)
+    local policy = definition and definition.affectsBounds
+    if policy == false then return false end
+    if type(policy) == "function" then
+        local ok, result = pcall(
+            policy, context, values, current)
+        if ok then return result == true end
+    end
+    return true
+end
+
 local function CommitValues(view, values, knownCurrent, liveInspectorChange)
     if not view.context or type(values) ~= "table" then return false end
     local current = knownCurrent or view.definition.get(view.context)
     if OptionValuesEqual(current, values) then return false end
     local context = view.context
     local copiedValues = CopyTable(values)
+    local affectsBounds = OptionGroupAffectsBounds(
+        view.definition, context, copiedValues, current)
     local preserveLocalState = liveInspectorChange
         and view.isSkinningModeInspector == true and context.id ~= nil
     local function ApplyValues()
@@ -309,7 +323,9 @@ local function CommitValues(view, values, knownCurrent, liveInspectorChange)
         applied = ApplyValues()
     end
     if applied == true then
-        if context.id and NSkin.NotifySkinningElementBoundsChanged then
+        if affectsBounds and context.id
+            and NSkin.NotifySkinningElementBoundsChanged
+        then
             NSkin:NotifySkinningElementBoundsChanged(context.id)
         end
         NSkin:NotifyOptionGroupChanged(view.id,
@@ -1741,6 +1757,8 @@ function NSkin:SetOptionGroupValues(
     if not changed then return false end
 
     local copiedValues = CopyTable(values)
+    local affectsBounds = OptionGroupAffectsBounds(
+        definition, context, copiedValues, current)
     local function ApplyValues()
         return definition.set(context, copiedValues)
     end
@@ -1754,7 +1772,9 @@ function NSkin:SetOptionGroupValues(
         applied = ApplyValues()
     end
     if applied == true then
-        if context.id and self.NotifySkinningElementBoundsChanged then
+        if affectsBounds and context.id
+            and self.NotifySkinningElementBoundsChanged
+        then
             self:NotifySkinningElementBoundsChanged(context.id)
         end
         self:NotifyOptionGroupChanged(id)
@@ -2737,11 +2757,14 @@ end
 
 SetElementValue = function(context, path, value)
     return NSkin:SetElementAppearanceOverride(
-        context.id, GetAppearanceWindowID(context), path, value)
+        context.id, GetAppearanceWindowID(context), path, value,
+        context.compositeMember and context.compositeMember.id)
 end
 
 local function ResetElementPaths(context, paths)
-    return NSkin:ResetElementAppearanceOverrides(context.id, paths)
+    return NSkin:ResetElementAppearanceOverrides(
+        context.id, paths,
+        context.compositeMember and context.compositeMember.id)
 end
 
 local function CreateBorderGeometryControls(order)

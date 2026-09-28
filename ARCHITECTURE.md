@@ -202,6 +202,31 @@ Existing component visuals may implement the Surface directly. For example,
 CHECKBOX reuses its checkbox background/border instead of drawing a second
 box, and ICON keeps texture/shape behavior component-owned while its generic
 background/border/highlight are Surface-owned.
+
+Surface appearance refresh is targeted by default and specialized targeted
+refresh is a required contract for every Surface-capable editor element.
+A Surface-only change must use the narrowest refresh path that can update the
+affected visual property without re-running unrelated content, member layout,
+Composite layout, window Apply logic, or module-wide compatibility refresh.
+
+For Composite Surfaces, refresh the Surface member or its owning element
+directly. For atomic Composite members that expose Surface capability, refresh
+only the affected member targets through the canonical component Surface path.
+If a component uses exceptional presentation owners, masks, clipping frames, or
+other adapter-specific visual infrastructure, the adapter must provide a
+specialized targeted Surface refresh for that member rather than falling back
+to its broader refreshAppearance path. Broader appearance/layout refresh is reserved only when the changed property
+genuinely requires that wider dependency.
+
+The same targeted-refresh requirement applies to component-specific appearance,
+not only Surface. A local ICON, CHECKBOX, TEXT, BUTTON, DROPDOWN, or other
+canonical atomic appearance change must refresh only the affected atomic member
+targets through its canonical renderer. If the atomic member uses exceptional
+adapter-owned presentation infrastructure, the adapter must provide a
+specialized targeted component refresh rather than routing the change through
+the owning Composite or window. Geometry-affecting component properties may
+perform the minimum additional geometry work they require, but must not use
+full-Composite/window refresh as a substitute for an explicit dependency.
 A new option added to a canonical component should normally become available everywhere that component is used without modifying individual window adapters.
 
 Do not create page-specific copies of canonical appearance logic.
@@ -819,6 +844,23 @@ Semantic context may give same-type TEXT members separate stable appearance iden
 
 ICON separates logical interaction target from presentation texture.
 
+ICON has reusable presentation variants. Presentation variant describes texture
+source/ownership, not component identity:
+
+```text
+ICON
+├─ Default Icon
+│  └─ skins an existing Blizzard/native icon Texture
+└─ Texture Icon
+   └─ owns/reuses an NSkin Texture sourced from registered/media texture data
+```
+
+Both variants use the same canonical ICON appearance contract, Surface,
+Shape/Size/Crop/Zoom behavior, targeted refresh rules, reset ownership, and
+interaction presentation. A window adapter declares the required variant and
+media/state providers, but must not reimplement Texture Icon creation, clipping,
+border ownership, media assignment, or presentation transaction behavior.
+
 General invariants:
 
 - crop changes sampled texture coordinates without stretching the rendered icon
@@ -827,8 +869,16 @@ General invariants:
 - shapes and borders remain shared ICON behavior
 - Blizzard interaction/state ownership is preserved
 - pooled ICON targets must release/reacquire runtime state safely
+- lifecycle hooks attached to ICON textures/owners must treat mutations made by
+  the active NSkin presentation transaction as internal and must not recursively
+  re-enter the same presentation refresh; hooks remain responsible for genuine
+  external Blizzard mutations after the transaction completes
+- when an exceptional adapter owns ICON clipping/border geometry, any geometry
+  preparation required by a targeted ICON refresh must run inside the canonical
+  ICON presentation transaction so owner hooks cannot create a second render
 
-A special semantic role does not justify a new icon component type if the visual contract is still ICON.
+A special semantic role or a Texture Icon media source does not justify a new
+icon component type if the visual contract is still ICON.
 
 ## 20.3 Buttons
 
