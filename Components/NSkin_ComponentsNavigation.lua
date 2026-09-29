@@ -251,19 +251,114 @@ local function RefreshScrollBarArrow(button)
     local data = NSkin:GetSkinData(button, COMPONENT_STATE, false)
     if data and data.scrollArrow then
         local enabled = not button.IsEnabled or button:IsEnabled()
-        data.scrollArrow:SetAlpha(enabled and 1 or 0.35)
+        local color = enabled
+            and data.scrollArrowEnabledColor
+            or data.scrollArrowDisabledColor
+        if color then
+            data.scrollArrow:SetVertexColor(unpack(color))
+        end
+        data.scrollArrow:SetAlpha(enabled
+            and (tonumber(data.scrollArrowEnabledOpacity) or 1)
+            or (tonumber(data.scrollArrowDisabledOpacity) or 0.35))
+        data.scrollArrowState = enabled and "Enabled" or "Disabled"
     end
+end
+
+local function RefreshScrollBarSurfaceHighlight(scrollBar)
+    local data = NSkin:GetSkinData(scrollBar, COMPONENT_STATE, false)
+    if not data or not data.scrollSurfaceHighlight then return end
+    local shown = data.scrollSurfaceHighlightEnabled == true
+        and scrollBar.IsMouseOver and scrollBar:IsMouseOver()
+    data.scrollSurfaceHighlight:SetShown(shown == true)
 end
 
 function NSkin:SkinScrollBar(scrollBar, style)
     if not scrollBar then return end
     style = style or self:GetStyle("scrollBar")
+    local data = self:GetSkinData(scrollBar, COMPONENT_STATE)
+
+    if not data.scrollSurfaceBackground then
+        data.scrollSurfaceBackground =
+            scrollBar:CreateTexture(nil, "BACKGROUND", nil, 6)
+        data.scrollSurfaceBackground:SetAllPoints(scrollBar)
+        self:ConfigureOwnedPixelTexture(data.scrollSurfaceBackground)
+    end
+    local surfaceBackground =
+        self:GetResolvedAppearanceColor(style, "background")
+        or style.background or { 0, 0, 0, 0 }
+    self:SetOwnedTextureColor(
+        data.scrollSurfaceBackground,
+        surfaceBackground[1] or 0, surfaceBackground[2] or 0,
+        surfaceBackground[3] or 0,
+        tonumber(style.backgroundOpacity)
+            or surfaceBackground[4] or 0)
+    data.scrollSurfaceBackground:SetShown(style.showBackground == true)
+
+    local surfaceBorderColor =
+        self:GetResolvedAppearanceColor(style, "border")
+        or style.border or self:GetSharedBorderColor()
+    data.scrollSurfaceBorder = data.scrollSurfaceBorder
+        or self:CreatePixelBorder(
+            scrollBar, "NSkinScrollBarSurfaceBorder",
+            tonumber(style.borderSize) or 1,
+            surfaceBorderColor, false, scrollBar)
+    if data.scrollSurfaceBorder then
+        self:SetPixelBorderColor(
+            data.scrollSurfaceBorder, unpack(surfaceBorderColor))
+        self:SetPixelBorderSize(
+            data.scrollSurfaceBorder, tonumber(style.borderSize) or 1)
+        self:SetPixelBorderPadding(
+            data.scrollSurfaceBorder, tonumber(style.borderPadding) or 0)
+        self:SetPixelBorderShown(
+            data.scrollSurfaceBorder, style.showBorder == true)
+    end
+
+    if not data.scrollSurfaceHighlight then
+        data.scrollSurfaceHighlight =
+            scrollBar:CreateTexture(nil, "ARTWORK", nil, 6)
+        data.scrollSurfaceHighlight:SetAllPoints(scrollBar)
+        self:ConfigureOwnedPixelTexture(data.scrollSurfaceHighlight)
+    end
+    local surfaceHighlight =
+        self:GetResolvedAppearanceColor(style, "highlight")
+        or style.highlight or { 1, 1, 1, 1 }
+    self:SetOwnedTextureColor(
+        data.scrollSurfaceHighlight,
+        surfaceHighlight[1] or 1, surfaceHighlight[2] or 1,
+        surfaceHighlight[3] or 1,
+        tonumber(style.hoverAlpha) or surfaceHighlight[4] or 0.10)
+    data.scrollSurfaceHighlightEnabled = style.showHighlight == true
+    if not data.scrollSurfaceHighlightHooked and scrollBar.HookScript then
+        if not scrollBar.HasScript or scrollBar:HasScript("OnEnter") then
+            scrollBar:HookScript(
+                "OnEnter", RefreshScrollBarSurfaceHighlight)
+        end
+        if not scrollBar.HasScript or scrollBar:HasScript("OnLeave") then
+            scrollBar:HookScript(
+                "OnLeave", RefreshScrollBarSurfaceHighlight)
+        end
+        data.scrollSurfaceHighlightHooked = true
+    end
+    RefreshScrollBarSurfaceHighlight(scrollBar)
+
     local trackColor = self:GetResolvedAppearanceColor(style, "track")
     local thumbColor = self:GetResolvedAppearanceColor(style, "thumb")
     local arrowColor = self:GetResolvedAppearanceColor(style, "arrow")
+    local arrowEnabledColor = style.arrowEnabled
+        and self:GetResolvedAppearanceColor(style, "arrowEnabled")
+        or arrowColor
+    local arrowDisabledColor =
+        self:GetResolvedAppearanceColor(style, "arrowDisabled")
+    local trackSize = math.max(1, tonumber(style.trackSize) or 2)
+    local thumbSize = math.max(1, tonumber(style.thumbSize) or 6)
+    local trackOpacity = math.max(0,
+        math.min(1, tonumber(style.trackOpacity) or 1))
+    local thumbOpacity = math.max(0,
+        math.min(1, tonumber(style.thumbOpacity) or 1))
+    local thumbOffsetX = tonumber(style.thumbOffsetX) or 0
+    local thumbOffsetY = tonumber(style.thumbOffsetY) or 0
     local track = scrollBar.Track
     local thumb = track and track.Thumb
-    local data = self:GetSkinData(scrollBar, COMPONENT_STATE)
     if track then
         for _, texture in ipairs({ track.Begin, track.Middle, track.End }) do
             if texture then texture:SetAlpha(0) end
@@ -272,10 +367,11 @@ function NSkin:SkinScrollBar(scrollBar, style)
             data.scrollTrack = track:CreateTexture(nil, "BACKGROUND", nil, -8)
             data.scrollTrack:SetPoint("TOP", track, "TOP", 0, 0)
             data.scrollTrack:SetPoint("BOTTOM", track, "BOTTOM", 0, 0)
-            data.scrollTrack:SetWidth(2)
             self:ConfigureOwnedPixelTexture(data.scrollTrack)
         end
+        data.scrollTrack:SetWidth(trackSize)
         self:SetOwnedTextureColor(data.scrollTrack, unpack(trackColor))
+        data.scrollTrack:SetAlpha(trackOpacity)
     end
     if thumb then
         for _, texture in ipairs({ thumb.Begin, thumb.Middle, thumb.End }) do
@@ -283,12 +379,16 @@ function NSkin:SkinScrollBar(scrollBar, style)
         end
         if not data.scrollThumb then
             data.scrollThumb = thumb:CreateTexture(nil, "ARTWORK", nil, 7)
-            data.scrollThumb:SetPoint("TOP", thumb, "TOP", 0, 0)
-            data.scrollThumb:SetPoint("BOTTOM", thumb, "BOTTOM", 0, 0)
-            data.scrollThumb:SetWidth(6)
             self:ConfigureOwnedPixelTexture(data.scrollThumb)
         end
+        data.scrollThumb:ClearAllPoints()
+        data.scrollThumb:SetPoint(
+            "TOP", thumb, "TOP", thumbOffsetX, thumbOffsetY)
+        data.scrollThumb:SetPoint(
+            "BOTTOM", thumb, "BOTTOM", thumbOffsetX, thumbOffsetY)
+        data.scrollThumb:SetWidth(thumbSize)
         self:SetOwnedTextureColor(data.scrollThumb, unpack(thumbColor))
+        data.scrollThumb:SetAlpha(thumbOpacity)
     end
     for _, entry in ipairs({ { scrollBar.Back, math.pi },
         { scrollBar.Forward, 0 } })
@@ -310,7 +410,15 @@ function NSkin:SkinScrollBar(scrollBar, style)
                 button:HookScript("OnDisable", RefreshScrollBarArrow)
                 buttonData.scrollArrowHooked = true
             end
-            buttonData.scrollArrow:SetVertexColor(unpack(arrowColor))
+            buttonData.scrollArrowEnabledColor =
+                arrowEnabledColor or arrowColor
+            buttonData.scrollArrowDisabledColor =
+                arrowDisabledColor or arrowColor
+            buttonData.scrollArrowEnabledOpacity =
+                tonumber(style.arrowEnabledOpacity)
+                    or tonumber(style.arrowOpacity) or 1
+            buttonData.scrollArrowDisabledOpacity =
+                tonumber(style.arrowDisabledOpacity) or 0.35
             RefreshScrollBarArrow(button)
         end
     end

@@ -8,6 +8,7 @@ local IDs = {
     HeaderControls = "GroupFinder.HeaderControls",
     BottomTabs = "GroupFinder.BottomTabs",
     BottomTabsSurface = "GroupFinder.BottomTabs.Surface",
+    BottomTabsTabSurface = "GroupFinder.BottomTabs.Tab.Surface",
     BottomTabsText = "GroupFinder.BottomTabs.Text",
     BottomTabDungeonsAndRaids =
         "GroupFinder.BottomTabs.DungeonsAndRaids",
@@ -23,6 +24,8 @@ local IDs = {
         RolesCheckbox = "GroupFinder.DungeonFinder.Roles.Checkbox",
         DungeonListContainer =
             "GroupFinder.DungeonFinder.DungeonList.Container",
+        DungeonListSurface =
+            "GroupFinder.DungeonFinder.DungeonList.Container.Surface",
         TypeSelector = "GroupFinder.DungeonFinder.TypeSelector",
         TypeSelectorSurface =
             "GroupFinder.DungeonFinder.TypeSelector.Surface",
@@ -43,6 +46,7 @@ local IDs = {
     },
     Navigation = {
         Group = "GroupFinder.Navigation",
+        ContainerSurface = "GroupFinder.Navigation.Container.Surface",
         Surface = "GroupFinder.Navigation.Surface",
         Icon = "GroupFinder.Navigation.Icon",
         Text = "GroupFinder.Navigation.Text",
@@ -127,8 +131,10 @@ local IDs = {
 local initialized = false
 local showHooked = false
 local applyPending = false
-local tabsRegistered = false
-local navigationRegistered = false
+local tabsRegistered = {}
+local bottomTabsContainerRegistered = false
+local navigationRegistered = {}
+local navigationContainerRegistered = false
 local navigationSelectionHooked = false
 local dungeonRowsRegistered = false
 local dungeonListContainerRegistered = false
@@ -770,12 +776,12 @@ function PVESkin:ApplyRoleCheckboxes()
                     editorLabel = "Dungeon Finder Roles",
                     memberEditorLabels = {
                         BUTTON = "Surface",
-                        ICON = "Icon",
+                        ICON = "Texture",
                         CHECKBOX = "Checkbox",
                     },
                     editorOptionLabels = {
                         ["shared.surfaceAppearance"] = "Surface",
-                        ["shared.iconAppearance"] = "Icon",
+                        ["shared.iconAppearance"] = "Texture",
                         ["shared.checkboxAppearance"] = "Checkbox",
                     },
                     primaryEditorOptionID = "shared.surfaceAppearance",
@@ -821,7 +827,7 @@ function PVESkin:ApplyRoleCheckboxes()
                             id = IDs.DungeonFinder.RolesIcon,
                             kind = "ICON",
                             role = "SECONDARY",
-                            label = "Role icons",
+                            label = "Texture",
                             appearanceWindowID = IDs.DungeonFinder.Scope,
                             appearanceID = IDs.DungeonFinder.RolesIcon,
                             appearanceParentID = IDs.DungeonFinder.RolesGroup,
@@ -1097,7 +1103,7 @@ function PVESkin:ApplyTypeDropdown()
                 type = "REGULAR",
                 editorLabel = "Dungeon Finder type selector",
                 memberEditorLabels = {
-                    TEXT = "Text",
+                    TEXT = "Type Text",
                     DROPDOWN = "Dropdown",
                 },
                 members = {
@@ -1129,7 +1135,7 @@ function PVESkin:ApplyTypeDropdown()
                         id = IDs.DungeonFinder.TypeLabel,
                         kind = "TEXT",
                         role = "PRIMARY",
-                        label = "Text",
+                        label = "Type Text",
                         target = typeLabel,
                         appearanceWindowID = scopeID,
                         appearanceID = IDs.DungeonFinder.TypeLabel,
@@ -1228,7 +1234,7 @@ function PVESkin:ApplyDungeonScrollBars()
 
     local applied = false
     for _, definition in ipairs({
-        { IDs.SpecificScrollBar, "Specific dungeon scroll bar",
+        { IDs.SpecificScrollBar, "Scrollbar",
             queueFrame.Specific },
         { IDs.FollowerScrollBar, "Follower dungeon scroll bar",
             queueFrame.Follower },
@@ -1241,6 +1247,8 @@ function PVESkin:ApplyDungeonScrollBars()
                 module = "GroupFinder",
                 appearanceWindowID = IDs.DungeonFinder.Scope,
                 label = label,
+                containerDockLabel = id == IDs.SpecificScrollBar
+                    and "Scrollbar" or nil,
                 window = frame,
                 target = scrollBar,
                 priority = 80,
@@ -2864,6 +2872,56 @@ local function RefreshDungeonRowFamilyLayout(wantHeaders)
     return applied == true or #rows > 0
 end
 
+local function GetDungeonListContainerSurface(target, scrollBar)
+    if not target then return nil end
+    local data = NSkin:GetSkinData(
+        target, "groupFinderDungeonListContainerSurface")
+    if not data.frame then
+        local parent = target.GetParent and target:GetParent() or target
+        data.frame = _G.CreateFrame("Frame", nil, parent)
+        data.frame:EnableMouse(false)
+    end
+    local surface = data.frame
+    surface:ClearAllPoints()
+    surface:SetPoint("TOPLEFT", target, "TOPLEFT", 0, 0)
+    if scrollBar and scrollBar:IsShown() then
+        surface:SetPoint(
+            "BOTTOMRIGHT", scrollBar, "BOTTOMRIGHT", 0, 0)
+    else
+        surface:SetPoint(
+            "BOTTOMRIGHT", target, "BOTTOMRIGHT", 0, 0)
+    end
+    if surface.SetFrameLevel and target.GetFrameLevel then
+        surface:SetFrameLevel(math.max(0, target:GetFrameLevel() - 1))
+    end
+    surface:Show()
+    return surface
+end
+
+local function SkinDungeonListContainerSurface(surface)
+    if not surface then return false end
+    local style = NSkin:GetAppearanceStyle(
+        "row", IDs.DungeonFinder.Scope,
+        IDs.DungeonFinder.DungeonListSurface)
+    if not style then return false end
+    local border = NSkin:GetAppearanceBorderColor(
+        "row", style, IDs.DungeonFinder.Scope,
+        IDs.DungeonFinder.DungeonListSurface)
+    if not NSkin:GetFlatBackground(
+        surface, "NSkinGroupFinderDungeonListContainerBackground")
+    then
+        NSkin:CreateFlatBackground(
+            surface, "NSkinGroupFinderDungeonListContainerBackground",
+            NSkin:GetResolvedAppearanceColor(style, "background"),
+            border)
+    end
+    NSkin:ApplyButtonSurface(
+        surface, style,
+        "NSkinGroupFinderDungeonListContainerBackground",
+        nil, border)
+    return true
+end
+
 function PVESkin:RegisterDungeonRows()
     if dungeonRowsRegistered then return true end
     local frame = _G.PVEFrame
@@ -2903,8 +2961,8 @@ function PVESkin:RegisterDungeonRows()
                 BUTTON = {
                     movable = true,
                     applyFamilyOffset = ApplyDungeonMemberFamilyOffset,
-                    label = "Collapse/Expand Button",
-                    editorLabel = "Collapse/Expand Button",
+                    label = "Button",
+                    editorLabel = "Button",
                     stateSuffix = "Button",
                     states = {
                         {
@@ -2974,10 +3032,6 @@ function PVESkin:RegisterDungeonRows()
                     movable = true,
                     applyFamilyOffset = ApplyDungeonMemberFamilyOffset,
                 },
-                BUTTON = {
-                    movable = true,
-                    applyFamilyOffset = ApplyDungeonMemberFamilyOffset,
-                },
             },
             composition = {
                 mode = "COMPOSITE",
@@ -2988,8 +3042,8 @@ function PVESkin:RegisterDungeonRows()
                     and "Dungeon header row" or "Dungeon row",
                 memberEditorLabels = wantHeaders and {
                     CHECKBOX = "Checkbox",
-                    BUTTON = "Collapse/Expand Button",
-                    TEXT = "Text",
+                    BUTTON = "Button",
+                    TEXT = "Section Text",
                 } or {
                     CHECKBOX = "Checkbox",
                     BUTTON = "Button",
@@ -3134,27 +3188,86 @@ function PVESkin:RegisterDungeonRows()
         local specific = queueFrame.Specific
         local target = specific and (specific.ScrollBox or specific)
             or queueFrame
-        dungeonListContainerRegistered = NSkin:RegisterSkinningElement(
-            IDs.DungeonFinder.DungeonListContainer, {
-                module = "GroupFinder",
-                appearanceWindowID = IDs.DungeonFinder.Scope,
-                label = "Dungeon list container",
-                kind = "CONTAINER",
-                window = frame,
-                target = target,
-                priority = 1,
-                draggable = false,
-                composition = {
-                    mode = "CONTAINER",
-                    children = {
-                        IDs.DungeonSections,
-                        IDs.SpecificDungeons,
+        local scrollBar = specific and specific.ScrollBar
+        local surface = GetDungeonListContainerSurface(target, scrollBar)
+        if surface then
+            SkinDungeonListContainerSurface(surface)
+            dungeonListContainerRegistered = NSkin:RegisterOffsetContainer({
+                    id = IDs.DungeonFinder.DungeonListContainer,
+                    module = "GroupFinder",
+                    appearanceWindowID = IDs.DungeonFinder.Scope,
+                    label = "Dungeon Rows",
+                    window = frame,
+                    priority = 1,
+                    draggable = false,
+                    appearanceStyles = { "row" },
+                    editorOptions = {
+                        {
+                            id = "shared.movable",
+                            label = "Position",
+                            presentation = "INLINE",
+                            contextualInline = true,
+                            category = "POSITION",
+                        },
                     },
-                },
-                -- Part 2 validates only the structural relationship. The
-                -- container must not compete with its children for input yet.
-                isEditable = function() return false end,
-            }) == true
+                    composition = {
+                        mode = "CONTAINER",
+                        movementStrategy = "OFFSET_ROOTS",
+                        roots = function()
+                            local currentSpecific = queueFrame.Specific
+                            local currentTarget = currentSpecific
+                                and (currentSpecific.ScrollBox
+                                    or currentSpecific)
+                                or queueFrame
+                            return currentTarget and { currentTarget } or {}
+                        end,
+                        surface = {
+                            appearanceID =
+                                IDs.DungeonFinder.DungeonListSurface,
+                            appearanceParentID =
+                                IDs.DungeonFinder.DungeonListContainer,
+                            appearanceWindowID =
+                                IDs.DungeonFinder.Scope,
+                            surfaceAppearanceKey = "row",
+                            includeGeometry = false,
+                            target = surface,
+                            refreshAppearance = function()
+                                local currentTarget = specific
+                                    and (specific.ScrollBox or specific)
+                                    or queueFrame
+                                local currentScrollBar = specific
+                                    and specific.ScrollBar
+                                local currentSurface =
+                                    GetDungeonListContainerSurface(
+                                        currentTarget, currentScrollBar)
+                                return SkinDungeonListContainerSurface(
+                                    currentSurface)
+                            end,
+                        },
+                        children = {
+                            IDs.DungeonSections,
+                            IDs.SpecificDungeons,
+                            IDs.SpecificScrollBar,
+                        },
+                    },
+                    highlightRegions = { surface },
+                    pixelBorderTargets = { surface },
+                    refreshAppearance = function()
+                        local currentTarget = specific
+                            and (specific.ScrollBox or specific)
+                            or queueFrame
+                        local currentScrollBar = specific
+                            and specific.ScrollBar
+                        local currentSurface =
+                            GetDungeonListContainerSurface(
+                                currentTarget, currentScrollBar)
+                        return SkinDungeonListContainerSurface(currentSurface)
+                    end,
+                    isEditable = function()
+                        return frame:IsVisible() and queueFrame:IsVisible()
+                    end,
+                }) ~= nil
+        end
     end
 
     dungeonRowsRegistered = true
@@ -3387,9 +3500,38 @@ local function GetFinderNavigationDefinitions()
     }
 end
 
-local function SkinFinderNavigationIcon(button, appearanceID)
+local function GetFinderNavigationEntryForTarget(target)
+    for _, entry in ipairs(GetFinderNavigationDefinitions()) do
+        local button = entry[3]
+        if button and (target == button
+            or target == button.icon or target == button.name)
+        then
+            return entry
+        end
+    end
+end
+
+local function GetFinderNavigationAppearanceID(
+    compositeID, memberID, target, fallbackID)
+    local element = NSkin:GetSkinningElement(compositeID)
+    local member = element and NSkin:GetCompositeMember(
+        element, memberID)
+    return member and NSkin:GetCompositeMemberTargetAppearanceID(
+        element, member, target) or fallbackID
+end
+
+local function GetFinderNavigationStateID(button)
+    return _G.GroupFinderFrame
+        and _G.GroupFinderFrame.selectionIndex == button:GetID()
+        and "Selected" or "Unselected"
+end
+
+local function SkinFinderNavigationIcon(button, id, appearanceID)
     if not button or not button.icon then return false end
-    appearanceID = appearanceID or IDs.Navigation.Group
+    local memberID = id .. ".Icon"
+    appearanceID = appearanceID
+        or GetFinderNavigationAppearanceID(
+            id, memberID, button.icon, memberID)
 
     local iconStyle = WithIconDefaults(
         NSkin:GetAppearanceStyle("icon", IDs.Scope, appearanceID),
@@ -3398,14 +3540,12 @@ local function SkinFinderNavigationIcon(button, appearanceID)
         "icon", iconStyle, IDs.Scope, appearanceID)
 
     NSkin:SkinIcon(button.icon, {
-        texture = button.icon,
-        borderOwner = button,
         style = iconStyle,
-        borderColor = borderColor,
-        defaultShape = "circle",
-        nativeMask = button.CircleMask,
-        suppressNativeMask = true,
-        nativeDecorationRegions = { button.ring },
+        border = borderColor,
+        borderOwner = button,
+        preserveSize = true,
+        appearanceWindowID = IDs.Scope,
+        elementID = appearanceID,
     })
     return true
 end
@@ -3419,28 +3559,27 @@ local function GetFinderNavigationDefaultTextColor(button)
     end
     if fontObject and fontObject.GetTextColor then
         local red, green, blue, alpha = fontObject:GetTextColor()
-        return { red, green, blue, alpha or 1 }
+        return { red, green, blue, alpha }
     end
     return { 1, 1, 1, 1 }
 end
 
-local function SkinFinderNavigationButton(frame, button, id, label)
-    if not button or not button.icon then return false end
-    NSkin:RegisterAppearanceParentID(
-        id .. ".Surface", IDs.Navigation.Group, IDs.Navigation.Group)
-    NSkin:RegisterAppearanceParentID(
-        id .. ".Icon", IDs.Navigation.Group, IDs.Navigation.Group)
-    NSkin:RegisterAppearanceParentID(
-        id .. ".Text", IDs.Navigation.Group, IDs.Navigation.Group)
+local function SkinFinderNavigationSurface(button, id, appearanceID)
+    if not button then return false end
+    local memberID = id .. ".Surface"
+    appearanceID = appearanceID
+        or GetFinderNavigationAppearanceID(
+            id, memberID, button, memberID)
+
     ConcealTexture(button.bg)
     ConcealTexture(button.ring)
     ConcealTexture(button.GetHighlightTexture and button:GetHighlightTexture())
 
-    local surfaceAppearanceID = id .. ".Surface"
-    local sideStyle = NSkin:GetAppearanceStyle(
-        "sideTab", IDs.Scope, surfaceAppearanceID)
+    local style = NSkin:GetAppearanceStyle(
+        "button", IDs.Scope, appearanceID)
+    if not style then return false end
     local borderColor = NSkin:GetAppearanceBorderColor(
-        "sideTab", sideStyle, IDs.Scope, surfaceAppearanceID)
+        "button", style, IDs.Scope, appearanceID)
 
     local geometry = NSkin:GetSkinData(
         button, "groupFinderNavigationGeometry")
@@ -3448,47 +3587,120 @@ local function SkinFinderNavigationButton(frame, button, id, label)
         geometry.blizzardWidth = button:GetWidth()
         geometry.blizzardHeight = button:GetHeight()
     end
-    local width = tonumber(sideStyle.width)
-    local height = tonumber(sideStyle.height)
+    local width = tonumber(style.width)
+    local height = tonumber(style.height)
     width = width and width > 0 and width or geometry.blizzardWidth
     height = height and height > 0 and height or geometry.blizzardHeight
-    if width and height
-        and (button:GetWidth() ~= width or button:GetHeight() ~= height)
-    then
+    if width and height and button.SetSize then
         button:SetSize(width, height)
     end
 
-    local selected = _G.GroupFinderFrame
-        and _G.GroupFinderFrame.selectionIndex == button:GetID()
-    local backgroundColor = NSkin:GetResolvedAppearanceColor(
-        sideStyle,
-        selected and sideStyle.selectedBackground
-            and "selectedBackground" or "background")
-    local background = NSkin:CreateFlatBackground(
-        button, "NSkinGroupFinderNavigationBackground",
-        backgroundColor, borderColor)
-    if background then background:Show() end
-    local border = NSkin:GetPixelBorder(
-        button, "NSkinGroupFinderNavigationBackgroundBorder")
-    if border then
-        NSkin:SetPixelBorderColor(border, unpack(borderColor))
-        NSkin:SetPixelBorderSize(border, sideStyle.borderSize or 1)
-        NSkin:SetPixelBorderPadding(border, sideStyle.borderPadding or 0)
-        NSkin:SetPixelBorderShown(border, true)
+    local surfaceStyle = {}
+    for key, value in pairs(style) do surfaceStyle[key] = value end
+    if GetFinderNavigationStateID(button) == "Selected"
+        and style.selectedBackground
+    then
+        surfaceStyle.background = style.selectedBackground
+        surfaceStyle.backgroundMode =
+            style.selectedBackgroundMode or style.backgroundMode
+        surfaceStyle.backgroundOpacity =
+            tonumber(style.selectedBackgroundOpacity)
+            or tonumber(style.backgroundOpacity)
+            or style.selectedBackground[4]
     end
-    NSkin:CreateFlatButtonGlow(button, sideStyle.hoverAlpha)
 
-    SkinFinderNavigationIcon(button, id .. ".Icon")
-    if button.name then
-        local textAppearanceID = id .. ".Text"
-        NSkin:SkinText(button.name,
-            NSkin:GetAppearanceStyle(
-                "text", IDs.Scope, textAppearanceID), {
-                elementID = textAppearanceID,
-                defaultColor =
-                    GetFinderNavigationDefaultTextColor(button),
-            })
+    local background = NSkin:GetFlatBackground(
+        button, "NSkinGroupFinderNavigationBackground")
+    if not background then
+        background = NSkin:CreateFlatBackground(
+            button, "NSkinGroupFinderNavigationBackground",
+            NSkin:GetResolvedAppearanceColor(
+                surfaceStyle, "background"), borderColor)
     end
+    NSkin:CreateFlatButtonGlow(button, surfaceStyle.hoverAlpha)
+    NSkin:ApplyButtonSurface(
+        button, surfaceStyle,
+        "NSkinGroupFinderNavigationBackground", nil, borderColor)
+    return true
+end
+
+local function SkinFinderNavigationText(button, id, appearanceID)
+    if not button or not button.name then return false end
+    local memberID = id .. ".Text"
+    appearanceID = appearanceID
+        or GetFinderNavigationAppearanceID(
+            id, memberID, button.name, memberID)
+    NSkin:SkinText(button.name,
+        NSkin:GetAppearanceStyle("text", IDs.Scope, appearanceID), {
+            elementID = appearanceID,
+            defaultColor = GetFinderNavigationDefaultTextColor(button),
+        })
+    return true
+end
+
+local function SkinFinderNavigationButton(frame, button, id, label)
+    if not button or not button.icon then return false end
+    local surfaceApplied = SkinFinderNavigationSurface(button, id)
+    local iconApplied = SkinFinderNavigationIcon(button, id)
+    local textApplied = SkinFinderNavigationText(button, id)
+    return surfaceApplied and iconApplied and textApplied
+end
+
+local function RefreshFinderNavigationMember(
+    element, member, change, part)
+    local button = element and element.target
+    local id = element and element.id
+    if not button or not id then return false end
+    if part == "SURFACE" then
+        return SkinFinderNavigationSurface(button, id)
+    elseif part == "ICON" then
+        return SkinFinderNavigationIcon(button, id)
+    elseif part == "TEXT" then
+        return SkinFinderNavigationText(button, id)
+    end
+    return false
+end
+
+local function GetTabCollectionSurface(owner, key, targets)
+    if not owner or type(targets) ~= "table" or #targets == 0 then
+        return nil
+    end
+    local first, last = targets[1], targets[#targets]
+    if not first or not last then return nil end
+    local data = NSkin:GetSkinData(owner, key)
+    if not data.frame then
+        data.frame = _G.CreateFrame("Frame", nil, owner)
+        data.frame:EnableMouse(false)
+    end
+    local surface = data.frame
+    surface:ClearAllPoints()
+    surface:SetPoint("TOPLEFT", first, "TOPLEFT", 0, 0)
+    surface:SetPoint("BOTTOMRIGHT", last, "BOTTOMRIGHT", 0, 0)
+    if surface.SetFrameLevel and first.GetFrameLevel then
+        surface:SetFrameLevel(math.max(
+            owner:GetFrameLevel(), first:GetFrameLevel() - 1))
+    end
+    surface:Show()
+    return surface
+end
+
+local function SkinTabCollectionSurface(
+    surface, appearanceID, backgroundName)
+    if not surface then return false end
+    local style = NSkin:GetAppearanceStyle(
+        "button", IDs.Scope, appearanceID)
+    if not style then return false end
+    local border = NSkin:GetAppearanceBorderColor(
+        "button", style, IDs.Scope, appearanceID)
+    if not NSkin:GetFlatBackground(surface, backgroundName) then
+        NSkin:CreateFlatBackground(
+            surface, backgroundName,
+            NSkin:GetResolvedAppearanceColor(style, "background"),
+            border)
+    end
+    NSkin:CreateFlatButtonGlow(surface, style.hoverAlpha, true)
+    NSkin:ApplyButtonSurface(
+        surface, style, backgroundName, nil, border)
     return true
 end
 
@@ -3498,192 +3710,239 @@ function PVESkin:ApplyFinderNavigation()
     if not frame or not finder then return false end
 
     local definitions = GetFinderNavigationDefinitions()
-    local visible = {}
     local applied = false
     for _, definition in ipairs(definitions) do
         local id, label, button =
             definition[1], definition[2], definition[3]
         if button then
+            local surfaceID = id .. ".Surface"
+            local textID = id .. ".Text"
+            local iconID = id .. ".Icon"
+
+            if not navigationRegistered[id] then
+                navigationRegistered[id] = NSkin:RegisterSkinningElement(
+                    id, {
+                        module = "GroupFinder",
+                        appearanceWindowID = IDs.Scope,
+                        label = label,
+                        kind = "COMPOSITE",
+                        window = frame,
+                        target = button,
+                        priority = 60,
+                        draggable = false,
+                        appearanceStyles = { "button", "text", "icon" },
+                        appearanceTypeIDs = { "BUTTON", "TEXT", "ICON" },
+                        composition = {
+                            mode = "COMPOSITE",
+                            type = "REGULAR",
+                            familyID = IDs.Navigation.Group .. ".Entry",
+                            familyLabel = "Navigation Entry",
+                            editorLabel = label,
+                            selection = {
+                                getStateID = function()
+                                    return GetFinderNavigationStateID(button)
+                                end,
+                            },
+                            members = {
+                                {
+                                    id = surfaceID,
+                                    kind = "BUTTON",
+                                    role = "PRIMARY",
+                                    label = "Surface",
+                                    target = button,
+                                    appearanceWindowID = IDs.Scope,
+                                    appearanceID = surfaceID,
+                                    appearanceParentID =
+                                        IDs.Navigation.Surface,
+                                    movable = false,
+                                    editorSurface = true,
+                                    surfaceAppearanceKey = "button",
+                                    allowOverrides = true,
+                                    selectionParticipant = true,
+                                    editorOptions =
+                                        NSkin:GetCompositeSurfaceEditorOptions(),
+                                    refreshAppearance = function(
+                                        element, member, change)
+                                        return RefreshFinderNavigationMember(
+                                            element, member, change, "SURFACE")
+                                    end,
+                                },
+                                {
+                                    id = textID,
+                                    kind = "TEXT",
+                                    role = "SECONDARY",
+                                    label = "Text",
+                                    target = button.name,
+                                    appearanceWindowID = IDs.Scope,
+                                    appearanceID = textID,
+                                    appearanceParentID = IDs.Navigation.Text,
+                                    selectionParticipant = true,
+                                    tightTextBounds = true,
+                                    refreshAppearance = function(
+                                        element, member, change)
+                                        return RefreshFinderNavigationMember(
+                                            element, member, change, "TEXT")
+                                    end,
+                                },
+                                {
+                                    id = iconID,
+                                    kind = "ICON",
+                                    role = "SECONDARY",
+                                    label = "Icon",
+                                    target = button.icon,
+                                    appearanceWindowID = IDs.Scope,
+                                    appearanceID = iconID,
+                                    appearanceParentID = IDs.Navigation.Icon,
+                                    selectionParticipant = true,
+                                    refreshAppearance = function(
+                                        element, member, change)
+                                        return RefreshFinderNavigationMember(
+                                            element, member, change, "ICON")
+                                    end,
+                                },
+                            },
+                        },
+                        highlightRegions = { button },
+                        pixelBorderTargets = { button },
+                        refreshAppearance = function()
+                            return SkinFinderNavigationButton(
+                                frame, button, id, label)
+                        end,
+                        refreshLayout = function(_, element)
+                            local refreshed = element.refreshAppearance(
+                                NSkin, element)
+                            NSkin:NotifySkinningElementBoundsChanged(id)
+                            return refreshed == true
+                        end,
+                        isEditable = function()
+                            return frame:IsVisible() and finder:IsVisible()
+                                and button:IsVisible()
+                        end,
+                    }) == true
+            end
+
             applied = SkinFinderNavigationButton(
                 frame, button, id, label) or applied
-            visible[#visible + 1] = button
         end
     end
 
-    if not navigationRegistered and #visible > 0 then
-        navigationRegistered = NSkin:RegisterSkinningElement(
-            IDs.Navigation.Group, {
+    local visibleButtons = {}
+    for _, definition in ipairs(definitions) do
+        local button = definition[3]
+        if button and button:IsVisible() then
+            visibleButtons[#visibleButtons + 1] = button
+        end
+    end
+    local navigationSurface = GetTabCollectionSurface(
+        finder, "groupFinderNavigationContainerSurface", visibleButtons)
+    if navigationSurface then
+        SkinTabCollectionSurface(
+            navigationSurface, IDs.Navigation.ContainerSurface,
+            "NSkinGroupFinderNavigationContainerBackground")
+    end
+    if not navigationContainerRegistered and navigationSurface then
+        navigationContainerRegistered = NSkin:RegisterOffsetContainer({
+                id = IDs.Navigation.Group,
                 module = "GroupFinder",
                 appearanceWindowID = IDs.Scope,
-                label = "Dungeons & Raids Cards",
-                kind = "SIDE_TAB",
+                label = "Left Navigation",
                 window = frame,
-                target = visible[1],
-                priority = 60,
+                priority = 59,
                 draggable = false,
-                appearanceStyles = { "sideTab", "icon", "text" },
-                appearanceTypeIDs = { "SIDE_TAB", "ICON", "TEXT" },
-                extraEditorOptions = {
-                    { id = "shared.iconAppearance", label = "Icons",
-                        presentation = "INLINE", category = "CUSTOMIZE" },
-                    { id = "shared.textAppearance", label = "Text",
-                        category = "CUSTOMIZE" },
+                appearanceStyles = { "button" },
+                editorOptions = {
+                    {
+                        id = "shared.movable",
+                        label = "Position",
+                        presentation = "INLINE",
+                        contextualInline = true,
+                        category = "POSITION",
+                    },
+                    {
+                        id = "shared.containerLayout",
+                        label = "Layout",
+                        presentation = "INLINE",
+                        contextualInline = true,
+                        category = "LAYOUT",
+                    },
                 },
                 composition = {
-                    mode = "COMPOSITE",
-                    type = "REGULAR",
-                    editorLabel = "Dungeons & Raids Cards",
-                    memberEditorLabels = {
-                        SIDE_TAB = "Dungeons & Raids Cards",
-                        ICON = "Dungeons & Raids Cards Icons",
-                        TEXT = "Dungeons & Raids Cards Text",
+                    mode = "CONTAINER",
+                    movementStrategy = "OFFSET_ROOTS",
+                    defaultDirection = "VERTICAL",
+                    roots = function()
+                        local roots = {}
+                        for _, entry in ipairs(
+                            GetFinderNavigationDefinitions())
+                        do
+                            local button = entry[3]
+                            if button and button:IsShown() then
+                                roots[#roots + 1] = button
+                            end
+                        end
+                        return roots
+                    end,
+                    surface = {
+                        appearanceID = IDs.Navigation.ContainerSurface,
+                        appearanceParentID = IDs.Navigation.Group,
+                        appearanceWindowID = IDs.Scope,
+                        surfaceAppearanceKey = "button",
+                        includeGeometry = false,
+                        target = navigationSurface,
+                        refreshAppearance = function()
+                            local current = {}
+                            for _, entry in ipairs(
+                                GetFinderNavigationDefinitions())
+                            do
+                                if entry[3] and entry[3]:IsShown() then
+                                    current[#current + 1] = entry[3]
+                                end
+                            end
+                            local currentSurface =
+                                GetTabCollectionSurface(
+                                    finder,
+                                    "groupFinderNavigationContainerSurface",
+                                    current)
+                            return SkinTabCollectionSurface(
+                                currentSurface,
+                                IDs.Navigation.ContainerSurface,
+                                "NSkinGroupFinderNavigationContainerBackground")
+                        end,
                     },
-                    editorOptionLabels = {
-                        ["shared.sideTabAppearance"] = "Surface",
-                        ["shared.iconAppearance"] = "Icon",
-                        ["shared.textAppearance"] = "Text",
-                    },
-                    primaryEditorOptionID = "shared.sideTabAppearance",
-                    members = {
-                        {
-                            id = IDs.Navigation.Surface,
-                            kind = "SIDE_TAB",
-                            role = "PRIMARY",
-                            label = "Dungeons & Raids Cards",
-                            appearanceWindowID = IDs.Scope,
-                            appearanceID = IDs.Navigation.Group,
-                            editorSurface = true,
-                            surfaceStyle = "sideTab",
-                            allowOverrides = true,
-                            highlightMode = "REGIONS",
-                            separateHighlightRegions = true,
-                            editorOptions =
-                                NSkin:GetCompositeSurfaceEditorOptions(),
-                            targets = function()
-                                local targets = {}
-                                for _, entry in ipairs(
-                                    GetFinderNavigationDefinitions())
-                                do
-                                    local button = entry[3]
-                                    if button and button:IsVisible() then
-                                        targets[#targets + 1] = button
-                                    end
-                                end
-                                return targets
-                            end,
-                            getTargetAppearanceID = function(_, _, target)
-                                for _, entry in ipairs(
-                                    GetFinderNavigationDefinitions())
-                                do
-                                    if entry[3] == target then
-                                        return entry[1] .. ".Surface"
-                                    end
-                                end
-                            end,
-                        },
-                        {
-                            id = IDs.Navigation.Icon,
-                            kind = "ICON",
-                            role = "SECONDARY",
-                            label = "Dungeons & Raids Cards Icons",
-                            appearanceWindowID = IDs.Scope,
-                            appearanceID = IDs.Navigation.Group,
-                            highlightMode = "REGIONS",
-                            separateHighlightRegions = true,
-                            targets = function()
-                                local targets = {}
-                                for _, entry in ipairs(
-                                    GetFinderNavigationDefinitions())
-                                do
-                                    local button = entry[3]
-                                    if button and button:IsVisible()
-                                        and button.icon
-                                    then
-                                        targets[#targets + 1] = button.icon
-                                    end
-                                end
-                                return targets
-                            end,
-                            getTargetAppearanceID = function(_, _, target)
-                                for _, entry in ipairs(
-                                    GetFinderNavigationDefinitions())
-                                do
-                                    local button = entry[3]
-                                    if button and button.icon == target then
-                                        return entry[1] .. ".Icon"
-                                    end
-                                end
-                            end,
-                        },
-                        {
-                            id = IDs.Navigation.Text,
-                            kind = "TEXT",
-                            role = "SECONDARY",
-                            label = "Dungeons & Raids Cards Text",
-                            appearanceWindowID = IDs.Scope,
-                            appearanceID = IDs.Navigation.Group,
-                            highlightMode = "REGIONS",
-                            separateHighlightRegions = true,
-                            tightTextBounds = true,
-                            targets = function()
-                                local targets = {}
-                                for _, entry in ipairs(
-                                    GetFinderNavigationDefinitions())
-                                do
-                                    local button = entry[3]
-                                    if button and button:IsVisible()
-                                        and button.name
-                                    then
-                                        targets[#targets + 1] = button.name
-                                    end
-                                end
-                                return targets
-                            end,
-                            getTargetAppearanceID = function(_, _, target)
-                                for _, entry in ipairs(
-                                    GetFinderNavigationDefinitions())
-                                do
-                                    local button = entry[3]
-                                    if button and button.name == target then
-                                        return entry[1] .. ".Text"
-                                    end
-                                end
-                            end,
-                        },
+                    children = {
+                        IDs.Navigation.DungeonFinder,
+                        IDs.Navigation.ScenarioFinder,
+                        IDs.Navigation.RaidFinder,
+                        IDs.Navigation.PremadeGroups,
                     },
                 },
-                highlightMode = "REGIONS",
-                highlightRegions = function()
-                    local regions = {}
-                    for _, entry in ipairs(GetFinderNavigationDefinitions()) do
-                        local button = entry[3]
-                        if button and button:IsVisible() then
-                            regions[#regions + 1] = button
-                        end
-                    end
-                    return regions
-                end,
-                pixelBorderTargets = function()
-                    local regions = {}
-                    for _, entry in ipairs(GetFinderNavigationDefinitions()) do
-                        local button = entry[3]
-                        if button and button:IsVisible() then
-                            regions[#regions + 1] = button
-                        end
-                    end
-                    return regions
-                end,
+                highlightRegions = { navigationSurface },
+                pixelBorderTargets = { navigationSurface },
                 refreshAppearance = function()
-                    return PVESkin:ApplyFinderNavigation()
-                end,
-                refreshLayout = function()
-                    return PVESkin:ApplyFinderNavigation()
+                    local current = {}
+                    for _, entry in ipairs(
+                        GetFinderNavigationDefinitions())
+                    do
+                        if entry[3] and entry[3]:IsVisible() then
+                            current[#current + 1] = entry[3]
+                        end
+                    end
+                    local surface = GetTabCollectionSurface(
+                        finder, "groupFinderNavigationContainerSurface",
+                        current)
+                    return SkinTabCollectionSurface(
+                        surface, IDs.Navigation.ContainerSurface,
+                        "NSkinGroupFinderNavigationContainerBackground")
                 end,
                 isEditable = function()
                     return frame:IsVisible() and finder:IsVisible()
-                        and #GetFinderNavigationDefinitions() > 0
+                        and navigationSurface:IsVisible()
                 end,
-            }) == true
+            }) ~= nil
+    end
+
+    if navigationContainerRegistered then
+        NSkin:RefreshOffsetContainer(IDs.Navigation.Group)
     end
 
     if not navigationSelectionHooked and _G.hooksecurefunc then
@@ -3703,13 +3962,11 @@ function PVESkin:ApplyFinderNavigation()
     return applied
 end
 
-local function GetBottomTabs(frame)
-    return {
-        frame.tab1 or _G.PVEFrameTab1,
-        frame.tab2 or _G.PVEFrameTab2,
-        frame.tab3 or _G.PVEFrameTab3,
-    }
-end
+local BOTTOM_TAB_STABLE_IDS = {
+    IDs.BottomTabDungeonsAndRaids,
+    IDs.BottomTabPlayerVsPlayer,
+    IDs.BottomTabMythicPlus,
+}
 
 local function GetBottomTabText(tab)
     if not tab then return nil end
@@ -3720,39 +3977,76 @@ local function GetBottomTabText(tab)
     return name and _G[name .. "Text"] or nil
 end
 
-local function GetBottomTabStableID(tabs, target)
-    local ids = {
-        IDs.BottomTabDungeonsAndRaids,
-        IDs.BottomTabPlayerVsPlayer,
-        IDs.BottomTabMythicPlus,
-    }
-    for index, tab in ipairs(tabs) do
-        if tab == target or GetBottomTabText(tab) == target then
-            return ids[index]
+local function GetBottomTabByIndex(frame, index)
+    if not frame or not index then return nil end
+    return frame["tab" .. index]
+        or _G["PVEFrameTab" .. index]
+end
+
+local function GetBottomTabCount(frame)
+    local count = tonumber(frame and frame.numTabs) or 0
+    if count > 0 then return count end
+
+    local last = 0
+    for index = 1, 12 do
+        if GetBottomTabByIndex(frame, index) then
+            last = index
+        elseif index > 3 then
+            break
+        end
+    end
+    return last
+end
+
+local function IsBottomTabAvailable(tab)
+    if not tab then return false end
+    if tab.IsShown and not tab:IsShown() then return false end
+    local text = GetBottomTabText(tab)
+    if not text then return false end
+    local value = tab.GetText and tab:GetText()
+        or (text.GetText and text:GetText())
+    return value ~= nil and tostring(value) ~= ""
+end
+
+local function GetBottomTabs(frame, availableOnly)
+    local tabs = {}
+    for index = 1, GetBottomTabCount(frame) do
+        local tab = GetBottomTabByIndex(frame, index)
+        if tab and (availableOnly ~= true
+            or IsBottomTabAvailable(tab))
+        then
+            tabs[#tabs + 1] = tab
+        end
+    end
+    return tabs
+end
+
+local function GetBottomTabIndex(frame, target)
+    for index = 1, GetBottomTabCount(frame) do
+        local tab = GetBottomTabByIndex(frame, index)
+        if tab == target or (tab and GetBottomTabText(tab) == target) then
+            return index
         end
     end
 end
 
-local function IsBottomTabSelected(frame, tabs, target)
+local function GetBottomTabStableID(frame, target)
+    local index = GetBottomTabIndex(frame, target)
+    if not index then return nil end
+    return BOTTOM_TAB_STABLE_IDS[index]
+        or (IDs.BottomTabs .. ".Tab" .. tostring(index))
+end
+
+local function IsBottomTabSelected(frame, target)
     local selected = _G.PanelTemplates_GetSelectedTab
         and _G.PanelTemplates_GetSelectedTab(frame)
-    for index, tab in ipairs(tabs) do
-        if tab == target or GetBottomTabText(tab) == target then
-            return index == selected
-        end
-    end
-    return false
+    local index = GetBottomTabIndex(frame, target)
+    return index ~= nil and index == selected
 end
 
 local function GetBottomTabStateID(frame, tabs, target)
-    return IsBottomTabSelected(frame, tabs, target)
+    return IsBottomTabSelected(frame, target)
         and "Selected" or "Unselected"
-end
-
-local function GetBottomTabStateDefinition(member, stateID)
-    for _, definition in ipairs(member and member.states or {}) do
-        if definition.id == stateID then return definition end
-    end
 end
 
 local function CaptureBottomTabNativeVisualWidth(tab)
@@ -3792,7 +4086,7 @@ local function CaptureBottomTabTextDefaults(frame, tabs)
 
     for _, tab in ipairs(tabs) do
         local text = GetBottomTabText(tab)
-        local selected = IsBottomTabSelected(frame, tabs, tab)
+        local selected = IsBottomTabSelected(frame, tab)
         if text and text.GetTextColor then
             local color = { text:GetTextColor() }
             if selected and not data.selectedColor then
@@ -3887,25 +4181,18 @@ local function SkinBottomTabSurfaceTarget(
     frame, tabs, element, member, tab)
     if not element or not member or not tab then return false end
 
-    local stableID = GetBottomTabStableID(tabs, tab)
+    local stableID = GetBottomTabStableID(frame, tab)
     if not stableID then return false end
-    local stateID = GetBottomTabStateID(frame, tabs, tab)
-    local stateDefinition =
-        GetBottomTabStateDefinition(member, stateID)
-    local stateAppearanceID = stateDefinition
-        and stateDefinition.appearanceID
-        or (member.appearanceID or member.id)
     local appearanceID =
-        stableID .. ".Surface.State." .. stateID
-    NSkin:RegisterAppearanceParentID(
-        appearanceID, stateAppearanceID, element.id)
+        NSkin:GetCompositeMemberTargetAppearanceID(
+            element, member, tab)
+        or (stableID .. ".Surface")
 
     local style = NSkin:GetAppearanceStyle(
         "button", IDs.Scope, appearanceID)
     if not style then return false end
     local border = NSkin:GetAppearanceBorderColor(
         "button", style, IDs.Scope, appearanceID)
-    local nativeVisualWidth = CaptureBottomTabNativeVisualWidth(tab)
     local baselineID = stableID .. ":BottomTabSurface"
     local baseline = NSkin:CaptureComponentBaseline(
         baselineID, tab, { size = true })
@@ -3928,351 +4215,313 @@ local function SkinBottomTabSurfaceTarget(
     end
 
     local surfaceStyle = CopyBottomTabSurfaceStyle(
-        style, IsBottomTabSelected(frame, tabs, tab))
+        style, IsBottomTabSelected(frame, tab))
     NSkin:ApplyButtonSurface(
         tab, surfaceStyle, nil, nil, border)
 
-    local width = tonumber(style.width)
+    local configuredWidth = tonumber(style.width)
+    local width = configuredWidth
+    local text = GetBottomTabText(tab)
+    if not width or width <= 0 then
+        local textWidth
+        if text and text.GetUnboundedStringWidth then
+            textWidth = text:GetUnboundedStringWidth()
+        elseif text and text.GetStringWidth then
+            textWidth = text:GetStringWidth()
+        end
+        local autoWidth = tonumber(textWidth)
+        autoWidth = autoWidth and autoWidth > 0
+            and math.ceil(autoWidth + 24) or nil
+        width = autoWidth or CaptureBottomTabNativeVisualWidth(tab)
+            or baseline.width
+    end
     local height = tonumber(style.height)
-    width = width and width > 0 and width
-        or nativeVisualWidth or baseline.width
     height = height and height > 0 and height or baseline.height
     if width and height and tab.SetSize then
-        local customized = (tonumber(style.width) or 0) > 0
+        local customized = (configuredWidth or 0) > 0
             or (tonumber(style.height) or 0) > 0
         NSkin:MarkComponentGeometryModified(
             baselineID, "size", customized)
         tab:SetSize(width, height)
     end
+
+    ApplyBottomTabTextGeometry(frame, tabs, tab)
+    if text and text.SetWidth and tab.GetWidth then
+        text:SetWidth(math.max(1, tab:GetWidth() - 16))
+    end
     return true
 end
 
-local function RefreshBottomTabSurfaceMember(
-    frame, tabs, element, member, change)
-    local appearanceID = change and change.elementID
-    if appearanceID and appearanceID ~= member.appearanceID then
-        local target = NSkin:GetCompositeMemberTargetForAppearanceID(
-            element, member, appearanceID)
-        if target then
-            return SkinBottomTabSurfaceTarget(
-                frame, tabs, element, member, target)
-        end
-    end
-
-    local refreshed
-    for _, tab in ipairs(tabs) do
-        refreshed = SkinBottomTabSurfaceTarget(
-            frame, tabs, element, member, tab) or refreshed
-    end
-    return refreshed == true
-end
-
-local function SkinBottomTabButtonTarget(
+local function SkinBottomTabTextTarget(
     frame, tabs, element, member, tab)
     if not element or not member or not tab then return false end
-
-    local stableID = GetBottomTabStableID(tabs, tab)
-    if not stableID then return false end
-    local stateID = GetBottomTabStateID(frame, tabs, tab)
-    local stateDefinition =
-        GetBottomTabStateDefinition(member, stateID)
-    local stateAppearanceID = stateDefinition
-        and stateDefinition.appearanceID
-        or (member.appearanceID or member.id)
-    local appearanceID =
-        stableID .. ".Text.State." .. stateID
-    NSkin:RegisterAppearanceParentID(
-        appearanceID, stateAppearanceID, element.id)
-
-    local style = NSkin:GetAppearanceStyle(
-        "button", IDs.Scope, appearanceID)
-    if not style then return false end
-    local border = NSkin:GetAppearanceBorderColor(
-        "button", style, IDs.Scope, appearanceID)
     local text = GetBottomTabText(tab)
-    local applied = NSkin:SkinButton(tab, {
-        style = style,
-        border = border,
-        defaultContent = {
-            type = "TEXT",
-            text = tab.GetText and tab:GetText() or "",
-        },
-        textRegion = text,
-        preserveTextGeometry = true,
-    })
+    if not text then return false end
+
+    local stableID = GetBottomTabStableID(frame, tab)
+    if not stableID then return false end
+    local appearanceID =
+        NSkin:GetCompositeMemberTargetAppearanceID(
+            element, member, text)
+        or (stableID .. ".Text")
+    local defaults = CaptureBottomTabTextDefaults(frame, tabs)
+    local defaultColor = IsBottomTabSelected(frame, tab)
+        and defaults.selectedColor or defaults.unselectedColor
+
+    NSkin:SkinText(text,
+        NSkin:GetAppearanceStyle("text", IDs.Scope, appearanceID), {
+            elementID = appearanceID,
+            defaultColor = defaultColor or true,
+        })
     ApplyBottomTabTextGeometry(frame, tabs, tab)
-    return applied ~= nil
+    if text.SetWidth and tab.GetWidth then
+        text:SetWidth(math.max(1, tab:GetWidth() - 16))
+    end
+    return true
 end
 
-local function RefreshBottomTabButtonMember(
-    frame, tabs, element, member, change)
-    local appearanceID = change and change.elementID
-    if appearanceID and appearanceID ~= member.appearanceID then
-        local target = NSkin:GetCompositeMemberTargetForAppearanceID(
-            element, member, appearanceID)
-        if target then
-            return SkinBottomTabButtonTarget(
-                frame, tabs, element, member, target)
-        end
+local function RefreshBottomTabMember(
+    frame, tabs, element, member, change, part)
+    local tab = element and element.target
+    if not tab then return false end
+    if part == "SURFACE" then
+        return SkinBottomTabSurfaceTarget(
+            frame, tabs, element, member, tab)
     end
-
-    local refreshed
-    for _, tab in ipairs(tabs) do
-        refreshed = SkinBottomTabButtonTarget(
-            frame, tabs, element, member, tab) or refreshed
-    end
-    return refreshed == true
-end
-
-local function RefreshBottomTabGroupSurfaceMember(
-    frame, tabs, element, member, change)
-    local surfaceApplied = RefreshBottomTabSurfaceMember(
-        frame, tabs, element, member, change)
-    local tabMember = element and NSkin:GetCompositeMember(
-        element, IDs.BottomTabsText)
-    local tabApplied = tabMember and RefreshBottomTabButtonMember(
-        frame, tabs, element, tabMember)
-    return surfaceApplied == true or tabApplied == true
+    return SkinBottomTabTextTarget(
+        frame, tabs, element, member, tab)
 end
 
 function PVESkin:ApplyBottomTabs()
     local frame = _G.PVEFrame
     if not frame then return false end
 
-    local tabs = GetBottomTabs(frame)
-    for i = 1, #tabs do
-        if not tabs[i] or not GetBottomTabText(tabs[i]) then
-            return false
-        end
-    end
+    local tabs = GetBottomTabs(frame, true)
+    if #tabs == 0 then return false end
 
     CaptureBottomTabTextDefaults(frame, tabs)
+    local applied = false
     for _, tab in ipairs(tabs) do
         ApplyBottomTabTextGeometry(frame, tabs, tab)
         HookBottomTabTextGeometry(frame, tabs, tab)
-    end
 
-    if not tabsRegistered then
-        tabsRegistered = NSkin:RegisterSkinningElement(
-            IDs.BottomTabs, {
-                label = "Dungeons & Raids bottom tabs",
-                kind = "BUTTON",
-                module = "GroupFinder",
-                appearanceWindowID = IDs.Scope,
-                window = frame,
-                target = tabs[1],
-                priority = 50,
-                draggable = false,
-                composition = {
-                    mode = "COMPOSITE",
-                    type = "REGULAR",
-                    tag = "Tabs.Text",
-                    movementOwner = tabs[1],
-                    editorLabel = "Dungeons & Raids bottom tabs",
-                    members = {
-                        {
-                            id = IDs.BottomTabsSurface,
-                            kind = "BUTTON",
-                            role = "PRIMARY",
-                            label = "Surface",
-                            target = tabs[1],
-                            appearanceWindowID = IDs.Scope,
-                            appearanceID = IDs.BottomTabsSurface,
-                            appearanceParentID = IDs.BottomTabs,
-                            editorSurface = true,
-                            surfaceStyle = "Tabs.Text",
-                            surfaceAppearanceKey = "button",
-                            allowOverrides = true,
-                            editorOptions =
-                                NSkin:GetCompositeSurfaceEditorOptions(),
-                            states = {
-                                {
-                                    id = "Selected",
-                                    label = "Selected",
-                                    previewRuntimeState = false,
-                                },
-                                {
-                                    id = "Unselected",
-                                    label = "Unselected",
-                                    previewRuntimeState = false,
-                                },
-                            },
-                            getStateID = function(_, _, target)
+        local stableID = GetBottomTabStableID(frame, tab)
+        local surfaceID = stableID and (stableID .. ".Surface")
+        local textID = stableID and (stableID .. ".Text")
+        local text = GetBottomTabText(tab)
+
+        if stableID and not tabsRegistered[stableID] then
+            tabsRegistered[stableID] = NSkin:RegisterSkinningElement(
+                stableID, {
+                    label = tab.GetText and tab:GetText()
+                        or "Bottom tab",
+                    kind = "COMPOSITE",
+                    module = "GroupFinder",
+                    appearanceWindowID = IDs.Scope,
+                    window = frame,
+                    target = tab,
+                    priority = 50,
+                    draggable = false,
+                    appearanceStyles = { "button", "text" },
+                    appearanceTypeIDs = { "BUTTON", "TEXT" },
+                    composition = {
+                        mode = "COMPOSITE",
+                        type = "REGULAR",
+                        familyID = IDs.BottomTabs .. ".Tab",
+                        familyLabel = "Bottom Tab",
+                        editorLabel = tab.GetText and tab:GetText()
+                            or "Bottom tab",
+                        selection = {
+                            getStateID = function()
                                 return GetBottomTabStateID(
-                                    frame, GetBottomTabs(frame), target)
-                            end,
-                            targets = function()
-                                return GetBottomTabs(frame)
-                            end,
-                            getTargetAppearanceID = function(
-                                _, _, target)
-                                local currentTabs = GetBottomTabs(frame)
-                                local stableID = GetBottomTabStableID(
-                                    currentTabs, target)
-                                local stateID = GetBottomTabStateID(
-                                    frame, currentTabs, target)
-                                return stableID
-                                    and (stableID
-                                        .. ".Surface.State." .. stateID)
-                            end,
-                            refreshAppearance = function(
-                                element, member, change)
-                                return RefreshBottomTabGroupSurfaceMember(
-                                    frame, GetBottomTabs(frame),
-                                    element, member, change)
-                            end,
-                            refreshStateAppearance = function(
-                                element, member)
-                                return RefreshBottomTabGroupSurfaceMember(
-                                    frame, GetBottomTabs(frame),
-                                    element, member)
+                                    frame, GetBottomTabs(frame), tab)
                             end,
                         },
-                        {
-                            id = IDs.BottomTabsText,
-                            kind = "BUTTON",
-                            role = "SECONDARY",
-                            label = "Tab",
-                            editorLabel = "Tab",
-                            target = tabs[1],
-                            appearanceWindowID = IDs.Scope,
-                            appearanceID = IDs.BottomTabsText,
-                            appearanceParentID = IDs.BottomTabsSurface,
-                            highlightMode = "REGIONS",
-                            separateHighlightRegions = true,
-                            states = {
-                                {
-                                    id = "Selected",
-                                    label = "Selected",
-                                    selectedLabel = "Tab",
-                                    previewRuntimeState = false,
-                                },
-                                {
-                                    id = "Unselected",
-                                    label = "Unselected",
-                                    selectedLabel = "Tab",
-                                    previewRuntimeState = false,
-                                },
+                        members = {
+                            {
+                                id = surfaceID,
+                                kind = "BUTTON",
+                                role = "PRIMARY",
+                                label = "Surface",
+                                target = tab,
+                                appearanceWindowID = IDs.Scope,
+                                appearanceID = surfaceID,
+                                appearanceParentID =
+                                    IDs.BottomTabsTabSurface,
+                                movable = false,
+                                editorSurface = true,
+                                surfaceAppearanceKey = "button",
+                                allowOverrides = true,
+                                selectionParticipant = true,
+                                editorOptions =
+                                    NSkin:GetCompositeSurfaceEditorOptions(),
+                                refreshAppearance = function(
+                                    element, member, change)
+                                    return RefreshBottomTabMember(
+                                        frame, GetBottomTabs(frame),
+                                        element, member, change, "SURFACE")
+                                end,
                             },
-                            getStateID = function(_, _, target)
-                                return GetBottomTabStateID(
-                                    frame, GetBottomTabs(frame), target)
-                            end,
-                            targets = function()
-                                return GetBottomTabs(frame)
-                            end,
-                            getTargetAppearanceID = function(
-                                _, _, target)
-                                local currentTabs = GetBottomTabs(frame)
-                                local stableID = GetBottomTabStableID(
-                                    currentTabs, target)
-                                local stateID = GetBottomTabStateID(
-                                    frame, currentTabs, target)
-                                return stableID
-                                    and (stableID
-                                        .. ".Text.State." .. stateID)
-                            end,
-                            refreshSurfaceAppearance = function(
-                                element, member, change)
-                                return RefreshBottomTabButtonMember(
-                                    frame, GetBottomTabs(frame),
+                            {
+                                id = textID,
+                                kind = "TEXT",
+                                role = "SECONDARY",
+                                label = "Text",
+                                target = text,
+                                appearanceWindowID = IDs.Scope,
+                                appearanceID = textID,
+                                appearanceParentID =
+                                    IDs.BottomTabsText,
+                                selectionParticipant = true,
+                                tightTextBounds = true,
+                                refreshAppearance = function(
                                     element, member, change)
-                            end,
-                            refreshComponentAppearance = function(
-                                element, member, change)
-                                return RefreshBottomTabButtonMember(
-                                    frame, GetBottomTabs(frame),
-                                    element, member, change)
-                            end,
-                            refreshAppearance = function(
-                                element, member, change)
-                                return RefreshBottomTabButtonMember(
-                                    frame, GetBottomTabs(frame),
-                                    element, member, change)
-                            end,
-                            refreshStateAppearance = function(
-                                element, member)
-                                return RefreshBottomTabButtonMember(
-                                    frame, GetBottomTabs(frame),
-                                    element, member)
-                            end,
+                                    return RefreshBottomTabMember(
+                                        frame, GetBottomTabs(frame),
+                                        element, member, change, "TEXT")
+                                end,
+                            },
                         },
                     },
-                },
-                highlightMode = "REGIONS",
-                highlightRegions = function()
-                    return GetBottomTabs(frame)
-                end,
-                pixelBorderTargets = function()
-                    return GetBottomTabs(frame)
-                end,
-                refreshAppearance = function()
-                    local currentTabs = GetBottomTabs(frame)
-                    local element =
-                        NSkin:GetSkinningElement(IDs.BottomTabs)
-                    local surfaceMember = element
-                        and NSkin:GetCompositeMember(
-                            element, IDs.BottomTabsSurface)
-                    local tabMember = element
-                        and NSkin:GetCompositeMember(
-                            element, IDs.BottomTabsText)
-                    local surfaceApplied = surfaceMember
-                        and RefreshBottomTabSurfaceMember(
-                            frame, currentTabs, element, surfaceMember)
-                    local tabApplied = tabMember
-                        and RefreshBottomTabButtonMember(
-                            frame, currentTabs, element, tabMember)
-                    return surfaceApplied == true
-                        and tabApplied == true
-                end,
-                refreshLayout = function(_, element)
-                    local refreshed = element.refreshAppearance(
-                        NSkin, element)
-                    NSkin:NotifySkinningElementBoundsChanged(
-                        IDs.BottomTabs)
-                    return refreshed == true
-                end,
-                isEditable = function()
-                    return frame:IsVisible()
-                        and tabs[1]:IsVisible()
-                end,
-            }) == true
-    end
+                    highlightRegions = { tab },
+                    pixelBorderTargets = { tab },
+                    refreshAppearance = function(_, element)
+                        local surfaceMember = NSkin:GetCompositeMember(
+                            element, surfaceID)
+                        local textMember = NSkin:GetCompositeMember(
+                            element, textID)
+                        local surfaceApplied = surfaceMember
+                            and SkinBottomTabSurfaceTarget(
+                                frame, GetBottomTabs(frame),
+                                element, surfaceMember, tab)
+                        local textApplied = textMember
+                            and SkinBottomTabTextTarget(
+                                frame, GetBottomTabs(frame),
+                                element, textMember, tab)
+                        return surfaceApplied == true
+                            and textApplied == true
+                    end,
+                    refreshLayout = function(_, element)
+                        local refreshed = element.refreshAppearance(
+                            NSkin, element)
+                        NSkin:NotifySkinningElementBoundsChanged(stableID)
+                        return refreshed == true
+                    end,
+                    isEditable = function()
+                        return frame:IsVisible() and tab:IsVisible()
+                    end,
+                }) == true
+        end
 
-    local element = NSkin:GetSkinningElement(IDs.BottomTabs)
-    local surfaceMember = element and NSkin:GetCompositeMember(
-        element, IDs.BottomTabsSurface)
-    local tabMember = element and NSkin:GetCompositeMember(
-        element, IDs.BottomTabsText)
-    if surfaceMember and tabMember then
-        for _, stateID in ipairs({ "Selected", "Unselected" }) do
-            local surfaceState =
-                GetBottomTabStateDefinition(surfaceMember, stateID)
-            local tabState =
-                GetBottomTabStateDefinition(tabMember, stateID)
-            if surfaceState and tabState
-                and surfaceState.appearanceID and tabState.appearanceID
-            then
-                NSkin:RegisterAppearanceParentID(
-                    tabState.appearanceID,
-                    surfaceState.appearanceID,
-                    element.id)
-            end
+        local element = stableID
+            and NSkin:GetSkinningElement(stableID)
+        local surfaceMember = element
+            and NSkin:GetCompositeMember(element, surfaceID)
+        local textMember = element
+            and NSkin:GetCompositeMember(element, textID)
+        local surfaceApplied = surfaceMember
+            and SkinBottomTabSurfaceTarget(
+                frame, tabs, element, surfaceMember, tab)
+        local textApplied = textMember
+            and SkinBottomTabTextTarget(
+                frame, tabs, element, textMember, tab)
+        applied = (surfaceApplied == true and textApplied == true)
+            or applied
+
+        HookRefresh(tab)
+        if stableID and tabsRegistered[stableID] then
+            NSkin:NotifySkinningElementBoundsChanged(stableID)
         end
     end
-    local surfaceApplied = surfaceMember
-        and RefreshBottomTabSurfaceMember(
-            frame, tabs, element, surfaceMember)
-    local tabApplied = tabMember
-        and RefreshBottomTabButtonMember(
-            frame, tabs, element, tabMember)
-
-    for _, tab in ipairs(tabs) do HookRefresh(tab) end
-    if tabsRegistered then
-        NSkin:NotifySkinningElementBoundsChanged(IDs.BottomTabs)
+    local bottomSurface = GetTabCollectionSurface(
+        frame, "groupFinderBottomTabsContainerSurface", tabs)
+    if bottomSurface then
+        SkinTabCollectionSurface(
+            bottomSurface, IDs.BottomTabsSurface,
+            "NSkinGroupFinderBottomTabsContainerBackground")
     end
-    return tabsRegistered and surfaceApplied == true
-        and tabApplied == true
+    if not bottomTabsContainerRegistered and bottomSurface then
+        bottomTabsContainerRegistered = NSkin:RegisterOffsetContainer({
+                id = IDs.BottomTabs,
+                module = "GroupFinder",
+                appearanceWindowID = IDs.Scope,
+                label = "Bottom Tabs",
+                window = frame,
+                priority = 49,
+                draggable = false,
+                appearanceStyles = { "button" },
+                editorOptions = {
+                    {
+                        id = "shared.movable",
+                        label = "Position",
+                        presentation = "INLINE",
+                        contextualInline = true,
+                        category = "POSITION",
+                    },
+                    {
+                        id = "shared.containerLayout",
+                        label = "Layout",
+                        presentation = "INLINE",
+                        contextualInline = true,
+                        category = "LAYOUT",
+                    },
+                },
+                composition = {
+                    mode = "CONTAINER",
+                    movementStrategy = "OFFSET_ROOTS",
+                    defaultDirection = "HORIZONTAL",
+                    roots = function()
+                        return GetBottomTabs(frame, true)
+                    end,
+                    surface = {
+                        appearanceID = IDs.BottomTabsSurface,
+                        appearanceParentID = IDs.BottomTabs,
+                        appearanceWindowID = IDs.Scope,
+                        surfaceAppearanceKey = "button",
+                        includeGeometry = false,
+                        target = bottomSurface,
+                        refreshAppearance = function()
+                            local currentTabs =
+                                GetBottomTabs(frame, true)
+                            local currentSurface =
+                                GetTabCollectionSurface(
+                                    frame,
+                                    "groupFinderBottomTabsContainerSurface",
+                                    currentTabs)
+                            return SkinTabCollectionSurface(
+                                currentSurface,
+                                IDs.BottomTabsSurface,
+                                "NSkinGroupFinderBottomTabsContainerBackground")
+                        end,
+                    },
+                    children = {
+                        IDs.BottomTabDungeonsAndRaids,
+                        IDs.BottomTabPlayerVsPlayer,
+                        IDs.BottomTabMythicPlus,
+                    },
+                },
+                highlightRegions = { bottomSurface },
+                pixelBorderTargets = { bottomSurface },
+                refreshAppearance = function()
+                    local currentTabs = GetBottomTabs(frame, true)
+                    local surface = GetTabCollectionSurface(
+                        frame, "groupFinderBottomTabsContainerSurface",
+                        currentTabs)
+                    return SkinTabCollectionSurface(
+                        surface, IDs.BottomTabsSurface,
+                        "NSkinGroupFinderBottomTabsContainerBackground")
+                end,
+                isEditable = function()
+                    return frame:IsVisible() and bottomSurface:IsVisible()
+                end,
+            }) ~= nil
+    end
+
+    if bottomTabsContainerRegistered then
+        NSkin:RefreshOffsetContainer(IDs.BottomTabs)
+    end
+
+    return applied
 end
 
 function PVESkin:HookDungeonScrollBoxes()

@@ -936,6 +936,39 @@ RegisterSurfaceAppearanceGroup("shared.surfaceHighlight",
         hoverAlpha = true,
     })
 
+NSkin:RegisterOptionGroup("shared.containerLayout", {
+    controls = {
+        {
+            type = "MIXED_PAIR", order = 1,
+            left = {
+                type = "DROPDOWN", key = "direction",
+                label = "Direction",
+                values = {
+                    { value = "HORIZONTAL", label = "Horizontal" },
+                    { value = "VERTICAL", label = "Vertical" },
+                },
+            },
+            right = {
+                type = "SLIDER", key = "spacing",
+                label = "Spacing", min = -100, max = 200,
+                step = 1, decimals = 0, suffix = " px",
+            },
+        },
+    },
+    get = function(context)
+        return NSkin:GetContainerLayout(context) or {
+            direction = "VERTICAL",
+            spacing = 0,
+        }
+    end,
+    set = function(context, values)
+        return NSkin:SetContainerLayout(context, values)
+    end,
+    reset = function(context)
+        return NSkin:ResetContainerLayout(context)
+    end,
+})
+
 local sectionCardAppearanceControls = {
     { type = "SECTION", label = "Card", order = 10 },
     {

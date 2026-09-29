@@ -442,6 +442,54 @@ changing the Composite ID, member IDs, or stable exact-target IDs. Layout choice
 such as horizontal versus vertical orientation remain normal Composite layout
 metadata unless they intentionally define a separate global style family.
 
+
+
+## 7.6 Selectable Composite Items
+
+Selection is reusable Composite behavior, not an atomic visual component type.
+
+A Composite that represents mutually selectable runtime items may declare a
+`selection` contract. The contract owns the logical runtime state (for example
+`Selected` / `Unselected`) and maps each participating atomic member target
+back to its logical item. Atomic members opt in with
+`selectionParticipant = true`.
+
+Conceptually:
+
+```text
+Selectable Composite
+├─ Item Surface (BUTTON)
+├─ Item Icon (ICON, optional)
+└─ Item Text (TEXT, optional)
+
+runtime item A -> Selected
+runtime item B -> Unselected
+runtime item C -> Unselected
+```
+
+The selection contract supplies the state once for the logical item; Surface,
+Icon, Text, and other participating atoms resolve that same state independently.
+Window adapters remain responsible only for mapping Blizzard targets to the
+logical item and reporting the runtime selection. They must not duplicate
+Selected/Unselected state tables on every member.
+
+State-scoped appearance is layered as:
+
+```text
+atomic family appearance
+-> atomic family state appearance
+-> exact runtime target state appearance
+```
+
+The exact runtime target keeps its stable base identity; state is an appearance
+layer appended to that identity. This lets visually different controls share
+the same selection behavior without creating specialized atomic types such as
+`SIDE_TAB`, `ICON_TAB`, or `TEXT_TAB`.
+
+Selection does not imply a particular visual composition. A text-only tab and
+an icon/card navigation item may therefore use the same selectable behavior
+while exposing different atomic members.
+
 ---
 
 # 8. CONTAINER
@@ -471,6 +519,63 @@ Container children retain:
 - their own atomic/Composite structure
 - their own canonical options
 - their own reset ownership
+
+A Container may also own a Surface when the collection itself has a meaningful
+editable visual envelope. That Surface is distinct from the Surfaces owned by
+its children. Container-level layout controls such as spacing may be added to
+the Container without turning child appearance into Container appearance.
+
+Container placement belongs to the Container, not to its Surface. When a
+Container exposes X/Y placement, those controls are zero-based group offsets:
+Blizzard layout is `0 / 0`, and changing them translates the registered
+runtime roots/children together. Native root chains must move as one group:
+when one registered root is anchored to another registered root, the group
+offset is applied only at the external/root anchor rather than accumulated
+again on each dependent child. The Container Surface follows those moved roots.
+Surface-local X/Y must not be used as a substitute for Container movement.
+
+An ordered Container may also expose direction and spacing. Native Blizzard
+anchors remain authoritative until the user creates a layout override. Once
+overridden, the Container may reflow its current runtime roots horizontally or
+vertically with the requested spacing; reset restores the captured Blizzard
+arrangement.
+
+Container Surface appearance has its own canonical appearance identity and
+must use the shared Surface editor contract. A Surface-only edit refreshes that
+Surface directly; it must not require re-skinning the Container children or
+falling back to a full module/window refresh.
+
+Declared children describe the stable structural family, not an assumption
+that every child exists or is available at runtime. Conditional Blizzard
+children such as tabs may be absent or hidden for a character; bounds,
+presentation surfaces, and runtime iteration must use the currently available
+children while preserving stable IDs for children that later become available.
+
+Container Docked Window navigation mirrors the registered structure without
+flattening child identity.
+
+Repeated structurally equivalent Composites may declare a stable `familyID`
+(and optional `familyLabel`). A Container with one Composite family exposes
+that family's shared member/appearance families directly beside the Container
+entry. A Container with multiple Composite families exposes those families
+first; selecting one drills into that family's members while retaining a route
+back to the Container. A Composite without an explicit `familyID` is its own
+family.
+
+Direct non-Composite children remain independent editor objects and are exposed
+alongside Composite families. If a direct child has its own semantic parts, its
+editor may replace the same primary Docked Window navigation row with those
+parts rather than stacking another peer navigation row. State navigation is a
+secondary layer beneath the selected part when needed.
+
+Dock navigation is presentation metadata only. It must not merge canonical
+IDs, appearance identities, reset ownership, or structural relationships.
+
+Structural ownership is also independent of movement ownership. A child that
+moves indirectly because Blizzard anchors it inside a Container's runtime
+movement root must still be registered as a Container child when it belongs to
+that structure; incidental movement is not a substitute for declaring the
+parent-child relationship.
 
 A Container does not flatten children into one component or one Composite.
 
@@ -626,6 +731,22 @@ NSkin defaults
 
 Lower-level overrides remain sparse. An exact target override changes only the selected properties and inherits all non-overridden values from its shared parent identity.
 
+Composite members in separate Composite instances may intentionally share the
+same appearance parent. That parent is an appearance family, not a structural
+group: editing the family affects every member that inherits from it, while
+exact-member overrides remain local. Stateful members extend the same chain per
+state, so a shared family such as tab Text may have shared Selected/Unselected
+appearance without collapsing the individual tab Composites.
+
+When those sibling Composites are children of the same Container, editor focus
+on a shared member family is also collective: selecting Text, Icon, or Surface
+on one child selects/highlights the same inherited member family on the other
+children that still inherit it. Shared member X/Y belongs to that same family,
+so moving non-overridden Text/Icon content moves the family across sibling
+Composites rather than only the clicked child. Exact overrides remain
+individually focused. The dock member label describes the member family and
+therefore does not change when the selected appearance state changes.
+
 Composition does not create an implicit visual schema. Composite members retain their canonical appearance identities, while Surface uses the visual style owned by its Composite.
 
 For repeated or pooled families, persistent customization must follow a stable semantic target identity rather than the recycled frame object or viewport position. The shared family appearance remains authoritative unless an explicit exact-target exception exists.
@@ -639,6 +760,13 @@ Editor grouping and appearance grouping remain separate concerns.
 Canonical option definitions belong with shared component/capability infrastructure, not in individual window adapters.
 
 The Docked Window consumes those canonical definitions rather than reconstructing reduced copies.
+
+Dock navigation follows composition structure. Contextual drill-down reuses the
+primary navigation row: selecting a Composite family or a structured direct
+child replaces peer Container entries with that object's member/part entries,
+while preserving a route to the Container. Secondary state selectors may appear
+beneath that row, but equivalent peer navigation must not be duplicated in a
+second row.
 
 For a Composite, the Docked Window exposes one group context plus one entry
 per canonical member/appearance family. Repeated runtime targets that share the
@@ -664,6 +792,7 @@ COMPOSITE
 
 CONTAINER
 → parent structural controls where relevant
+→ hierarchical child/family navigation
 → independently addressable child options
 
 EDITOR_GROUP

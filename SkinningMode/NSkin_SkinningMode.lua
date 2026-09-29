@@ -946,6 +946,48 @@ local function EnsureCompositeMemberSurface(element, member, surfaceKey)
     return surface
 end
 
+local function GetFocusedCompositeFamilySource(element, member)
+    if not controller or not element or not member then return nil end
+    local selectedElement = controller.selectedElement
+    local selectedMember = selectedElement
+        and controller.focusedCompositeMemberID
+        and NSkin:GetCompositeMember(
+            selectedElement, controller.focusedCompositeMemberID)
+    if not selectedElement or not selectedMember then return nil end
+
+    if selectedElement == element and selectedMember == member then
+        return selectedElement, selectedMember
+    end
+
+    local runtimeTarget = controller.focusedCompositeRuntimeTarget
+    if runtimeTarget
+        and NSkin:HasCompositeMemberOverride(
+            selectedElement, selectedMember, runtimeTarget)
+    then
+        return nil
+    end
+
+    if NSkin:CompositeMembersShareContainerFamily(
+        selectedElement, selectedMember, element, member)
+    then
+        return selectedElement, selectedMember
+    end
+end
+
+local function RefreshCompositeMemberFamilySurfaces(element, memberID)
+    if not RefreshCompositeMemberSurfaces or not element or not memberID then
+        return
+    end
+    local member = NSkin:GetCompositeMember(element, memberID)
+    if not member then return end
+    for _, entry in ipairs(
+        NSkin:GetContainerCompositeMemberFamily(element, member) or {})
+    do
+        RefreshOverlayAppearance(entry.element)
+        RefreshCompositeMemberSurfaces(entry.element)
+    end
+end
+
 RefreshCompositeMemberSurfaces = function(element)
     if not controller or not element then return end
     local composition = element.composition
@@ -1006,17 +1048,20 @@ RefreshCompositeMemberSurfaces = function(element)
         end
 
         local attached = NSkin:IsCompositeMemberAttached(element, member)
-        local focusedMember = selected
-            and controller.focusedCompositeMemberID == member.id
+        local focusedElement, focusedSourceMember =
+            GetFocusedCompositeFamilySource(element, member)
+        local focusedMember = focusedElement ~= nil
         local focusedRuntimeTarget =
-            focusedMember and controller.focusedCompositeRuntimeTarget or nil
+            focusedElement == element and focusedMember
+                and controller.focusedCompositeRuntimeTarget or nil
         local focusedRuntimeOverride = focusedRuntimeTarget
             and NSkin:HasCompositeMemberOverride(
                 element, member, focusedRuntimeTarget)
         local targetOverride = target
             and NSkin:HasCompositeMemberOverride(element, member, target)
         local editorStateID = focusedMember and target
-            and NSkin:GetCompositeMemberEditorState(element, member)
+            and NSkin:GetCompositeMemberEditorState(
+                focusedElement, focusedSourceMember)
         local targetStateID = editorStateID and target
             and NSkin:GetCompositeMemberRuntimeState(
                 element, member, target)
@@ -1466,14 +1511,19 @@ SelectElement = function(element, memberID, runtimeTarget)
     if previous ~= element or previousMember ~= controller.focusedCompositeMemberID then
         controller.dockedWindow:ResetScroll()
     end
-    if previous and previous ~= element then
+    if previous and previousMember then
+        RefreshCompositeMemberFamilySurfaces(previous, previousMember)
+    elseif previous and previous ~= element then
         RefreshOverlayAppearance(previous)
         if RefreshCompositeMemberSurfaces then
             RefreshCompositeMemberSurfaces(previous)
         end
     end
     RefreshOverlayAppearance(element)
-    if RefreshCompositeMemberSurfaces then
+    if controller.focusedCompositeMemberID then
+        RefreshCompositeMemberFamilySurfaces(
+            element, controller.focusedCompositeMemberID)
+    elseif RefreshCompositeMemberSurfaces then
         RefreshCompositeMemberSurfaces(element)
     end
     RefreshWindowFallbackAppearance(element.window)
@@ -1495,6 +1545,15 @@ function NSkin:SelectSkinningCompositeMember(
         return false
     end
     SelectElement(element, memberID, runtimeTarget)
+    return true
+end
+
+function NSkin:SelectSkinningElement(elementOrID)
+    if not controller or not controller.enabled then return false end
+    local element = type(elementOrID) == "table" and elementOrID
+        or self:GetSkinningElement(elementOrID)
+    if not element then return false end
+    SelectElement(element)
     return true
 end
 
@@ -2698,9 +2757,7 @@ function NSkin:RefreshSkinningCompositeMemberEditor(
     end
     controller.dockedWindow:Refresh(element, memberID)
     RefreshOverlayAppearance(element)
-    if RefreshCompositeMemberSurfaces then
-        RefreshCompositeMemberSurfaces(element)
-    end
+    RefreshCompositeMemberFamilySurfaces(element, memberID)
     if self.RefreshSkinningDebugInspector then
         self:RefreshSkinningDebugInspector(
             element, controller.dockedWindow.frame)

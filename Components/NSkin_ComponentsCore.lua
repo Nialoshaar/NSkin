@@ -1407,6 +1407,24 @@ function NSkin:RefreshAppearance(change)
             return
         end
         if not element
+            and type(self.RefreshContainerSurfaceAppearance) == "function"
+            and self:RefreshContainerSurfaceAppearance(change)
+        then
+            if self.RefreshSkinningModeAppearance then
+                self:RefreshSkinningModeAppearance(change)
+            end
+            return
+        end
+        if not element
+            and type(self.RefreshCompositeAppearanceFamily) == "function"
+            and self:RefreshCompositeAppearanceFamily(change)
+        then
+            if self.RefreshSkinningModeAppearance then
+                self:RefreshSkinningModeAppearance(change)
+            end
+            return
+        end
+        if not element
             and type(self.RefreshCompositeMemberStateAppearance) == "function"
             and self:RefreshCompositeMemberStateAppearance(change)
         then
@@ -2682,10 +2700,110 @@ local EDITOR_PRESETS = {
             headerToggleKey = "showHighlight" },
     },
     SCROLLBAR = {
-        { id = "shared.movable", label = "Position",
-            presentation = "INLINE", category = "POSITION" },
-        { id = "shared.scrollBarAppearance", label = "Scrollbar",
-            category = "CUSTOMIZE" },
+        {
+            id = "scrollBar.navigation",
+            label = "Scrollbar",
+            presentation = "NAV_TABS",
+            tabs = {
+                {
+                    id = "Surface",
+                    label = "Surface",
+                    groups = {
+                        {
+                            id = "shared.movable",
+                            label = "Position",
+                            presentation = "INLINE",
+                            contextualInline = true,
+                            category = "POSITION",
+                        },
+                        {
+                            id = "shared.surfaceBackground",
+                            label = "Background",
+                            category = "CUSTOMIZE",
+                            contextualInline = false,
+                            headerToggleKey = "showBackground",
+                        },
+                        {
+                            id = "shared.surfaceBorder",
+                            label = "Border",
+                            category = "CUSTOMIZE",
+                            contextualInline = false,
+                            headerToggleKey = "showBorder",
+                        },
+                        {
+                            id = "shared.surfaceHighlight",
+                            label = "Highlight",
+                            category = "CUSTOMIZE",
+                            contextualInline = false,
+                            headerToggleKey = "showHighlight",
+                        },
+                    },
+                },
+                {
+                    id = "Bar",
+                    label = "Bar",
+                    groups = {
+                        {
+                            id = "shared.scrollBarBar",
+                            presentation = "INLINE",
+                            contextualInline = true,
+                            category = "CUSTOMIZE",
+                        },
+                    },
+                },
+                {
+                    id = "Thumb",
+                    label = "Thumb",
+                    groups = {
+                        {
+                            id = "shared.scrollBarThumb",
+                            presentation = "INLINE",
+                            contextualInline = true,
+                            category = "CUSTOMIZE",
+                        },
+                    },
+                },
+                {
+                    id = "Arrow",
+                    label = "Arrow",
+                    tabs = {
+                        {
+                            id = "All",
+                            label = "All",
+                            groups = {
+                                {
+                                    id = "shared.scrollBarArrowAll",
+                                    presentation = "INLINE",
+                                    contextualInline = true,
+                                },
+                            },
+                        },
+                        {
+                            id = "Disabled",
+                            label = "Disabled",
+                            groups = {
+                                {
+                                    id = "shared.scrollBarArrowDisabled",
+                                    presentation = "INLINE",
+                                    contextualInline = true,
+                                },
+                            },
+                        },
+                        {
+                            id = "Enabled",
+                            label = "Enabled",
+                            groups = {
+                                {
+                                    id = "shared.scrollBarArrowEnabled",
+                                    presentation = "INLINE",
+                                    contextualInline = true,
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        },
     },
     SLIDER = {
         { id = "shared.movable", label = "Position",
@@ -2835,7 +2953,8 @@ local SHARED_TYPE_DEFINITIONS = {
     ICON = { style = "icon", skin = "SkinIcon", editorPreset = "ICON",
         preserveAnchorSpan = true, surfaceCapability = true },
     SCROLLBAR = { style = "scrollBar", skin = "SkinScrollBar",
-        editorPreset = "SCROLLBAR", preserveAnchorSpan = true },
+        editorPreset = "SCROLLBAR", preserveAnchorSpan = true,
+        surfaceCapability = true },
     SECTION_HEADER = { style = "sectionHeader", editorPreset = "SECTION_HEADERS" },
     SECTION_HEADERS = { style = "sectionHeader", editorPreset = "SECTION_HEADERS" },
     SECTION_CARD = { style = "sectionCard", skin = "SkinSectionCard",

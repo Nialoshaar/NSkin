@@ -190,49 +190,171 @@ end
 -- definitions for the inspector, but do not expose placement globally.
 
 end
-NSkin:RegisterOptionGroup("shared.scrollBarAppearance", {
+local function GetScrollBarStyle(context)
+    return NSkin:GetAppearanceStyle(
+        "scrollBar", GetAppearanceWindowID(context), context.id)
+end
+
+local function SetScrollBarValues(context, values, keys)
+    local changed
+    for _, key in ipairs(keys) do
+        if values[key] ~= nil then
+            changed = SetElementValue(
+                context, "scrollBar." .. key, values[key]) or changed
+        end
+    end
+    return changed == true
+end
+
+local function ResetScrollBarKeys(context, keys)
+    local paths = {}
+    for _, key in ipairs(keys) do
+        paths[#paths + 1] = "scrollBar." .. key
+    end
+    return ResetElementPaths(context, paths)
+end
+
+NSkin:RegisterOptionGroup("shared.scrollBarBar", {
     controls = {
         {
-            type = "COLOR_PAIR", order = 1,
-            left = { type = "COLOR", key = "track", modeKey = "trackMode",
-                label = "Bar" },
-            right = { type = "COLOR", key = "thumb", modeKey = "thumbMode",
-                label = "Thumb" },
+            type = "COLOR", key = "track", modeKey = "trackMode",
+            label = "Color", order = 1,
         },
         {
-            type = "COLOR", key = "arrow", modeKey = "arrowMode",
-            label = "Arrows", order = 2,
+            type = "SLIDER_PAIR", order = 2, centerReset = true,
+            resetSubset = true,
+            resetTooltip = "Reset bar size and opacity",
+            left = { key = "trackSize", label = "Size",
+                min = 1, max = 20, step = 1, decimals = 0,
+                suffix = " px", resetValue = 2 },
+            right = { key = "trackOpacity", label = "Opacity",
+                min = 0, max = 1, step = 0.05, decimals = 2,
+                resetValue = 1 },
         },
     },
     get = function(context)
-        local style = NSkin:GetAppearanceStyle(
-            "scrollBar", GetAppearanceWindowID(context), context.id)
+        local style = GetScrollBarStyle(context)
         return {
             track = CopyColor(style.track), trackMode = style.trackMode,
-            thumb = CopyColor(style.thumb), thumbMode = style.thumbMode,
-            arrow = CopyColor(style.arrow), arrowMode = style.arrowMode,
+            trackSize = tonumber(style.trackSize) or 2,
+            trackOpacity = tonumber(style.trackOpacity) or 1,
         }
     end,
     set = function(context, values)
-        local changed
-        for _, key in ipairs({ "track", "trackMode", "thumb", "thumbMode",
-            "arrow", "arrowMode" })
-        do
-            if values[key] ~= nil then
-                changed = SetElementValue(
-                    context, "scrollBar." .. key, values[key]) or changed
-            end
-        end
-        return changed == true
+        return SetScrollBarValues(context, values, {
+            "track", "trackMode", "trackSize", "trackOpacity",
+        })
     end,
     reset = function(context)
-        return ResetElementPaths(context, {
-            "scrollBar.track", "scrollBar.trackMode",
-            "scrollBar.thumb", "scrollBar.thumbMode",
-            "scrollBar.arrow", "scrollBar.arrowMode",
+        return ResetScrollBarKeys(context, {
+            "track", "trackMode", "trackSize", "trackOpacity",
         })
     end,
 })
+
+NSkin:RegisterOptionGroup("shared.scrollBarThumb", {
+    controls = {
+        {
+            type = "COLOR", key = "thumb", modeKey = "thumbMode",
+            label = "Color", order = 1,
+        },
+        {
+            type = "SLIDER_PAIR", order = 2, centerReset = true,
+            resetSubset = true,
+            resetTooltip = "Reset thumb size and opacity",
+            left = { key = "thumbSize", label = "Size",
+                min = 1, max = 30, step = 1, decimals = 0,
+                suffix = " px", resetValue = 6 },
+            right = { key = "thumbOpacity", label = "Opacity",
+                min = 0, max = 1, step = 0.05, decimals = 2,
+                resetValue = 1 },
+        },
+        {
+            type = "SLIDER_PAIR", order = 3, centerReset = true,
+            resetSubset = true,
+            resetTooltip = "Reset thumb offsets",
+            left = { key = "thumbOffsetX", label = "X offset",
+                min = -30, max = 30, step = 1, decimals = 0,
+                suffix = " px", resetValue = 0 },
+            right = { key = "thumbOffsetY", label = "Y offset",
+                min = -30, max = 30, step = 1, decimals = 0,
+                suffix = " px", resetValue = 0 },
+        },
+    },
+    get = function(context)
+        local style = GetScrollBarStyle(context)
+        return {
+            thumb = CopyColor(style.thumb), thumbMode = style.thumbMode,
+            thumbSize = tonumber(style.thumbSize) or 6,
+            thumbOpacity = tonumber(style.thumbOpacity) or 1,
+            thumbOffsetX = tonumber(style.thumbOffsetX) or 0,
+            thumbOffsetY = tonumber(style.thumbOffsetY) or 0,
+        }
+    end,
+    set = function(context, values)
+        return SetScrollBarValues(context, values, {
+            "thumb", "thumbMode", "thumbSize", "thumbOpacity",
+            "thumbOffsetX", "thumbOffsetY",
+        })
+    end,
+    reset = function(context)
+        return ResetScrollBarKeys(context, {
+            "thumb", "thumbMode", "thumbSize", "thumbOpacity",
+            "thumbOffsetX", "thumbOffsetY",
+        })
+    end,
+})
+
+local function RegisterScrollBarArrowStateGroup(
+    id, colorKey, modeKey, opacityKey, fallbackColorKey,
+    fallbackModeKey, fallbackOpacity)
+    NSkin:RegisterOptionGroup(id, {
+        controls = {
+            {
+                type = "COLOR", key = colorKey, modeKey = modeKey,
+                label = "Color", order = 1,
+            },
+            {
+                type = "SLIDER", key = opacityKey, label = "Opacity",
+                min = 0, max = 1, step = 0.05, decimals = 2,
+                order = 2, resetValue = fallbackOpacity,
+            },
+        },
+        get = function(context)
+            local style = GetScrollBarStyle(context)
+            return {
+                [colorKey] = CopyColor(
+                    style[colorKey] or style[fallbackColorKey]),
+                [modeKey] = style[modeKey] or style[fallbackModeKey],
+                [opacityKey] = tonumber(style[opacityKey])
+                    or fallbackOpacity,
+            }
+        end,
+        set = function(context, values)
+            return SetScrollBarValues(context, values, {
+                colorKey, modeKey, opacityKey,
+            })
+        end,
+        reset = function(context)
+            return ResetScrollBarKeys(context, {
+                colorKey, modeKey, opacityKey,
+            })
+        end,
+    })
+end
+
+RegisterScrollBarArrowStateGroup(
+    "shared.scrollBarArrowAll",
+    "arrow", "arrowMode", "arrowOpacity",
+    "arrow", "arrowMode", 1)
+RegisterScrollBarArrowStateGroup(
+    "shared.scrollBarArrowDisabled",
+    "arrowDisabled", "arrowDisabledMode", "arrowDisabledOpacity",
+    "arrow", "arrowMode", 0.35)
+RegisterScrollBarArrowStateGroup(
+    "shared.scrollBarArrowEnabled",
+    "arrowEnabled", "arrowEnabledMode", "arrowEnabledOpacity",
+    "arrow", "arrowMode", 1)
 
 local sideTabResetPaths = {
     width = "sideTab.width",

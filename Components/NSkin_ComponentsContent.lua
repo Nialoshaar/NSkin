@@ -4083,21 +4083,33 @@ function NSkin:ApplyGlobalTypography(frame)
     local function Apply(target)
         if target.GetObjectType and target:GetObjectType() == "FontString" then
             local currentFont, currentSize, currentOutline = target:GetFont()
-            target:SetFont(font or currentFont, size or currentSize,
-                outline ~= nil and outline or currentOutline)
+            local resolvedFont = font or currentFont
+            local resolvedSize = tonumber(size or currentSize)
+            if resolvedFont and resolvedSize and resolvedSize > 0 then
+                target:SetFont(resolvedFont, resolvedSize,
+                    outline ~= nil and outline or currentOutline)
+            end
         elseif target.GetObjectType and target:GetObjectType() == "EditBox"
             and target.SetFont
         then
             local currentFont, currentSize, currentOutline = target:GetFont()
-            target:SetFont(font or currentFont, size or currentSize,
-                outline ~= nil and outline or currentOutline)
+            local resolvedFont = font or currentFont
+            local resolvedSize = tonumber(size or currentSize)
+            if resolvedFont and resolvedSize and resolvedSize > 0 then
+                target:SetFont(resolvedFont, resolvedSize,
+                    outline ~= nil and outline or currentOutline)
+            end
         end
         if target.GetRegions then
             for _, region in ipairs({ target:GetRegions() }) do
                 if region.GetObjectType and region:GetObjectType() == "FontString" then
                     local currentFont, currentSize, currentOutline = region:GetFont()
-                    region:SetFont(font or currentFont, size or currentSize,
-                        outline ~= nil and outline or currentOutline)
+                    local resolvedFont = font or currentFont
+                    local resolvedSize = tonumber(size or currentSize)
+                    if resolvedFont and resolvedSize and resolvedSize > 0 then
+                        region:SetFont(resolvedFont, resolvedSize,
+                            outline ~= nil and outline or currentOutline)
+                    end
                 end
             end
         end

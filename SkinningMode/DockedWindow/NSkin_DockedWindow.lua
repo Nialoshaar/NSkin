@@ -98,27 +98,47 @@ local function ResetElementCustomizations(element)
     if not element then return false end
     local composition = element.composition
     local resetGroups = {}
-    local editorOptions = NSkin:GetCompositionEditorOptions(element)
-    if type(editorOptions) == "string" then
-        resetGroups[editorOptions] = element
-    elseif type(editorOptions) == "table" then
-        for i = 1, #editorOptions do
-            local definition = editorOptions[i]
-            local id = type(definition) == "table" and definition.id or definition
-            if type(definition) == "table" and type(definition.tabs) == "table" then
+    local function CollectResetGroups(definitions, context)
+        for _, definition in ipairs(definitions or {}) do
+            local id = type(definition) == "table"
+                and definition.id or definition
+            if type(definition) == "table"
+                and type(definition.tabs) == "table"
+            then
                 for _, tab in ipairs(definition.tabs) do
-                    local context = ResolveEditorContext(tab, element)
-                    for _, groupID in ipairs(tab.groups or { tab.id }) do
-                        if type(groupID) == "string" and context then
-                            NSkin:ResetOptionGroup(groupID, context)
+                    local tabContext = ResolveEditorContext(tab, context)
+                    if type(tab.tabs) == "table" then
+                        CollectResetGroups({
+                            {
+                                id = tostring(definition.id)
+                                    .. "." .. tostring(tab.id),
+                                tabs = tab.tabs,
+                            },
+                        }, tabContext)
+                    end
+                    for _, child in ipairs(tab.groups or {}) do
+                        local childID = type(child) == "table"
+                            and child.id or child
+                        local childContext = type(child) == "table"
+                            and ResolveEditorContext(child, tabContext)
+                            or tabContext
+                        if type(childID) == "string" and childContext then
+                            resetGroups[childID] = childContext
                         end
                     end
                 end
             elseif type(id) == "string" then
                 resetGroups[id] = type(definition) == "table"
-                    and ResolveEditorContext(definition, element) or element
+                    and ResolveEditorContext(definition, context) or context
             end
         end
+    end
+
+    local editorOptions = NSkin:GetCompositionEditorOptions(element)
+    if type(editorOptions) == "string" then
+        resetGroups[editorOptions] = element
+    elseif type(editorOptions) == "table" then
+        CollectResetGroups(editorOptions, element)
     end
     for id, context in pairs(resetGroups) do
         NSkin:ResetOptionGroup(id, context)
@@ -194,13 +214,6 @@ local function GetDockMemberLabel(element, member)
     end
     if member.editorSurface == true then return "Surface" end
 
-    local stateID, stateDefinition =
-        NSkin:GetCompositeMemberEditorState(element, member)
-    if stateID and stateDefinition then
-        return stateDefinition.selectedLabel
-            or ((stateDefinition.label or stateDefinition.id) .. " button")
-    end
-
     local memberLabel = member.editorLabel
     if not memberLabel then
         local labels = composition.memberEditorLabels
@@ -228,6 +241,16 @@ end
 
 local function GetDockSelectionLabel(element)
     if not element then return nil end
+    local parent = NSkin:GetCompositionContainerParent(element)
+    if parent then
+        local families = NSkin:GetContainerCompositeFamilies(parent) or {}
+        if #families > 1 then
+            return (parent.label or parent.id) .. " > "
+                .. (NSkin:GetCompositeFamilyLabel(element)
+                    or element.label or element.id)
+        end
+        return parent.label or parent.id
+    end
     local composition = element.composition
     if composition and composition.mode == "COMPOSITE" then
         return composition.groupLabel
@@ -251,11 +274,22 @@ local function GetCompositeDockMemberFamilyKey(member)
     return prefix .. "\031" .. tostring(owner)
 end
 
-local function GetCompositeDockMembers(element)
+local function GetCompositeDockMembers(element, includeContainer)
     local composition = element and element.composition
     if not composition or composition.mode ~= "COMPOSITE" then return {} end
 
     local result, seen = {}, {}
+    if includeContainer then
+        local parent = NSkin:GetCompositionContainerParent(element)
+        if parent then
+            result[#result + 1] = {
+                container = true,
+                label = "Container",
+                familyKey = "__CONTAINER",
+                element = parent,
+            }
+        end
+    end
     for _, member in ipairs(composition.members or {}) do
         local targets = NSkin:GetCompositionMemberTargets(
             element, member, false)
@@ -264,6 +298,7 @@ local function GetCompositeDockMembers(element)
         if familyKey and not seen[familyKey] then
             seen[familyKey] = true
             result[#result + 1] = {
+                element = element,
                 member = member,
                 familyKey = familyKey,
             }
@@ -271,6 +306,10 @@ local function GetCompositeDockMembers(element)
     end
 
     table.sort(result, function(left, right)
+        if left.container ~= right.container then
+            return left.container == true
+        end
+        if left.container then return false end
         local leftSurface = left.member.editorSurface == true
         local rightSurface = right.member.editorSurface == true
         if leftSurface ~= rightSurface then return leftSurface end
@@ -279,12 +318,126 @@ local function GetCompositeDockMembers(element)
     return result
 end
 
+local function GetElementDockNavigation(element)
+    local options = element and NSkin:GetCompositionEditorOptions(element)
+    if type(options) ~= "table" then return nil end
+    for _, definition in ipairs(options) do
+        if type(definition) == "table"
+            and definition.presentation == "NAV_TABS"
+            and type(definition.tabs) == "table"
+            and #definition.tabs > 0
+        then
+            return definition
+        end
+    end
+    return nil
+end
+
+local function GetDirectChildDockMembers(element, parent)
+    local definition = GetElementDockNavigation(element)
+    if not definition or not parent then return nil end
+
+    local key = element.id .. "\031" .. tostring(definition.id)
+    local selected = math.min(
+        state.selectedEditorSubtabs[key] or 1, #definition.tabs)
+    state.selectedEditorSubtabs[key] = selected
+
+    local result = {
+        {
+            container = true,
+            label = "Container",
+            familyKey = "__CONTAINER",
+            element = parent,
+        },
+    }
+    for index, tab in ipairs(definition.tabs) do
+        result[#result + 1] = {
+            editorNavigation = true,
+            label = tab.label or tab.id,
+            familyKey = "__EDITOR_NAV\031" .. tostring(tab.id),
+            element = element,
+            navigationKey = key,
+            navigationIndex = index,
+        }
+    end
+    return result, "__EDITOR_NAV\031"
+        .. tostring(definition.tabs[selected].id)
+end
+
+local function GetContainerDockMembers(element)
+    local composition = element and element.composition
+    if not composition or composition.mode ~= "CONTAINER" then return {} end
+
+    local families = NSkin:GetContainerCompositeFamilies(element) or {}
+    local directChildren = {}
+    for _, child in ipairs(NSkin:GetContainerChildren(element) or {}) do
+        local childComposition = child.composition
+        if not childComposition or childComposition.mode ~= "COMPOSITE" then
+            directChildren[#directChildren + 1] = child
+        end
+    end
+    if #families == 0 and #directChildren == 0 then return {} end
+
+    local result = {
+        {
+            container = true,
+            label = "Container",
+            familyKey = "__CONTAINER",
+            element = element,
+        },
+    }
+
+    if #families > 1 then
+        for _, family in ipairs(families) do
+            result[#result + 1] = {
+                compositeFamily = true,
+                label = family.label,
+                familyKey = "__COMPOSITE_FAMILY\031" .. tostring(family.id),
+                element = family.representative,
+            }
+        end
+    elseif #families == 1 then
+        local seen = {}
+        for _, child in ipairs(families[1].elements or {}) do
+            for _, entry in ipairs(GetCompositeDockMembers(child, false)) do
+                if not seen[entry.familyKey] then
+                    seen[entry.familyKey] = true
+                    result[#result + 1] = entry
+                end
+            end
+        end
+    end
+
+    for _, child in ipairs(directChildren) do
+        result[#result + 1] = {
+            directChild = true,
+            label = child.containerDockLabel or child.label or child.id,
+            familyKey = "__CHILD\031" .. tostring(child.id),
+            element = child,
+        }
+    end
+    return result
+end
+
 local function RefreshCompositeMemberTabs(element)
     local inspector = state.inspector
     local bar = inspector and inspector.memberTabs
     if not bar then return false end
 
-    local members = GetCompositeDockMembers(element)
+    local composition = element and element.composition
+    local parent = NSkin:GetCompositionContainerParent(element)
+    local members, directChildSelectedKey
+    if composition and composition.mode == "CONTAINER" then
+        members = GetContainerDockMembers(element)
+    elseif composition and composition.mode == "COMPOSITE" then
+        members = GetCompositeDockMembers(element, true)
+    elseif parent then
+        members, directChildSelectedKey =
+            GetDirectChildDockMembers(element, parent)
+        members = members or GetContainerDockMembers(parent)
+    else
+        members = {}
+    end
     if #members == 0 then
         bar:Hide()
         for _, button in ipairs(bar.buttons or {}) do button:Hide() end
@@ -293,8 +446,16 @@ local function RefreshCompositeMemberTabs(element)
     end
 
     local focused = GetContextualCompositeMember(element)
-    local selectedFamilyKey =
-        GetCompositeDockMemberFamilyKey(focused)
+    local selectedFamilyKey
+    if composition and composition.mode == "CONTAINER" then
+        selectedFamilyKey = "__CONTAINER"
+    elseif directChildSelectedKey then
+        selectedFamilyKey = directChildSelectedKey
+    elseif parent and (not composition or composition.mode ~= "COMPOSITE") then
+        selectedFamilyKey = "__CHILD\031" .. tostring(element.id)
+    else
+        selectedFamilyKey = GetCompositeDockMemberFamilyKey(focused)
+    end
     local totalWidth = math.max(1, (inspector:GetWidth() or 520) - 24)
     local buttonWidth = totalWidth / #members
 
@@ -310,22 +471,43 @@ local function RefreshCompositeMemberTabs(element)
             -- tab buttons. Keep label as the Docked Window's local handle.
             button.Text = button.label
             button:SetScript("OnClick", function(self)
-                local current = state.selectedElement
-                if not current or not self.memberID then return end
+                if self.editorNavigationTab then
+                    if self.navigationKey and self.navigationIndex then
+                        state.selectedEditorSubtabs[self.navigationKey] =
+                            self.navigationIndex
+                        RefreshInspector()
+                    end
+                    return
+                end
+                if self.containerTab or self.compositeFamilyTab
+                    or self.directChildTab
+                then
+                    if self.elementID and NSkin.SelectSkinningElement then
+                        NSkin:SelectSkinningElement(self.elementID)
+                    end
+                    return
+                end
+                if not self.memberID or not self.elementID then return end
                 NSkin:SelectSkinningCompositeMember(
-                    current, self.memberID, nil)
+                    self.elementID, self.memberID, nil)
             end)
             bar.buttons[index] = button
         end
 
         local selected = entry.familyKey == selectedFamilyKey
-        button.memberID = member.id
+        button.containerTab = entry.container == true
+        button.compositeFamilyTab = entry.compositeFamily == true
+        button.directChildTab = entry.directChild == true
+        button.editorNavigationTab = entry.editorNavigation == true
+        button.navigationKey = entry.navigationKey
+        button.navigationIndex = entry.navigationIndex
+        button.memberID = member and member.id or nil
+        button.elementID = entry.element and entry.element.id or nil
         button.familyKey = entry.familyKey
-        button.label:SetText(
-            member.editorSurface == true
-                and "Group"
-                or (GetDockMemberLabel(element, member)
-                    or member.label or member.id))
+        button.label:SetText(entry.label
+            or GetDockMemberLabel(entry.element or element, member)
+            or (member and (member.label or member.id))
+            or "Container")
         button:ClearAllPoints()
         button:SetPoint(
             "TOPLEFT", bar, "TOPLEFT",
@@ -430,13 +612,15 @@ local function RefreshHeaderActions(element)
     inspector.resetElement:SetShown(element ~= nil)
     if composite then
         local member = GetContextualCompositeMember(element)
-        local label = "Reset Surface"
-        if member and member.kind == "ICON" then
-            label = "Reset Icon"
-        elseif member and member.kind == "CHECKBOX" then
-            label = "Reset Checkbox"
-        elseif member and member.kind == "TEXT" then
-            label = "Reset Text"
+        local label = member and member.resetLabel or "Reset Surface"
+        if not (member and member.resetLabel) then
+            if member and member.kind == "ICON" then
+                label = "Reset Icon"
+            elseif member and member.kind == "CHECKBOX" then
+                label = "Reset Checkbox"
+            elseif member and member.kind == "TEXT" then
+                label = "Reset Text"
+            end
         end
         NSkin:SkinFlatButton(inspector.resetElement, label, nil, nil, 12)
         inspector.resetElement.resetLabel = label
@@ -904,7 +1088,6 @@ local function LoadEditorOptions(element)
             section.overrideListView:Hide()
         end
     end
-
     local editorOptions = memberOptions
         or NSkin:GetCompositionEditorOptions(element)
     if not editorOptions then
@@ -918,6 +1101,69 @@ local function LoadEditorOptions(element)
         groups = editorOptions
     end
     if not groups then groups = {} end
+
+    local navigationRows = {}
+    local function AppendNavigationGroups(
+        definitions, context, keyPrefix, output, depth)
+        depth = tonumber(depth) or 0
+        for _, definition in ipairs(definitions or {}) do
+            if type(definition) == "table"
+                and definition.presentation == "NAV_TABS"
+                and type(definition.tabs) == "table"
+                and #definition.tabs > 0
+            then
+                local key = keyPrefix .. "\031" .. tostring(definition.id)
+                local selected = math.min(
+                    state.selectedEditorSubtabs[key] or 1,
+                    #definition.tabs)
+                state.selectedEditorSubtabs[key] = selected
+                if depth > 0 then
+                    navigationRows[#navigationRows + 1] = {
+                        key = key,
+                        tabs = definition.tabs,
+                        selected = selected,
+                    }
+                end
+                local tab = definition.tabs[selected]
+                local tabContext = ResolveEditorContext(tab, context)
+                if type(tab.tabs) == "table" and #tab.tabs > 0 then
+                    AppendNavigationGroups({
+                        {
+                            id = tostring(definition.id)
+                                .. "." .. tostring(tab.id),
+                            presentation = "NAV_TABS",
+                            tabs = tab.tabs,
+                        },
+                    }, tabContext, key, output, depth + 1)
+                else
+                    for _, child in ipairs(tab.groups or {}) do
+                        if type(child) == "string" then
+                            output[#output + 1] = {
+                                id = child,
+                                context = tabContext,
+                            }
+                        elseif type(child) == "table" then
+                            local copy = {}
+                            for childKey, value in pairs(child) do
+                                copy[childKey] = value
+                            end
+                            if not copy.context and not copy.contextID then
+                                copy.context = tabContext
+                            end
+                            output[#output + 1] = copy
+                        end
+                    end
+                end
+            else
+                output[#output + 1] = definition
+            end
+        end
+    end
+
+    local resolvedGroups = {}
+    AppendNavigationGroups(
+        groups, element, element.id, resolvedGroups, 0)
+    groups = resolvedGroups
 
     local overrideEntries = {}
     if element and focusedMember then
@@ -987,6 +1233,58 @@ local function LoadEditorOptions(element)
 
     local y = SnapInspectorOffset(8)
     local sectionIndex = 0
+
+    state.editorNavigationBars = state.editorNavigationBars or {}
+    for _, bar in pairs(state.editorNavigationBars) do
+        bar:Hide()
+    end
+    for _, row in ipairs(navigationRows) do
+        local bar = state.editorNavigationBars[row.key]
+        if not bar then
+            bar = CreateFrame("Frame", nil, state.scrollChild)
+            bar.buttons = {}
+            state.editorNavigationBars[row.key] = bar
+        end
+        bar:ClearAllPoints()
+        bar:SetPoint("TOPLEFT", state.scrollChild, "TOPLEFT",
+            SnapInspectorOffset(8), -SnapInspectorOffset(y))
+        local totalWidth = math.max(
+            1, state.scrollChild:GetWidth() - 16)
+        local count = math.max(1, #row.tabs)
+        local buttonWidth = math.floor(totalWidth / count)
+        bar:SetSize(totalWidth, 24)
+        for tabIndex, tabDefinition in ipairs(row.tabs) do
+            local button = bar.buttons[tabIndex]
+            if not button then
+                button = CreateButton(bar, "", buttonWidth, function(self)
+                    state.selectedEditorSubtabs[self.navigationKey] =
+                        self.tabIndex
+                    RefreshInspector()
+                end)
+                bar.buttons[tabIndex] = button
+            end
+            button.navigationKey = row.key
+            button.tabIndex = tabIndex
+            button:SetText(tabDefinition.label or tabDefinition.id)
+            button:ClearAllPoints()
+            button:SetPoint("TOPLEFT", bar, "TOPLEFT",
+                (tabIndex - 1) * buttonWidth, 0)
+            button:SetSize(
+                tabIndex == count
+                    and totalWidth - buttonWidth * (count - 1)
+                    or buttonWidth,
+                24)
+            button:SetAlpha(
+                tabIndex == row.selected and 1 or 0.65)
+            button:Show()
+        end
+        for tabIndex = #row.tabs + 1, #bar.buttons do
+            bar.buttons[tabIndex]:Hide()
+        end
+        bar:Show()
+        y = SnapInspectorOffset(y + 27)
+    end
+
     for i = 1, #groups do
         local definition = groups[i]
         local label = type(definition) == "table" and definition.label
@@ -1569,9 +1867,38 @@ function NSkin:CreateDockedWindow(owner)
         if GameTooltip then GameTooltip:Hide() end
     end)
     state.debugToggle = debugToggle
-    inspector.selection = CreateLabel(
-        inspector, "Select an element",
-        "TOPLEFT", inspector, "TOPLEFT", 12, -29)
+    local selection = CreateFrame("Button", nil, inspector)
+    selection:SetHeight(20)
+    selection:SetPoint("TOPLEFT", inspector, "TOPLEFT", 12, -25)
+    selection.label = selection:CreateFontString(
+        nil, "OVERLAY", "GameFontNormal")
+    selection.label:SetAllPoints(selection)
+    selection.label:SetJustifyH("LEFT")
+    selection.label:SetText("Select an element")
+    function selection:SetText(value)
+        self.label:SetText(value)
+    end
+    function selection:SetJustifyH(value)
+        self.label:SetJustifyH(value)
+    end
+    selection:SetScript("OnClick", function()
+        local element = state.selectedElement
+        local parent = element
+            and NSkin:GetCompositionContainerParent(element)
+        if parent and NSkin.SelectSkinningElement then
+            NSkin:SelectSkinningElement(parent)
+        end
+    end)
+    selection:SetScript("OnEnter", function(self)
+        local element = state.selectedElement
+        if element and NSkin:GetCompositionContainerParent(element) then
+            self.label:SetTextColor(unpack(NSkin:GetAccentColor()))
+        end
+    end)
+    selection:SetScript("OnLeave", function(self)
+        self.label:SetTextColor(1, 1, 1, 1)
+    end)
+    inspector.selection = selection
     inspector.stateLabel = CreateLabel(
         inspector, "State:", "TOPLEFT", inspector, "TOPLEFT", 12, -48)
     inspector.stateLabel:Hide()

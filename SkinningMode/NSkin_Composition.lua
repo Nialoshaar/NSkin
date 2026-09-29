@@ -403,6 +403,9 @@ local appearanceParentByID = {}
 local appearanceOwnerByID = {}
 local appearanceMemberByID = {}
 local appearanceStateByID = {}
+local compositeAppearanceFamilyMembersByID = {}
+local containerSurfaceByAppearanceID = {}
+local containerParentByChildID = {}
 local compositeTagByElementID = {}
 local compositeElementsByTag = {}
 local compositeTagByAppearanceID = {}
@@ -476,6 +479,82 @@ function NSkin:GetAppearanceOwnerElementID(elementID)
     return appearanceOwnerByID[elementID]
 end
 
+local function NormalizeContainerSurface(element, composition)
+    local surface = composition and composition.surface
+    if type(surface) ~= "table" then
+        composition.surface = nil
+        return
+    end
+
+    local appearanceID = surface.appearanceID
+        or (element.id .. ".Surface")
+    if type(appearanceID) ~= "string" or appearanceID == "" then
+        composition.surface = nil
+        return
+    end
+
+    surface.appearanceID = appearanceID
+    surface.appearanceWindowID =
+        surface.appearanceWindowID or element.appearanceWindowID
+    surface.surfaceAppearanceKey =
+        surface.surfaceAppearanceKey or surface.appearanceKey
+    surface.includeGeometry = surface.includeGeometry ~= false
+
+    if type(surface.appearanceParentID) == "string"
+        and surface.appearanceParentID ~= ""
+        and surface.appearanceParentID ~= appearanceID
+    then
+        appearanceParentByID[appearanceID] =
+            surface.appearanceParentID
+    end
+    appearanceOwnerByID[appearanceID] = element.id
+    containerSurfaceByAppearanceID[appearanceID] = element.id
+end
+
+function NSkin:GetContainerSurfaceAppearanceContext(elementOrID)
+    local element = type(elementOrID) == "table" and elementOrID
+        or self:GetSkinningElement(elementOrID)
+    local composition = element and element.composition
+    local surface = composition
+        and composition.mode == "CONTAINER" and composition.surface
+    if not element or not surface then return nil end
+
+    local context = surface._editorContext or {}
+    surface._editorContext = context
+    context.id = surface.appearanceID
+    context.label = surface.label or "Surface"
+    context.kind = surface.kind or "BUTTON"
+    context.module = element.module
+    context.window = element.window
+    context.target = surface.target or element.target
+    context.appearanceWindowID =
+        surface.appearanceWindowID or element.appearanceWindowID
+    context.surfaceStyle = surface.surfaceStyle
+    context.surfaceAppearanceKey = surface.surfaceAppearanceKey
+    context.containerOwner = element
+    context.containerSurface = surface
+    return context
+end
+
+function NSkin:RefreshContainerSurfaceAppearance(change)
+    local elementID = change
+        and containerSurfaceByAppearanceID[change.elementID]
+    if not elementID then return false end
+
+    local element = self:GetSkinningElement(elementID)
+    local composition = element and element.composition
+    local surface = composition
+        and composition.mode == "CONTAINER" and composition.surface
+    if not element or not surface then return false end
+
+    if type(surface.refreshAppearance) == "function" then
+        local ok, refreshed = pcall(
+            surface.refreshAppearance, element, surface, change)
+        if ok and refreshed ~= false then return true end
+    end
+    return false
+end
+
 local function RegisterCompositeMemberAppearance(
     element, member, appearanceID)
     if not element or not member
@@ -485,6 +564,35 @@ local function RegisterCompositeMemberAppearance(
         elementID = element.id,
         memberID = member.id,
     }
+end
+
+local function RegisterCompositeAppearanceFamilyMember(
+    appearanceID, element, member)
+    if type(appearanceID) ~= "string" or appearanceID == ""
+        or not element or not member
+    then return end
+    local members = compositeAppearanceFamilyMembersByID[appearanceID]
+    if not members then
+        members = {}
+        compositeAppearanceFamilyMembersByID[appearanceID] = members
+    end
+    local token = element.id .. "\031" .. member.id
+    members[token] = {
+        elementID = element.id,
+        memberID = member.id,
+    }
+end
+
+function NSkin:RefreshCompositeAppearanceFamily(change)
+    local members = change
+        and compositeAppearanceFamilyMembersByID[change.elementID]
+    if not members then return false end
+    local refreshed
+    for _, entry in pairs(members) do
+        refreshed = self:RefreshCompositeMemberByIDAppearance(
+            entry.elementID, entry.memberID, change) or refreshed
+    end
+    return refreshed == true
 end
 
 local SURFACE_APPEARANCE_KEYS = {
@@ -599,6 +707,19 @@ function NSkin:RefreshCompositeMemberByIDAppearance(
         and self:GetCompositeMember(element, memberID)
     if not element or not member then return false end
 
+    -- A Composite group Surface may use a non-interactive presentation owner
+    -- (for example a plain Frame spanning several Blizzard controls). Its
+    -- adapter-owned renderer is authoritative and must run before canonical
+    -- atomic dispatch; treating that presentation owner as the member's
+    -- BUTTON/CHECKBOX kind can install unsupported scripts on it.
+    if member.editorSurface == true
+        and type(member.refreshAppearance) == "function"
+    then
+        local ok, refreshed = pcall(
+            member.refreshAppearance, element, member, change)
+        if ok and refreshed ~= false then return true end
+    end
+
     -- Surface-capable atomic members get a specialized Surface-only refresh
     -- before their broader component refresh. This prevents a local Surface
     -- edit from re-running member layout/content or the owning Composite.
@@ -705,11 +826,7 @@ function NSkin:RefreshCompositeMemberStateAppearance(change)
     local element = self:GetSkinningElement(entry.elementID)
     local member = element
         and self:GetCompositeMember(element, entry.memberID)
-    if not element or not member
-        or type(member.refreshStateAppearance) ~= "function"
-    then
-        return false
-    end
+    if not element or not member then return false end
 
     local stateDefinition
     for _, candidate in ipairs(member.states or {}) do
@@ -720,10 +837,21 @@ function NSkin:RefreshCompositeMemberStateAppearance(change)
     end
     if not stateDefinition then return false end
 
-    local ok, refreshed = pcall(
-        member.refreshStateAppearance,
-        element, member, stateDefinition, change)
-    return ok and refreshed ~= false
+    if type(member.refreshStateAppearance) == "function" then
+        local ok, refreshed = pcall(
+            member.refreshStateAppearance,
+            element, member, stateDefinition, change)
+        if ok and refreshed ~= false then return true end
+    end
+
+    -- Selection state is composition behavior, not a visual component type.
+    -- Participating atomic members therefore use their normal targeted
+    -- component renderer when a shared Selected/Unselected state changes.
+    if member.selectionParticipant == true then
+        return self:RefreshCompositeMemberByIDAppearance(
+            element, member.id, change)
+    end
+    return false
 end
 
 function NSkin:GetCompositeMemberTargetAppearanceID(
@@ -744,10 +872,34 @@ function NSkin:GetCompositeMemberTargetAppearanceID(
     end
     appearanceID = appearanceID or member.appearanceID or member.id
 
+    local memberAppearanceID = member.appearanceID or member.id
     RegisterCompositeMemberAppearance(element, member, appearanceID)
-    if appearanceID ~= (member.appearanceID or member.id) then
+    if appearanceID ~= memberAppearanceID then
         self:RegisterAppearanceParentID(
-            appearanceID, member.appearanceID or member.id, element.id)
+            appearanceID, memberAppearanceID, element.id)
+    end
+
+    if member.selectionParticipant == true and target then
+        local stateID = self:GetCompositeMemberRuntimeState(
+            element, member, target)
+        if stateID then
+            local stateAppearanceID
+            for _, definition in ipairs(member.states or {}) do
+                if definition.id == stateID then
+                    stateAppearanceID = definition.appearanceID
+                    break
+                end
+            end
+            stateAppearanceID = stateAppearanceID
+                or (memberAppearanceID .. ".State." .. stateID)
+            local targetStateAppearanceID =
+                appearanceID .. ".State." .. stateID
+            RegisterCompositeMemberAppearance(
+                element, member, targetStateAppearanceID)
+            self:RegisterAppearanceParentID(
+                targetStateAppearanceID, stateAppearanceID, element.id)
+            return targetStateAppearanceID
+        end
     end
     return appearanceID
 end
@@ -1433,15 +1585,71 @@ local function GetCompositeSurfaceEditorOptions()
     }
 end
 
-function NSkin:GetCompositeSurfaceEditorOptions()
+function NSkin:GetCompositeSurfaceEditorOptions(includeGeometry)
     local options = {}
-    for index, definition in ipairs(GetCompositeSurfaceEditorOptions()) do
-        options[index] = {}
-        for key, value in pairs(definition) do
-            options[index][key] = value
+    for _, definition in ipairs(GetCompositeSurfaceEditorOptions()) do
+        if includeGeometry ~= false
+            or definition.id ~= "shared.surfaceGeometry"
+        then
+            local copy = {}
+            for key, value in pairs(definition) do copy[key] = value end
+            options[#options + 1] = copy
         end
     end
     return options
+end
+
+local DEFAULT_COMPOSITE_SELECTION_STATES = {
+    { id = "Selected", label = "Selected", previewRuntimeState = false },
+    { id = "Unselected", label = "Unselected", previewRuntimeState = false },
+}
+
+local function CopyCompositeSelectionStates(selection)
+    local source = type(selection.states) == "table"
+        and #selection.states > 0
+        and selection.states or DEFAULT_COMPOSITE_SELECTION_STATES
+    local states = {}
+    for _, definition in ipairs(source) do
+        if type(definition) == "table"
+            and type(definition.id) == "string"
+            and definition.id ~= ""
+        then
+            local copy = {}
+            for key, value in pairs(definition) do copy[key] = value end
+            states[#states + 1] = copy
+        end
+    end
+    return states
+end
+
+local function PrepareCompositeSelectionMember(
+    element, composition, member)
+    local selection = composition and composition.selection
+    if member.selectionParticipant ~= true
+        or type(selection) ~= "table"
+        or type(selection.getStateID) ~= "function"
+    then
+        return
+    end
+
+    if type(member.states) ~= "table" or #member.states == 0 then
+        member.states = CopyCompositeSelectionStates(selection)
+    end
+    if type(member.getStateID) ~= "function" then
+        member.getStateID = function(currentElement, currentMember, target)
+            local itemTarget = target
+            if type(selection.resolveItemTarget) == "function" then
+                local ok, resolved = pcall(
+                    selection.resolveItemTarget,
+                    currentElement, currentMember, target)
+                if ok and resolved then itemTarget = resolved end
+            end
+            local ok, stateID = pcall(
+                selection.getStateID,
+                currentElement, itemTarget, currentMember, target)
+            return ok and stateID or nil
+        end
+    end
 end
 
 local function NormalizeCompositeMembers(element, composition)
@@ -1458,6 +1666,8 @@ local function NormalizeCompositeMembers(element, composition)
                     member.appearanceWindowID or element.appearanceWindowID
                 member.appearanceID =
                     member.appearanceID or member.elementID or member.id
+                PrepareCompositeSelectionMember(
+                    element, composition, member)
                 -- TEXT and CHECKBOX are canonical shared components. Every
                 -- registered member gets the same exact-property override
                 -- system regardless of which Composite/window registered it.
@@ -1479,12 +1689,16 @@ local function NormalizeCompositeMembers(element, composition)
                             GetCompositeSurfaceEditorOptions()
                     end
                 end
+                local familyAppearanceID
                 if type(member.appearanceParentID) == "string"
                     and member.appearanceParentID ~= ""
                     and member.appearanceParentID ~= member.appearanceID
                 then
+                    familyAppearanceID = member.appearanceParentID
                     appearanceParentByID[member.appearanceID] =
-                        member.appearanceParentID
+                        familyAppearanceID
+                    RegisterCompositeAppearanceFamilyMember(
+                        familyAppearanceID, element, member)
                 end
                 appearanceOwnerByID[member.appearanceID] = element.id
                 RegisterCompositeMemberAppearance(
@@ -1494,7 +1708,17 @@ local function NormalizeCompositeMembers(element, composition)
                         or (member.appearanceID .. ".State."
                             .. tostring(stateDefinition.id))
                     stateDefinition.appearanceID = stateID
-                    appearanceParentByID[stateID] = member.appearanceID
+                    local stateParentID = member.appearanceID
+                    if familyAppearanceID then
+                        local familyStateID = familyAppearanceID
+                            .. ".State." .. tostring(stateDefinition.id)
+                        appearanceParentByID[familyStateID] =
+                            familyAppearanceID
+                        RegisterCompositeAppearanceFamilyMember(
+                            familyStateID, element, member)
+                        stateParentID = familyStateID
+                    end
+                    appearanceParentByID[stateID] = stateParentID
                     appearanceOwnerByID[stateID] = element.id
                     appearanceStateByID[stateID] = {
                         elementID = element.id,
@@ -1634,7 +1858,13 @@ local function MigrateCompositeFamilyOffsets(element, composition)
     end
 end
 
-local function NormalizeContainerChildren(composition)
+local function NormalizeContainerChildren(element, composition)
+    for childID, parentID in pairs(containerParentByChildID) do
+        if parentID == element.id then
+            containerParentByChildID[childID] = nil
+        end
+    end
+
     local children, seen = {}, {}
     for _, child in ipairs(composition.children or {}) do
         local id = type(child) == "table" and (child.id or child.elementID)
@@ -1642,6 +1872,7 @@ local function NormalizeContainerChildren(composition)
         if type(id) == "string" and id ~= "" and not seen[id] then
             seen[id] = true
             children[#children + 1] = id
+            containerParentByChildID[id] = element.id
         end
     end
     composition.children = children
@@ -1693,7 +1924,8 @@ local function NormalizeComposition(element)
         NormalizeCompositeLayout(composition)
         MigrateCompositeFamilyOffsets(element, composition)
     elseif mode == "CONTAINER" then
-        NormalizeContainerChildren(composition)
+        NormalizeContainerChildren(element, composition)
+        NormalizeContainerSurface(element, composition)
     end
 
     element.composition = composition
@@ -1767,6 +1999,128 @@ function NSkin:GetContainerChildren(elementOrID)
         if child then children[#children + 1] = child end
     end
     return children
+end
+
+function NSkin:GetCompositionContainerParent(elementOrID)
+    local id = type(elementOrID) == "table" and elementOrID.id or elementOrID
+    local parentID = id and containerParentByChildID[id]
+    return parentID and self:GetSkinningElement(parentID) or nil
+end
+
+function NSkin:GetCompositeFamilyID(elementOrID)
+    local element = type(elementOrID) == "table" and elementOrID
+        or self:GetSkinningElement(elementOrID)
+    local composition = element and element.composition
+    if not composition or composition.mode ~= "COMPOSITE" then return nil end
+    return composition.familyID or element.id
+end
+
+function NSkin:GetCompositeFamilyLabel(elementOrID)
+    local element = type(elementOrID) == "table" and elementOrID
+        or self:GetSkinningElement(elementOrID)
+    local composition = element and element.composition
+    if not composition or composition.mode ~= "COMPOSITE" then return nil end
+    return composition.familyLabel
+        or composition.editorLabel
+        or composition.groupLabel
+        or element.label
+        or element.id
+end
+
+function NSkin:GetContainerCompositeFamilies(elementOrID)
+    local element = type(elementOrID) == "table" and elementOrID
+        or self:GetSkinningElement(elementOrID)
+    local composition = element and element.composition
+    if not composition or composition.mode ~= "CONTAINER" then return nil end
+
+    local families, byID = {}, {}
+    for _, child in ipairs(self:GetContainerChildren(element) or {}) do
+        local childComposition = child.composition
+        if childComposition and childComposition.mode == "COMPOSITE" then
+            local familyID = self:GetCompositeFamilyID(child)
+            local family = familyID and byID[familyID]
+            if not family and familyID then
+                family = {
+                    id = familyID,
+                    label = self:GetCompositeFamilyLabel(child),
+                    representative = child,
+                    elements = {},
+                }
+                byID[familyID] = family
+                families[#families + 1] = family
+            end
+            if family then
+                family.elements[#family.elements + 1] = child
+            end
+        end
+    end
+    return families
+end
+
+local function GetCompositeMemberFamilyAppearanceID(member)
+    return member and (member.appearanceParentID
+        or member.appearanceID or member.id) or nil
+end
+
+function NSkin:CompositeMembersShareContainerFamily(
+    leftElementOrID, leftMemberOrID, rightElementOrID, rightMemberOrID)
+    local leftElement = type(leftElementOrID) == "table"
+        and leftElementOrID or self:GetSkinningElement(leftElementOrID)
+    local rightElement = type(rightElementOrID) == "table"
+        and rightElementOrID or self:GetSkinningElement(rightElementOrID)
+    local leftMember = leftElement and (type(leftMemberOrID) == "table"
+        and leftMemberOrID or self:GetCompositeMember(
+            leftElement, leftMemberOrID))
+    local rightMember = rightElement and (type(rightMemberOrID) == "table"
+        and rightMemberOrID or self:GetCompositeMember(
+            rightElement, rightMemberOrID))
+    if not leftElement or not rightElement or not leftMember or not rightMember
+        or leftMember.kind ~= rightMember.kind
+    then
+        return false
+    end
+
+    local leftParent = self:GetCompositionContainerParent(leftElement)
+    local rightParent = self:GetCompositionContainerParent(rightElement)
+    if not leftParent or leftParent ~= rightParent then return false end
+
+    local leftFamily = GetCompositeMemberFamilyAppearanceID(leftMember)
+    local rightFamily = GetCompositeMemberFamilyAppearanceID(rightMember)
+    return leftFamily ~= nil and leftFamily == rightFamily
+end
+
+function NSkin:GetContainerCompositeMemberFamily(elementOrID, memberOrID)
+    local element = type(elementOrID) == "table" and elementOrID
+        or self:GetSkinningElement(elementOrID)
+    local member = element and (type(memberOrID) == "table"
+        and memberOrID or self:GetCompositeMember(element, memberOrID))
+    if not element or not member then return nil end
+
+    local container = self:GetCompositionContainerParent(element)
+    if not container then
+        return { { element = element, member = member } }
+    end
+
+    local family = {}
+    for _, child in ipairs(self:GetContainerChildren(container) or {}) do
+        local composition = child.composition
+        if composition and composition.mode == "COMPOSITE" then
+            for _, candidate in ipairs(composition.members or {}) do
+                if self:CompositeMembersShareContainerFamily(
+                    element, member, child, candidate)
+                then
+                    family[#family + 1] = {
+                        element = child,
+                        member = candidate,
+                    }
+                end
+            end
+        end
+    end
+    if #family == 0 then
+        family[1] = { element = element, member = member }
+    end
+    return family
 end
 
 local function GetSortedEditorGroupMembers(group)
@@ -2247,14 +2601,27 @@ function NSkin:GetCompositionBounds(elementOrID, visibleOnly)
     return left, right, bottom, top
 end
 
+local function GetCompositeMemberFamilyStorageOwner(element, member)
+    if not element or not member then return element, nil end
+    local container = NSkin:GetCompositionContainerParent(element)
+    local appearanceFamily = member.appearanceParentID
+    if container and type(appearanceFamily) == "string"
+        and appearanceFamily ~= ""
+    then
+        return container, "APPEARANCE:" .. appearanceFamily
+    end
+    return element, GetCompositeMemberFamilyKey(member)
+end
+
 function NSkin:GetCompositeMemberFamilyOffset(elementOrID, memberOrID)
     local element = type(elementOrID) == "table" and elementOrID
         or self:GetSkinningElement(elementOrID)
     local member = element and (type(memberOrID) == "table" and memberOrID
         or self:GetCompositeMember(element, memberOrID))
-    local key = GetCompositeMemberFamilyKey(member)
-    if not element or not key then return nil end
-    local store = GetCompositeFamilyOffsetStore(element, false)
+    if not element or not member then return nil end
+    local owner, key = GetCompositeMemberFamilyStorageOwner(element, member)
+    if not owner or not key then return nil end
+    local store = GetCompositeFamilyOffsetStore(owner, false)
     local saved = store and store[key]
     return saved and tonumber(saved.x) or 0,
         saved and tonumber(saved.y) or 0
@@ -2266,25 +2633,26 @@ function NSkin:ApplyCompositeMemberFamilyOffset(
         or self:GetSkinningElement(elementOrID)
     local member = element and (type(memberOrID) == "table" and memberOrID
         or self:GetCompositeMember(element, memberOrID))
-    local key = GetCompositeMemberFamilyKey(member)
-    if not element or not key then return false end
+    if not element or not member then return false end
     x, y = tonumber(x) or 0, tonumber(y) or 0
 
-    if type(member.applyFamilyOffset) == "function" then
-        local ok, applied = pcall(
-            member.applyFamilyOffset, element, member, x, y)
-        return ok and applied == true
-    end
-
+    local family = self:GetContainerCompositeMemberFamily(element, member)
+        or { { element = element, member = member } }
     local applied
-    for _, candidate in ipairs(element.composition.members or {}) do
-        if GetCompositeMemberFamilyKey(candidate) == key then
+    for _, entry in ipairs(family) do
+        local currentElement, currentMember = entry.element, entry.member
+        if type(currentMember.applyFamilyOffset) == "function" then
+            local ok, result = pcall(
+                currentMember.applyFamilyOffset,
+                currentElement, currentMember, x, y)
+            applied = (ok and result == true) or applied
+        else
             local exactX, exactY =
-                self:GetCompositeMemberOffset(element, candidate)
+                self:GetCompositeMemberOffset(currentElement, currentMember)
             local overrideX = HasCompositePositionOverrideForAppearance(
-                element, candidate.id, "alongOffset", nil)
+                currentElement, currentMember.id, "alongOffset", nil)
             local overrideY = HasCompositePositionOverrideForAppearance(
-                element, candidate.id, "edgeOffset", nil)
+                currentElement, currentMember.id, "edgeOffset", nil)
             local resolvedX = overrideX
                 and (tonumber(exactX) or 0)
                 or x + (tonumber(exactX) or 0)
@@ -2292,7 +2660,9 @@ function NSkin:ApplyCompositeMemberFamilyOffset(
                 and (tonumber(exactY) or 0)
                 or y + (tonumber(exactY) or 0)
             applied = ApplyCompositeMemberGeometry(
-                element, candidate, resolvedX, resolvedY) or applied
+                currentElement, currentMember,
+                resolvedX, resolvedY) or applied
+            self:NotifySkinningElementBoundsChanged(currentElement.id)
         end
     end
     return applied == true
@@ -2304,11 +2674,12 @@ function NSkin:SetCompositeMemberFamilyOffset(
         or self:GetSkinningElement(elementOrID)
     local member = element and (type(memberOrID) == "table" and memberOrID
         or self:GetCompositeMember(element, memberOrID))
-    local key = GetCompositeMemberFamilyKey(member)
-    if not element or not key then return false end
+    if not element or not member then return false end
+    local owner, key = GetCompositeMemberFamilyStorageOwner(element, member)
+    if not owner or not key then return false end
     x, y = tonumber(x) or 0, tonumber(y) or 0
 
-    local store = GetCompositeFamilyOffsetStore(element, true)
+    local store = GetCompositeFamilyOffsetStore(owner, true)
     local previous = store[key]
     if x == 0 and y == 0 then
         store[key] = nil
@@ -2320,11 +2691,11 @@ function NSkin:SetCompositeMemberFamilyOffset(
         element, member, x, y)
     then
         store[key] = previous
-        PruneCompositeFamilyOffsetStore(element)
+        PruneCompositeFamilyOffsetStore(owner)
         return false
     end
 
-    PruneCompositeFamilyOffsetStore(element)
+    PruneCompositeFamilyOffsetStore(owner)
     self:NotifySkinningElementBoundsChanged(element.id)
     return true
 end
@@ -2597,7 +2968,22 @@ function NSkin:SetCompositeMemberEditorState(
     local targetChanged = target ~= nil
         and member._editorStateTarget ~= target
     member._editorStateID = nextStateID
-    if target then member._editorStateTarget = target end
+    member._editorStateTarget = target
+
+    for _, entry in ipairs(
+        self:GetContainerCompositeMemberFamily(element, member) or {})
+    do
+        local familyMember = entry.member
+        if familyMember ~= member then
+            if allStates
+                or GetCompositeMemberStateDefinition(
+                    familyMember, nextStateID)
+            then
+                familyMember._editorStateID = nextStateID
+                familyMember._editorStateTarget = nil
+            end
+        end
+    end
 
     local previewed
     if not allStates
@@ -2629,10 +3015,14 @@ function NSkin:GetCompositeMemberAppearanceContext(elementOrID, memberOrID)
         or (member.appearanceParentID or element.id)
     local stateID, stateDefinition =
         self:GetCompositeMemberEditorState(element, member)
-    context.id = stateDefinition
-        and (stateDefinition.appearanceID
-            or (baseAppearanceID .. ".State." .. stateID))
-        or baseAppearanceID
+    if stateDefinition then
+        context.id = specific
+            and (stateDefinition.appearanceID
+                or (baseAppearanceID .. ".State." .. stateID))
+            or (baseAppearanceID .. ".State." .. stateID)
+    else
+        context.id = baseAppearanceID
+    end
     context.label = member.label or member.id
     context.kind = member.kind
     context.module = element.module
@@ -2858,6 +3248,16 @@ function NSkin:GetCompositionEditorOptions(element)
         return options
     end
 
+    local composition = element.composition
+    if composition and composition.mode == "CONTAINER"
+        and composition.surface
+    then
+        local surfaceContext =
+            self:GetContainerSurfaceAppearanceContext(element)
+        Append(self:GetCompositeSurfaceEditorOptions(
+            composition.surface.includeGeometry), surfaceContext)
+    end
+
     Append(element.editorOptions)
     return options
 end
@@ -2873,14 +3273,27 @@ local function CaptureOffsetRootPoints(target)
     return points
 end
 
+local function OffsetRootDependsOnSibling(state, points)
+    local roots = state and state.activeRoots
+    if not roots then return false end
+    for _, point in ipairs(points or {}) do
+        local relativeTo = point[2]
+        if relativeTo and roots[relativeTo] then return true end
+    end
+    return false
+end
+
 local function ApplyOffsetRoot(state, target, points)
     if not CanModifyCompositionRoot(target) or InCombatLockdown() then return end
     local scale = state.frame:GetEffectiveScale() / target:GetEffectiveScale()
+    local applyGroupOffset = not OffsetRootDependsOnSibling(state, points)
+    local offsetX = applyGroupOffset and state.x * scale or 0
+    local offsetY = applyGroupOffset and state.y * scale or 0
     target:ClearAllPoints()
     for _, point in ipairs(points) do
         target:SetPoint(point[1], point[2], point[3],
-            (point[4] or 0) + state.x * scale,
-            (point[5] or 0) + state.y * scale)
+            (point[4] or 0) + offsetX,
+            (point[5] or 0) + offsetY)
     end
 end
 
@@ -2890,9 +3303,8 @@ function NSkin:ObserveOffsetContainerLayout(id, target)
     local element = self:GetSkinningElement(id)
     local state = element and element.offsetContainer
     if not state or not CanModifyCompositionRoot(target) or InCombatLockdown() then return end
-    local points = CaptureOffsetRootPoints(target)
-    state.roots[target] = points
-    ApplyOffsetRoot(state, target, points)
+    state.roots[target] = CaptureOffsetRootPoints(target)
+    self:RefreshOffsetContainer(element)
 end
 
 -- Call before a provider releases a root, or after native layout transfers it
@@ -2911,29 +3323,137 @@ function NSkin:ReleaseOffsetContainerRoot(id, target, restore)
     state.roots[target] = nil
 end
 
+local function GetOffsetContainerLayoutStore(element, create)
+    if not element or type(element.module) ~= "string" then return nil end
+    local options = NSkin:GetModuleOptions(element.module, create == true)
+    if not options then return nil end
+    local layouts = options.containerLayouts
+    if not layouts and create then
+        layouts = {}
+        options.containerLayouts = layouts
+    end
+    return layouts, options
+end
+
+local function GetOffsetContainerSavedLayout(element)
+    local layouts = GetOffsetContainerLayoutStore(element, false)
+    return layouts and layouts[element.id] or nil
+end
+
+local function RoundContainerSpacing(value)
+    value = tonumber(value) or 0
+    if value >= 0 then return math.floor(value + 0.5) end
+    return math.ceil(value - 0.5)
+end
+
+local function GetOffsetContainerRootGap(roots, direction)
+    if #roots < 2 then return 0 end
+    local first, second = roots[1], roots[2]
+    local l1, r1, b1, t1 = NSkin:GetUIParentNormalizedBounds(first)
+    local l2, r2, b2, t2 = NSkin:GetUIParentNormalizedBounds(second)
+    if not l1 or not l2 then return 0 end
+    local gap = direction == "HORIZONTAL"
+        and (l2 - r1) or (b1 - t2)
+    local scale = UIParent:GetEffectiveScale()
+        / math.max(0.01, first:GetEffectiveScale())
+    return RoundContainerSpacing(gap * scale)
+end
+
+local function ApplyOffsetContainerLayout(roots, direction, spacing)
+    if #roots < 2 then return end
+    local previous = roots[1]
+    for index = 2, #roots do
+        local target = roots[index]
+        if CanModifyCompositionRoot(target) then
+            target:ClearAllPoints()
+            if direction == "HORIZONTAL" then
+                target:SetPoint("LEFT", previous, "RIGHT", spacing, 0)
+            else
+                target:SetPoint("TOP", previous, "BOTTOM", 0, -spacing)
+            end
+            previous = target
+        end
+    end
+end
+
+function NSkin:GetContainerLayout(elementOrID)
+    local element = type(elementOrID) == "table" and elementOrID
+        or self:GetSkinningElement(elementOrID)
+    local state = element and element.offsetContainer
+    if not state then return nil end
+    local saved = GetOffsetContainerSavedLayout(element)
+    return {
+        direction = saved and saved.direction or state.defaultDirection,
+        spacing = saved and tonumber(saved.spacing)
+            or tonumber(state.defaultSpacing) or 0,
+    }
+end
+
+function NSkin:SetContainerLayout(elementOrID, values)
+    local element = type(elementOrID) == "table" and elementOrID
+        or self:GetSkinningElement(elementOrID)
+    local state = element and element.offsetContainer
+    if not state or type(values) ~= "table" then return false end
+    local current = self:GetContainerLayout(element) or {}
+    local direction = string.upper(tostring(
+        values.direction or current.direction or state.defaultDirection))
+    if direction ~= "HORIZONTAL" and direction ~= "VERTICAL" then
+        return false
+    end
+    local spacing = tonumber(values.spacing)
+    if spacing == nil then spacing = tonumber(current.spacing) or 0 end
+    spacing = math.max(-100, math.min(200, spacing))
+
+    local defaultSpacing = tonumber(state.defaultSpacing) or 0
+    local isDefault = direction == state.defaultDirection
+        and math.abs(spacing - defaultSpacing) < 0.001
+    local layouts, options = GetOffsetContainerLayoutStore(element, true)
+    local previous = layouts[element.id]
+    if isDefault then
+        layouts[element.id] = nil
+    else
+        layouts[element.id] = { direction = direction, spacing = spacing }
+    end
+    if not next(layouts) then options.containerLayouts = nil end
+
+    local changed = (previous == nil) ~= isDefault
+        or (previous and (previous.direction ~= direction
+            or tonumber(previous.spacing) ~= spacing))
+    if changed then self:RefreshOffsetContainer(element) end
+    return changed == true
+end
+
+function NSkin:ResetContainerLayout(elementOrID)
+    local element = type(elementOrID) == "table" and elementOrID
+        or self:GetSkinningElement(elementOrID)
+    if not element then return false end
+    local layouts, options = GetOffsetContainerLayoutStore(element, false)
+    if not layouts or not layouts[element.id] then return false end
+    layouts[element.id] = nil
+    if not next(layouts) then options.containerLayouts = nil end
+    self:RefreshOffsetContainer(element)
+    return true
+end
+
 function NSkin:RefreshOffsetContainer(elementOrID)
     local element = type(elementOrID) == "table" and elementOrID
         or self:GetSkinningElement(elementOrID)
     local state = element and element.offsetContainer
     if not state or InCombatLockdown() then return false end
-    local current, left, right, bottom, top = {}, nil, nil, nil, nil
+
+    local current, roots = {}, {}
     for _, target in ipairs(element.composition.roots() or {}) do
         if CanModifyCompositionRoot(target) and target.GetNumPoints then
             current[target] = true
-            local points = state.roots[target]
-            if not points then
-                points = CaptureOffsetRootPoints(target)
-                state.roots[target] = points
-                ApplyOffsetRoot(state, target, points)
-            end
-            if not target.IsVisible or target:IsVisible() then
-                local l, r, b, t = self:GetUIParentNormalizedBounds(target)
-                if l then
-                    left, right = math.min(left or l, l), math.max(right or r, r)
-                    bottom, top = math.min(bottom or b, b), math.max(top or t, t)
-                end
+            roots[#roots + 1] = target
+            if not state.roots[target] then
+                state.roots[target] = CaptureOffsetRootPoints(target)
             end
         end
+    end
+    state.activeRoots = current
+    for _, target in ipairs(roots) do
+        ApplyOffsetRoot(state, target, state.roots[target])
     end
     for target, points in pairs(state.roots) do
         if not current[target] then
@@ -2944,9 +3464,35 @@ function NSkin:RefreshOffsetContainer(elementOrID)
             state.roots[target] = nil
         end
     end
+    if #roots == 0 then return false end
+
+    if state.defaultSpacing == nil then
+        state.defaultSpacing = GetOffsetContainerRootGap(
+            roots, state.defaultDirection)
+    end
+    local savedLayout = GetOffsetContainerSavedLayout(element)
+    if savedLayout then
+        ApplyOffsetContainerLayout(
+            roots,
+            savedLayout.direction or state.defaultDirection,
+            tonumber(savedLayout.spacing) or state.defaultSpacing or 0)
+    end
+
+    local left, right, bottom, top
+    for _, target in ipairs(roots) do
+        if not target.IsVisible or target:IsVisible() then
+            local l, r, b, t = self:GetUIParentNormalizedBounds(target)
+            if l then
+                left, right = math.min(left or l, l), math.max(right or r, r)
+                bottom, top = math.min(bottom or b, b), math.max(top or t, t)
+            end
+        end
+    end
     if not left then return false end
+
     local scale = UIParent:GetEffectiveScale() / state.frame:GetEffectiveScale()
-    local windowLeft, _, _, windowTop = self:GetUIParentNormalizedBounds(element.window)
+    local windowLeft, _, _, windowTop =
+        self:GetUIParentNormalizedBounds(element.window)
     if not windowLeft then return false end
     state.baseX = (left - windowLeft) * scale - state.x
     state.baseY = (top - windowTop) * scale - state.y
@@ -2972,25 +3518,61 @@ function NSkin:RegisterOffsetContainer(definition)
     frame:EnableMouse(false)
     frame:SetSize(1, 1)
     frame:SetPoint("TOPLEFT", definition.window, "TOPLEFT")
-    local state = { frame = frame, roots = setmetatable({}, { __mode = "k" }),
-        x = 0, y = 0, baseX = 0, baseY = 0 }
+    local defaultDirection = string.upper(tostring(
+        definition.composition.defaultDirection or "VERTICAL"))
+    if defaultDirection ~= "HORIZONTAL" and defaultDirection ~= "VERTICAL" then
+        defaultDirection = "VERTICAL"
+    end
+    local state = {
+        frame = frame,
+        roots = setmetatable({}, { __mode = "k" }),
+        x = 0, y = 0, baseX = 0, baseY = 0,
+        defaultDirection = defaultDirection,
+        defaultSpacing = nil,
+    }
     definition.target, definition.kind = frame, "MOVABLE"
     definition.offsetContainer = state
     definition.composition.movementOwner = frame
+
+    local moduleOptions = self:GetModuleOptions(definition.module, true)
+    moduleOptions.movablePlacements = moduleOptions.movablePlacements or {}
+    local oldPlacement = moduleOptions.movablePlacements[definition.id]
+    if oldPlacement and oldPlacement.mode ~= "OFFSET_ROOTS" then
+        moduleOptions.movablePlacements[definition.id] = nil
+    end
+    if not next(moduleOptions.movablePlacements) then
+        moduleOptions.movablePlacements = nil
+    end
+
+    definition.getPlacement = function()
+        return {
+            mode = "OFFSET",
+            alongOffset = state.x,
+            edgeOffset = state.y,
+        }
+    end
     definition.applyPlacement = function(element, placement, options)
         if InCombatLockdown() then return false end
-        if not NSkin:LayoutWindowElement(element, placement, { suppressNotify = true }) then return false end
-        local left, _, _, top = NSkin:GetUIParentNormalizedBounds(frame)
-        local windowLeft, _, _, windowTop = NSkin:GetUIParentNormalizedBounds(element.window)
-        if not left or not windowLeft then return false end
-        local scale = UIParent:GetEffectiveScale() / frame:GetEffectiveScale()
-        state.x = (left - windowLeft) * scale - state.baseX
-        state.y = (top - windowTop) * scale - state.baseY
-        for target, points in pairs(state.roots) do ApplyOffsetRoot(state, target, points) end
+        state.x = tonumber(placement and
+            (placement.alongOffset or placement.x)) or 0
+        state.y = tonumber(placement and
+            (placement.edgeOffset or placement.y)) or 0
+        if not NSkin:RefreshOffsetContainer(element) then return false end
         if element.onLayoutChanged then element.onLayoutChanged(element) end
         if not (options and options.suppressNotify) then
             NSkin:NotifySkinningElementBoundsChanged(element.id)
         end
+        return true
+    end
+    definition.setPlacement = function(element, placement)
+        if not element.applyPlacement(element, placement) then return false end
+        local options = NSkin:GetModuleOptions(element.module, true)
+        options.movablePlacements = options.movablePlacements or {}
+        options.movablePlacements[element.id] = {
+            mode = "OFFSET_ROOTS",
+            alongOffset = state.x,
+            edgeOffset = state.y,
+        }
         return true
     end
     definition.resetPlacement = function(element)
