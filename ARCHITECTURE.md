@@ -171,7 +171,7 @@ The old `Skins/` name is replaced by `Windows/` because these files are Blizzard
 
 ## 4.1 Content
 
-Content is the smallest swappable visual payload. Canonical Content types are:
+Content is the smallest swappable visual payload. Supported Content representations include:
 
 ```text
 TEXT
@@ -584,9 +584,9 @@ separate global style family.
 Selection is reusable Composite behavior, not an atomic visual component type.
 
 A Composite that represents mutually selectable runtime items may declare a
-`selection` contract. The contract owns the logical runtime state (for example
-`Selected` / `Unselected`) and maps each participating atomic member target
-back to its logical item. Atomic members opt in with
+`selection` contract. The contract resolves Blizzard's logical runtime selection
+state (for example `Selected` / `Unselected`) and maps each participating
+atomic member target back to its logical item. Atomic members opt in with
 `selectionParticipant = true`.
 
 Conceptually:
