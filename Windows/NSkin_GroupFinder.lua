@@ -2039,10 +2039,23 @@ end
 local function ApplyDungeonCheckboxComponent(choice, styleID)
     local checkButton = choice and choice.enableButton
     if not checkButton then return false end
+
+    local element = NSkin:GetSkinningElement(styleID)
+    local member = element and NSkin:GetCompositeMember(
+        element, styleID .. ".CHECKBOX")
+    local checkedContent = member and NSkin:GetStateContent(
+        member, "Checked")
+    local uncheckedContent = member and NSkin:GetStateContent(
+        member, "Unchecked")
+
     return NSkin:SkinTypedElement("CHECKBOX", {
         id = styleID .. ".CHECKBOX",
         appearanceWindowID = IDs.DungeonFinder.Scope,
         target = checkButton,
+        skinOptions = {
+            checkedContent = checkedContent and checkedContent[1],
+            uncheckedContent = uncheckedContent and uncheckedContent[1],
+        },
     })
 end
 
@@ -2074,11 +2087,18 @@ local function SkinDungeonCollapseButton(choice)
         border = borderColor,
         backgroundKey = "NSkinDungeonCollapseBackground",
         glyphKey = "dungeonCollapse",
-        defaultContent = {
-            type = "GLYPH",
-            glyph = stateID == "expand" and "plus" or "minus",
-            size = 8,
-        },
+        defaultContent = (function()
+            local element = NSkin:GetSkinningElement(IDs.DungeonSections)
+            local member = element and NSkin:GetCompositeMember(
+                element, IDs.DungeonSections .. ".BUTTON")
+            local content = member and NSkin:GetStateContent(
+                member, stateID)
+            return content and content[1] or {
+                type = "GLYPH",
+                glyph = stateID == "expand" and "plus" or "minus",
+                size = 8,
+            }
+        end)(),
     })
     data.collapseGlyph = glyphState and glyphState.centeredGlyph
 
@@ -2955,10 +2975,37 @@ function PVESkin:RegisterDungeonRows()
                     applyFamilyOffset = ApplyDungeonMemberFamilyOffset,
                 },
                 CHECKBOX = {
+                    elementType = "BUTTON",
+                    tag = "Checkbox",
                     movable = true,
                     applyFamilyOffset = ApplyDungeonMemberFamilyOffset,
+                    states = {
+                        {
+                            id = "Unchecked",
+                            label = "Unchecked",
+                            content = {},
+                        },
+                        {
+                            id = "Checked",
+                            label = "Checked",
+                            content = {
+                                {
+                                    id = id .. ".CHECKBOX.Checked.Content",
+                                    type = "TEXTURE",
+                                    texture = "Interface\\Buttons\\WHITE8X8",
+                                },
+                            },
+                        },
+                    },
+                    getStateID = function(_, _, target)
+                        return target and target.GetChecked
+                            and target:GetChecked() == true
+                            and "Checked" or "Unchecked"
+                    end,
                 },
                 BUTTON = {
+                    elementType = "BUTTON",
+                    tag = "CollapseButton",
                     movable = true,
                     applyFamilyOffset = ApplyDungeonMemberFamilyOffset,
                     label = "Button",
@@ -2970,8 +3017,13 @@ function PVESkin:RegisterDungeonRows()
                             label = "Collapse",
                             selectedLabel = "Collapse button",
                             appearanceID = id .. ".BUTTON.Collapse",
-                            defaultContent = {
-                                type = "GLYPH", glyph = "minus", size = 8,
+                            content = {
+                                {
+                                    id = id .. ".BUTTON.Collapse.Content",
+                                    type = "GLYPH",
+                                    glyph = "minus",
+                                    size = 8,
+                                },
                             },
                         },
                         {
@@ -2979,8 +3031,13 @@ function PVESkin:RegisterDungeonRows()
                             label = "Expand",
                             selectedLabel = "Expand button",
                             appearanceID = id .. ".BUTTON.Expand",
-                            defaultContent = {
-                                type = "GLYPH", glyph = "plus", size = 8,
+                            content = {
+                                {
+                                    id = id .. ".BUTTON.Expand.Content",
+                                    type = "GLYPH",
+                                    glyph = "plus",
+                                    size = 8,
+                                },
                             },
                         },
                     },
@@ -3029,8 +3086,33 @@ function PVESkin:RegisterDungeonRows()
                 },
             } or {
                 CHECKBOX = {
+                    elementType = "BUTTON",
+                    tag = "Checkbox",
                     movable = true,
                     applyFamilyOffset = ApplyDungeonMemberFamilyOffset,
+                    states = {
+                        {
+                            id = "Unchecked",
+                            label = "Unchecked",
+                            content = {},
+                        },
+                        {
+                            id = "Checked",
+                            label = "Checked",
+                            content = {
+                                {
+                                    id = id .. ".CHECKBOX.Checked.Content",
+                                    type = "TEXTURE",
+                                    texture = "Interface\\Buttons\\WHITE8X8",
+                                },
+                            },
+                        },
+                    },
+                    getStateID = function(_, _, target)
+                        return target and target.GetChecked
+                            and target:GetChecked() == true
+                            and "Checked" or "Unchecked"
+                    end,
                 },
             },
             composition = {
@@ -3040,18 +3122,34 @@ function PVESkin:RegisterDungeonRows()
                     and "Dungeon header rows" or "Dungeon rows",
                 editorLabel = wantHeaders
                     and "Dungeon header row" or "Dungeon row",
-                memberEditorLabels = wantHeaders and {
-                    CHECKBOX = "Checkbox",
-                    BUTTON = "Button",
-                    TEXT = "Section Text",
-                } or {
+                memberEditorLabels = {
                     CHECKBOX = "Checkbox",
                     BUTTON = "Button",
                 },
-                members = wantHeaders and {} or {
+                content = wantHeaders and {
+                    {
+                        id = id .. ".TEXT",
+                        type = "TEXT",
+                        role = "SECONDARY",
+                        label = "Section text",
+                        editorLabel = "Section Text",
+                        appearanceWindowID = IDs.DungeonFinder.Scope,
+                        appearanceID = id .. ".TEXT",
+                        appearanceParentID = id,
+                        movable = true,
+                        allowOverrides = false,
+                        highlightMode = "REGIONS",
+                        tightTextBounds = true,
+                        applyFamilyOffset = ApplyDungeonMemberFamilyOffset,
+                        targets = function(element, current)
+                            return NSkin:GetRowFamilyMemberTargets(
+                                element, current)
+                        end,
+                    },
+                } or {
                     {
                         id = id .. ".DungeonNameText",
-                        kind = "TEXT",
+                        type = "TEXT",
                         role = "SECONDARY",
                         label = "Dungeon name",
                         editorLabel = "Dungeon name",
@@ -3085,7 +3183,7 @@ function PVESkin:RegisterDungeonRows()
                     },
                     {
                         id = id .. ".LevelRangeText",
-                        kind = "TEXT",
+                        type = "TEXT",
                         role = "SECONDARY",
                         label = "Level range",
                         editorLabel = "Level range",
@@ -3118,6 +3216,7 @@ function PVESkin:RegisterDungeonRows()
                         end,
                     },
                 },
+                members = {},
             },
             window = frame,
             target = queueFrame,

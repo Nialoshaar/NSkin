@@ -3819,8 +3819,8 @@ local SHARED_SKIN_ADAPTERS = {
         options.menus = definition.menus
         skinMethod(self, target, options)
     end,
-    SCROLLBAR = function(self, skinMethod, target, style)
-        skinMethod(self, target, style)
+    SCROLLBAR = function(self, skinMethod, target, style, _, definition)
+        skinMethod(self, target, style, definition)
     end,
     SEARCH_GROUP = function(self, skinMethod, target, style, borderColor)
         skinMethod(self, target, style, borderColor)
@@ -3954,7 +3954,10 @@ function NSkin:RefreshTypedElement(element, requirement)
     return self:RefreshTypedElementAppearance(element)
 end
 
-local COMMON_TYPED_SKIN_FIELDS = { "skinAdapter", "skinOptions" }
+local COMMON_TYPED_SKIN_FIELDS = {
+    "skinAdapter", "skinOptions", "elementType", "tag",
+    "content", "parts", "states",
+}
 local TYPED_SKIN_FIELDS_BY_TYPE = {
     BUTTON = { "preserveTexture" },
     COLUMN_HEADER = {
@@ -4184,7 +4187,51 @@ function NSkin:RegisterSlider(definition)
 end
 
 function NSkin:RegisterScrollBar(definition)
-    return self:RegisterTypedElement("SCROLLBAR", definition)
+    if type(definition) ~= "table" or type(definition.id) ~= "string"
+        or definition.id == "" or not definition.target
+    then return nil end
+
+    local normalized = {}
+    for key, value in pairs(definition) do normalized[key] = value end
+    normalized.elementType = normalized.elementType or "SCROLLBAR"
+
+    if type(normalized.parts) ~= "table" then
+        normalized.parts = {
+            {
+                id = definition.id .. ".Track",
+                type = "TRACK",
+                targetKey = "Track",
+            },
+            {
+                id = definition.id .. ".Thumb",
+                type = "THUMB",
+                targetKey = "Track.Thumb",
+            },
+        }
+    end
+
+    if type(normalized.content) ~= "table" then
+        normalized.content = {
+            {
+                id = definition.id .. ".BackArrow",
+                type = "GLYPH",
+                role = "BACK",
+                texture = self.mediaPath .. "angle-small-down.png",
+                rotation = math.pi,
+                targetKey = "Back",
+            },
+            {
+                id = definition.id .. ".ForwardArrow",
+                type = "GLYPH",
+                role = "FORWARD",
+                texture = self.mediaPath .. "angle-small-down.png",
+                rotation = 0,
+                targetKey = "Forward",
+            },
+        }
+    end
+
+    return self:RegisterTypedElement("SCROLLBAR", normalized)
 end
 
 function NSkin:RegisterSearchBox(definition)

@@ -632,6 +632,70 @@ function NSkin:SkinActionButton(button, options)
     RefreshActionButton(button)
 end
 
+local function CopyCheckButtonStateContent(content)
+    if type(content) ~= "table" then return nil end
+    local copy = {}
+    for key, value in pairs(content) do copy[key] = value end
+    if copy.type == "ICON" and copy.texture == nil then
+        copy.texture = copy.icon
+    end
+    return copy
+end
+
+local function RefreshCheckButtonStateContent(checkButton, data, checked)
+    local checkedContent = data.checkButtonCheckedContent
+    local uncheckedContent = data.checkButtonUncheckedContent
+    if not checkedContent and not uncheckedContent then
+        if data.checkButtonCheckedContentGlyph then
+            NSkin:SetCenteredButtonGlyphShown(
+                data.checkButtonCheckedContentGlyph, false)
+        end
+        if data.checkButtonUncheckedContentGlyph then
+            NSkin:SetCenteredButtonGlyphShown(
+                data.checkButtonUncheckedContentGlyph, false)
+        end
+        return false
+    end
+
+    if data.checkButtonCheckedTexture then
+        data.checkButtonCheckedTexture:Hide()
+    end
+
+    local visual = data.checkButtonVisual or checkButton
+    local requestedSize = math.max(1,
+        tonumber(data.checkButtonRequestedVisualSize) or 14)
+    local inset = math.max(0,
+        tonumber(data.checkButtonRequestedCheckedInset) or 3)
+    local contentSize = math.max(1, requestedSize - inset * 2)
+
+    local function Apply(key, content, shown, fallbackColor)
+        local stateKey = key == "Checked"
+            and "checkButtonCheckedContentGlyph"
+            or "checkButtonUncheckedContentGlyph"
+        if not content then
+            if data[stateKey] then
+                NSkin:SetCenteredButtonGlyphShown(data[stateKey], false)
+            end
+            return
+        end
+        local definition = CopyCheckButtonStateContent(content)
+        definition.anchor = visual
+        definition.size = tonumber(definition.size) or contentSize
+        definition.color = definition.color or fallbackColor
+            or { 1, 1, 1, 1 }
+        local glyph = NSkin:CreateCenteredButtonGlyph(
+            checkButton, "checkButtonState" .. key, definition)
+        data[stateKey] = glyph
+        NSkin:SetCenteredButtonGlyphShown(glyph, shown == true)
+    end
+
+    Apply("Checked", checkedContent, checked == true,
+        data.checkButtonCheckedColor)
+    Apply("Unchecked", uncheckedContent, checked ~= true,
+        data.checkButtonCheckedColor)
+    return true
+end
+
 local function RefreshCheckButtonVisual(checkButton)
     local data = NSkin:GetSkinData(checkButton, COMPONENT_STATE, false)
     if not data or not data.checkButtonActive then return end
@@ -643,8 +707,11 @@ local function RefreshCheckButtonVisual(checkButton)
     if checked == nil and checkButton.GetChecked then
         checked = checkButton:GetChecked() == true
     end
+    local customContent = RefreshCheckButtonStateContent(
+        checkButton, data, checked)
     if data.checkButtonCheckedTexture then
-        data.checkButtonCheckedTexture:SetShown(checked == true)
+        data.checkButtonCheckedTexture:SetShown(
+            customContent ~= true and checked == true)
     end
     local visual = data.checkButtonVisual
     if visual then
@@ -904,6 +971,8 @@ function NSkin:SkinCheckButton(checkButton, options)
     local data = self:GetSkinData(checkButton, COMPONENT_STATE)
     data.checkButtonActive = true
     data.checkButtonGetChecked = options.getChecked
+    data.checkButtonCheckedContent = options.checkedContent
+    data.checkButtonUncheckedContent = options.uncheckedContent
 
     if not data.checkButtonArtworkSuppressed then
         self:HideTextureRegions(checkButton)
@@ -987,6 +1056,7 @@ function NSkin:SkinCheckButton(checkButton, options)
         end
     end
     self:SetOwnedTextureColor(checked, unpack(checkedColor))
+    data.checkButtonCheckedColor = checkedColor
 
     local shape = string.lower(tostring(
         options.shape or style.checkboxShape or "square"))

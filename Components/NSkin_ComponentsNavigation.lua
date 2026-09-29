@@ -272,7 +272,39 @@ local function RefreshScrollBarSurfaceHighlight(scrollBar)
     data.scrollSurfaceHighlight:SetShown(shown == true)
 end
 
-function NSkin:SkinScrollBar(scrollBar, style)
+local function ResolveScrollBarPresentationTarget(
+    definition, owner, fallback)
+    local target = definition and definition.target
+    if type(target) == "function" then
+        local ok, resolved = pcall(target, owner, definition)
+        target = ok and resolved or nil
+    end
+    if not target and definition and type(definition.targetKey) == "string" then
+        target = owner
+        for token in definition.targetKey:gmatch("[^.]+") do
+            target = target and target[token]
+        end
+    end
+    return target or fallback
+end
+
+local function FindScrollBarPresentationNode(definitions, typeID, role)
+    typeID = type(typeID) == "string" and typeID:upper() or nil
+    role = type(role) == "string" and role:upper() or nil
+    for _, definition in ipairs(definitions or {}) do
+        local currentType = type(definition.type) == "string"
+            and definition.type:upper() or nil
+        local currentRole = type(definition.role) == "string"
+            and definition.role:upper() or nil
+        if (not typeID or currentType == typeID)
+            and (not role or currentRole == role)
+        then
+            return definition
+        end
+    end
+end
+
+function NSkin:SkinScrollBar(scrollBar, style, definition)
     if not scrollBar then return end
     style = style or self:GetStyle("scrollBar")
     local data = self:GetSkinData(scrollBar, COMPONENT_STATE)
@@ -357,8 +389,14 @@ function NSkin:SkinScrollBar(scrollBar, style)
         math.min(1, tonumber(style.thumbOpacity) or 1))
     local thumbOffsetX = tonumber(style.thumbOffsetX) or 0
     local thumbOffsetY = tonumber(style.thumbOffsetY) or 0
-    local track = scrollBar.Track
-    local thumb = track and track.Thumb
+    local trackPart = FindScrollBarPresentationNode(
+        definition and definition.parts, "TRACK")
+    local track = ResolveScrollBarPresentationTarget(
+        trackPart, scrollBar, scrollBar.Track)
+    local thumbPart = FindScrollBarPresentationNode(
+        definition and definition.parts, "THUMB")
+    local thumb = ResolveScrollBarPresentationTarget(
+        thumbPart, scrollBar, track and track.Thumb)
     if track then
         for _, texture in ipairs({ track.Begin, track.Middle, track.End }) do
             if texture then texture:SetAlpha(0) end
@@ -390,21 +428,45 @@ function NSkin:SkinScrollBar(scrollBar, style)
         self:SetOwnedTextureColor(data.scrollThumb, unpack(thumbColor))
         data.scrollThumb:SetAlpha(thumbOpacity)
     end
-    for _, entry in ipairs({ { scrollBar.Back, math.pi },
-        { scrollBar.Forward, 0 } })
-    do
-        local button, rotation = entry[1], entry[2]
+    local backContent = FindScrollBarPresentationNode(
+        definition and definition.content, "GLYPH", "BACK")
+    local forwardContent = FindScrollBarPresentationNode(
+        definition and definition.content, "GLYPH", "FORWARD")
+    for _, entry in ipairs({
+        {
+            ResolveScrollBarPresentationTarget(
+                backContent, scrollBar, scrollBar.Back),
+            backContent,
+            math.pi,
+        },
+        {
+            ResolveScrollBarPresentationTarget(
+                forwardContent, scrollBar, scrollBar.Forward),
+            forwardContent,
+            0,
+        },
+    }) do
+        local button, content, fallbackRotation =
+            entry[1], entry[2], entry[3]
         if button then
             if button.Texture then button.Texture:SetAlpha(0) end
             local buttonData = self:GetSkinData(button, COMPONENT_STATE)
             if not buttonData.scrollArrow then
                 buttonData.scrollArrow = button:CreateTexture(nil, "OVERLAY")
                 buttonData.scrollArrow:SetAllPoints(button)
-                buttonData.scrollArrow:SetTexture(
-                    self.mediaPath .. "angle-small-down.png")
-                buttonData.scrollArrow:SetRotation(rotation)
                 self:ConfigureOwnedPixelTexture(buttonData.scrollArrow)
             end
+            local arrow = buttonData.scrollArrow
+            if content and content.atlas and arrow.SetAtlas then
+                arrow:SetAtlas(content.atlas, false)
+            else
+                arrow:SetTexture(
+                    content and content.texture
+                        or self.mediaPath .. "angle-small-down.png")
+            end
+            arrow:SetRotation(
+                tonumber(content and content.rotation)
+                    or fallbackRotation)
             if not buttonData.scrollArrowHooked and button.HookScript then
                 button:HookScript("OnEnable", RefreshScrollBarArrow)
                 button:HookScript("OnDisable", RefreshScrollBarArrow)

@@ -1528,6 +1528,41 @@ local function MakeRowFamilyMember(elementID, definition, kind, surface)
     return member
 end
 
+local function AppendRowFamilyContentProxies(
+    elementID, definition, composition)
+    local existing = {}
+    for _, member in ipairs(composition.members or {}) do
+        if type(member) == "table" and type(member.id) == "string" then
+            existing[member.id] = true
+        end
+    end
+
+    for index, content in ipairs(composition.content or {}) do
+        if type(content) == "table" and NSkin:IsContentType(content.type) then
+            content.id = content.id or (
+                elementID .. ".Content" .. tostring(index))
+            if not existing[content.id] then
+                local proxy = {}
+                for key, value in pairs(content) do proxy[key] = value end
+                proxy.kind = tostring(content.type):upper()
+                proxy.type = nil
+                proxy.role = proxy.role == "PRIMARY"
+                    and "PRIMARY" or "SECONDARY"
+                proxy.appearanceWindowID =
+                    proxy.appearanceWindowID or definition.appearanceWindowID
+                proxy.appearanceID = proxy.appearanceID or proxy.id
+                proxy.appearanceParentID =
+                    proxy.appearanceParentID or elementID
+                proxy.presentationRole = "CONTENT"
+                proxy.presentationNode = content
+                proxy.compatibilityPresentationProxy = true
+                composition.members[#composition.members + 1] = proxy
+                existing[content.id] = true
+            end
+        end
+    end
+end
+
 function NSkin:PrepareRowFamilyDefinition(elementID, definition)
     if type(definition) ~= "table" then return false end
     local family = definition.rowFamily
@@ -1558,6 +1593,13 @@ function NSkin:PrepareRowFamilyDefinition(elementID, definition)
     -- The semantic surfaceStyle is metadata only; this concrete Composite
     -- remains the appearance owner.
     composition.separateRegions = true
+
+    -- Direct Content is the semantic owner in the new architecture. Until the
+    -- inspector consumes Content natively, row families expose lightweight
+    -- compatibility proxies through the existing Composite-member pipeline.
+    -- The proxy never becomes another editor/appearance identity: it reuses
+    -- the Content slot ID and delegates targets/placement to that slot.
+    AppendRowFamilyContentProxies(elementID, definition, composition)
 
     local surface
     for _, member in ipairs(composition.members) do
