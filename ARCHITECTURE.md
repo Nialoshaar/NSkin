@@ -47,27 +47,32 @@ editable controls, and structural grouping:
 
 ```text
 CONTENT
-= swappable visual payload
-= TEXT / ICON / TEXTURE / ATLAS / GLYPH
+= swappable presentation owned by an Element or Composite
+= semantic visual slots rendered through supported representations such as
+  TEXT / ICON / GLYPH / TEXTURE / ATLAS
 
 PART
-= reusable intrinsic machinery of an Element
+= reusable intrinsic machinery owned by an Element
 = TRACK / THUMB and future genuinely structural parts
 
 ELEMENT
-= the smallest complete control with its own editor identity
+= the smallest independently meaningful editor object
 = may own Surface + Parts + Content + runtime States
 
 COMPOSITE
-= one logical editor object built from Elements and/or direct presentation
-  nodes
+= one logical editor object built from members under lasting logical ownership
 
 CONTAINER
-= structural parent of independently editable Elements and Composites
+= an explicit NSkin structural parent of independently meaningful editor objects
 ```
 
-Surface, Tag, State, Family, and Placement are orthogonal metadata/capabilities;
-they are not additional hierarchy levels.
+Surface, State, Tag, Family, Placement/Movement, and Editor Group are
+orthogonal metadata/capabilities; they are not additional hierarchy levels.
+
+Runtime frame identity, editor selection identity, appearance identity, and
+movement ownership are separate concepts; none implies another. One stable ID
+may legitimately serve more than one role, but shared code must not assume that
+those roles always coincide.
 
 The normal ownership direction is:
 
@@ -177,10 +182,11 @@ GLYPH
 ```
 
 Content does not receive an independent Skinning Mode selection merely because
-it exists. Its identity belongs to the owning Element or Composite and must
-remain stable when the user changes the Content type. A semantic content slot
-must therefore not derive its canonical ID from whether it currently renders
-TEXT, ICON, GLYPH, ATLAS, or TEXTURE.
+it exists. Its identity belongs to the semantic slot owned by an Element or
+Composite and must remain stable when presentation changes. A semantic Content
+slot must therefore not derive its canonical ID from whether it currently
+renders TEXT, ICON, GLYPH, TEXTURE, or ATLAS, nor from whether an icon-like
+presentation is sourced from a texture file or an atlas.
 
 For example:
 
@@ -200,6 +206,11 @@ Find Group                 BUTTON Element
 
 without changing the Button identity or the Content slot identity.
 
+Content representation describes presentation, not storage identity. Supported
+representations may map to different runtime mechanisms, but changing the
+rendering source of one semantic slot does not by itself create a new Content
+identity.
+
 ## 4.2 Parts
 
 A Part is reusable intrinsic machinery that is too structurally specific to be
@@ -213,8 +224,11 @@ THUMB
 ```
 
 They are shared by controls such as SCROLLBAR and SLIDER. Parts may own
-appearance and local placement, but remain subordinate to their owning Element.
-They do not independently own selection or drag behavior.
+appearance and local presentation geometry, but remain subordinate to their
+owning Element. A Part does not receive independent editor identity merely
+because it is editable; it may be edited through its owner's inspector. Promote
+a Part to an Element only when it becomes independently meaningful as an editor
+object.
 
 Do not create a Part for a semantic visual that can be represented as Content.
 For example, a checkbox checkmark and a collapse/expand arrow are Content,
@@ -222,8 +236,12 @@ because they may be rendered as GLYPH, ICON, TEXTURE, or ATLAS.
 
 ## 4.3 Elements
 
-An Element is the smallest complete UI control that deserves its own editor
-identity. Elements may own:
+An Element is the smallest independently meaningful editor object. Clickability
+does not define Element identity: a standalone heading or image may be an
+Element when users need to select and customize it independently, while a
+clickable internal control may remain subordinate to a larger owner.
+
+Elements may own:
 
 ```text
 ELEMENT
@@ -255,7 +273,7 @@ the same.
 Legacy TEXT, ICON, CHECKBOX, and similar canonical component APIs remain
 available while existing windows migrate. New architecture should not create a
 TEXT Element merely to wrap TEXT Content when the text has no independent
-control identity.
+editor meaning.
 
 ## 4.4 Element Tags
 
@@ -277,21 +295,25 @@ BUTTON + CloseButton
 BUTTON + BottomTab
 ```
 
-Tags allow global styling of semantic Blizzard families without creating
-separate Element implementations. Appearance changes never change the tag.
-A checkbox may be restyled to look like a large action button while remaining
-tagged as Checkbox.
+Semantic Element tags allow global styling of Blizzard families without
+creating separate Element implementations. Normal appearance changes do not
+change a semantic Element tag. A checkbox may be restyled to look like a large
+action button while remaining tagged as Checkbox.
 
-Tags are metadata, not structural children, editor identities, or movement
-owners.
+Semantic Element tags are metadata, not structural children, editor identities,
+or movement owners. Composite presentation-family tags are a separate use of
+tag metadata and may change during an explicit presentation-family conversion;
+see Composite Style Tags.
 
 ## 4.5 States
 
-State is an orthogonal runtime presentation layer owned by the Element or
+State is an orthogonal runtime presentation context owned by the Element or
 Composite. Blizzard remains authoritative for behavior and state transitions;
 NSkin only maps the active state to presentation.
 
-A state may override Surface, Content, or Part appearance where meaningful.
+A State may override supported appearance properties of its owner, including
+explicitly supported presentation geometry. State does not change structural
+ownership, canonical identity, movement ownership, or Blizzard behavior.
 
 Examples:
 
@@ -335,13 +357,16 @@ Element/Content/Part model.
 
 ---
 
-# 5. Presentation Identity vs Editor Identity
+# 5. Runtime, Editor, Appearance, and Movement Identity
 
-Presentation identity and editor identity are separate.
+Runtime frame identity, editor selection identity, appearance identity, and
+movement ownership are separate concepts; none implies another.
 
 Content and Parts may have stable appearance identities without becoming
 independently selectable editor objects. Likewise, multiple presentation nodes
-may belong to one Composite editor identity.
+may belong to one Composite editor identity. A standalone Element may also
+legitimately use one stable ID for both editor selection and appearance; the
+invariant is that shared code must not require those identities to coincide.
 
 For example:
 
@@ -358,18 +383,11 @@ Dungeon Row Composite             one editor identity
 
 The Content slots retain stable identities even if their Content type changes.
 
-This distinction is fundamental:
+These concepts must remain independently reasoned about even when an
+implementation reuses one stable identifier for several of them.
 
-```text
-editor identity
-≠
-presentation identity
-≠
-semantic tag
-```
-
-Do not create a new Element type solely because a Content type or semantic tag
-differs.
+Do not create a new Element type solely because a Content representation,
+semantic tag, runtime frame, or appearance source differs.
 
 ---
 
@@ -400,7 +418,10 @@ STANDALONE is a structural/editor relationship, not an Element type.
 
 # 7. COMPOSITE
 
-A Composite represents multiple atomic components that permanently form one logical editor object.
+A Composite represents members under a lasting logical ownership relationship
+that together form one logical editor object. Membership is structural and
+semantic; it does not require every member to remain permanently attached to
+Composite movement/layout.
 
 Examples:
 
@@ -480,12 +501,18 @@ ATTACHED
 → not independently dragged as a separate editor object
 
 DETACHED
+→ remains a Composite member
 → no longer follows Composite-level movement
-→ receives a valid independent placement contract
-→ may become independently selectable
+→ may receive an explicit safe independent placement/selection contract
 ```
 
-Detach must not blindly destroy Blizzard anchors. It changes participation in Composite placement/movement while preserving a safe independent placement contract.
+Detachment changes movement/layout participation, not logical membership,
+canonical identity, appearance identity, or reset ownership. It must not create
+a duplicate canonical registration or a second appearance/reset owner merely to
+support independent manipulation.
+
+Detach must not blindly destroy Blizzard anchors. Independent selection or
+movement is enabled only when an explicit safe contract exists.
 
 ## 7.4 Composite Skinning Mode Behavior
 
@@ -542,10 +569,13 @@ Tabs.Atlas
 Tabs.Texture
 ```
 
-Changing a Composite's presentation family may therefore change its tag without
-changing the Composite ID, member IDs, or stable exact-target IDs. Layout choices
-such as horizontal versus vertical orientation remain normal Composite layout
-metadata unless they intentionally define a separate global style family.
+Changing a Composite's presentation family may therefore change its
+presentation-family tag without changing the Composite ID, member IDs, or
+stable exact-target IDs. This is intentionally different from semantic Element
+tags such as Checkbox or CloseButton, which remain stable across ordinary
+appearance edits. Layout choices such as horizontal versus vertical orientation
+remain normal Composite layout metadata unless they intentionally define a
+separate global style family.
 
 
 
@@ -599,7 +629,9 @@ while exposing different atomic members.
 
 # 8. CONTAINER
 
-A Container is a true structural parent whose children remain independently registered and independently editable.
+A Container is an explicit NSkin structural parent whose children remain
+independently registered and independently editable. Blizzard frame parenting
+alone does not establish a Container relationship.
 
 Example:
 
@@ -611,7 +643,11 @@ CONTAINER
 └─ BUTTON
 ```
 
-A Container is appropriate when the parent-child relationship is real and useful independently of movement.
+A Container is appropriate when parent-level navigation, layout, or a meaningful
+editable visual envelope makes the parent-child relationship useful. A
+Container may own movement, but collective movement alone does not justify a
+Container; use Editor Group for otherwise independent editor objects that only
+need optional collective manipulation.
 
 A standard Window Container is a canonical example: the WINDOW body and Header
 Composite are independent editor children that structurally belong to the same
@@ -659,13 +695,18 @@ children while preserving stable IDs for children that later become available.
 Container Docked Window navigation mirrors the registered structure without
 flattening child identity.
 
-Repeated structurally equivalent Composites may declare a stable `familyID`
-(and optional `familyLabel`). A Container with one Composite family exposes
-that family's shared member/appearance families directly beside the Container
-entry. A Container with multiple Composite families exposes those families
-first; selecting one drills into that family's members while retaining a route
-back to the Container. A Composite without an explicit `familyID` is its own
-family.
+Equivalent semantic instances may explicitly declare a stable `familyID`
+(and optional `familyLabel`) when they share a presentation contract and,
+where intended, shared appearance defaults. Schema similarity alone does not
+create a Family: two controls may use identical schemas while remaining
+semantically distinct and independently editable.
+
+Each family instance may retain a stable semantic identity for exact overrides.
+A Container with one Composite family exposes that family's shared
+member/appearance families directly beside the Container entry. A Container
+with multiple Composite families exposes those families first; selecting one
+drills into that family's members while retaining a route back to the
+Container. A Composite without an explicit `familyID` is its own family.
 
 Direct non-Composite children remain independent editor objects and are exposed
 alongside Composite families. If a direct child has its own semantic parts, its
@@ -675,6 +716,11 @@ secondary layer beneath the selected part when needed.
 
 Dock navigation is presentation metadata only. It must not merge canonical
 IDs, appearance identities, reset ownership, or structural relationships.
+
+The inspector need not expose every architectural level as a separately
+selectable navigation step. Content slots and Parts may be edited contextually
+through their owner without gaining editor identity. Prefer the shallowest
+inspector that preserves the user's current owner, state, and property context.
 
 Structural ownership is also independent of movement ownership. A child that
 moves indirectly because Blizzard anchors it inside a Container's runtime
@@ -965,7 +1011,10 @@ Stable canonical identity is more important than minimizing registration declara
 
 Use targeted lifecycle providers for generated/pooled controls.
 
-A shared family helper is appropriate when Blizzard exposes a known repeated family through a stable template, array, provider, or equivalent semantic collection.
+A shared family helper is appropriate when Blizzard exposes a known repeated
+collection and NSkin explicitly declares those instances equivalent under one
+semantic presentation contract. Sharing a template, schema, array, or provider
+is supporting evidence, not by itself sufficient to create a Family.
 
 Identity rules:
 
