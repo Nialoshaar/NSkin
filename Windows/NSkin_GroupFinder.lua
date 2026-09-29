@@ -2948,6 +2948,78 @@ function PVESkin:RegisterDungeonRows()
     local queueFrame = _G.LFDQueueFrame
     if not frame or not queueFrame then return false end
 
+    local function CreateDungeonRowElementEditorOptions(
+        geometryGroupID, contentGroupID)
+        local layoutGroups = {
+            {
+                id = "shared.movable",
+                contextRole = "PLACEMENT",
+                contextualInline = true,
+                category = "POSITION",
+            },
+        }
+        if geometryGroupID then
+            layoutGroups[#layoutGroups + 1] = {
+                id = geometryGroupID,
+                contextRole = "APPEARANCE",
+                contextualInline = true,
+            }
+        end
+
+        return {
+            {
+                id = "groupFinder.dungeonRows.elementDomains",
+                presentation = "NAV_TABS",
+                inspectorNavigation = true,
+                tabs = {
+                    {
+                        id = "Layout",
+                        label = "Layout",
+                        groups = layoutGroups,
+                    },
+                    {
+                        id = "Content",
+                        label = "Content",
+                        groups = {
+                            {
+                                id = contentGroupID,
+                                contextRole = "APPEARANCE",
+                                contextualInline = true,
+                            },
+                        },
+                    },
+                    {
+                        id = "Surface",
+                        label = "Surface",
+                        groups = {
+                            {
+                                id = "shared.surfaceBackground",
+                                label = "Background",
+                                contextRole = "APPEARANCE",
+                                contextualInline = false,
+                                headerToggleKey = "showBackground",
+                            },
+                            {
+                                id = "shared.surfaceBorder",
+                                label = "Border",
+                                contextRole = "APPEARANCE",
+                                contextualInline = false,
+                                headerToggleKey = "showBorder",
+                            },
+                            {
+                                id = "shared.surfaceHighlight",
+                                label = "Highlight",
+                                contextRole = "APPEARANCE",
+                                contextualInline = false,
+                                headerToggleKey = "showHighlight",
+                            },
+                        },
+                    },
+                },
+            },
+        }
+    end
+
     local function RegisterFamily(id, label, wantHeaders)
         local rowFamily = wantHeaders and "sectionRow" or "row"
         local kind = "BUTTON"
@@ -2977,6 +3049,10 @@ function PVESkin:RegisterDungeonRows()
                 CHECKBOX = {
                     elementType = "BUTTON",
                     tag = "Checkbox",
+                    editorStateBaseLabel = "Shared",
+                    editorOptions = CreateDungeonRowElementEditorOptions(
+                        "shared.checkboxGeometry",
+                        "shared.checkboxContent"),
                     movable = true,
                     applyFamilyOffset = ApplyDungeonMemberFamilyOffset,
                     states = {
@@ -3006,6 +3082,10 @@ function PVESkin:RegisterDungeonRows()
                 BUTTON = {
                     elementType = "BUTTON",
                     tag = "CollapseButton",
+                    editorStateBaseLabel = "Shared",
+                    editorOptions = CreateDungeonRowElementEditorOptions(
+                        "shared.buttonGeometry",
+                        "shared.buttonContent"),
                     movable = true,
                     applyFamilyOffset = ApplyDungeonMemberFamilyOffset,
                     label = "Button",
@@ -3088,6 +3168,10 @@ function PVESkin:RegisterDungeonRows()
                 CHECKBOX = {
                     elementType = "BUTTON",
                     tag = "Checkbox",
+                    editorStateBaseLabel = "Shared",
+                    editorOptions = CreateDungeonRowElementEditorOptions(
+                        "shared.checkboxGeometry",
+                        "shared.checkboxContent"),
                     movable = true,
                     applyFamilyOffset = ApplyDungeonMemberFamilyOffset,
                     states = {
@@ -3133,6 +3217,8 @@ function PVESkin:RegisterDungeonRows()
                         role = "SECONDARY",
                         label = "Section text",
                         editorLabel = "Section Text",
+                        editorOptions = CreateDungeonRowElementEditorOptions(
+                            nil, "shared.textAppearance"),
                         appearanceWindowID = IDs.DungeonFinder.Scope,
                         appearanceID = id .. ".TEXT",
                         appearanceParentID = id,
@@ -3153,6 +3239,8 @@ function PVESkin:RegisterDungeonRows()
                         role = "SECONDARY",
                         label = "Dungeon name",
                         editorLabel = "Dungeon name",
+                        editorOptions = CreateDungeonRowElementEditorOptions(
+                            nil, "shared.textAppearance"),
                         appearanceWindowID = IDs.DungeonFinder.Scope,
                         appearanceID = id .. ".DungeonNameText",
                         appearanceParentID = id .. ".DungeonNameText",
@@ -3187,6 +3275,8 @@ function PVESkin:RegisterDungeonRows()
                         role = "SECONDARY",
                         label = "Level range",
                         editorLabel = "Level range",
+                        editorOptions = CreateDungeonRowElementEditorOptions(
+                            nil, "shared.textAppearance"),
                         appearanceWindowID = IDs.DungeonFinder.Scope,
                         appearanceID = id .. ".LevelRangeText",
                         appearanceParentID = id .. ".LevelRangeText",

@@ -3222,6 +3222,51 @@ function NSkin:GetCompositeMemberAppearanceContext(elementOrID, memberOrID)
     return context
 end
 
+local function EditorDefinitionsContainID(definitions, wantedID)
+    for _, definition in ipairs(definitions or {}) do
+        local id = type(definition) == "table"
+            and definition.id or definition
+        if id == wantedID then return true end
+        if type(definition) == "table" then
+            if EditorDefinitionsContainID(definition.tabs, wantedID)
+                or EditorDefinitionsContainID(definition.groups, wantedID)
+            then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+local function CopyMemberEditorDefinition(
+    definition, placementContext, appearanceContext)
+    if type(definition) ~= "table" then return definition end
+
+    local copy = {}
+    for key, value in pairs(definition) do
+        if (key == "tabs" or key == "groups")
+            and type(value) == "table"
+        then
+            local children = {}
+            for index, child in ipairs(value) do
+                children[index] = CopyMemberEditorDefinition(
+                    child, placementContext, appearanceContext)
+            end
+            copy[key] = children
+        else
+            copy[key] = value
+        end
+    end
+
+    if copy.contextRole == "PLACEMENT" then
+        copy.context = placementContext
+    elseif copy.contextRole == "APPEARANCE" then
+        copy.context = appearanceContext
+    end
+    copy.contextRole = nil
+    return copy
+end
+
 function NSkin:GetCompositeMemberEditorOptions(elementOrID, memberOrID)
     local element = type(elementOrID) == "table" and elementOrID
         or self:GetSkinningElement(elementOrID)
@@ -3235,8 +3280,16 @@ function NSkin:GetCompositeMemberEditorOptions(elementOrID, memberOrID)
 
     local placementContext =
         self:GetCompositeMemberEditorContext(element, member)
+    local appearanceContext =
+        self:GetCompositeMemberAppearanceContext(element, member)
+    local definitions = member.editorOptions
+        or self:CreateEditorOptionsPreset(component.editorPreset)
+        or {}
     local options = {}
-    if placementContext
+
+    local navigationOwnsPlacement =
+        EditorDefinitionsContainID(definitions, "shared.movable")
+    if not navigationOwnsPlacement and placementContext
         and type(placementContext.getPlacement) == "function"
         and type(placementContext.setPlacement) == "function"
         and type(placementContext.resetPlacement) == "function"
@@ -3251,34 +3304,36 @@ function NSkin:GetCompositeMemberEditorOptions(elementOrID, memberOrID)
         }
     end
 
-    local appearanceContext =
-        self:GetCompositeMemberAppearanceContext(element, member)
     local labels = element.editorOptionLabels
         or (element.composition and element.composition.editorOptionLabels)
-    local definitions = member.editorOptions
-        or self:CreateEditorOptionsPreset(component.editorPreset)
-        or {}
     for _, definition in ipairs(definitions) do
         local id = type(definition) == "table"
             and definition.id or definition
         local category = type(definition) == "table"
             and definition.category
-        if type(id) == "string" and id ~= "shared.movable"
-            and category ~= "POSITION" and category ~= "LAYOUT"
+        local navigation = type(definition) == "table"
+            and definition.presentation == "NAV_TABS"
+        if type(id) == "string"
+            and (navigation
+                or (id ~= "shared.movable"
+                    and category ~= "POSITION"
+                    and category ~= "LAYOUT"))
         then
-            local copy = {}
-            if type(definition) == "table" then
-                for key, value in pairs(definition) do copy[key] = value end
-            else
-                copy.id = id
-            end
+            local copy = type(definition) == "table"
+                and CopyMemberEditorDefinition(
+                    definition, placementContext, appearanceContext)
+                or { id = id }
             copy.id = id
-            copy.context = appearanceContext or element
-            if copy.contextualInline == nil then
-                copy.contextualInline = true
+            if copy.context == nil then
+                copy.context = appearanceContext or element
             end
-            if copy.contextualInline then
-                copy.presentation = "INLINE"
+            if not navigation then
+                if copy.contextualInline == nil then
+                    copy.contextualInline = true
+                end
+                if copy.contextualInline then
+                    copy.presentation = "INLINE"
+                end
             end
             if labels and labels[id] then copy.label = labels[id] end
             options[#options + 1] = copy
@@ -3288,37 +3343,62 @@ function NSkin:GetCompositeMemberEditorOptions(elementOrID, memberOrID)
 end
 
 function NSkin:ResetCompositeMemberCustomizations(elementOrID, memberOrID)
-    local element = type(elementOrID) == "table" and elementOrID
-        or self:GetSkinningElement(elementOrID)
+    local element = type(elementOrID) == "table"
+        and elementOrID or self:GetSkinningElement(elementOrID)
     local member = element and (type(memberOrID) == "table" and memberOrID
         or self:GetCompositeMember(element, memberOrID))
     if not element or not member then return false end
 
     local placementContext =
         self:GetCompositeMemberEditorContext(element, member)
-    local appearanceContext =
-        self:GetCompositeMemberAppearanceContext(element, member)
     local specific = self:IsCompositeMemberSpecificOverrideEnabled(
         element, member)
 
-    local component = member.kind
-        and self:GetSharedElementType(member.kind)
-    if component and appearanceContext then
-        local definitions = member.editorOptions
-            or self:CreateEditorOptionsPreset(component.editorPreset)
-            or {}
-        for _, definition in ipairs(definitions) do
-            local id = type(definition) == "table"
-                and definition.id or definition
-            local category = type(definition) == "table"
-                and definition.category
-            if type(id) == "string" and id ~= "shared.movable"
-                and category ~= "POSITION" and category ~= "LAYOUT"
+    local function ResetDefinitions(definitions, inheritedContext)
+        local changed
+        for _, definition in ipairs(definitions or {}) do
+            if type(definition) == "table"
+                and definition.presentation == "NAV_TABS"
+                and type(definition.tabs) == "table"
             then
-                self:ResetOptionGroup(id, appearanceContext)
+                local navigationContext =
+                    definition.context or inheritedContext
+                for _, tab in ipairs(definition.tabs) do
+                    local tabContext = type(tab) == "table"
+                        and (tab.context or navigationContext)
+                        or navigationContext
+                    if type(tab) == "table" then
+                        changed = ResetDefinitions(
+                            tab.groups, tabContext) or changed
+                        changed = ResetDefinitions(
+                            tab.tabs, tabContext) or changed
+                    end
+                end
+            else
+                local id = type(definition) == "table"
+                    and definition.id or definition
+                local category = type(definition) == "table"
+                    and definition.category
+                local context = type(definition) == "table"
+                    and (definition.context or inheritedContext)
+                    or inheritedContext
+                if type(id) == "string"
+                    and id ~= "shared.movable"
+                    and category ~= "POSITION"
+                    and category ~= "LAYOUT"
+                    and context
+                then
+                    changed = self:ResetOptionGroup(
+                        id, context) or changed
+                end
             end
         end
+        return changed == true
     end
+
+    local editorOptions =
+        self:GetCompositeMemberEditorOptions(element, member)
+    ResetDefinitions(editorOptions, element)
 
     if specific then
         self:SetCompositeMemberSpecificOverride(element, member, false)

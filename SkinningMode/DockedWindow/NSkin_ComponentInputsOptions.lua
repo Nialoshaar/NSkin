@@ -270,6 +270,17 @@ NSkin:RegisterOptionGroup("shared.buttonAppearance", {
         return ResetMappedElementKeys(context, keys, buttonResetPaths)
     end,
 })
+NSkin:RegisterOptionGroupSubset(
+    "shared.buttonGeometry", "shared.buttonAppearance", {
+        buttonAppearanceControls[1],
+    })
+NSkin:RegisterOptionGroupSubset(
+    "shared.buttonContent", "shared.buttonAppearance", {
+        buttonAppearanceControls[2],
+        buttonAppearanceControls[3],
+        buttonAppearanceControls[4],
+        buttonAppearanceControls[5],
+    })
 
 NSkin:RegisterOptionGroup("shared.checkboxAppearance", {
     controls = {
@@ -337,6 +348,20 @@ NSkin:RegisterOptionGroup("shared.checkboxAppearance", {
         return ResetMappedElementKeys(context, keys, mapping)
     end,
 })
+local checkboxAppearanceDefinition =
+    NSkin:GetOptionGroupDefinition("shared.checkboxAppearance")
+local checkboxAppearanceControls = checkboxAppearanceDefinition
+    and checkboxAppearanceDefinition.orderedControls
+if checkboxAppearanceControls then
+    NSkin:RegisterOptionGroupSubset(
+        "shared.checkboxGeometry", "shared.checkboxAppearance", {
+            checkboxAppearanceControls[1].definition,
+        })
+    NSkin:RegisterOptionGroupSubset(
+        "shared.checkboxContent", "shared.checkboxAppearance", {
+            checkboxAppearanceControls[2].definition,
+        })
+end
 
 NSkin:RegisterOptionGroup("shared.sliderAppearance", {
     controls = {

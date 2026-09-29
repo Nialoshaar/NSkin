@@ -79,16 +79,40 @@ local function ResetCompositeSelection(element)
     local options = NSkin:GetCompositeMemberEditorOptions(
         element, member)
     local changed
-    for _, definition in ipairs(options or {}) do
-        local id = type(definition) == "table"
-            and definition.id or definition
-        local context = type(definition) == "table"
-            and ResolveEditorContext(definition, element) or element
-        if type(id) == "string" and context then
-            changed = NSkin:ResetOptionGroup(
-                id, context) or changed
+
+    local function ResetDefinitions(definitions, inheritedContext)
+        for _, definition in ipairs(definitions or {}) do
+            if type(definition) == "table"
+                and definition.presentation == "NAV_TABS"
+                and type(definition.tabs) == "table"
+            then
+                local navigationContext =
+                    ResolveEditorContext(definition, inheritedContext)
+                for _, tab in ipairs(definition.tabs) do
+                    local tabContext = type(tab) == "table"
+                        and ResolveEditorContext(tab, navigationContext)
+                        or navigationContext
+                    if type(tab) == "table" then
+                        ResetDefinitions(tab.groups, tabContext)
+                        ResetDefinitions(tab.tabs, tabContext)
+                    end
+                end
+            else
+                local id = type(definition) == "table"
+                    and definition.id or definition
+                local context = type(definition) == "table"
+                    and ResolveEditorContext(
+                        definition, inheritedContext)
+                    or inheritedContext
+                if type(id) == "string" and context then
+                    changed = NSkin:ResetOptionGroup(
+                        id, context) or changed
+                end
+            end
         end
     end
+
+    ResetDefinitions(options, element)
     NSkin:NotifySkinningElementBoundsChanged(element.id)
     NSkin:ResnapPixelBordersForElement(element)
     return changed == true
@@ -545,7 +569,11 @@ local function RefreshStateSelector(element, member)
     local selectedState = NSkin:GetCompositeMemberEditorState(
         element, member)
     local definitions = {
-        { id = "__ALL", label = "All", allStates = true },
+        {
+            id = "__ALL",
+            label = member.editorStateBaseLabel or "All",
+            allStates = true,
+        },
     }
     for _, definition in ipairs(states) do
         definitions[#definitions + 1] = definition
@@ -1117,7 +1145,9 @@ local function LoadEditorOptions(element)
                     state.selectedEditorSubtabs[key] or 1,
                     #definition.tabs)
                 state.selectedEditorSubtabs[key] = selected
-                if depth > 0 then
+                if depth > 0
+                    or definition.inspectorNavigation == true
+                then
                     navigationRows[#navigationRows + 1] = {
                         key = key,
                         tabs = definition.tabs,
