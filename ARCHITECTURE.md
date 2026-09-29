@@ -42,29 +42,60 @@ The default NSkin presentation should preserve Blizzard's layout. Position, size
 
 # 2. Core Architectural Model
 
-The target architecture separates four questions:
+The target architecture separates visual primitives, intrinsic control machinery,
+editable controls, and structural grouping:
 
 ```text
-1. What reusable visual/control type is this?
-   → Atomic Component
+CONTENT
+= swappable visual payload
+= TEXT / ICON / TEXTURE / ATLAS / GLYPH
 
-2. Which atomic elements permanently form one editable object?
-   → COMPOSITE
+PART
+= reusable intrinsic machinery of an Element
+= TRACK / THUMB and future genuinely structural parts
 
-3. Which independent editor elements structurally belong to a parent?
-   → CONTAINER
+ELEMENT
+= the smallest complete control with its own editor identity
+= may own Surface + Parts + Content + runtime States
 
-4. Which independent editor elements may optionally be manipulated together?
-   → EDITOR_GROUP
+COMPOSITE
+= one logical editor object built from Elements and/or direct presentation
+  nodes
+
+CONTAINER
+= structural parent of independently editable Elements and Composites
 ```
 
-Movement is a separate editor capability. It does not define any of those concepts.
+Surface, Tag, State, Family, and Placement are orthogonal metadata/capabilities;
+they are not additional hierarchy levels.
+
+The normal ownership direction is:
+
+```text
+CONTAINER
+└─ COMPOSITE
+   └─ ELEMENT
+      ├─ SURFACE
+      ├─ PART
+      └─ CONTENT
+```
+
+Lower levels may be omitted when they add no useful identity. In particular,
+a Composite may own Content directly when that visual has no independent
+Element identity.
 
 The central long-term rule is:
 
-> Atomic components define reusable appearance and state. Composition defines relationships. Window files register Blizzard UI. Skinning Mode edits those structures.
+> Content defines swappable visual payload. Parts define reusable intrinsic
+> control machinery. Elements define editable controls. Composition defines
+> relationships. Window files map Blizzard UI into those structures.
 
-Do not create a new component type merely because several controls appear together in one Blizzard layout.
+Movement remains a separate editor capability. Structural ownership does not
+automatically imply movement ownership.
+
+Legacy canonical component kinds such as TEXT, ICON, and CHECKBOX remain
+supported during migration. They are compatibility representations, not a
+requirement that new work preserve the old taxonomy.
 
 ---
 
@@ -131,165 +162,239 @@ The old `Skins/` name is replaced by `Windows/` because these files are Blizzard
 
 ---
 
-# 4. Atomic Components
+# 4. Content, Parts, Elements, Tags, and States
 
-An atomic component represents a reusable visual/control contract.
+## 4.1 Content
 
-A component type should exist because it has reusable appearance or state behavior, not because of its semantic role in one window.
-
-Target atomic component families include concepts such as:
+Content is the smallest swappable visual payload. Canonical Content types are:
 
 ```text
 TEXT
 ICON
-PROGRESS_BAR
-
-BUTTON
-CHECKBOX
-EDIT_BOX
-DROPDOWN
-SLIDER
-SCROLLBAR
+TEXTURE
+ATLAS
+GLYPH
 ```
 
-Window-level presentation may continue to use shared window/chrome infrastructure where appropriate.
-
-Each canonical atomic component should have one shared implementation for:
-
-- skin behavior
-- appearance schema
-- docked options
-- original-state ownership
-- reset behavior
-- inheritance behavior
-- common lifecycle handling
-
-Atomic components may also expose the shared Surface capability when they own
-an editable visual area. Surface capability does not create a second editor
-identity: it is a presentation layer of the same atomic component.
-
-Surface-capable atomic components currently include:
-
-```text
-ICON
-├─ Surface: Background / Border / Highlight
-└─ Icon-specific: Shape / Size / Crop / Zoom
-
-CHECKBOX
-├─ Surface: Background / Border / Highlight
-└─ Checkbox-specific: Shape / Size / Checkmark
-
-BUTTON
-├─ Surface: Background / Border / Highlight
-└─ Button-specific: Size / Content / Content placement
-
-DROPDOWN
-├─ Surface: Background / Border / Highlight
-└─ Dropdown-specific: none currently
-
-TEXT
-├─ Surface: Background / Border / Highlight
-└─ Text-specific: Typography / Color
-```
-
-When an atomic component exposes Surface capability, generic presentation
-properties belong to Surface and must not be duplicated in the component's
-specific schema. Component-specific properties remain owned by the atomic
-component. Surface capability does not create another editor identity,
-appearance identity, movement owner, or Composite member.
-
-Existing component visuals may implement the Surface directly. For example,
-CHECKBOX reuses its checkbox background/border instead of drawing a second
-box, and ICON keeps texture/shape behavior component-owned while its generic
-background/border/highlight are Surface-owned.
-
-Surface appearance refresh is targeted by default and specialized targeted
-refresh is a required contract for every Surface-capable editor element.
-A Surface-only change must use the narrowest refresh path that can update the
-affected visual property without re-running unrelated content, member layout,
-Composite layout, window Apply logic, or module-wide compatibility refresh.
-
-For Composite Surfaces, refresh the Surface member or its owning element
-directly. For atomic Composite members that expose Surface capability, refresh
-only the affected member targets through the canonical component Surface path.
-If a component uses exceptional presentation owners, masks, clipping frames, or
-other adapter-specific visual infrastructure, the adapter must provide a
-specialized targeted Surface refresh for that member rather than falling back
-to its broader refreshAppearance path. Broader appearance/layout refresh is reserved only when the changed property
-genuinely requires that wider dependency.
-
-The same targeted-refresh requirement applies to component-specific appearance,
-not only Surface. A local ICON, CHECKBOX, TEXT, BUTTON, DROPDOWN, or other
-canonical atomic appearance change must refresh only the affected atomic member
-targets through its canonical renderer. If the atomic member uses exceptional
-adapter-owned presentation infrastructure, the adapter must provide a
-specialized targeted component refresh rather than routing the change through
-the owning Composite or window. Geometry-affecting component properties may
-perform the minimum additional geometry work they require, but must not use
-full-Composite/window refresh as a substitute for an explicit dependency.
-A new option added to a canonical component should normally become available everywhere that component is used without modifying individual window adapters.
-
-Do not create page-specific copies of canonical appearance logic.
-
----
-
-# 5. Component Identity vs Editor Identity
-
-Appearance identity and editor identity are separate.
+Content does not receive an independent Skinning Mode selection merely because
+it exists. Its identity belongs to the owning Element or Composite and must
+remain stable when the user changes the Content type. A semantic content slot
+must therefore not derive its canonical ID from whether it currently renders
+TEXT, ICON, GLYPH, ATLAS, or TEXTURE.
 
 For example:
 
 ```text
-COMPOSITE
-├─ CHECKBOX
-└─ TEXT
+Find Group                 BUTTON Element
+└─ Content                 stable slot
+   └─ TEXT                 current presentation
 ```
 
-The Composite is one editor object, but CHECKBOX and TEXT retain their canonical atomic identities.
+may later become:
+
+```text
+Find Group                 BUTTON Element
+└─ Content                 same stable slot
+   └─ GLYPH                new presentation
+```
+
+without changing the Button identity or the Content slot identity.
+
+## 4.2 Parts
+
+A Part is reusable intrinsic machinery that is too structurally specific to be
+normal Content but does not deserve an independent editor identity.
+
+Initial canonical Parts are:
+
+```text
+TRACK
+THUMB
+```
+
+They are shared by controls such as SCROLLBAR and SLIDER. Parts may own
+appearance and local placement, but remain subordinate to their owning Element.
+They do not independently own selection or drag behavior.
+
+Do not create a Part for a semantic visual that can be represented as Content.
+For example, a checkbox checkmark and a collapse/expand arrow are Content,
+because they may be rendered as GLYPH, ICON, TEXTURE, or ATLAS.
+
+## 4.3 Elements
+
+An Element is the smallest complete UI control that deserves its own editor
+identity. Elements may own:
+
+```text
+ELEMENT
+├─ Surface       optional
+├─ Parts         optional
+├─ Content       optional
+└─ States        optional
+```
+
+Element types describe reusable technical structure, not the semantic name or
+current appearance of one Blizzard control.
+
+Examples include:
+
+```text
+BUTTON
+SCROLLBAR
+SLIDER
+DROPDOWN
+EDIT_BOX
+WINDOW
+```
+
+A BUTTON is intentionally broad. Blizzard action buttons, checkboxes,
+collapse/expand controls, close buttons, tabs, and similar controls may share
+the same BUTTON Element implementation when their customizable structure is
+the same.
+
+Legacy TEXT, ICON, CHECKBOX, and similar canonical component APIs remain
+available while existing windows migrate. New architecture should not create a
+TEXT Element merely to wrap TEXT Content when the text has no independent
+control identity.
+
+## 4.4 Element Tags
+
+Element type and semantic family are separate:
+
+```text
+Element type = reusable technical structure
+Tag          = stable semantic/default appearance family
+```
+
+Examples:
+
+```text
+BUTTON + Checkbox
+BUTTON + RoleCheckbox
+BUTTON + ActionButton
+BUTTON + CollapseButton
+BUTTON + CloseButton
+BUTTON + BottomTab
+```
+
+Tags allow global styling of semantic Blizzard families without creating
+separate Element implementations. Appearance changes never change the tag.
+A checkbox may be restyled to look like a large action button while remaining
+tagged as Checkbox.
+
+Tags are metadata, not structural children, editor identities, or movement
+owners.
+
+## 4.5 States
+
+State is an orthogonal runtime presentation layer owned by the Element or
+Composite. Blizzard remains authoritative for behavior and state transitions;
+NSkin only maps the active state to presentation.
+
+A state may override Surface, Content, or Part appearance where meaningful.
+
+Examples:
+
+```text
+BUTTON + Checkbox
+├─ Unchecked
+│  └─ Content: optional
+└─ Checked
+   └─ Content: GLYPH / ICON / TEXTURE / ATLAS
+
+BUTTON + CollapseButton
+├─ Expanded
+│  └─ Content: GLYPH "-"
+└─ Collapsed
+   └─ Content: GLYPH "+"
+
+Navigation Composite
+├─ Unselected
+└─ Selected
+   └─ Surface override
+```
+
+Do not model action semantics such as ACTION, TOGGLE, or EXPAND_COLLAPSE as
+appearance component types merely because Blizzard behavior differs. Window
+adapters report the runtime state; NSkin does not redefine the action.
+
+## 4.6 Surface
+
+Surface remains a reusable presentation capability of an Element, Composite,
+or Container. Generic background, border, and highlight properties belong to
+Surface rather than to Content or Parts.
+
+Surface does not create another editor identity, appearance owner, or movement
+owner. Surface-only changes must continue to use the narrowest targeted refresh
+path and must not force unrelated Content, Part, Composite, or window refresh.
+
+During migration, existing canonical component renderers may continue to own
+their current Surface implementation. New work should preserve reset/original
+state ownership and targeted-refresh guarantees while moving toward the new
+Element/Content/Part model.
+
+---
+
+# 5. Presentation Identity vs Editor Identity
+
+Presentation identity and editor identity are separate.
+
+Content and Parts may have stable appearance identities without becoming
+independently selectable editor objects. Likewise, multiple presentation nodes
+may belong to one Composite editor identity.
+
+For example:
+
+```text
+Dungeon Row Composite             one editor identity
+├─ Surface
+├─ Select                          BUTTON Element
+│  └─ Tag: Checkbox
+├─ Content                         dungeon-name slot
+│  └─ TEXT
+└─ Content                         level-range slot
+   └─ TEXT
+```
+
+The Content slots retain stable identities even if their Content type changes.
 
 This distinction is fundamental:
 
 ```text
 editor identity
 ≠
-appearance identity
+presentation identity
+≠
+semantic tag
 ```
 
-Composite membership must not flatten several atomic components into a bespoke visual component type.
-
-Do not create types such as:
-
-```text
-CHECKBOX_TEXT
-CHECKBOX_LABEL
-ICON_TEXT_ROW
-SEARCH_WITH_DROPDOWN
-```
-
-when normal atomic components plus composition can express the relationship.
+Do not create a new Element type solely because a Content type or semantic tag
+differs.
 
 ---
 
 # 6. STANDALONE
 
-STANDALONE means one atomic component is exposed as one editor element.
+STANDALONE means one complete Element is exposed as one editor object.
 
 Conceptually:
 
 ```text
 STANDALONE
-└─ TEXT
+└─ BUTTON Element
+   ├─ Surface
+   └─ Content: TEXT
 ```
 
 Typical behavior:
 
 - one editor identity
-- one canonical atomic appearance identity
+- one stable Element identity
 - its own highlight
 - its own safe movement contract when movement is supported
-- canonical options for its component type
+- canonical options for its Element type, Tag, Content, Parts, and States
 
-STANDALONE is a structural/editor relationship, not a component type.
+STANDALONE is a structural/editor relationship, not an Element type.
 
 ---
 

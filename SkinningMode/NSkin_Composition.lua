@@ -416,6 +416,182 @@ local function NormalizeCompositeTag(tag)
     return tag ~= "" and tag or nil
 end
 
+local CONTENT_TYPES = {
+    TEXT = true,
+    ICON = true,
+    TEXTURE = true,
+    ATLAS = true,
+    GLYPH = true,
+}
+
+local partTypes = {
+    TRACK = {},
+    THUMB = {},
+}
+
+local function NormalizePresentationTag(tag)
+    if type(tag) ~= "string" then return nil end
+    tag = tag:match("^%s*(.-)%s*$")
+    return tag ~= "" and tag or nil
+end
+
+local function MakeStablePresentationNodeID(
+    ownerID, node, prefix, index, used)
+    local explicit = node.id or node.key
+    if type(explicit) == "string" and explicit ~= "" then
+        if used[explicit] then return nil end
+        used[explicit] = true
+        return explicit
+    end
+
+    local base = tostring(ownerID) .. "." .. prefix .. tostring(index)
+    local candidate, suffix = base, 2
+    while used[candidate] do
+        candidate = base .. suffix
+        suffix = suffix + 1
+    end
+    used[candidate] = true
+    return candidate
+end
+
+local function NormalizePresentationNodes(
+    ownerID, definitions, prefix, isValidType)
+    if type(definitions) ~= "table" then return nil, nil end
+
+    local normalized, byID, used = {}, {}, {}
+    for index, source in ipairs(definitions) do
+        if type(source) == "table" then
+            local typeID = tostring(
+                source.type or source.contentType or source.partType or ""):upper()
+            if isValidType(typeID) then
+                local id = MakeStablePresentationNodeID(
+                    ownerID, source, prefix, index, used)
+                if id then
+                    source.id = id
+                    source.type = typeID
+                    normalized[#normalized + 1] = source
+                    byID[id] = source
+                end
+            end
+        end
+    end
+
+    return normalized, byID
+end
+
+local function NormalizeStatePresentation(ownerID, states)
+    if type(states) ~= "table" then return end
+    for _, state in ipairs(states) do
+        if type(state) == "table"
+            and type(state.id) == "string" and state.id ~= ""
+        then
+            state.content, state.contentByID = NormalizePresentationNodes(
+                ownerID .. ".State." .. state.id,
+                state.content, "Content",
+                function(typeID) return CONTENT_TYPES[typeID] == true end)
+        end
+    end
+end
+
+local function NormalizeElementPresentation(definition, ownerID)
+    if type(definition) ~= "table"
+        or type(ownerID) ~= "string" or ownerID == ""
+    then return end
+
+    if type(definition.elementType) == "string"
+        and definition.elementType ~= ""
+    then
+        definition.elementType = definition.elementType:upper()
+    else
+        definition.elementType = nil
+    end
+    definition.tag = NormalizePresentationTag(definition.tag)
+
+    definition.content, definition.contentByID = NormalizePresentationNodes(
+        ownerID, definition.content, "Content",
+        function(typeID) return CONTENT_TYPES[typeID] == true end)
+    definition.parts, definition.partsByID = NormalizePresentationNodes(
+        ownerID, definition.parts, "Part",
+        function(typeID) return partTypes[typeID] ~= nil end)
+    NormalizeStatePresentation(ownerID, definition.states)
+end
+
+local function NormalizeCompositionPresentation(element, composition)
+    composition.content, composition.contentByID = NormalizePresentationNodes(
+        element.id, composition.content, "Content",
+        function(typeID) return CONTENT_TYPES[typeID] == true end)
+    composition.parts, composition.partsByID = NormalizePresentationNodes(
+        element.id, composition.parts, "Part",
+        function(typeID) return partTypes[typeID] ~= nil end)
+end
+
+function NSkin:IsContentType(typeID)
+    typeID = type(typeID) == "string" and typeID:upper() or nil
+    return typeID ~= nil and CONTENT_TYPES[typeID] == true
+end
+
+function NSkin:RegisterPartType(typeID, definition)
+    if type(typeID) ~= "string" or typeID == ""
+        or type(definition) ~= "table"
+    then return false end
+    typeID = typeID:upper()
+    if partTypes[typeID] then return false end
+    partTypes[typeID] = definition
+    return true
+end
+
+function NSkin:GetPartType(typeID)
+    typeID = type(typeID) == "string" and typeID:upper() or nil
+    return typeID and partTypes[typeID] or nil
+end
+
+function NSkin:GetElementType(elementOrID)
+    local element = type(elementOrID) == "table" and elementOrID
+        or self:GetSkinningElement(elementOrID)
+    return element and (element.elementType or element.kind) or nil
+end
+
+function NSkin:GetElementTag(elementOrID)
+    local element = type(elementOrID) == "table" and elementOrID
+        or self:GetSkinningElement(elementOrID)
+    return element and element.tag or nil
+end
+
+function NSkin:GetElementContent(elementOrID)
+    local element = type(elementOrID) == "table" and elementOrID
+        or self:GetSkinningElement(elementOrID)
+    return element and element.content or nil
+end
+
+function NSkin:GetElementParts(elementOrID)
+    local element = type(elementOrID) == "table" and elementOrID
+        or self:GetSkinningElement(elementOrID)
+    return element and element.parts or nil
+end
+
+function NSkin:GetStateContent(elementOrMember, stateID)
+    if type(elementOrMember) ~= "table"
+        or type(stateID) ~= "string" or stateID == ""
+    then return nil end
+    for _, state in ipairs(elementOrMember.states or {}) do
+        if state.id == stateID then return state.content end
+    end
+end
+
+function NSkin:GetCompositionContent(elementOrID)
+    local element = type(elementOrID) == "table" and elementOrID
+        or self:GetSkinningElement(elementOrID)
+    local composition = element and element.composition
+    return composition and composition.content or nil
+end
+
+function NSkin:GetCompositionParts(elementOrID)
+    local element = type(elementOrID) == "table" and elementOrID
+        or self:GetSkinningElement(elementOrID)
+    local composition = element and element.composition
+    return composition and composition.parts or nil
+end
+
 function NSkin:GetCompositeTagAppearanceID(tag)
     tag = NormalizeCompositeTag(tag)
     if not tag then return nil end
@@ -1666,6 +1842,7 @@ local function NormalizeCompositeMembers(element, composition)
                     member.appearanceWindowID or element.appearanceWindowID
                 member.appearanceID =
                     member.appearanceID or member.elementID or member.id
+                NormalizeElementPresentation(member, member.id)
                 PrepareCompositeSelectionMember(
                     element, composition, member)
                 -- TEXT and CHECKBOX are canonical shared components. Every
@@ -1915,6 +2092,9 @@ local function NormalizeComposition(element)
     local mode = tostring(composition.mode or "STANDALONE"):upper()
     if not COMPOSITION_MODES[mode] then mode = "STANDALONE" end
     composition.mode = mode
+
+    NormalizeElementPresentation(element, element.id)
+    NormalizeCompositionPresentation(element, composition)
 
     if mode == "COMPOSITE" then
         local compositeType = tostring(composition.type or "REGULAR"):upper()
