@@ -3082,7 +3082,7 @@ function PVESkin:RegisterDungeonRows()
                     elementType = "BUTTON",
                     tag = "Checkbox",
                     contextualInspector = true,
-                    editorStateBaseLabel = "Common",
+                    editorStateBaseLabel = "All",
                     editorOptions = CreateDungeonRowElementEditorOptions(
                         "shared.checkboxGeometry",
                         "shared.checkboxContent", true),
@@ -3266,6 +3266,7 @@ function PVESkin:RegisterDungeonRows()
                 contextualInspector = wantHeaders == true,
                 contextualScopeLabel = wantHeaders
                     and "All dungeon headers" or nil,
+                contextualTargetLabel = wantHeaders and "This dungeon" or nil,
                 groupLabel = wantHeaders
                     and "Dungeon header rows" or "Dungeon rows",
                 editorLabel = wantHeaders

@@ -50,6 +50,10 @@ local function ResizeInspector(view, extraHeight)
 end
 
 local RefreshInspector
+local LayoutContextualInspector
+local RefreshContextualPairSource
+local RefreshContextualSectionPresentation
+local RefreshAuxiliaryDrawer
 
 local function ResolveEditorContext(definition, element)
     if definition.contextID then
@@ -557,11 +561,15 @@ local function RefreshStateSelector(element, member)
     if not inspector then return end
     local states = member and member.states or nil
     local hasStates = states and #states > 0
+    local exact = IsContextualInspectorMember(element, member)
+        and state.contextualInspectorDetails[element.id .. "\031" .. member.id]
+            == "__OVERRIDES"
+    inspector.stateLabel:SetText(exact and "State: All states" or "State:")
     inspector.stateLabel:SetShown(hasStates == true)
     inspector.selection:Show()
 
     local stateY = state.contextualInspectorHeader
-        and -82 or (state.memberTabsShown and -84 or -48)
+        and -71 or (state.memberTabsShown and -84 or -48)
     inspector.stateLabel:ClearAllPoints()
     inspector.stateLabel:SetPoint(
         "TOPLEFT", inspector, "TOPLEFT", 12, stateY)
@@ -569,7 +577,7 @@ local function RefreshStateSelector(element, member)
     for _, button in ipairs(inspector.stateButtons or {}) do
         button:Hide()
     end
-    if not hasStates then return end
+    if not hasStates or exact then return end
 
     local selectedState = NSkin:GetCompositeMemberEditorState(
         element, member)
@@ -595,9 +603,15 @@ local function RefreshStateSelector(element, member)
                     and NSkin:GetCompositeMember(
                         currentElement, state.focusedCompositeMemberID)
                 if not currentElement or not currentMember then return end
+                local target = state.focusedCompositeRuntimeTarget
+                if IsContextualInspectorMember(currentElement, currentMember) then
+                    target = GetValidatedFocusedRuntimeTarget(
+                        currentElement, currentMember)
+                end
                 NSkin:SetCompositeMemberEditorState(
-                    currentElement, currentMember,
-                    self.stateID, state.focusedCompositeRuntimeTarget, true)
+                    currentElement, currentMember, self.stateID, target,
+                    IsContextualInspectorMember(currentElement, currentMember)
+                        or target ~= nil)
                 if not (NSkin.RefreshSkinningCompositeMemberEditor
                     and NSkin:RefreshSkinningCompositeMemberEditor(
                         currentElement, currentMember.id))
@@ -615,7 +629,7 @@ local function RefreshStateSelector(element, member)
         button:SetPoint(
             "TOPLEFT", inspector, "TOPLEFT", x,
             state.contextualInspectorHeader
-                and -79
+                and -68
                 or (state.memberTabsShown and -81 or -45))
         local selected = definition.allStates == true
             and selectedState == nil
@@ -627,6 +641,19 @@ local function RefreshStateSelector(element, member)
                 selected and NSkin:GetAccentColor()
                     or { 1, 1, 1, 1 })
         end
+        button:SetScript("OnEnter", function(self)
+            if self.stateID == "__ALL" and GameTooltip then
+                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                GameTooltip:SetText("All states")
+                GameTooltip:AddLine(
+                    "Edits the base appearance inherited by states unless overridden. State previews do not change Blizzard's checked state.",
+                    1, 1, 1, true)
+                GameTooltip:Show()
+            end
+        end)
+        button:SetScript("OnLeave", function()
+            if GameTooltip then GameTooltip:Hide() end
+        end)
         button:Show()
         x = x + button:GetWidth() + 4
     end
@@ -665,7 +692,7 @@ local function RefreshHeaderActions(element)
         inspector.resetElement.resetLabel = "Reset All"
     end
 
-    if IsContextualInspectorElement(element) then
+    if IsContextualInspectorMember(element, overrideMember) then
         state.contextualInspectorHeader = true
         state.memberTabsShown = nil
         inspector.memberTabs:Hide()
@@ -674,44 +701,59 @@ local function RefreshHeaderActions(element)
         end
 
         local member = overrideMember
+        inspector.title:Hide()
+        local headerStyle = {}
+        for key, value in pairs(NSkin:GetStyle("window").header) do
+            headerStyle[key] = value
+        end
+        headerStyle.height = 0
+        headerStyle.showBackground, headerStyle.showBorder = false, false
+        NSkin:SkinWindowHeader(inspector, headerStyle)
+        state.inspectorDragRegion:SetHeight(26)
         inspector.memberPicker:SetShown(member ~= nil)
         if member then
-            NSkin:SkinFlatButton(
-                inspector.memberPicker,
-                "Focus: " .. (GetDockMemberLabel(element, member)
-                    or member.label or member.id),
-                nil, nil, 12)
+            inspector.memberPicker:SetDefaultText(
+                GetDockMemberLabel(element, member) or member.label or member.id)
             inspector.memberPicker.element = element
             inspector.memberPicker.member = member
         end
-        inspector.contextScope:SetText(
-            "Editing: " .. tostring(
-                composition.contextualScopeLabel
-                    or composition.groupLabel
-                    or composition.editorLabel
-                    or element.label or element.id))
+        local detailKey = member and (element.id .. "\031" .. member.id)
+        local exact = detailKey and state.contextualInspectorDetails[detailKey]
+            == "__OVERRIDES"
+        inspector.contextScope:SetText(exact and ("Editing: "
+            .. (composition.contextualTargetLabel or "This target")
+            .. " · Specific overrides")
+            or ("Editing: " .. tostring(composition.contextualScopeLabel
+                or composition.groupLabel or element.label or element.id)))
         inspector.contextScope:Show()
+        if exact then
+            NSkin:SkinFlatButton(inspector.resetElement, "Clear Overrides", nil, nil, 12)
+            inspector.resetElement.resetLabel = "Clear Overrides"
+        end
 
         local hasStates = member and #(member.states or {}) > 0
-        state.inspectorHeaderHeight = hasStates and 112 or 82
-
+        state.inspectorHeaderHeight = hasStates and 98 or 70
         inspector.selection:ClearAllPoints()
-        inspector.selection:SetPoint(
-            "TOPLEFT", inspector, "TOPLEFT", 12, -29)
-        inspector.selection:SetPoint(
-            "RIGHT", inspector.addOverride, "LEFT", -8, 0)
-
+        inspector.selection:SetPoint("TOPLEFT", inspector, "TOPLEFT", 12, -6)
+        inspector.selection:SetPoint("TOPRIGHT", inspector, "TOPRIGHT", -32, -6)
         inspector.memberPicker:ClearAllPoints()
-        inspector.memberPicker:SetPoint(
-            "TOPLEFT", inspector, "TOPLEFT", 12, -51)
-        inspector.memberPicker:SetSize(210, 22)
+        inspector.memberPicker:SetPoint("TOPLEFT", inspector, "TOPLEFT", 12, -32)
+        inspector.memberPicker:SetSize(158, 26)
         inspector.contextScope:ClearAllPoints()
-        inspector.contextScope:SetPoint(
-            "LEFT", inspector.memberPicker, "RIGHT", 12, 0)
-
+        inspector.contextScope:SetPoint("LEFT", inspector.memberPicker, "RIGHT", 10, 0)
+        inspector.contextScope:SetPoint("RIGHT", inspector, "TOPRIGHT", -12, -45)
+        inspector.contextScope:SetJustifyH("LEFT")
         inspector.resetElement:ClearAllPoints()
-        inspector.resetElement:SetPoint(
-            "TOPRIGHT", inspector, "TOPRIGHT", -12, -27)
+        inspector.resetElement:SetPoint("TOPRIGHT", inspector, "TOPRIGHT", -12,
+            hasStates and -68 or -6)
+        inspector.addOverride:ClearAllPoints()
+        inspector.addOverride:SetPoint("RIGHT", inspector.resetElement, "LEFT", -4, 0)
+        -- Non-state members keep their actions on a separate context row.
+        if not hasStates then
+            state.inspectorHeaderHeight = 98
+            inspector.resetElement:SetPoint("TOPRIGHT", inspector, "TOPRIGHT", -12, -68)
+        end
+        if RefreshAuxiliaryDrawer then RefreshAuxiliaryDrawer(true) end
 
         local exactTargetAvailable = true
         if member and type(member.getTargetAppearanceID) == "function" then
@@ -737,6 +779,12 @@ local function RefreshHeaderActions(element)
     end
 
     state.contextualInspectorHeader = nil
+    inspector.title:Show()
+    NSkin:SkinWindowHeader(inspector)
+    state.inspectorDragRegion:SetHeight(22)
+    if RefreshAuxiliaryDrawer then RefreshAuxiliaryDrawer(false) end
+    inspector.addOverride:ClearAllPoints()
+    inspector.addOverride:SetPoint("RIGHT", inspector.resetElement, "LEFT", -4, 0)
     inspector.memberPicker:Hide()
     inspector.contextScope:Hide()
     if inspector.addOverride.SetEnabled then
@@ -1065,6 +1113,15 @@ local function RefreshOverrideListView(
             entries[#entries + 1] = entry
         end
     end
+    local expected = member and runtimeTarget
+        and NSkin:GetCompositeMemberTargetAppearanceID(element, member, runtimeTarget)
+    local function TargetStillValid()
+        if not IsContextualInspectorMember(element, member) then return true end
+        local target, current = GetValidatedFocusedRuntimeTarget(element, member)
+        return target == runtimeTarget and current == expected
+            and state.selectedElement == element
+            and state.focusedCompositeMemberID == member.id
+    end
     local y = 0
     local rowWidth = math.max(1, frame:GetWidth() or 502)
     local nameWidth = math.floor(rowWidth * 0.46)
@@ -1092,6 +1149,7 @@ local function RefreshOverrideListView(
                     local current = self.overrideEntry
                     local owner = self.overrideOwner
                     if not current or not owner then return end
+                    if self.validateContext and not self.validateContext() then return end
                     local member = NSkin:GetCompositeMember(
                         owner, current.memberID)
                     local subsetID =
@@ -1134,6 +1192,14 @@ local function RefreshOverrideListView(
             else
                 row.view:SetContext(context)
             end
+            row.view.isSkinningModeInspector = IsContextualInspectorMember(element, member)
+            row.view.preserveInspectorContext = IsContextualInspectorMember(element, member)
+            row.view.validateContext = TargetStillValid
+            row.view.onValueCommitted = function()
+                row.view:Refresh()
+            end
+            row.view:SetExternalEnabled(TargetStillValid())
+            row.remove.validateContext = TargetStillValid
             row.view:Show()
             local height = LayoutOverrideRowControl(
                 row, row.view, entry.propertyKey)
@@ -1164,6 +1230,9 @@ local function OpenOverridePopup(element, preferredMemberID)
     if not popup or not element then return end
     local preferred = preferredMemberID
         and NSkin:GetCompositeMember(element, preferredMemberID)
+    if IsContextualInspectorMember(element, preferred)
+        and not GetValidatedFocusedRuntimeTarget(element, preferred)
+    then return end
     popup:Open(element, preferred and { preferred } or nil)
 end
 
@@ -1182,8 +1251,11 @@ IsContextualInspectorMember = function(element, member)
 end
 
 local function HideContextualInspectorRows()
-    for _, row in ipairs(state.contextualSummaryRows or {}) do row:Hide() end
-    for _, row in ipairs(state.contextualPropertyRows or {}) do
+    for _, row in pairs(state.contextualSummaryRows or {}) do
+        row:Hide()
+        if row.body then row.body:Hide() end
+    end
+    for _, row in pairs(state.contextualPropertyRows or {}) do
         row:Hide()
         if row.view then row.view:Hide() end
     end
@@ -1213,11 +1285,25 @@ end
 GetValidatedFocusedRuntimeTarget = function(element, member)
     local expected = state.focusedCompositeRuntimeAppearanceID
     local target = state.focusedCompositeRuntimeTarget
+    if state.selectedElement ~= element
+        or GetContextualCompositeMember(element) ~= member
+    then return nil, expected end
     if not target or not expected then return nil, expected end
     if target.IsForbidden and target:IsForbidden() then return nil, expected end
+    if target.IsVisible and not target:IsVisible() then return nil, expected end
+    local declared
+    for _, candidate in ipairs(
+        NSkin:GetCompositionMemberTargets(element, member, true) or {})
+    do
+        if candidate == target then declared = true; break end
+    end
+    if not declared then return nil, expected end
     local current = NSkin:GetCompositeMemberTargetAppearanceID(
         element, member, target)
     if current ~= expected then return nil, expected end
+    if type(member.getTargetAppearanceID) == "function"
+        and current == (member.appearanceID or member.id)
+    then return nil, expected end
     return target, expected
 end
 
@@ -1349,9 +1435,46 @@ local function EnsureContextualSummaryRow(index)
     if row then return row end
 
     row = CreateFrame("Button", nil, state.scrollChild)
-    row:SetHeight(40)
+    row:SetHeight(34)
+    row.body = CreateFrame("Frame", nil, state.scrollChild)
+    row.body:SetPoint("TOPLEFT", row, "BOTTOMLEFT", 0, -1)
+    row.body:Hide()
+    row.cells = {}
     row.label = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     row.label:SetPoint("LEFT", row, "LEFT", 12, 0)
+    row.enabledToggle = NSkin:CreateOwnedOptionsCheckbox(row)
+    row.enabledToggle:SetSize(18, 18)
+    row.enabledToggle:SetPoint("LEFT", row.label, "RIGHT", 8, 0)
+    row.enabledToggle:SetFrameLevel(row:GetFrameLevel() + 1)
+    row.enabledToggle.Text:Hide()
+    row.enabledToggle:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    row.enabledToggle:Hide()
+    row.enabledToggle:SetScript("OnClick", function(self, button)
+        local cell = row.headerToggleCell
+        if not cell then return end
+        if button == "RightButton" then
+            cell.reset:GetScript("OnClick")(cell.reset)
+        else
+            NSkin:SetOptionGroupValues(cell.subsetID, cell.context,
+                { [cell.property.key] = self:GetChecked() == true }, true)
+            RefreshContextualSectionPresentation(row)
+        end
+    end)
+    row.enabledToggle:SetScript("OnEnter", function(self)
+        local cell = row.headerToggleCell
+        if cell and GameTooltip then
+            local source = NSkin:GetOptionGroupPropertyInheritance(
+                cell.groupID, cell.context, cell.property)
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetText("Enable " .. row.label:GetText())
+            GameTooltip:AddLine(source and source.label or "", 1, 1, 1)
+            GameTooltip:AddLine("Right-click to reset Enabled.", 1, 1, 1)
+            GameTooltip:Show()
+        end
+    end)
+    row.enabledToggle:SetScript("OnLeave", function()
+        if GameTooltip then GameTooltip:Hide() end
+    end)
     row.value = row:CreateFontString(
         nil, "OVERLAY", "GameFontHighlightSmall")
     row.value:SetPoint("RIGHT", row, "RIGHT", -28, 0)
@@ -1366,9 +1489,15 @@ local function EnsureContextualSummaryRow(index)
         { 0, 0, 0, 0 }, NSkin:GetStyle("window").header.divider)
     row:SetScript("OnClick", function(self)
         if not self.detailKey or not self.groupID then return end
-        state.contextualInspectorDetails[self.detailKey] = self.groupID
-        state.scrollFrame:SetVerticalScroll(0)
-        RefreshInspector()
+        if self.groupID == "__OVERRIDES" then
+            state.contextualInspectorDetails[self.detailKey] = "__OVERRIDES"
+            RefreshInspector()
+            return
+        end
+        state.contextualAccordionExpansion = state.contextualAccordionExpansion or {}
+        local expanded = state.contextualAccordionExpansion
+        expanded[self.expansionKey] = not expanded[self.expansionKey]
+        LayoutContextualInspector()
     end)
     row:SetScript("OnEnter", function(self)
         NSkin:SetPixelBorderColor(
@@ -1391,58 +1520,229 @@ local function RefreshContextualPropertySource(row)
     local source = NSkin:GetOptionGroupPropertyInheritance(
         row.groupID, row.context, row.property)
     row.source:SetText(source and source.label or "")
+    if row.pairRow then RefreshContextualPairSource(row.pairRow) end
 end
 
-local function EnsureContextualPropertyRow(index)
-    state.contextualPropertyRows = state.contextualPropertyRows or {}
-    local row = state.contextualPropertyRows[index]
-    if row then return row end
+RefreshContextualSectionPresentation = function(section)
+    section.value:SetText(FormatContextualSummary(section.group))
+    local cell = section.headerToggleCell
+    section.enabledToggle:SetShown(cell ~= nil)
+    if cell then
+        local definition = NSkin:GetOptionGroupDefinition(cell.groupID)
+        local values = definition.get(cell.context)
+        section.enabledToggle:SetChecked(values[cell.property.key] == true)
+    end
+end
 
-    row = CreateFrame("Frame", nil, state.scrollChild)
-    row.nameCell = CreateFrame("Frame", nil, row)
-    row.nameCell:SetPoint("TOPLEFT")
-    row.valueCell = CreateFrame("Frame", nil, row)
-    row.valueCell:SetPoint("TOPLEFT", row.nameCell, "TOPRIGHT")
-    row.label = row.nameCell:CreateFontString(
-        nil, "OVERLAY", "GameFontNormal")
-    row.label:SetPoint("TOPLEFT", row.nameCell, "TOPLEFT", 8, -5)
-    row.source = row.nameCell:CreateFontString(
-        nil, "OVERLAY", "GameFontHighlightSmall")
-    row.source:SetPoint("BOTTOMLEFT", row.nameCell, "BOTTOMLEFT", 8, 4)
-    row.reset = CreateFrame("Button", nil, row.nameCell)
-    row.reset:SetSize(20, 20)
-    row.reset:SetPoint("RIGHT", row.nameCell, "RIGHT", -4, 0)
-    row.reset.icon = NSkin:CreateCenteredButtonGlyph(
-        row.reset, "contextualPropertyReset", {
+local function EnsureContextualPropertyRow(key)
+    state.contextualPropertyRows = state.contextualPropertyRows or {}
+    local cell = state.contextualPropertyRows[key]
+    if cell then return cell end
+    cell = CreateFrame("Frame", nil, state.scrollChild)
+    cell.label = cell:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    cell.label:SetPoint("TOPLEFT", cell, "TOPLEFT", 0, -4)
+    cell.label:SetPoint("TOPRIGHT", cell, "TOPRIGHT", -24, -4)
+    cell.label:SetHeight(16)
+    cell.label:SetJustifyH("LEFT")
+    cell.label:SetWordWrap(false)
+    cell.source = cell:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    cell.source:SetPoint("BOTTOMLEFT", cell, "BOTTOMLEFT", 0, 4)
+    cell.source:SetPoint("BOTTOMRIGHT", cell, "BOTTOMRIGHT", 0, 4)
+    cell.source:SetHeight(14)
+    cell.source:SetJustifyH("LEFT")
+    cell.source:SetWordWrap(false)
+    cell.valueCell = CreateFrame("Frame", nil, cell)
+    cell.valueCell:SetPoint("TOPLEFT", cell, "TOPLEFT", 0, -25)
+    cell.valueCell:SetPoint("TOPRIGHT", cell, "TOPRIGHT", 0, -25)
+    cell.valueCell:SetHeight(30)
+    cell.reset = CreateFrame("Button", nil, cell)
+    cell.reset:SetSize(20, 20)
+    cell.reset:SetPoint("TOPRIGHT", cell, "TOPRIGHT", 0, -1)
+    cell.reset.icon = NSkin:CreateCenteredButtonGlyph(cell.reset,
+        "contextualPropertyReset", {
             texture = "Interface\\AddOns\\NSkin\\Media\\rotate-right.png",
-            size = 14,
+            size = 12,
         })
-    row.reset:SetScript("OnEnter", function(self)
-        NSkin:SetCenteredButtonGlyphColor(
-            self.icon, NSkin:GetAccentColor())
+    cell.reset:SetScript("OnEnter", function(self)
+        NSkin:SetCenteredButtonGlyphColor(self.icon, NSkin:GetAccentColor())
         if GameTooltip then
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-            GameTooltip:SetText("Reset this property")
+            GameTooltip:SetText("Reset " .. (cell.property.label or cell.property.key))
+            GameTooltip:AddLine("Clears only this property's overrides at the current scope and state.",
+                1, 1, 1, true)
             GameTooltip:Show()
         end
     end)
-    row.reset:SetScript("OnLeave", function(self)
-        NSkin:SetCenteredButtonGlyphColor(
-            self.icon, { 1, 1, 1, 1 })
+    cell.reset:SetScript("OnLeave", function(self)
+        NSkin:SetCenteredButtonGlyphColor(self.icon, { 1, 1, 1, 1 })
         if GameTooltip then GameTooltip:Hide() end
     end)
-    row.reset:SetScript("OnClick", function(self)
-        local owner = self:GetParent():GetParent()
-        if owner.subsetID and owner.context then
-            NSkin:ResetOptionGroup(owner.subsetID, owner.context)
-            if owner.view then owner.view:Refresh() end
-            RefreshContextualPropertySource(owner)
-        end
+    cell.reset:SetScript("OnClick", function()
+        if not cell.subsetID or not cell.context then return end
+        NSkin:RunWithLiveInspectorAppearanceChange(cell.context.id, function()
+            NSkin:ResetOptionGroup(cell.subsetID, cell.context)
+        end)
+        if cell.view then cell.view:Refresh() end
+        RefreshContextualPropertySource(cell)
+        if cell.section then RefreshContextualSectionPresentation(cell.section) end
     end)
-    NSkin:CreateFlatBackground(row, nil,
-        { 0, 0, 0, 0 }, NSkin:GetStyle("window").header.divider)
-    state.contextualPropertyRows[index] = row
-    return row
+    state.contextualPropertyRows[key] = cell
+    return cell
+end
+
+RefreshContextualPairSource = function(pair)
+    local left, right = pair.cells[1], pair.cells[2]
+    local leftSource = NSkin:GetOptionGroupPropertyInheritance(
+        left.groupID, left.context, left.property)
+    local rightSource = NSkin:GetOptionGroupPropertyInheritance(
+        right.groupID, right.context, right.property)
+    local a, b = leftSource and leftSource.label or "", rightSource and rightSource.label or ""
+    local mixed = a ~= b
+    pair.label:SetText(pair.title .. (mixed and " · Mixed sources"
+        or (a ~= "" and (" · " .. a) or "")))
+    left.source:SetShown(mixed)
+    right.source:SetShown(mixed)
+    local changed = pair.mixedSources ~= nil and pair.mixedSources ~= mixed
+    pair.mixedSources = mixed
+    if changed then LayoutContextualInspector() end
+end
+
+local function EnsureContextualPairRow(section, left, right)
+    section.pairRows = section.pairRows or {}
+    local key = left.property.editorPair
+    local pair = section.pairRows[key]
+    if not pair then
+        pair = CreateFrame("Frame", nil, section.body)
+        pair.label = pair:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        pair.label:SetPoint("TOPLEFT", pair, "TOPLEFT", 0, -4)
+        pair.label:SetPoint("TOPRIGHT", pair, "TOPRIGHT", -24, -4)
+        pair.label:SetHeight(16)
+        pair.label:SetJustifyH("CENTER")
+        pair.label:SetWordWrap(false)
+        pair.reset = CreateFrame("Button", nil, pair)
+        pair.reset:SetSize(20, 20)
+        pair.reset:SetPoint("TOPRIGHT")
+        pair.reset.icon = NSkin:CreateCenteredButtonGlyph(pair.reset,
+            "contextualPairReset", {
+                texture = "Interface\\AddOns\\NSkin\\Media\\rotate-right.png",
+                size = 12,
+            })
+        pair.reset:SetScript("OnClick", function()
+            -- One explicit action over two existing logical resets; no new
+            -- appearance identity or reset ownership is introduced.
+            for _, cell in ipairs(pair.cells) do
+                cell.reset:GetScript("OnClick")(cell.reset)
+            end
+        end)
+        pair.reset:SetScript("OnEnter", function(self)
+            NSkin:SetCenteredButtonGlyphColor(self.icon, NSkin:GetAccentColor())
+            if GameTooltip then
+                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                GameTooltip:SetText("Reset " .. pair.title)
+                GameTooltip:AddLine("Clears " .. pair.cells[1].property.label
+                    .. " and " .. pair.cells[2].property.label
+                    .. " at the current scope.", 1, 1, 1, true)
+                GameTooltip:Show()
+            end
+        end)
+        pair.reset:SetScript("OnLeave", function(self)
+            NSkin:SetCenteredButtonGlyphColor(self.icon, { 1, 1, 1, 1 })
+            if GameTooltip then GameTooltip:Hide() end
+        end)
+        section.pairRows[key] = pair
+    end
+    pair.title = left.property.editorPairLabel
+    pair.cells = { left, right }
+    left.pairRow, right.pairRow = pair, pair
+    return pair
+end
+
+LayoutContextualInspector = function()
+    local width = math.max(1, (state.scrollChild:GetWidth() or 518) - 16)
+    local expanded = state.contextualAccordionExpansion or {}
+    local y = 8
+    for _, section in ipairs(state.contextualActiveSections or {}) do
+        section:ClearAllPoints()
+        section:SetPoint("TOPLEFT", state.scrollChild, "TOPLEFT", 8, -y)
+        section:SetWidth(width)
+        local open = expanded[section.expansionKey] == true
+            and section.groupID ~= "__OVERRIDES"
+        section.arrow:SetRotation(open and 0 or math.pi / 2)
+        section.body:SetWidth(width)
+        section.body:SetShown(open)
+        y = y + 35
+        local bodyY, index = 8, 1
+        for _, pair in pairs(section.pairRows or {}) do pair:Hide() end
+        while index <= #section.cells do
+            local cell = section.cells[index]
+            local nextCell = section.cells[index + 1]
+            local hasPair = nextCell and cell.property.editorPair
+                and cell.property.editorPair == nextCell.property.editorPair
+            local paired = width >= 440 and hasPair
+            local sharedHeading = hasPair and cell.property.editorPairLabel
+            local pair = sharedHeading and EnsureContextualPairRow(section, cell, nextCell)
+            local cellWidth = paired and (width - 36) / 2 or width - 20
+            if pair then
+                pair:ClearAllPoints()
+                pair:SetPoint("TOPLEFT", section.body, "TOPLEFT", 10, -bodyY)
+                pair:SetSize(width - 20, 24)
+                pair:Show()
+                -- Source changes can relayout after commits; avoid reentrancy
+                -- while already computing the layout.
+                pair.mixedSources = nil
+                RefreshContextualPairSource(pair)
+                bodyY = bodyY + 24
+            end
+            local cellHeight = pair and (pair.mixedSources and 60 or 42) or 76
+            local function Place(current, x)
+                current:ClearAllPoints()
+                current:SetPoint("TOPLEFT", section.body, "TOPLEFT", x, -bodyY)
+                current:SetSize(cellWidth, cellHeight)
+                current.label:ClearAllPoints()
+                current.valueCell:ClearAllPoints()
+                if pair then
+                    local key = current.property.key
+                    current.label:SetText(key == "alongOffset" and "X"
+                        or (key == "edgeOffset" and "Y" or ""))
+                    current.label:SetPoint("TOPLEFT", current, "TOPLEFT", 0, -10)
+                    current.label:SetSize(18, 20)
+                    current.label:SetShown(key == "alongOffset" or key == "edgeOffset")
+                    current.reset:Hide()
+                    local inset = current.label:IsShown() and 22 or 0
+                    current.valueCell:SetPoint("TOPLEFT", current, "TOPLEFT", inset, -6)
+                    current.valueCell:SetPoint("TOPRIGHT", current, "TOPRIGHT", 0, -6)
+                    current.valueCell:SetWidth(cellWidth - inset)
+                else
+                    current.pairRow = nil
+                    current.label:SetText(current.property.label or current.property.key)
+                    current.label:SetPoint("TOPLEFT", current, "TOPLEFT", 0, -4)
+                    current.label:SetPoint("TOPRIGHT", current, "TOPRIGHT", -24, -4)
+                    current.label:SetHeight(16)
+                    current.label:Show()
+                    current.source:Show()
+                    current.reset:Show()
+                    current.valueCell:SetPoint("TOPLEFT", current, "TOPLEFT", 0, -25)
+                    current.valueCell:SetPoint("TOPRIGHT", current, "TOPRIGHT", 0, -25)
+                    current.valueCell:SetWidth(cellWidth)
+                end
+                current.view:ClearAllPoints()
+                current.view:SetAllPoints(current.valueCell)
+                NSkin:LayoutOptionPropertyView(current.view, current.property,
+                    current.valueCell:GetWidth())
+            end
+            Place(cell, 10)
+            if hasPair then
+                if not paired then bodyY = bodyY + cellHeight + 4 end
+                Place(nextCell, paired and (26 + cellWidth) or 10)
+            end
+            bodyY = bodyY + cellHeight + 4
+            index = index + (hasPair and 2 or 1)
+        end
+        section.body:SetHeight(bodyY)
+        if open then y = y + bodyY end
+        y = y + 6
+    end
+    ResizeInspector(nil, y)
 end
 
 local function EnsureContextualDetailHeader()
@@ -1495,76 +1795,22 @@ local function LoadContextualInspector(element, member)
     local detailKey = GetContextualDetailKey(element, member)
     local detail = state.contextualInspectorDetails[detailKey]
     local groups = CollectContextualOptionGroups(element, member)
-    local groupByID = {}
-    for _, group in ipairs(groups) do groupByID[group.id] = group end
-    if detail ~= "__OVERRIDES" and not groupByID[detail] then
-        detail = nil
-        state.contextualInspectorDetails[detailKey] = nil
-    end
-
     local y = 8
-    if not detail then
-        local rowIndex = 0
-        for _, group in ipairs(groups) do
-            rowIndex = rowIndex + 1
-            local row = EnsureContextualSummaryRow(rowIndex)
-            row.detailKey = detailKey
-            row.groupID = group.id
-            row.label:SetText(
-                group.label or CONTEXTUAL_GROUP_LABELS[group.id]
-                    or group.id)
-            row.value:SetText(FormatContextualSummary(group))
-            row:ClearAllPoints()
-            row:SetPoint(
-                "TOPLEFT", state.scrollChild, "TOPLEFT", 8, -y)
-            row:SetPoint("RIGHT", state.scrollChild, "RIGHT", -8, 0)
-            row:Show()
-            y = y + 44
-        end
-
-        local overrides = GetContextualOverrideEntries(element, member)
-        if #overrides > 0 then
-            rowIndex = rowIndex + 1
-            local row = EnsureContextualSummaryRow(rowIndex)
-            row.detailKey = detailKey
-            row.groupID = "__OVERRIDES"
-            row.label:SetText("Specific overrides")
-            row.value:SetText(
-                tostring(#overrides) .. " propert"
-                .. (#overrides == 1 and "y" or "ies"))
-            row:ClearAllPoints()
-            row:SetPoint(
-                "TOPLEFT", state.scrollChild, "TOPLEFT", 8, -y)
-            row:SetPoint("RIGHT", state.scrollChild, "RIGHT", -8, 0)
-            row:Show()
-            y = y + 44
-        end
-        ResizeInspector(nil, y)
-        return
-    end
-
-    local header = EnsureContextualDetailHeader()
-    header:ClearAllPoints()
-    header:SetPoint(
-        "TOPLEFT", state.scrollChild, "TOPLEFT", 0, -y)
-    header:SetPoint("RIGHT", state.scrollChild, "RIGHT", 0, 0)
-    header:Show()
-    y = y + 34
-
+    state.contextualActiveSections = {}
     if detail == "__OVERRIDES" then
+        local header = EnsureContextualDetailHeader()
+        header:ClearAllPoints()
+        header:SetPoint("TOPLEFT", state.scrollChild, "TOPLEFT", 0, -y)
+        header:SetPoint("RIGHT", state.scrollChild, "RIGHT", 0, 0)
         header.title:SetText("Specific overrides")
-        local target, expected =
-            GetValidatedFocusedRuntimeTarget(element, member)
-        if not expected then
-            ShowContextualUnavailable(
-                "Select a specific dungeon row to edit its overrides.", y + 8)
-            ResizeInspector(nil, y + 58)
-            return
-        end
+        header:Show()
+        y = y + 34
+        local target, expected = GetValidatedFocusedRuntimeTarget(element, member)
         if not target then
-            ShowContextualUnavailable(
-                "This dungeon is no longer available. Family editing remains available.",
-                y + 8)
+            ShowContextualUnavailable(expected
+                and ((element.composition.contextualTargetLabel or "This target")
+                    .. " is no longer available. Return to Overview for family editing.")
+                or "Select a visible instance to edit its overrides.", y + 8)
             ResizeInspector(nil, y + 72)
             return
         end
@@ -1574,68 +1820,81 @@ local function LoadContextualInspector(element, member)
             state.contextualOverrideView = view
         end
         view:ClearAllPoints()
-        view:SetPoint(
-            "TOPLEFT", state.scrollChild, "TOPLEFT", 8, -y)
+        view:SetPoint("TOPLEFT", state.scrollChild, "TOPLEFT", 8, -y)
         view:SetPoint("RIGHT", state.scrollChild, "RIGHT", -8, 0)
         view:Show()
-        y = y + RefreshOverrideListView(
-            view, element, member.id, target)
+        y = y + RefreshOverrideListView(view, element, member.id, target)
         ResizeInspector(nil, y)
         return
     end
-
-    local group = groupByID[detail]
-    header.title:SetText(
-        group.label or CONTEXTUAL_GROUP_LABELS[group.id] or group.id)
-    local properties = NSkin:GetOptionGroupOverrideProperties(group.id)
-    local rowWidth = math.max(
-        1, (state.scrollChild:GetWidth() or 518) - 16)
-    local nameWidth = math.floor(rowWidth * 0.40)
-    local valueWidth = rowWidth - nameWidth
-    local rowIndex = 0
-
-    for _, property in ipairs(properties) do
-        local subsetID = NSkin:EnsureOptionGroupPropertySubset(
-            group.id, member.id, property.key, property.label)
-        if subsetID then
-            rowIndex = rowIndex + 1
-            local row = EnsureContextualPropertyRow(rowIndex)
-            row.groupID = group.id
-            row.context = group.context
-            row.property = property
-            row.subsetID = subsetID
-            row.label:SetText(property.label or property.key)
-            row:SetSize(rowWidth, 40)
-            row.nameCell:SetSize(nameWidth, 40)
-            row.valueCell:SetSize(valueWidth, 40)
-
-            if row.viewID ~= subsetID then
-                if row.view then row.view:Hide() end
-                row.view = NSkin:CreateOptionGroupView(
-                    row.valueCell, subsetID, "COMPACT", group.context)
-                row.viewID = subsetID
-            else
-                row.view:SetContext(group.context)
+    state.contextualInspectorDetails[detailKey] = nil
+    state.contextualAccordionExpansion = state.contextualAccordionExpansion or {}
+    for _, group in ipairs(groups) do
+        local key = detailKey .. "\031" .. group.id
+        local section = EnsureContextualSummaryRow(key)
+        section.detailKey, section.expansionKey = detailKey, key
+        section.groupID, section.group = group.id, group
+        local definition = NSkin:GetOptionGroupDefinition(group.id)
+        local label = group.label or CONTEXTUAL_GROUP_LABELS[group.id] or group.id
+        if definition.stateIndependent and #(member.states or {}) > 0 then
+            label = label .. " · All states"
+        end
+        section.label:SetText(label)
+        section.value:SetText(FormatContextualSummary(group))
+        section.cells = {}
+        section.headerToggleCell = nil
+        section.enabledToggle:Hide()
+        section:Show()
+        state.contextualActiveSections[#state.contextualActiveSections + 1] = section
+        for _, property in ipairs(NSkin:GetOptionGroupOverrideProperties(group.id, true)) do
+            local subsetID = NSkin:EnsureOptionGroupPropertySubset(
+                group.id, member.id, property.key, property.label)
+            if subsetID then
+                local cell = EnsureContextualPropertyRow(key .. "\031" .. property.key)
+                cell:SetParent(section.body)
+                cell.groupID, cell.context, cell.property = group.id, group.context, property
+                cell.subsetID, cell.section = subsetID, section
+                cell.pairRow = nil
+                cell.label:SetText(property.label or property.key)
+                if property.control.editorHeaderToggle then
+                    section.headerToggleCell = cell
+                    cell:Hide()
+                    RefreshContextualSectionPresentation(section)
+                else
+                    if not cell.view then
+                        cell.view = NSkin:CreateOptionGroupView(
+                            cell.valueCell, subsetID, "FULL", group.context)
+                        cell.view.isSkinningModeInspector = true
+                        cell.view.preserveInspectorContext = true
+                        cell.view.boundContextID = group.context and group.context.id
+                        cell.view.onValueCommitted = function()
+                            RefreshContextualPropertySource(cell)
+                            RefreshContextualSectionPresentation(section)
+                        end
+                    else
+                        cell.view:SetContext(group.context)
+                    end
+                    cell.view:Show()
+                    cell:Show()
+                    RefreshContextualPropertySource(cell)
+                    section.cells[#section.cells + 1] = cell
+                end
             end
-            row.view.isSkinningModeInspector = true
-            row.view.onValueCommitted = function()
-                RefreshContextualPropertySource(row)
-            end
-            row.view:Show()
-            LayoutOverrideRowControl(row, row.view, property.key)
-            row.view:SetPoint("LEFT", row.valueCell, "LEFT", 0, 0)
-            row.view:SetPoint("RIGHT", row.valueCell, "RIGHT", 0, 0)
-
-            RefreshContextualPropertySource(row)
-            row:ClearAllPoints()
-            row:SetPoint(
-                "TOPLEFT", state.scrollChild, "TOPLEFT", 8, -y)
-            row:Show()
-            y = y + 42
         end
     end
-
-    ResizeInspector(nil, y)
+    local overrides = GetContextualOverrideEntries(element, member)
+    if #overrides > 0 then
+        local key = detailKey .. "\031__OVERRIDES"
+        local section = EnsureContextualSummaryRow(key)
+        section.detailKey, section.expansionKey = detailKey, key
+        section.groupID = "__OVERRIDES"
+        section.cells = {}
+        section.label:SetText("Specific overrides")
+        section.value:SetText(tostring(#overrides) .. " properties")
+        section:Show()
+        state.contextualActiveSections[#state.contextualActiveSections + 1] = section
+    end
+    LayoutContextualInspector()
 end
 
 local function LoadEditorOptions(element)
@@ -2206,26 +2465,33 @@ RefreshInspector = function()
         and NSkin:GetCompositeMember(
             element, state.focusedCompositeMemberID)
     local selectionLabel = GetDockSelectionLabel(element)
-    if IsContextualInspectorElement(element) and member then
+    if IsContextualInspectorElement(element) then
         selectionLabel = tostring(
             element.composition.editorLabel
                 or element.composition.groupLabel
                 or selectionLabel or element.label or element.id)
-            .. " › "
-            .. tostring(GetDockMemberLabel(element, member)
-                or member.label or member.id)
     end
     state.inspector.selection:SetText(
         selectionLabel or "Select an element"
     )
+    RefreshHeaderActions(element)
     LoadEditorOptions(element)
     NSkin:ApplyGlobalTypography(state.inspector)
     SetInspectorTextWhite(state.inspector)
+    if IsContextualInspectorElement(element) then
+        state.inspector.contextScope:SetTextColor(0.75, 0.75, 0.75, 1)
+        for _, section in ipairs(state.contextualActiveSections or {}) do
+            section.value:SetTextColor(0.75, 0.75, 0.75, 1)
+            for _, cell in ipairs(section.cells) do
+                cell.source:SetTextColor(0.65, 0.65, 0.65, 1)
+            end
+        end
+    end
     RefreshHeaderActions(element)
     NSkin:ResnapPixelBordersForTarget(state.inspector)
     NSkin:ResnapPixelBordersForTarget(state.scrollChild)
     if element then NSkin:ResnapPixelBordersForElement(element) end
-    if C_Timer and C_Timer.After then
+    if not state.contextualInspectorHeader and C_Timer and C_Timer.After then
         C_Timer.After(0, function()
             if state then
                 ResizeInspector(nil,
@@ -2269,6 +2535,13 @@ function DockedWindow:Refresh(element, memberID, runtimeTarget)
     end
 
     local focusedTarget = state.focusedCompositeRuntimeTarget
+    if IsContextualInspectorMember(element, member) and focusedTarget then
+        focusedTarget = GetValidatedFocusedRuntimeTarget(element, member)
+        if not focusedTarget then
+            NSkin:ClearCompositeMemberEditorPreview(element, member)
+            member._editorStateTarget = nil
+        end
+    end
     if member then member._editorRuntimeTarget = focusedTarget end
     if member and focusedTarget and #(member.states or {}) > 0
         and not IsContextualInspectorMember(element, member)
@@ -2301,6 +2574,9 @@ function DockedWindow:Dock(window)
     else
         inspector:SetPoint("TOPRIGHT", window, "TOPLEFT", -8, 0)
     end
+    if RefreshAuxiliaryDrawer then
+        RefreshAuxiliaryDrawer(state.contextualInspectorHeader == true)
+    end
 end
 
 function DockedWindow:ResetScroll()
@@ -2321,10 +2597,6 @@ function DockedWindow:RefreshAppearance()
     end
     if state.overridePopup then
         NSkin:RefreshSelectionPopupAppearance(state.overridePopup)
-    end
-    if state.contextualMemberPopup then
-        NSkin:RefreshSelectionPopupAppearance(
-            state.contextualMemberPopup)
     end
     RefreshHeaderActions(state.selectedElement)
 end
@@ -2360,6 +2632,11 @@ function NSkin:CreateDockedWindow(owner)
             button2 = NO,
             OnAccept = function(_, data)
                 if data and data.element and data.memberID then
+                    local member = NSkin:GetCompositeMember(data.element, data.memberID)
+                    if data.appearanceID then
+                        local target, expected = GetValidatedFocusedRuntimeTarget(data.element, member)
+                        if target ~= data.runtimeTarget or expected ~= data.appearanceID then return end
+                    end
                     ClearCompositeOverrides(
                         data.element, data.memberID,
                         data.runtimeTarget)
@@ -2416,10 +2693,13 @@ function NSkin:CreateDockedWindow(owner)
     dragRegion:SetScript("OnDragStop", function()
         inspector:StopMovingOrSizing()
         state.inspectorManuallyPositioned = true
+        if RefreshAuxiliaryDrawer then
+            RefreshAuxiliaryDrawer(state.contextualInspectorHeader == true)
+        end
     end)
     state.inspectorDragRegion = dragRegion
 
-    CreateLabel(inspector, "Skinning Mode", "TOPLEFT", inspector, "TOPLEFT", 12, -5)
+    inspector.title = CreateLabel(inspector, "Skinning Mode", "TOPLEFT", inspector, "TOPLEFT", 12, -5)
     local close = CreateButton(inspector, "", 22, function()
         NSkin:SetSkinningModeEnabled(false)
     end)
@@ -2428,6 +2708,7 @@ function NSkin:CreateDockedWindow(owner)
     })
     close:SetFrameLevel(dragRegion:GetFrameLevel() + 1)
     close:SetPoint("TOPRIGHT", inspector, "TOPRIGHT", 0, 0)
+    inspector.closeButton = close
     local gridToggle = CreateFrame("Button", nil, inspector)
     gridToggle:SetFrameLevel(dragRegion:GetFrameLevel() + 1)
     gridToggle:SetSize(22, 22)
@@ -2487,8 +2768,78 @@ function NSkin:CreateDockedWindow(owner)
         if GameTooltip then GameTooltip:Hide() end
     end)
     state.debugToggle = debugToggle
+    local auxiliaryDrawer = CreateFrame("Frame", nil, inspector)
+    auxiliaryDrawer:SetSize(110, 68)
+    auxiliaryDrawer:SetClampedToScreen(true)
+    auxiliaryDrawer:SetFrameLevel(inspector:GetFrameLevel() + 20)
+    NSkin:CreateFlatBackground(auxiliaryDrawer, "NSkinInspectorTools",
+        NSkin:GetStyle("window").background, NSkin:GetSharedBorderColor())
+    auxiliaryDrawer:Hide()
+    local drawerToggle = CreateButton(inspector, "", 20, function()
+        state.inspectorToolsOpen = not state.inspectorToolsOpen
+        RefreshAuxiliaryDrawer(true)
+    end)
+    drawerToggle:SetFrameLevel(inspector:GetFrameLevel() + 20)
+    drawerToggle:SetSize(20, 30)
+    drawerToggle.arrow = drawerToggle:CreateTexture(nil, "OVERLAY")
+    drawerToggle.arrow:SetTexture("Interface\\AddOns\\NSkin\\Media\\angle-small-down.png")
+    drawerToggle.arrow:SetSize(12, 12)
+    drawerToggle.arrow:SetPoint("CENTER")
+    drawerToggle:SetScript("OnEnter", function(self)
+        if GameTooltip then
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetText("Debug and grid tools")
+            GameTooltip:Show()
+        end
+    end)
+    drawerToggle:SetScript("OnLeave", function()
+        if GameTooltip then GameTooltip:Hide() end
+    end)
+    drawerToggle:Hide()
+    RefreshAuxiliaryDrawer = function(contextual)
+        drawerToggle:SetShown(contextual == true)
+        auxiliaryDrawer:SetShown(contextual == true and state.inspectorToolsOpen == true)
+        gridToggle:ClearAllPoints()
+        debugToggle:ClearAllPoints()
+        if contextual then
+            local left, right = NSkin:GetUIParentNormalizedBounds(inspector)
+            local screenRight = UIParent:GetRight() or UIParent:GetWidth()
+            local rightSpace = screenRight - (right or screenRight)
+            local towardRight = rightSpace >= 140 or rightSpace >= (left or 0)
+            drawerToggle:ClearAllPoints()
+            drawerToggle:SetPoint(towardRight and "LEFT" or "RIGHT", inspector,
+                towardRight and "RIGHT" or "LEFT", towardRight and 1 or -1, 0)
+            drawerToggle.arrow:SetRotation(towardRight and math.pi / 2 or -math.pi / 2)
+            auxiliaryDrawer:ClearAllPoints()
+            auxiliaryDrawer:SetPoint(towardRight and "TOPLEFT" or "TOPRIGHT",
+                inspector, towardRight and "TOPRIGHT" or "TOPLEFT",
+                towardRight and 24 or -24, -28)
+            gridToggle:SetParent(auxiliaryDrawer)
+            debugToggle:SetParent(auxiliaryDrawer)
+            debugToggle:SetPoint("TOPLEFT", auxiliaryDrawer, "TOPLEFT", 8, -8)
+            debugToggle:SetWidth(94)
+            gridToggle:SetPoint("TOPLEFT", debugToggle, "BOTTOMLEFT", 0, -6)
+        else
+            gridToggle:SetParent(inspector)
+            debugToggle:SetParent(inspector)
+            debugToggle:SetWidth(52)
+            debugToggle:SetPoint("RIGHT", close, "LEFT", -4, 0)
+            gridToggle:SetPoint("RIGHT", debugToggle, "LEFT", -4, 0)
+        end
+    end
+    inspector:HookScript("OnHide", function()
+        auxiliaryDrawer:Hide()
+    end)
+
     local selection = CreateFrame("Button", nil, inspector)
     selection:SetHeight(20)
+    selection:RegisterForDrag("LeftButton")
+    selection:SetScript("OnDragStart", function()
+        inspector:StartMoving()
+    end)
+    selection:SetScript("OnDragStop", function()
+        state.inspectorDragRegion:GetScript("OnDragStop")()
+    end)
     selection:SetPoint("TOPLEFT", inspector, "TOPLEFT", 12, -25)
     selection.label = selection:CreateFontString(
         nil, "OVERLAY", "GameFontNormal")
@@ -2528,7 +2879,19 @@ function NSkin:CreateDockedWindow(owner)
             local element = state.selectedElement
             if not element then return end
             local composition = element.composition
-            if composition and composition.mode == "COMPOSITE" then
+            local member = GetContextualCompositeMember(element)
+            local exact = IsContextualInspectorMember(element, member)
+                and state.contextualInspectorDetails[
+                    element.id .. "\031" .. member.id] == "__OVERRIDES"
+            if exact then
+                local target, expected = GetValidatedFocusedRuntimeTarget(element, member)
+                if not target then return end
+                StaticPopup_Show(CLEAR_OVERRIDES_DIALOG,
+                    composition.contextualTargetLabel or "this target", nil, {
+                        element = element, memberID = member.id,
+                        runtimeTarget = target, appearanceID = expected,
+                    })
+            elseif composition and composition.mode == "COMPOSITE" then
                 ResetCompositeSelection(element)
                 RefreshInspector()
             else
@@ -2542,8 +2905,9 @@ function NSkin:CreateDockedWindow(owner)
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
             GameTooltip:SetText(
                 self.resetLabel or "Reset All")
-            GameTooltip:AddLine(
-                "Resets the selected shared editor family without removing exact-member overrides.",
+            GameTooltip:AddLine(self.resetLabel == "Clear Overrides"
+                and "Clears the selected target's exact overrides. Shared family settings are kept."
+                or "Resets the selected shared editor family without removing exact-member overrides.",
                 1, 1, 1, true)
             GameTooltip:Show()
         end
@@ -2564,7 +2928,9 @@ function NSkin:CreateDockedWindow(owner)
         if GameTooltip then
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
             GameTooltip:SetText("Add specific override")
-            GameTooltip:AddLine("Choose one member and one or more properties to make sparse exceptions to the Composite's shared appearance.",
+            GameTooltip:AddLine(self:IsEnabled()
+                and "Choose one member and one or more properties to make sparse exceptions to the Composite's shared appearance."
+                or "Select this member on a visible instance before adding a specific override.",
                 1, 1, 1, true)
             GameTooltip:Show()
         end
@@ -2584,11 +2950,18 @@ function NSkin:CreateDockedWindow(owner)
     memberTabs:Hide()
     inspector.memberTabs = memberTabs
 
-    local memberPicker = CreateButton(inspector, "Focus", 210, function(self)
-        if state.contextualMemberPopup and self.element then
-            state.contextualMemberPopup:Open(
-                self.element,
-                self.member and { self.member } or nil)
+    local menus = NSkin._componentOptionMenus
+    local memberPicker = menus.CreateOwnedDropdown(inspector)
+    menus.SkinAddonDropdown(memberPicker)
+    memberPicker:SetupMenu(function(self, root)
+        local element = self.element
+        for _, member in ipairs(element and element.composition.members or {}) do
+            root:CreateRadio(GetDockMemberLabel(element, member)
+                    or member.label or member.id,
+                function() return self.member == member end,
+                function()
+                    NSkin:SelectSkinningCompositeMember(element, member.id, nil)
+                end)
         end
     end)
     memberPicker:Hide()
@@ -2620,44 +2993,6 @@ function NSkin:CreateDockedWindow(owner)
     scrollFrame:SetScrollChild(scrollChild)
     state.scrollFrame = scrollFrame
     state.scrollChild = scrollChild
-
-    local contextualMemberPopup = NSkin:CreateSelectionPopup({
-        title = "Focus Element",
-        width = 360,
-        height = 300,
-        confirmLabel = "Focus",
-        cancelLabel = "Cancel",
-        columns = {
-            {
-                label = "Element",
-                items = function(element)
-                    local composition = element and element.composition
-                    return composition and composition.members or {}
-                end,
-                getID = function(member)
-                    return member and member.id
-                end,
-                getLabel = function(member)
-                    local element = state.selectedElement
-                    return member and (
-                        GetDockMemberLabel(element, member)
-                            or member.label or member.id)
-                end,
-            },
-        },
-        canConfirm = function(element, selections)
-            return element ~= nil
-                and selections and selections[1] ~= nil
-        end,
-        onConfirm = function(element, selections)
-            local member = selections and selections[1]
-            if element and member and NSkin.SelectSkinningCompositeMember then
-                NSkin:SelectSkinningCompositeMember(
-                    element, member.id, nil)
-            end
-        end,
-    })
-    state.contextualMemberPopup = contextualMemberPopup
 
     local overridePopup = NSkin:CreateSelectionPopup({
         title = "Add Override",
@@ -2712,6 +3047,12 @@ function NSkin:CreateDockedWindow(owner)
             },
         },
         canConfirm = function(element, selections)
+            local member = selections and selections[1]
+            if IsContextualInspectorElement(element) then
+                if not member or member.id ~= state.focusedCompositeMemberID
+                    or not GetValidatedFocusedRuntimeTarget(element, member)
+                then return false end
+            end
             return element ~= nil
                 and selections
                 and selections[1] ~= nil
@@ -2727,6 +3068,13 @@ function NSkin:CreateDockedWindow(owner)
             then return end
 
             local runtimeTarget = state.focusedCompositeRuntimeTarget
+            if IsContextualInspectorMember(element, member) then
+                if element ~= state.selectedElement
+                    or member.id ~= state.focusedCompositeMemberID
+                then return end
+                runtimeTarget = GetValidatedFocusedRuntimeTarget(element, member)
+                if not runtimeTarget then return end
+            end
             local exactAppearanceID =
                 NSkin:GetCompositeMemberTargetAppearanceID(
                     element, member, runtimeTarget)

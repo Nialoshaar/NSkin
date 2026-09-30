@@ -302,13 +302,17 @@ end
 
 local function CommitValues(view, values, knownCurrent, liveInspectorChange)
     if not view.context or type(values) ~= "table" then return false end
+    if view.validateContext and not view.validateContext(view.context) then
+        view:SetExternalEnabled(false)
+        return false
+    end
     local current = knownCurrent or view.definition.get(view.context)
     if OptionValuesEqual(current, values) then return false end
     local context = view.context
     local copiedValues = CopyTable(values)
     local affectsBounds = OptionGroupAffectsBounds(
         view.definition, context, copiedValues, current)
-    local preserveLocalState = liveInspectorChange
+    local preserveLocalState = (liveInspectorChange or view.preserveInspectorContext)
         and view.isSkinningModeInspector == true and context.id ~= nil
     local function ApplyValues()
         return view.definition.set(context, copiedValues)
@@ -330,6 +334,7 @@ local function CommitValues(view, values, knownCurrent, liveInspectorChange)
         end
         NSkin:NotifyOptionGroupChanged(view.id,
             preserveLocalState and view or nil)
+        if view.preserveInspectorContext then view:Refresh() end
         if type(view.onValueCommitted) == "function" then
             view.onValueCommitted(view)
         end
@@ -1536,6 +1541,8 @@ function NSkin:RegisterOptionGroupSubset(id, sourceID, controls)
         inheritedReset = true,
         inheritedResetLabel = "Reset to window defaults",
         appearancePaths = source.appearancePaths,
+        propertyInheritance = source.propertyInheritance,
+        affectsBounds = source.affectsBounds,
         get = source.get,
         set = function(context, values)
             local filtered = {}
@@ -1545,6 +1552,21 @@ function NSkin:RegisterOptionGroupSubset(id, sourceID, controls)
         reset = function(context)
             if type(source.resetSubset) == "function" then
                 return source.resetSubset(context, keys)
+            end
+            return source.reset(context)
+        end,
+        resetSubset = function(context, requestedKeys)
+            local selected = {}
+            for key in pairs(keys) do
+                if requestedKeys[key] then selected[key] = true end
+            end
+            if not next(selected) then return false end
+            if type(source.resetSubset) == "function" then
+                return source.resetSubset(context, selected)
+            end
+            -- A narrower nested subset must never reset the entire source.
+            for key in pairs(keys) do
+                if not selected[key] then return false end
             end
             return source.reset(context)
         end,
@@ -1575,6 +1597,11 @@ end
 
 function NSkin:GetOptionGroupPropertyInheritance(id, context, property)
     local definition = optionGroups[id]
+    if definition and context and type(property) == "table"
+        and type(definition.propertyInheritance) == "function"
+    then
+        return definition.propertyInheritance(context, property)
+    end
     if not definition or not context or type(property) ~= "table"
         or type(definition.appearancePaths) ~= "function"
     then
@@ -1615,7 +1642,7 @@ function NSkin:GetOptionGroupPropertyInheritance(id, context, property)
             return {
                 explicit = false,
                 label = context.componentStateID and firstParent
-                    and "Inherited · Common"
+                    and "Inherited · All"
                     or "Inherited · Family",
             }
         end
@@ -1720,8 +1747,16 @@ local function AddOverrideProperty(properties, control, forcedType)
     }
     if control.left or control.right then
         local childType = pairTypes[controlType]
+        local first = #properties + 1
         AddOverrideProperty(properties, control.left, childType)
         AddOverrideProperty(properties, control.right, childType)
+        if #properties == first + 1 then
+            local pair = properties[first].key .. "\031" .. properties[first + 1].key
+            properties[first].editorPair = pair
+            properties[first + 1].editorPair = pair
+            properties[first].editorPairLabel = control.editorPairLabel
+            properties[first + 1].editorPairLabel = control.editorPairLabel
+        end
         return
     end
 
@@ -1735,16 +1770,21 @@ local function AddOverrideProperty(properties, control, forcedType)
     }
 end
 
-function NSkin:GetOptionGroupOverrideProperties(id)
+function NSkin:GetOptionGroupOverrideProperties(id, declarationOrder)
     local definition = optionGroups[id]
     if not definition then return {} end
     local properties = {}
+    for _, control in ipairs(definition.propertyControls or {}) do
+        AddOverrideProperty(properties, control)
+    end
     for _, ordered in ipairs(definition.orderedControls or {}) do
         AddOverrideProperty(properties, ordered.definition)
     end
-    table.sort(properties, function(left, right)
-        return tostring(left.label) < tostring(right.label)
-    end)
+    if not declarationOrder then
+        table.sort(properties, function(left, right)
+            return tostring(left.label) < tostring(right.label)
+        end)
+    end
     return properties
 end
 
@@ -1882,6 +1922,37 @@ function NSkin:SetOptionGroupValues(
     return false
 end
 
+-- Property cells reuse canonical controls and their commit/reset contracts.
+-- A cell is inspector presentation, not a new option schema or editor identity.
+function NSkin:LayoutOptionPropertyView(view, property, width)
+    view:SetWidth(width)
+    view:SetHeight(30)
+    for _, region in ipairs({ view:GetRegions() }) do
+        if region.GetObjectType and region:GetObjectType() == "FontString" then
+            region:Hide()
+        end
+    end
+    local control = view.controlByKey[property.key]
+    local input = view.valueByKey[property.key]
+    if not control then return end
+    control:ClearAllPoints()
+    if input then
+        input:ClearAllPoints()
+        input:SetSize(54, 24)
+        input:SetPoint("RIGHT", view, "RIGHT", 0, 0)
+        control:SetPoint("LEFT", view, "LEFT", 2, 0)
+        control:SetPoint("RIGHT", input, "LEFT", -10, 0)
+        control:SetWidth(math.max(24, width - 66))
+    elseif property.control.type == "CHECKBOX" then
+        control:SetPoint("LEFT", view, "LEFT", 0, 0)
+        if control.Text then control.Text:Hide() end
+    else
+        control:SetPoint("LEFT", view, "LEFT", 0, 0)
+        control:SetPoint("RIGHT", view, "RIGHT", 0, 0)
+        control:SetWidth(width)
+    end
+end
+
 function NSkin:CreateOptionGroupView(parent, id, layout, context)
     local definition = optionGroups[id]
     local presentation = layout == "COMPACT" and "COMPACT" or "FULL"
@@ -1893,6 +1964,7 @@ function NSkin:CreateOptionGroupView(parent, id, layout, context)
     view.definition = definition
     view.presentation = presentation
     view.context = context
+    view.boundContextID = context and context.id
     view.controls = {}
     view.valueLabels = {}
     view.controlByKey = {}
@@ -1973,6 +2045,13 @@ function NSkin:CreateOptionGroupView(parent, id, layout, context)
         math.max(1, -y + (presentation == "COMPACT" and 1 or 0))))
 
     function view:SetContext(newContext)
+        local nextID = newContext and newContext.id
+        if self.preserveInspectorContext and self.boundContextID ~= nextID then
+            for _, input in pairs(self.valueByKey) do
+                if input.ClearFocus then input:ClearFocus() end
+            end
+        end
+        self.boundContextID = nextID
         self.context = newContext
         self:Refresh()
     end
@@ -2056,11 +2135,22 @@ function NSkin:CreateOptionGroupView(parent, id, layout, context)
                     end
                 end
             elseif control.type == "SLIDER" then
-                if value ~= nil then self.controlByKey[control.key]:SetValue(value) end
-                local decimals = tonumber(control.decimals) or 0
-                self.valueByKey[control.key]:SetText(
-                    value ~= nil and string.format("%." .. decimals .. "f", value) or "-"
-                )
+                local displayValue = value
+                if displayValue == "__NSKIN_GLOBAL__" then
+                    displayValue = NSkin:GetStyle("typography").size
+                elseif displayValue == nil and values and values._display then
+                    displayValue = values._display[control.key]
+                end
+                displayValue = tonumber(displayValue)
+                local input = self.valueByKey[control.key]
+                if not (self.preserveInspectorContext and input:HasFocus()) then
+                    if displayValue then
+                        self.controlByKey[control.key]:SetValue(displayValue)
+                    end
+                    local decimals = tonumber(control.decimals) or 0
+                    input:SetText(displayValue and string.format(
+                        "%." .. decimals .. "f", displayValue) or "-")
+                end
             elseif control.type == "CHECKBOX" then
                 self.controlByKey[control.key]:SetChecked(value == true)
             elseif control.type == "COLOR" and type(value) == "table" then
@@ -2590,7 +2680,7 @@ end
 
 function NSkin:CreateSharedPlacementControls(extra)
     local controls = {
-        { type = "SLIDER_PAIR", order = 1,
+        { type = "SLIDER_PAIR", order = 1, editorPairLabel = "Offsets",
             left = { key = "alongOffset", label = "X offset", min = -200,
                 max = 200, step = 0.1, decimals = 1, suffix = " px" },
             right = { key = "edgeOffset", label = "Y offset", min = -200,
@@ -2683,6 +2773,14 @@ NSkin:RegisterOptionGroup("composition.memberAttachment", {
 
 NSkin:RegisterOptionGroup("shared.movable", {
     controls = NSkin:CreateSharedPlacementControls(),
+    stateIndependent = true,
+    propertyInheritance = function(context, property)
+        local values = context.getPlacement(context) or {}
+        values = NSkin:NormalizeGridPlacementForEditor(context, values) or values
+        local explicit = (tonumber(values[property.key]) or 0) ~= 0
+        return { explicit = explicit,
+            label = explicit and "Set here" or "Default · Original offset" }
+    end,
     get = function(context)
         local values = context.getPlacement(context)
         return NSkin:NormalizeGridPlacementForEditor(context, values)

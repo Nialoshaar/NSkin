@@ -912,6 +912,24 @@ Canonical option definitions belong with shared component/capability infrastruct
 
 The Docked Window consumes those canonical definitions rather than reconstructing reduced copies.
 
+Contextual property cells may present those same controls in accordions, with
+labels above adaptive columns. Preserve declared property pairs when space
+allows; long or unpaired controls may span the available width. Accordion
+sections are presentation only: each logical property keeps its own scope,
+inheritance source, setter, and reset boundary. Multiple sections may remain
+open without changing canonical ownership or saved appearance identity.
+
+Shared option metadata may place a Surface Enabled control beside its accordion
+label instead of in the body. It remains the same canonical property; changing
+it must not expand/collapse the section or change editor context.
+
+Declared property pairs such as X/Y offsets and background color/opacity may
+share a heading, inheritance label, and explicit combined reset action. Show a
+common source only when both properties resolve to that source; otherwise show
+Mixed sources and retain each property's source. A combined reset invokes the
+existing logical resets for both properties at their supported scope/state,
+without changing storage, identity, or unrelated overrides.
+
 Dock navigation follows composition structure. Contextual drill-down reuses the
 primary navigation row: selecting a Composite family or a structured direct
 child replaces peer Container entries with that object's member/part entries,
@@ -1486,6 +1504,16 @@ Selection policy must remain replaceable without changing canonical IDs, composi
 # 27. Docked Window
 
 The Docked Window is the compact inspector for the selected editor object.
+
+A contextual inspector keeps owner, focused member, editing scope, and state
+visible while properties expand in place. A decorative window-title row is
+optional. Auxiliary debug/grid tools must not change property width or editor
+navigation. Local edits preserve focus, scope, state, expansion, scroll, and
+keyboard input; explicit context navigation may change the focused controls.
+The `All` state label denotes the inherited base appearance, not mutation of
+Blizzard's actual state. Validate a focused pooled target's semantic identity
+before applying a preview or exact-target edit; never follow a recycled frame
+into another semantic instance.
 
 It renders canonical option groups rather than duplicate schemas.
 

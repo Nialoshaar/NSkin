@@ -678,7 +678,7 @@ local surfaceGeometryControls = {
 
 local surfaceBackgroundControls = {
     {
-        type = "MIXED_PAIR", order = 1,
+        type = "MIXED_PAIR", order = 1, editorPairLabel = "Background",
         left = { type = "COLOR", key = "background",
             modeKey = "backgroundMode", label = "Background" },
         right = { type = "SLIDER", key = "backgroundOpacity",
@@ -686,7 +686,7 @@ local surfaceBackgroundControls = {
             step = 0.05, decimals = 2 },
     },
     {
-        type = "MIXED_PAIR", order = 2,
+        type = "MIXED_PAIR", order = 2, editorPairLabel = "Selected Background",
         left = { type = "COLOR", key = "selectedBackground",
             modeKey = "selectedBackgroundMode",
             label = "Selected Background" },
@@ -888,8 +888,18 @@ local function GetSurfacePropertyAppearancePaths(context, property)
 end
 
 local function RegisterSurfaceAppearanceGroup(id, controls, keys)
+    local properties = {}
+    for _, key in ipairs({ "showBackground", "showBorder", "showHighlight" }) do
+        if keys[key] then
+            properties[#properties + 1] = {
+                type = "CHECKBOX", key = key, label = "Enabled",
+                editorHeaderToggle = true,
+            }
+        end
+    end
     NSkin:RegisterOptionGroup(id, {
         controls = controls,
+        propertyControls = properties,
         appearancePaths = GetSurfacePropertyAppearancePaths,
         get = GetSurfaceAppearanceValues,
         set = SetSurfaceAppearanceValues,

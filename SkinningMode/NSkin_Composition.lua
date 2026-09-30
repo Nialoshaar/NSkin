@@ -3141,7 +3141,13 @@ function NSkin:ClearCompositeMemberEditorPreview(
     local cleared
     local function Clear(candidateElement, candidateMember)
         local target = candidateMember._editorPreviewTarget
-        if target and type(candidateMember.clearPreviewState) == "function" then
+        local expected = candidateMember._editorPreviewAppearanceID
+        local current = target and not (target.IsForbidden and target:IsForbidden())
+            and self:GetCompositeMemberTargetAppearanceID(
+                candidateElement, candidateMember, target)
+        if target and current and (not expected or current == expected)
+            and type(candidateMember.clearPreviewState) == "function"
+        then
             local ok, result = pcall(
                 candidateMember.clearPreviewState,
                 candidateElement, candidateMember, target)
@@ -3149,6 +3155,7 @@ function NSkin:ClearCompositeMemberEditorPreview(
         end
         candidateMember._editorPreviewTarget = nil
         candidateMember._editorPreviewStateID = nil
+        candidateMember._editorPreviewAppearanceID = nil
     end
 
     Clear(element, member)
@@ -3182,7 +3189,7 @@ function NSkin:SetCompositeMemberEditorState(
     local targetChanged = target ~= nil
         and member._editorStateTarget ~= target
     member._editorStateID = nextStateID
-    if target ~= nil or allStates then
+    if target ~= nil or allStates or preview == true then
         member._editorStateTarget = target
     end
 
@@ -3206,6 +3213,8 @@ function NSkin:SetCompositeMemberEditorState(
         and preview == true and member.previewRuntimeState ~= false
         and type(member.previewState) == "function"
         and member._editorStateTarget
+        and not (member._editorStateTarget.IsForbidden
+            and member._editorStateTarget:IsForbidden())
     then
         local ok, result = pcall(member.previewState, element, member,
             member._editorStateTarget, stateID)
@@ -3213,6 +3222,9 @@ function NSkin:SetCompositeMemberEditorState(
         if previewed then
             member._editorPreviewTarget = member._editorStateTarget
             member._editorPreviewStateID = stateID
+            member._editorPreviewAppearanceID =
+                self:GetCompositeMemberTargetAppearanceID(element, member,
+                    member._editorStateTarget)
         end
     end
 
