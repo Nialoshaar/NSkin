@@ -282,7 +282,27 @@ NSkin:RegisterOptionGroupSubset(
         buttonAppearanceControls[5],
     })
 
+local checkboxAppearancePropertyPaths = {
+    shape = "button.checkboxShape",
+    size = "button.checkboxSize",
+    checked = "button.checked",
+    checkedMode = "button.checkedMode",
+    checkedInset = "button.checkboxCheckedInset",
+}
+
+local function GetCheckboxAppearancePropertyPaths(_, property)
+    local paths = {}
+    local function Add(key)
+        local path = checkboxAppearancePropertyPaths[key]
+        if path then paths[#paths + 1] = path end
+    end
+    Add(property and property.key)
+    Add(property and property.control and property.control.modeKey)
+    return paths
+end
+
 NSkin:RegisterOptionGroup("shared.checkboxAppearance", {
+    appearancePaths = GetCheckboxAppearancePropertyPaths,
     controls = {
         { type = "MIXED_PAIR", order = 1,
             left = { type = "DROPDOWN", key = "shape", label = "Shape",

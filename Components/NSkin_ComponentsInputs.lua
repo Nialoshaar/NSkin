@@ -700,7 +700,9 @@ local function RefreshCheckButtonVisual(checkButton)
     local data = NSkin:GetSkinData(checkButton, COMPONENT_STATE, false)
     if not data or not data.checkButtonActive then return end
     local checked
-    if type(data.checkButtonGetChecked) == "function" then
+    if data.checkButtonPreviewChecked ~= nil then
+        checked = data.checkButtonPreviewChecked == true
+    elseif type(data.checkButtonGetChecked) == "function" then
         local ok, value = pcall(data.checkButtonGetChecked, checkButton)
         if ok and type(value) == "boolean" then checked = value end
     end
@@ -787,6 +789,23 @@ end
 local function RefreshCheckButtonState(checkButton)
     SuppressCheckButtonNativeChecks(checkButton)
     RefreshCheckButtonVisual(checkButton)
+end
+
+function NSkin:SetCheckButtonPresentationPreview(checkButton, checked)
+    local data = checkButton and self:GetSkinData(
+        checkButton, COMPONENT_STATE, false)
+    if not data or not data.checkButtonActive then return false end
+    if checked ~= nil then checked = checked == true end
+    data.checkButtonPreviewChecked = checked
+    RefreshCheckButtonVisual(checkButton)
+    return true
+end
+
+function NSkin:GetCheckButtonPresentationPreview(checkButton)
+    local data = checkButton and self:GetSkinData(
+        checkButton, COMPONENT_STATE, false)
+    if not data then return nil end
+    return data.checkButtonPreviewChecked
 end
 
 local function HasCheckButtonMask(texture, mask)

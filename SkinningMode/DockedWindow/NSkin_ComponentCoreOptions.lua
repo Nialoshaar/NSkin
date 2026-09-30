@@ -330,6 +330,9 @@ local function CommitValues(view, values, knownCurrent, liveInspectorChange)
         end
         NSkin:NotifyOptionGroupChanged(view.id,
             preserveLocalState and view or nil)
+        if type(view.onValueCommitted) == "function" then
+            view.onValueCommitted(view)
+        end
         return true
     end
     view:Refresh()
@@ -340,6 +343,9 @@ local function ResetValues(view)
     if not view.context then return false end
     if view.definition.reset(view.context) == true then
         NSkin:NotifyOptionGroupChanged(view.id)
+        if type(view.onValueCommitted) == "function" then
+            view.onValueCommitted(view)
+        end
         return true
     end
     view:Refresh()
@@ -1529,6 +1535,7 @@ function NSkin:RegisterOptionGroupSubset(id, sourceID, controls)
         controls = subsetControls,
         inheritedReset = true,
         inheritedResetLabel = "Reset to window defaults",
+        appearancePaths = source.appearancePaths,
         get = source.get,
         set = function(context, values)
             local filtered = {}
@@ -1546,6 +1553,98 @@ end
 
 function NSkin:GetOptionGroupDefinition(id)
     return optionGroups[id]
+end
+
+local function GetStoredAppearancePath(root, path)
+    local current = root
+    for key in tostring(path or ""):gmatch("[^.]+") do
+        if type(current) ~= "table" then return nil end
+        current = current[key]
+    end
+    return current
+end
+
+local function HasStoredAppearancePath(root, paths)
+    for _, path in ipairs(paths or {}) do
+        if GetStoredAppearancePath(root, path) ~= nil then
+            return true
+        end
+    end
+    return false
+end
+
+function NSkin:GetOptionGroupPropertyInheritance(id, context, property)
+    local definition = optionGroups[id]
+    if not definition or not context or type(property) ~= "table"
+        or type(definition.appearancePaths) ~= "function"
+    then
+        return nil
+    end
+
+    local paths = definition.appearancePaths(context, property)
+    if type(paths) == "string" then paths = { paths } end
+    if type(paths) ~= "table" or #paths == 0 then return nil end
+
+    local profile = self:GetProfile()
+    local overrides = profile.appearanceOverrides
+    local elements = overrides and overrides.elements
+    local currentID = context.id
+
+    if currentID and HasStoredAppearancePath(
+        elements and elements[currentID], paths)
+    then
+        return {
+            explicit = true,
+            label = context.exactMemberOverride
+                and "Set for this target" or "Set here",
+        }
+    end
+
+    local parentID = currentID
+        and self.GetAppearanceParentID
+        and self:GetAppearanceParentID(currentID)
+    local firstParent = true
+    local seen = {}
+    while type(parentID) == "string" and parentID ~= ""
+        and not seen[parentID]
+    do
+        seen[parentID] = true
+        if HasStoredAppearancePath(
+            elements and elements[parentID], paths)
+        then
+            return {
+                explicit = false,
+                label = context.componentStateID and firstParent
+                    and "Inherited · Common"
+                    or "Inherited · Family",
+            }
+        end
+        firstParent = false
+        parentID = self.GetAppearanceParentID
+            and self:GetAppearanceParentID(parentID) or nil
+    end
+
+    local scopeChain = context.appearanceWindowID
+        and self:GetAppearanceScopeChain(context.appearanceWindowID)
+    for index = #(scopeChain or {}), 1, -1 do
+        local scopeID = scopeChain[index]
+        local windows = overrides and overrides.windows
+        if HasStoredAppearancePath(
+            windows and windows[scopeID], paths)
+        then
+            local scope = self:GetAppearanceScope(scopeID)
+            return {
+                explicit = false,
+                label = "Inherited · "
+                    .. tostring(scope and scope.label or "Window"),
+            }
+        end
+    end
+
+    if HasStoredAppearancePath(profile.appearance, paths) then
+        return { explicit = false, label = "Inherited · Global" }
+    end
+    return { explicit = false, label = "Inherited · NSkin default" }
 end
 
 

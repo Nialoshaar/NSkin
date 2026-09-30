@@ -333,8 +333,19 @@ AddTypographyControls(textAppearanceControls,
     "Text", 1, { type = "COLOR", key = "color", modeKey = "colorMode",
         label = "Color", allowDefault = true })
 textAppearanceControls[#textAppearanceControls].hideHeading = true
+local textAppearancePropertyPaths = {
+    font = { "text.font", "text.fontMode" },
+    textSize = { "text.textSize", "text.sizeMode" },
+    outline = { "text.outline", "text.outlineMode" },
+    color = { "text.color", "text.colorMode" },
+    colorMode = { "text.color", "text.colorMode" },
+}
+
 NSkin:RegisterOptionGroup("shared.textAppearance", {
     controls = textAppearanceControls,
+    appearancePaths = function(_, property)
+        return textAppearancePropertyPaths[property and property.key] or {}
+    end,
     get = function(context)
         local style = NSkin:GetAppearanceStyle(
             "text", GetAppearanceWindowID(context), context.id)
@@ -863,9 +874,23 @@ local function SetSurfaceAppearanceValues(context, values)
     return changed == true
 end
 
+local function GetSurfacePropertyAppearancePaths(context, property)
+    local styleName = GetSurfaceAppearanceStyleName(context)
+    local paths = {}
+    local function Add(key)
+        if type(key) == "string" and surfaceAppearanceKeys[key] then
+            paths[#paths + 1] = styleName .. "." .. key
+        end
+    end
+    Add(property and property.key)
+    Add(property and property.control and property.control.modeKey)
+    return paths
+end
+
 local function RegisterSurfaceAppearanceGroup(id, controls, keys)
     NSkin:RegisterOptionGroup(id, {
         controls = controls,
+        appearancePaths = GetSurfacePropertyAppearancePaths,
         get = GetSurfaceAppearanceValues,
         set = SetSurfaceAppearanceValues,
         affectsBounds = keys.width == true or keys.height == true,
@@ -886,6 +911,7 @@ end
 
 NSkin:RegisterOptionGroup("shared.surfaceAppearance", {
     controls = surfaceAppearanceControls,
+    appearancePaths = GetSurfacePropertyAppearancePaths,
     get = GetSurfaceAppearanceValues,
     set = SetSurfaceAppearanceValues,
     affectsBounds = function(_, values, current)

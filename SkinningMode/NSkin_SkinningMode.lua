@@ -1497,6 +1497,15 @@ SelectElement = function(element, memberID, runtimeTarget)
     NSkin:MarkSkinningWindowActive(element.window)
     local previous = controller.selectedElement
     local previousMember = controller.focusedCompositeMemberID
+    local previousRuntimeTarget =
+        controller.focusedCompositeRuntimeTarget
+    if previous and previousMember
+        and (previous ~= element or previousMember ~= memberID
+            or previousRuntimeTarget ~= runtimeTarget)
+    then
+        NSkin:ClearCompositeMemberEditorPreview(
+            previous, previousMember)
+    end
     controller.selectedElement = element
     local composition = element.composition
     if composition and composition.mode == "COMPOSITE"
@@ -2836,6 +2845,13 @@ function NSkin:SetSkinningModeEnabled(enabled)
         self:Print("Skinning Mode enabled. Select a highlighted element.")
     else
         StopDrag(false)
+        if controller.selectedElement
+            and controller.focusedCompositeMemberID
+        then
+            self:ClearCompositeMemberEditorPreview(
+                controller.selectedElement,
+                controller.focusedCompositeMemberID)
+        end
         self:UnregisterComponentCallbacks(controller)
         controller.eventFrame:UnregisterAllEvents()
         if controller.pendingRollback then

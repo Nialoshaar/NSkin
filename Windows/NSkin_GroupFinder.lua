@@ -2048,8 +2048,35 @@ local function ApplyDungeonCheckboxComponent(choice, styleID)
     local uncheckedContent = member and NSkin:GetStateContent(
         member, "Unchecked")
 
+    local previewData = NSkin:GetSkinData(
+        checkButton, "groupFinderDungeonCheckboxPreview")
+    if previewData.semanticID ~= nil
+        and previewData.semanticID ~= choice.id
+    then
+        NSkin:SetCheckButtonPresentationPreview(checkButton, nil)
+    end
+    previewData.choice = choice
+    previewData.styleID = styleID
+    previewData.semanticID = choice.id
+
+    local preview = NSkin:GetCheckButtonPresentationPreview(checkButton)
+    local checked = preview
+    if checked == nil and checkButton.GetChecked then
+        checked = checkButton:GetChecked() == true
+    end
+    local stateID = checked == true and "Checked" or "Unchecked"
+    local appearanceID = member and member.appearanceID
+        or (styleID .. ".CHECKBOX")
+    for _, definition in ipairs(member and member.states or {}) do
+        if definition.id == stateID then
+            appearanceID = definition.appearanceID
+                or (appearanceID .. ".State." .. stateID)
+            break
+        end
+    end
+
     return NSkin:SkinTypedElement("CHECKBOX", {
-        id = styleID .. ".CHECKBOX",
+        id = appearanceID,
         appearanceWindowID = IDs.DungeonFinder.Scope,
         target = checkButton,
         skinOptions = {
@@ -2949,7 +2976,7 @@ function PVESkin:RegisterDungeonRows()
     if not frame or not queueFrame then return false end
 
     local function CreateDungeonRowElementEditorOptions(
-        geometryGroupID, contentGroupID)
+        geometryGroupID, contentGroupID, includeSurface)
         local layoutGroups = {
             {
                 id = "shared.movable",
@@ -2966,56 +2993,60 @@ function PVESkin:RegisterDungeonRows()
             }
         end
 
+        local tabs = {
+            {
+                id = "Layout",
+                label = "Layout",
+                groups = layoutGroups,
+            },
+            {
+                id = "Content",
+                label = "Content",
+                groups = {
+                    {
+                        id = contentGroupID,
+                        contextRole = "APPEARANCE",
+                        contextualInline = true,
+                    },
+                },
+            },
+        }
+        if includeSurface ~= false then
+            tabs[#tabs + 1] = {
+                id = "Surface",
+                label = "Surface",
+                groups = {
+                    {
+                        id = "shared.surfaceBackground",
+                        label = "Background",
+                        contextRole = "APPEARANCE",
+                        contextualInline = false,
+                        headerToggleKey = "showBackground",
+                    },
+                    {
+                        id = "shared.surfaceBorder",
+                        label = "Border",
+                        contextRole = "APPEARANCE",
+                        contextualInline = false,
+                        headerToggleKey = "showBorder",
+                    },
+                    {
+                        id = "shared.surfaceHighlight",
+                        label = "Highlight",
+                        contextRole = "APPEARANCE",
+                        contextualInline = false,
+                        headerToggleKey = "showHighlight",
+                    },
+                },
+            }
+        end
+
         return {
             {
                 id = "groupFinder.dungeonRows.elementDomains",
                 presentation = "NAV_TABS",
                 inspectorNavigation = true,
-                tabs = {
-                    {
-                        id = "Layout",
-                        label = "Layout",
-                        groups = layoutGroups,
-                    },
-                    {
-                        id = "Content",
-                        label = "Content",
-                        groups = {
-                            {
-                                id = contentGroupID,
-                                contextRole = "APPEARANCE",
-                                contextualInline = true,
-                            },
-                        },
-                    },
-                    {
-                        id = "Surface",
-                        label = "Surface",
-                        groups = {
-                            {
-                                id = "shared.surfaceBackground",
-                                label = "Background",
-                                contextRole = "APPEARANCE",
-                                contextualInline = false,
-                                headerToggleKey = "showBackground",
-                            },
-                            {
-                                id = "shared.surfaceBorder",
-                                label = "Border",
-                                contextRole = "APPEARANCE",
-                                contextualInline = false,
-                                headerToggleKey = "showBorder",
-                            },
-                            {
-                                id = "shared.surfaceHighlight",
-                                label = "Highlight",
-                                contextRole = "APPEARANCE",
-                                contextualInline = false,
-                                headerToggleKey = "showHighlight",
-                            },
-                        },
-                    },
-                },
+                tabs = tabs,
             },
         }
     end
@@ -3034,6 +3065,7 @@ function PVESkin:RegisterDungeonRows()
             end,
             rowFamilySurfaceDefinition = {
                 movable = true,
+                contextualInspector = wantHeaders == true,
                 applyFamilyOffset = ApplyDungeonMemberFamilyOffset,
                 getTargetAppearanceID = function(_, member, target)
                     return GetDungeonRowExactAppearanceID(
@@ -3049,10 +3081,38 @@ function PVESkin:RegisterDungeonRows()
                 CHECKBOX = {
                     elementType = "BUTTON",
                     tag = "Checkbox",
-                    editorStateBaseLabel = "Shared",
+                    contextualInspector = true,
+                    editorStateBaseLabel = "Common",
                     editorOptions = CreateDungeonRowElementEditorOptions(
                         "shared.checkboxGeometry",
-                        "shared.checkboxContent"),
+                        "shared.checkboxContent", true),
+                    previewState = function(_, _, target, stateID)
+                        if not target then return false end
+                        NSkin:SetCheckButtonPresentationPreview(
+                            target, stateID == "Checked")
+                        local data = NSkin:GetSkinData(
+                            target, "groupFinderDungeonCheckboxPreview", false)
+                        return data and data.choice
+                            and ApplyDungeonCheckboxComponent(
+                                data.choice, IDs.DungeonSections) or false
+                    end,
+                    clearPreviewState = function(_, _, target)
+                        if not target then return false end
+                        NSkin:SetCheckButtonPresentationPreview(target, nil)
+                        local data = NSkin:GetSkinData(
+                            target, "groupFinderDungeonCheckboxPreview", false)
+                        return data and data.choice
+                            and ApplyDungeonCheckboxComponent(
+                                data.choice, IDs.DungeonSections) or true
+                    end,
+                    getTargetAppearanceID = function(_, member, target)
+                        local data = target and NSkin:GetSkinData(
+                            target, "groupFinderDungeonCheckboxPreview", false)
+                        local choice = data and data.choice
+                        return GetDungeonRowExactAppearanceID(
+                            member.appearanceID
+                                or (id .. ".CHECKBOX"), choice)
+                    end,
                     movable = true,
                     applyFamilyOffset = ApplyDungeonMemberFamilyOffset,
                     states = {
@@ -3082,6 +3142,7 @@ function PVESkin:RegisterDungeonRows()
                 BUTTON = {
                     elementType = "BUTTON",
                     tag = "CollapseButton",
+                    contextualInspector = false,
                     editorStateBaseLabel = "Shared",
                     editorOptions = CreateDungeonRowElementEditorOptions(
                         "shared.buttonGeometry",
@@ -3202,6 +3263,9 @@ function PVESkin:RegisterDungeonRows()
             composition = {
                 mode = "COMPOSITE",
                 type = "REGULAR",
+                contextualInspector = wantHeaders == true,
+                contextualScopeLabel = wantHeaders
+                    and "All dungeon headers" or nil,
                 groupLabel = wantHeaders
                     and "Dungeon header rows" or "Dungeon rows",
                 editorLabel = wantHeaders
@@ -3217,8 +3281,9 @@ function PVESkin:RegisterDungeonRows()
                         role = "SECONDARY",
                         label = "Section text",
                         editorLabel = "Section Text",
+                        contextualInspector = true,
                         editorOptions = CreateDungeonRowElementEditorOptions(
-                            nil, "shared.textAppearance"),
+                            nil, "shared.textAppearance", false),
                         appearanceWindowID = IDs.DungeonFinder.Scope,
                         appearanceID = id .. ".TEXT",
                         appearanceParentID = id,

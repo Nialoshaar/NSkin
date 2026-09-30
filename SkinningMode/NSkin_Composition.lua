@@ -3130,6 +3130,38 @@ function NSkin:GetCompositeMemberEditorState(elementOrID, memberOrID)
     return stateID, definition
 end
 
+function NSkin:ClearCompositeMemberEditorPreview(
+    elementOrID, memberOrID)
+    local element = type(elementOrID) == "table" and elementOrID
+        or self:GetSkinningElement(elementOrID)
+    local member = element and (type(memberOrID) == "table" and memberOrID
+        or self:GetCompositeMember(element, memberOrID))
+    if not element or not member then return false end
+
+    local cleared
+    local function Clear(candidateElement, candidateMember)
+        local target = candidateMember._editorPreviewTarget
+        if target and type(candidateMember.clearPreviewState) == "function" then
+            local ok, result = pcall(
+                candidateMember.clearPreviewState,
+                candidateElement, candidateMember, target)
+            cleared = (ok and result ~= false) or cleared
+        end
+        candidateMember._editorPreviewTarget = nil
+        candidateMember._editorPreviewStateID = nil
+    end
+
+    Clear(element, member)
+    for _, entry in ipairs(
+        self:GetContainerCompositeMemberFamily(element, member) or {})
+    do
+        if entry.member ~= member then
+            Clear(entry.element, entry.member)
+        end
+    end
+    return cleared == true
+end
+
 function NSkin:SetCompositeMemberEditorState(
     elementOrID, memberOrID, stateID, target, preview)
     local element = type(elementOrID) == "table" and elementOrID
@@ -3143,12 +3175,16 @@ function NSkin:SetCompositeMemberEditorState(
         or (not allStates and not definition)
     then return false end
 
+    self:ClearCompositeMemberEditorPreview(element, member)
+
     local nextStateID = allStates and nil or stateID
     local stateChanged = member._editorStateID ~= nextStateID
     local targetChanged = target ~= nil
         and member._editorStateTarget ~= target
     member._editorStateID = nextStateID
-    member._editorStateTarget = target
+    if target ~= nil or allStates then
+        member._editorStateTarget = target
+    end
 
     for _, entry in ipairs(
         self:GetContainerCompositeMemberFamily(element, member) or {})
@@ -3174,6 +3210,10 @@ function NSkin:SetCompositeMemberEditorState(
         local ok, result = pcall(member.previewState, element, member,
             member._editorStateTarget, stateID)
         previewed = ok and result ~= false
+        if previewed then
+            member._editorPreviewTarget = member._editorStateTarget
+            member._editorPreviewStateID = stateID
+        end
     end
 
     return stateChanged or targetChanged or previewed == true
