@@ -5,6 +5,7 @@ local RESET_ELEMENT_DIALOG = "NSKIN_CONFIRM_ELEMENT_RESET"
 local CLEAR_OVERRIDES_DIALOG = "NSKIN_CONFIRM_CLEAR_OVERRIDES"
 local state
 local INSPECTOR_THEME = {
+    fontSizeOffset = 2,
     background = { 0.035, 0.051, 0.071, 1 },
     panel = { 0.075, 0.110, 0.149, 1 },
     input = { 0.047, 0.075, 0.106, 1 },
@@ -16,7 +17,7 @@ local INSPECTOR_THEME = {
 
 local function InspectorFont(label, size, color)
     local font = GameFontNormal:GetFont()
-    label:SetFont(font, size, "")
+    label:SetFont(font, size + INSPECTOR_THEME.fontSizeOffset, "")
     label:SetTextColor(unpack(color or INSPECTOR_THEME.text))
 end
 
@@ -38,6 +39,27 @@ local function RefreshInspectorScrollBar()
     bar:SetValue(state.scrollFrame:GetVerticalScroll())
     bar.syncing = nil
     bar:SetShown(range > 0)
+end
+
+local function RefreshInspectorWindowSubtitle()
+    local inspector = state and state.inspector
+    if not inspector or not inspector.subtitle then return end
+    local element = state.selectedElement
+    local window = element and element.window or state.inspectorDockWindow
+    local label
+    if window and not (window.IsForbidden and window:IsForbidden())
+        and not (window.IsProtected and window:IsProtected()) then
+        local title = window.TitleContainer and window.TitleContainer.TitleText
+            or window.TitleText
+        label = title and title.GetText and title:GetText()
+        if not label or label == "" then
+            local chain = element and NSkin:GetAppearanceScopeChain(element.appearanceWindowID)
+            local scope = chain and NSkin:GetAppearanceScope(chain[1])
+            label = scope and scope.label or (window.GetName and window:GetName())
+        end
+    end
+    local floating = state.inspectorManuallyPositioned or state.inspectorDockWindow == nil
+    inspector.subtitle:SetText((label or "No window") .. " · " .. (floating and "Floating" or "Docked"))
 end
 
 local function CreateLabel(parent, text, point, relativeTo, relativePoint, x, y)
@@ -726,16 +748,20 @@ local function LayoutInspectorChrome(element, member)
     inspector.title:ClearAllPoints()
     inspector.title:SetPoint("LEFT", inspector.logo, "RIGHT", 8, 0)
     inspector.subtitle:Show()
+    RefreshInspectorWindowSubtitle()
     InspectorFont(inspector.subtitle, 9, INSPECTOR_THEME.muted)
     InspectorFont(inspector.editingLabel, 10, INSPECTOR_THEME.muted)
     InspectorFont(inspector.designLabel, 12, INSPECTOR_THEME.accent)
     state.inspectorDragRegion:SetHeight(38)
     local headerStyle = CopyTable(NSkin:GetStyle("window").header)
     headerStyle.height = 38
-    headerStyle.showBackground, headerStyle.showBorder = false, false
+    headerStyle.background = INSPECTOR_THEME.background
+    headerStyle.backgroundOpacity, headerStyle.backgroundSource = 1, "REGULAR"
+    headerStyle.matchBackground = false
+    headerStyle.showBackground, headerStyle.showBorder = true, false
     NSkin:SkinWindowHeader(inspector, headerStyle)
     inspector.selection:ClearAllPoints()
-    inspector.selection:SetPoint("TOPLEFT", inspector, "TOPLEFT", 34, -54)
+    inspector.selection:SetPoint("TOPLEFT", inspector, "TOPLEFT", 24, -54)
     inspector.selection:SetPoint("TOPRIGHT", inspector, "TOPRIGHT", -26, -54)
     inspector.memberPicker:ClearAllPoints()
     inspector.memberPicker:SetPoint("TOPLEFT", inspector, "TOPLEFT", 68, -91)
@@ -747,7 +773,7 @@ local function LayoutInspectorChrome(element, member)
     local pickerText = inspector.memberPicker.text or inspector.memberPicker.Text
     if pickerText then InspectorFont(pickerText, 10) end
     if inspector.memberPicker.nskinArrow then
-        inspector.memberPicker.nskinArrow:SetSize(10, 10)
+        inspector.memberPicker.nskinArrow:SetSize(12, 12)
         inspector.memberPicker.nskinArrow:SetVertexColor(unpack(INSPECTOR_THEME.muted))
     end
     inspector.editingLabel:SetShown(inspector.memberPicker:IsShown())
@@ -767,7 +793,7 @@ local function LayoutInspectorChrome(element, member)
     inspector.addOverride:ClearAllPoints()
     inspector.addOverride:SetPoint("RIGHT", inspector.resetElement, "LEFT", -4, 0)
     inspector.addOverride:SetSize(20, 24)
-    NSkin:SkinFlatButton(inspector.addOverride, "+", INSPECTOR_THEME.input, INSPECTOR_THEME.border, 11)
+    NSkin:SkinFlatButton(inspector.addOverride, "+", INSPECTOR_THEME.input, INSPECTOR_THEME.border, 13)
     inspector.stateLabel:ClearAllPoints()
     inspector.stateLabel:SetPoint("TOPLEFT", inspector, "TOPLEFT", 30, -139)
     inspector.stateLabel:SetText("State")
@@ -805,9 +831,9 @@ local function LayoutInspectorChrome(element, member)
         inspector.memberTabs:SetPoint("TOPRIGHT", inspector, "TOPRIGHT", -24, -122)
     end
     state.scrollFrame:ClearAllPoints()
-    state.scrollFrame:SetPoint("TOPLEFT", inspector, "TOPLEFT", 14, -headerHeight)
-    state.scrollFrame:SetPoint("BOTTOMRIGHT", inspector, "BOTTOMRIGHT", -26, 32)
-    state.scrollChild:SetWidth(inspector:GetWidth() - 40)
+    state.scrollFrame:SetPoint("TOPLEFT", inspector, "TOPLEFT", 12, -headerHeight)
+    state.scrollFrame:SetPoint("BOTTOMRIGHT", inspector, "BOTTOMRIGHT", -12, 12)
+    state.scrollChild:SetWidth(inspector:GetWidth() - 24)
     RefreshInspectorScrollBar()
 end
 
@@ -1665,7 +1691,7 @@ local function EnsureContextualSummaryRow(index)
     if row then return row end
 
     row = CreateFrame("Button", nil, state.scrollChild)
-    row:SetHeight(34)
+    row:SetHeight(40)
     row.body = CreateFrame("Frame", nil, state.scrollChild)
     row.body:SetPoint("TOPLEFT", row, "BOTTOMLEFT", 0, -1)
     row.body:Hide()
@@ -1674,8 +1700,8 @@ local function EnsureContextualSummaryRow(index)
     row.label:SetPoint("LEFT", row, "LEFT", 12, 0)
     row.sectionIcon = row:CreateTexture(nil, "OVERLAY")
     row.sectionIcon:SetPoint("LEFT", row, "LEFT", 8, 0)
-    row.sectionIcon:SetSize(13, 13)
-    row.sectionIcon:SetTexture("Interface\\AddOns\\NSkin\\Media\\grid-alt.png")
+    row.sectionIcon:SetSize(16, 16)
+    row.sectionIcon:SetTexture("Interface\\AddOns\\NSkin\\Media\\Icons\\Edit-Box.png")
     row.sectionIcon:SetVertexColor(unpack(INSPECTOR_THEME.accent))
     row.label:ClearAllPoints()
     row.label:SetPoint("LEFT", row.sectionIcon, "RIGHT", 10, 0)
@@ -1717,7 +1743,7 @@ local function EnsureContextualSummaryRow(index)
     row.value:SetPoint("RIGHT", row, "RIGHT", -28, 0)
     row.value:SetJustifyH("RIGHT")
     row.arrow = row:CreateTexture(nil, "OVERLAY")
-    row.arrow:SetSize(12, 12)
+    row.arrow:SetSize(14, 14)
     row.arrow:SetPoint("RIGHT", row, "RIGHT", -8, 0)
     row.arrow:SetTexture(
         "Interface\\AddOns\\NSkin\\Media\\angle-small-down.png")
@@ -1726,8 +1752,8 @@ local function EnsureContextualSummaryRow(index)
         { 0, 0, 0, 0 }, NSkin:GetStyle("window").header.divider)
     InspectorSurface(row, { 0, 0, 0, 0 }, false)
     row.divider = row:CreateTexture(nil, "BACKGROUND")
-    row.divider:SetPoint("TOPLEFT")
-    row.divider:SetPoint("TOPRIGHT")
+    row.divider:SetPoint("TOPLEFT", row, "TOPLEFT", -8, 0)
+    row.divider:SetPoint("TOPRIGHT", row, "TOPRIGHT", 8, 0)
     row.divider:SetHeight(1)
     row.divider:SetColorTexture(unpack(INSPECTOR_THEME.border))
     row:SetScript("OnClick", function(self)
@@ -1773,7 +1799,7 @@ local function LayoutContextualPropertyHeading(row, width, centered)
     row.label:ClearAllPoints()
     row.label:SetPoint("TOPLEFT", row, "TOPLEFT",
         centered and math.max(0, (available - headingWidth) / 2) or 0, -4)
-    row.label:SetSize(labelWidth, 16)
+    row.label:SetSize(labelWidth, 18)
     row.label:SetJustifyV("BOTTOM")
     row.source:ClearAllPoints()
     row.source:SetPoint("BOTTOMLEFT", row.label, "BOTTOMRIGHT", 6, 0)
@@ -1805,6 +1831,10 @@ RefreshContextualSectionPresentation = function(section)
     end
     InspectorFont(section.label, 12)
     InspectorFont(section.value, 9, INSPECTOR_THEME.muted)
+    section.label:SetHeight(section:GetHeight())
+    section.label:SetJustifyV("MIDDLE")
+    section.value:SetHeight(section:GetHeight())
+    section.value:SetJustifyV("MIDDLE")
     section.value:ClearAllPoints()
     section.value:SetPoint("RIGHT", section, "RIGHT", cell and -66 or -28, 0)
     section.arrow:ClearAllPoints()
@@ -1849,7 +1879,7 @@ local function EnsureContextualPropertyRow(key)
     cell.reset.icon = NSkin:CreateCenteredButtonGlyph(cell.reset,
         "contextualPropertyReset", {
             texture = "Interface\\AddOns\\NSkin\\Media\\rotate-right.png",
-            size = 12,
+            size = 14,
         })
     cell.reset:SetScript("OnEnter", function(self)
         NSkin:SetCenteredButtonGlyphColor(self.icon, NSkin:GetAccentColor())
@@ -1918,7 +1948,7 @@ local function EnsureContextualPairRow(section, left, right)
         pair.reset.icon = NSkin:CreateCenteredButtonGlyph(pair.reset,
             "contextualPairReset", {
                 texture = "Interface\\AddOns\\NSkin\\Media\\rotate-right.png",
-                size = 12,
+                size = 14,
             })
         pair.reset:SetScript("OnClick", function()
             -- One explicit action over two existing logical resets; no new
@@ -1963,7 +1993,7 @@ LayoutContextualInspector = function()
         section.arrow:SetRotation(open and 0 or math.pi / 2)
         section.body:SetWidth(width)
         section.body:SetShown(open)
-        y = y + 35
+        y = y + 41
         local bodyY, index = 8, 1
         for _, pair in pairs(section.pairRows or {}) do pair:Hide() end
         while index <= #section.cells do
@@ -2038,7 +2068,6 @@ LayoutContextualInspector = function()
         end
         section.body:SetHeight(bodyY)
         if open then y = y + bodyY end
-        y = y + 6
     end
     ResizeInspector(nil, y)
 end
@@ -2141,6 +2170,13 @@ local function LoadContextualInspector(element, member)
         local definition = NSkin:GetOptionGroupDefinition(group.id)
         local label = group.label or CONTEXTUAL_GROUP_LABELS[group.id] or group.id
         section.label:SetText(label)
+        local iconName = label:match("^Position") and "Position"
+            or label:match("^Background") and "Background"
+            or label:match("^Highlight") and "Highlight"
+            or (label:match("^Border") or label:match("^Geometry")) and "Border"
+            or (label:match("^Text") or label:match("^Content")) and "Text"
+            or "Edit-Box"
+        section.sectionIcon:SetTexture("Interface\\AddOns\\NSkin\\Media\\Icons\\" .. iconName .. ".png")
         section.value:SetText(FormatContextualSummary(group))
         section.cells = {}
         section.headerToggleCell = nil
@@ -2944,6 +2980,8 @@ end
 
 function DockedWindow:Dock(window)
     local inspector = state.inspector
+    state.inspectorDockWindow = window
+    RefreshInspectorWindowSubtitle()
     if state.inspectorManuallyPositioned then return end
     inspector:ClearAllPoints()
     if not window then
@@ -3080,6 +3118,7 @@ function NSkin:CreateDockedWindow(owner)
     dragRegion:SetScript("OnDragStop", function()
         inspector:StopMovingOrSizing()
         state.inspectorManuallyPositioned = true
+        RefreshInspectorWindowSubtitle()
         if RefreshDebugLauncher then
             RefreshDebugLauncher(state.contextualInspectorHeader == true)
         end
@@ -3089,24 +3128,22 @@ function NSkin:CreateDockedWindow(owner)
     inspector.title = CreateLabel(inspector, "Skinning Mode", "TOPLEFT", inspector, "TOPLEFT", 12, -5)
     inspector.logo = inspector:CreateTexture(nil, "OVERLAY")
     inspector.logo:SetTexture("Interface\\AddOns\\NSkin\\Media\\logo.png")
-    inspector.logo:SetSize(18, 18)
+    inspector.logo:SetSize(21, 21)
     inspector.logo:SetPoint("TOPLEFT", inspector, "TOPLEFT", 14, -12)
-    inspector.subtitle = CreateLabel(inspector, "Blizzard window · Docked/Floating",
+    inspector.subtitle = CreateLabel(inspector, "No window · Floating",
         "TOPLEFT", inspector, "TOPLEFT", 96, -17)
     InspectorFont(inspector.subtitle, 9, INSPECTOR_THEME.muted)
+    inspector.subtitle:SetPoint("RIGHT", inspector, "TOPRIGHT", -70, -17)
+    inspector.subtitle:SetWordWrap(false)
+    inspector.subtitle:SetJustifyH("LEFT")
     inspector.panel = CreateFrame("Frame", nil, inspector)
     inspector.panel:SetPoint("TOPLEFT", inspector, "TOPLEFT", 12, -48)
-    inspector.panel:SetPoint("BOTTOMRIGHT", inspector, "BOTTOMRIGHT", -12, 32)
+    inspector.panel:SetPoint("BOTTOMRIGHT", inspector, "BOTTOMRIGHT", -12, 12)
     inspector.panel:SetFrameLevel(inspector:GetFrameLevel())
     InspectorSurface(inspector.panel, INSPECTOR_THEME.panel, true)
     inspector.breadcrumbLine = inspector:CreateTexture(nil, "ARTWORK")
     inspector.breadcrumbLine:SetHeight(1)
     inspector.breadcrumbLine:SetColorTexture(unpack(INSPECTOR_THEME.border))
-    inspector.breadcrumbIcon = inspector:CreateTexture(nil, "OVERLAY")
-    inspector.breadcrumbIcon:SetTexture("Interface\\AddOns\\NSkin\\Media\\grid-alt.png")
-    inspector.breadcrumbIcon:SetSize(11, 11)
-    inspector.breadcrumbIcon:SetPoint("TOPLEFT", inspector, "TOPLEFT", 22, -59)
-    inspector.breadcrumbIcon:SetVertexColor(unpack(INSPECTOR_THEME.muted))
     inspector.editingLabel = CreateLabel(inspector, "Editing", "TOPLEFT", inspector, "TOPLEFT", 30, -100)
     InspectorFont(inspector.editingLabel, 10, INSPECTOR_THEME.muted)
     inspector.stateTrack = CreateFrame("Frame", nil, inspector)
@@ -3130,6 +3167,7 @@ function NSkin:CreateDockedWindow(owner)
     end)
     NSkin:CreateCenteredButtonGlyph(close, "inspectorClose", {
         glyph = "close",
+        size = 14,
     })
     close:SetFrameLevel(dragRegion:GetFrameLevel() + 1)
     close:SetPoint("TOPRIGHT", inspector, "TOPRIGHT", -10, -9)
@@ -3161,13 +3199,14 @@ function NSkin:CreateDockedWindow(owner)
         if not state.inspectorManuallyPositioned and state.selectedElement then
             state.dockedWindow:Dock(state.selectedElement.window)
         end
+        RefreshInspectorWindowSubtitle()
     end)
     dockToggle:SetFrameLevel(dragRegion:GetFrameLevel() + 1)
     dockToggle:SetPoint("RIGHT", close, "LEFT", -6, 0)
     InspectorSurface(dockToggle, { 0, 0, 0, 0 }, false)
     dockToggle.icon = dockToggle:CreateTexture(nil, "OVERLAY")
-    dockToggle.icon:SetTexture("Interface\\AddOns\\NSkin\\Media\\grid-alt.png")
-    dockToggle.icon:SetSize(12, 12)
+    dockToggle.icon:SetTexture("Interface\\AddOns\\NSkin\\Media\\Icons\\Border.png")
+    dockToggle.icon:SetSize(15, 15)
     dockToggle.icon:SetPoint("CENTER")
     dockToggle.icon:SetVertexColor(unpack(INSPECTOR_THEME.muted))
     dockToggle:SetScript("OnEnter", function(self)
@@ -3183,7 +3222,7 @@ function NSkin:CreateDockedWindow(owner)
     debugLauncher:SetSize(20, 30)
     debugLauncher.arrow = debugLauncher:CreateTexture(nil, "OVERLAY")
     debugLauncher.arrow:SetTexture("Interface\\AddOns\\NSkin\\Media\\angle-small-down.png")
-    debugLauncher.arrow:SetSize(12, 12)
+    debugLauncher.arrow:SetSize(14, 14)
     debugLauncher.arrow:SetPoint("CENTER")
     debugLauncher:SetScript("OnEnter", debugToggle:GetScript("OnEnter"))
     debugLauncher:SetScript("OnLeave", debugToggle:GetScript("OnLeave"))
@@ -3304,7 +3343,7 @@ function NSkin:CreateDockedWindow(owner)
         end)
     resetElement.inspectorResetIcon = resetElement:CreateTexture(nil, "OVERLAY")
     resetElement.inspectorResetIcon:SetTexture("Interface\\AddOns\\NSkin\\Media\\rotate-right.png")
-    resetElement.inspectorResetIcon:SetSize(12, 12)
+    resetElement.inspectorResetIcon:SetSize(14, 14)
     resetElement.inspectorResetIcon:SetPoint("LEFT", resetElement, "LEFT", 3, 0)
     resetElement.inspectorResetIcon:SetVertexColor(unpack(INSPECTOR_THEME.muted))
     resetElement:SetPoint("TOPRIGHT", inspector, "TOPRIGHT", -12, -27)
@@ -3415,7 +3454,7 @@ function NSkin:CreateDockedWindow(owner)
         self:SetVerticalScroll(math.max(0, math.min(range, nextValue)))
     end)
     local scrollChild = CreateFrame("Frame", nil, scrollFrame)
-    scrollChild:SetSize(392, 1)
+    scrollChild:SetSize(408, 1)
     scrollFrame:SetScrollChild(scrollChild)
     state.scrollFrame = scrollFrame
     state.scrollChild = scrollChild
@@ -3423,8 +3462,8 @@ function NSkin:CreateDockedWindow(owner)
     local scrollBar = inspector.scrollBar
     scrollBar:SetOrientation("VERTICAL")
     scrollBar:SetWidth(7)
-    scrollBar:SetPoint("TOPRIGHT", scrollFrame, "TOPRIGHT", 10, -8)
-    scrollBar:SetPoint("BOTTOMRIGHT", scrollFrame, "BOTTOMRIGHT", 10, 8)
+    scrollBar:SetPoint("TOPRIGHT", scrollFrame, "TOPRIGHT", -3, -8)
+    scrollBar:SetPoint("BOTTOMRIGHT", scrollFrame, "BOTTOMRIGHT", -3, 8)
     scrollBar:SetMinMaxValues(0, 1)
     scrollBar:SetValueStep(1)
     scrollBar:SetThumbTexture("Interface\\Buttons\\WHITE8X8")

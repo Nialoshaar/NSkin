@@ -1975,6 +1975,7 @@ end
 local function RefreshPropertyPresentation(view)
     local theme, property = view.propertyTheme, view.inspectorProperty
     if not theme or not property then return end
+    local fontSizeOffset = tonumber(theme.fontSizeOffset) or 0
     local control = view.controlByKey[property.key]
     local input = view.valueByKey[property.key]
     if not control then return end
@@ -1990,17 +1991,17 @@ local function RefreshPropertyPresentation(view)
     if controlText then
         controlText:SetTextColor(unpack(theme.text))
         local font = GameFontNormal:GetFont()
-        controlText:SetFont(font, 10, "")
+        controlText:SetFont(font, 10 + fontSizeOffset, "")
     end
     if control.nskinArrow then
-        control.nskinArrow:SetSize(10, 10)
+        control.nskinArrow:SetSize(12, 12)
         control.nskinArrow:SetVertexColor(unpack(theme.muted))
     end
     if input then
         Surface(input, "NSkinSliderValue")
         input:SetTextColor(unpack(theme.text))
         local font = GameFontNormal:GetFont()
-        input:SetFont(font, 10, "")
+        input:SetFont(font, 10 + fontSizeOffset, "")
         input:SetSize(48, 28)
         local key = property.key:lower()
         local pixels = key == "x" or key == "y" or key:find("offset", 1, true)
@@ -2014,7 +2015,7 @@ local function RefreshPropertyPresentation(view)
         end
         input.inspectorUnit:SetShown(pixels ~= nil and pixels ~= false)
         input.inspectorUnit:SetTextColor(unpack(theme.muted))
-        input.inspectorUnit:SetFont(font, 7, "")
+        input.inspectorUnit:SetFont(font, 7 + fontSizeOffset, "")
         input:SetTextInsets(3, pixels and 15 or 3, 0, 0)
     end
     local visuals = control.nskinOptionsVisuals
@@ -2036,7 +2037,7 @@ local function RefreshPropertyPresentation(view)
         if not control.inspectorSwatch then
             control.inspectorSwatch = control:CreateTexture(nil, "OVERLAY")
             control.inspectorSwatch:SetPoint("LEFT", control, "LEFT", 7, 0)
-            control.inspectorSwatch:SetSize(12, 12)
+            control.inspectorSwatch:SetSize(14, 14)
             control.inspectorHex = control:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
             control.inspectorHex:SetPoint("LEFT", control.inspectorSwatch, "RIGHT", 5, 0)
             control.inspectorHex:SetTextColor(unpack(theme.text))
@@ -2045,7 +2046,7 @@ local function RefreshPropertyPresentation(view)
         local function Byte(value) return math.floor(math.max(0, math.min(1, value or 0)) * 255 + 0.5) end
         control.inspectorHex:SetText(string.format("#%02X%02X%02X", Byte(color[1]), Byte(color[2]), Byte(color[3])))
         local font = GameFontNormal:GetFont()
-        control.inspectorHex:SetFont(font, 9, "")
+        control.inspectorHex:SetFont(font, 9 + fontSizeOffset, "")
         if controlText then
             controlText:ClearAllPoints()
             controlText:SetPoint("RIGHT", control, "RIGHT", -22, 0)
@@ -2053,7 +2054,7 @@ local function RefreshPropertyPresentation(view)
             controlText:SetJustifyH("RIGHT")
             controlText:SetTextColor(unpack(theme.muted))
             local font = GameFontNormal:GetFont()
-            controlText:SetFont(font, 8, "")
+            controlText:SetFont(font, 8 + fontSizeOffset, "")
         end
     end
 end

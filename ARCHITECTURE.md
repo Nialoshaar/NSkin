@@ -1572,6 +1572,15 @@ Declared property pairs use two columns when there is sufficient width, with
 individual headings and reset buttons. Accordion expansion and editing focus
 survive local commits. The shell's dock/float action shares the existing docking
 and manual placement state.
+The opaque header names the selected window and reports Docked or Floating;
+selection, docking, and completed manual drags update it without polling.
+The breadcrumb has no leading icon. Section icons use the dedicated Media/Icons
+assets, and full-width separators meet the inset panel's side borders. The
+property viewport shares those panel bounds, with a 12-unit bottom shell margin.
+The inspector palette adds 2 units to its base text sizes, including shared
+property controls, without changing fonts on the edited window or other options
+pages. Accordion titles and summaries are vertically centered within 40-unit
+headers; section icons are 16 units and reset/navigation icons scale with them.
 
 A contextual inspector keeps owner, focused member, editing scope, and state
 visible while properties expand in place. A decorative window-title row is
