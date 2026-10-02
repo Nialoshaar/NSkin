@@ -324,7 +324,8 @@ function NSkin:SkinScrollBar(scrollBar, style, definition)
         surfaceBackground[3] or 0,
         tonumber(style.backgroundOpacity)
             or surfaceBackground[4] or 0)
-    data.scrollSurfaceBackground:SetShown(style.showBackground == true)
+    data.scrollSurfaceBackground:SetShown(style.showBackground == true
+        and self:ShouldShowSurfaceBackground(style, scrollBar))
 
     local surfaceBorderColor =
         self:GetResolvedAppearanceColor(style, "border")

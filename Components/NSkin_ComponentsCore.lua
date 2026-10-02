@@ -399,6 +399,104 @@ local function ApplySharedTextFormatting(fontString, options)
     RefreshSharedTextFormatting(fontString)
 end
 
+-- Adapters declare only audited backdrop regions, never functional overlays.
+function NSkin:RegisterSurfaceBackgroundRegions(owner, regions, options)
+    if not owner or (owner.IsForbidden and owner:IsForbidden())
+        or (owner.IsProtected and owner:IsProtected()) then return false end
+    local state = self:GetSkinData(owner, "surfaceBackgroundSource")
+    state.regions = state.regions or {}
+    for _, region in pairs(regions or {}) do
+        if region and region.GetAlpha and region.SetAlpha
+            and not state.regions[region]
+            and not (region.IsForbidden and region:IsForbidden())
+            and not (region.IsProtected and region:IsProtected())
+        then
+            local original = { alpha = region:GetAlpha() }
+            if options and options.fitToSurface and region.GetObjectType
+                and region:GetObjectType() == "Texture"
+                and region.GetNumPoints and region.SetPoint and region.ClearAllPoints
+            then
+                original.points = {}
+                for index = 1, region:GetNumPoints() do
+                    original.points[index] = { region:GetPoint(index) }
+                end
+                original.width, original.height = region:GetWidth(), region:GetHeight()
+                original.anchor = options.anchor or owner
+            end
+            if options and options.texCoordInset and region.GetTexCoord and region.SetTexCoord then
+                original.texCoordInset = options.texCoordInset
+                original.texCoordsBySource = {}
+            end
+            state.regions[region] = original
+        end
+    end
+end
+
+local function ApplySurfaceBackgroundTexCoords(region, original, crop)
+    if not original.texCoordInset then return end
+    -- Pooled cards can change atlas. Cache each native source before its first
+    -- crop, and always derive the crop from that baseline, never our last UVs.
+    local source = (region.GetAtlas and region:GetAtlas())
+        or (region.GetTexture and region:GetTexture()) or false
+    local coords = original.texCoordsBySource[source]
+    if not coords then
+        coords = { region:GetTexCoord() }
+        original.texCoordsBySource[source] = coords
+    end
+    if #coords ~= 8 then return end
+    if not crop then
+        if original.texCoordsModified then region:SetTexCoord(unpack(coords)) end
+        original.texCoordsModified = nil
+        return
+    end
+    local x = math.max(0, math.min(0.49, original.texCoordInset[1] or 0))
+    local y = math.max(0, math.min(0.49, original.texCoordInset[2] or 0))
+    local function Point(u, v)
+        return coords[1] * (1-u) * (1-v) + coords[3] * (1-u) * v
+                + coords[5] * u * (1-v) + coords[7] * u * v,
+            coords[2] * (1-u) * (1-v) + coords[4] * (1-u) * v
+                + coords[6] * u * (1-v) + coords[8] * u * v
+    end
+    local ulX, ulY = Point(x, y)
+    local llX, llY = Point(x, 1-y)
+    local urX, urY = Point(1-x, y)
+    local lrX, lrY = Point(1-x, 1-y)
+    region:SetTexCoord(ulX, ulY, llX, llY, urX, urY, lrX, lrY)
+    original.texCoordsModified = true
+end
+
+function NSkin:ShouldShowSurfaceBackground(style, owner)
+    style = style or {}
+    local native = style.backgroundSource == "BLIZZARD"
+    local enabled = style.showBackground ~= false
+    local opacity = math.max(0, math.min(1, tonumber(style.backgroundOpacity) or 1))
+    local state = owner and self:GetSkinData(owner, "surfaceBackgroundSource", false)
+    for region, original in pairs(state and state.regions or {}) do
+        if not (region.IsForbidden and region:IsForbidden())
+            and not (region.IsProtected and region:IsProtected())
+        then
+            ApplySurfaceBackgroundTexCoords(region, original, native and enabled)
+            if original.points then
+                if native and enabled then
+                    region:ClearAllPoints()
+                    region:SetPoint("TOPLEFT", original.anchor, "TOPLEFT", 0, 0)
+                    region:SetPoint("BOTTOMRIGHT", original.anchor, "BOTTOMRIGHT", 0, 0)
+                    original.geometryModified = true
+                elseif original.geometryModified then
+                    region:ClearAllPoints()
+                    region:SetSize(original.width, original.height)
+                    for _, point in ipairs(original.points) do
+                        region:SetPoint(unpack(point))
+                    end
+                    original.geometryModified = nil
+                end
+            end
+            region:SetAlpha(native and enabled and original.alpha * opacity or 0)
+        end
+    end
+    return enabled and not native
+end
+
 local TEXT_SURFACE_STATE = "sharedTextSurface"
 
 local function ResolveTextSurfaceColor(self, style, key, opacityKey, fallback)
@@ -488,7 +586,8 @@ local function ApplyTextSurface(self, fontString, style, reset)
     local background = ResolveTextSurfaceColor(
         self, style, "background", "backgroundOpacity")
     self:SetOwnedTextureColor(state.background, unpack(background))
-    state.background:SetShown(style.showBackground == true)
+    state.background:SetShown(style.showBackground == true
+        and self:ShouldShowSurfaceBackground(style, fontString))
 
     local borderColor =
         self:GetResolvedAppearanceColor(style, "border")
@@ -2542,6 +2641,10 @@ function NSkin:CreateOptionsSlider(parent, options)
     markerGlowInner:SetSize(3, 13)
     markerGlowInner:SetBlendMode("ADD")
     markerGlowInner:SetColorTexture(accent[1], accent[2], accent[3], 0.30)
+    -- Owned editor presentations can restyle these visuals without replacing
+    -- the slider's value, keyboard, or commit behavior.
+    slider.nskinOptionsVisuals = { track = track, fill = fill, thumb = marker,
+        glows = { fillGlows[1], fillGlows[2], fillGlows[3], markerGlowOuter, markerGlowInner } }
 
     local minimum, maximum = options.min or 0, options.max or 100
     local function RefreshSliderVisual(value)

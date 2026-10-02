@@ -97,7 +97,7 @@ local function IsButtonSurfaceSelected(button)
 end
 
 function NSkin:ApplyButtonSurface(
-    button, style, backgroundKey, backgroundOverride, borderOverride)
+    button, style, backgroundKey, backgroundOverride, borderOverride, getSelected)
     if not button or not style then return false end
 
     local data = self:GetSkinData(button, COMPONENT_STATE)
@@ -109,6 +109,7 @@ function NSkin:ApplyButtonSurface(
     state.backgroundKey = backgroundKey
     state.backgroundOverride = backgroundOverride
     state.borderOverride = borderOverride
+    if getSelected ~= nil then state.getSelected = getSelected end
 
     local background = self:GetFlatBackground(button, backgroundKey)
     local border = self:GetPixelBorder(
@@ -116,6 +117,9 @@ function NSkin:ApplyButtonSurface(
     if not background then return false end
 
     local selected = IsButtonSurfaceSelected(button)
+    if type(state.getSelected) == "function" then
+        selected = state.getSelected(button) == true
+    end
     local backgroundColor
     if selected and style.selectedBackground then
         backgroundColor = ResolveButtonSurfaceColor(
@@ -134,19 +138,28 @@ function NSkin:ApplyButtonSurface(
             self, style, "background", "backgroundOpacity")
     end
     self:SetOwnedTextureColor(background, unpack(backgroundColor))
-    background:SetShown(style.showBackground ~= false)
+    background:SetShown(self:ShouldShowSurfaceBackground(style, button))
+    -- Selection must not obscure the chosen native backdrop with a regular fill.
+    if state.selectedOverlay then
+        state.selectedOverlay:Hide()
+    end
 
     if border then
         local borderColor = borderOverride
             or self:GetResolvedAppearanceColor(style, "border")
             or style.border
             or self:GetSharedBorderColor()
+        if selected and state.getSelected and style.backgroundSource == "BLIZZARD" then
+            borderColor = self:GetAccentColor()
+        end
         self:SetPixelBorderColor(border, unpack(borderColor))
         self:SetPixelBorderSize(border, tonumber(style.borderSize) or 1)
         self:SetPixelBorderPadding(
             border, tonumber(style.borderPadding) or 0)
         self:SetPixelBorderShown(
             border, style.showBorder ~= false
+                and (style.backgroundSource ~= "BLIZZARD"
+                    or not state.getSelected or selected)
                 and (tonumber(style.borderSize) or 1) > 0)
     end
 
@@ -169,7 +182,7 @@ local function RefreshButtonSurfaces(button)
     for _, state in pairs(data and data.buttonSurfaces or {}) do
         NSkin:ApplyButtonSurface(
             button, state.style, state.backgroundKey,
-            state.backgroundOverride, state.borderOverride)
+            state.backgroundOverride, state.borderOverride, state.getSelected)
     end
 end
 
@@ -1085,7 +1098,7 @@ function NSkin:SkinCheckButton(checkButton, options)
     data.checkButtonSelectedVisual = selectedVisual
     data.checkButtonBorder = border
     data.checkButtonGlow = glow
-    data.checkButtonShowBackground = style.showBackground ~= false
+    data.checkButtonShowBackground = self:ShouldShowSurfaceBackground(style, checkButton)
     data.checkButtonShowBorder = style.showBorder ~= false
     data.checkButtonBackgroundColor = backgroundColor
     data.checkButtonSelectedBackgroundColor = selectedBackground
@@ -1282,7 +1295,7 @@ function NSkin:SkinDropdown(dropdown, options)
 
     local background = self:CreateFlatBackground(
         dropdown, nil, backgroundColor, borderColor)
-    if background then background:SetShown(showBackground) end
+    if background then background:SetShown(showBackground and self:ShouldShowSurfaceBackground(style, dropdown)) end
 
     local border = self:GetPixelBorder(
         dropdown, "NSkinFlatBackgroundBorder")

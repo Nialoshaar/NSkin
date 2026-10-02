@@ -1814,6 +1814,10 @@ end
 
 CanShiftDragElement = function(element)
     if not element then return false end
+    if element.dragMemberID then
+        local member = NSkin:GetCompositeMember(element, element.dragMemberID)
+        return member ~= nil and member.movable ~= false
+    end
     if element.rowFamily then
         return false
     end
@@ -1989,6 +1993,10 @@ StopCompositeMemberDrag = function(apply)
 end
 
 BeginDrag = function(element)
+    if element and element.dragMemberID then
+        local member = NSkin:GetCompositeMember(element, element.dragMemberID)
+        return BeginCompositeMemberDrag(element, member)
+    end
     if not CanShiftDragElement(element) or controller.dragging then return end
     controller.dragging = true
     local overlay = controller.overlays[element.id]

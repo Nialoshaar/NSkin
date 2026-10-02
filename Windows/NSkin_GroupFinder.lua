@@ -34,6 +34,8 @@ local IDs = {
         FollowerTitle = "GroupFinder.DungeonFinder.Follower.Title",
         FollowerDescription = "GroupFinder.DungeonFinder.Follower.Description",
         RandomHeader = "GroupFinder.DungeonFinder.Random.Header",
+        RandomContainer = "GroupFinder.DungeonFinder.Random.Container",
+        RandomSurface = "GroupFinder.DungeonFinder.Random.Container.Surface",
         RandomTitle = "GroupFinder.DungeonFinder.Random.Title",
         RandomDescription = "GroupFinder.DungeonFinder.Random.Description",
         RandomRewards = "GroupFinder.DungeonFinder.Random.Rewards",
@@ -75,6 +77,9 @@ local IDs = {
         },
     },
     PremadeGroups = {
+        Cards = "GroupFinder.PremadeGroups.Category.Cards",
+        CardsSurface = "GroupFinder.PremadeGroups.Category.Cards.Surface",
+        CardsTitle = "GroupFinder.PremadeGroups.Category.Cards.Title",
         Scope = "GroupFinder.PremadeGroups",
         CategoryStartGroupButton =
             "GroupFinder.PremadeGroups.Category.StartGroupButton",
@@ -756,6 +761,7 @@ function PVESkin:ApplyRoleCheckboxes()
                 appearanceWindowID = IDs.DungeonFinder.Scope,
                 label = "Dungeon Finder Roles",
                 kind = "BUTTON",
+                contextualInspector = true,
                 window = frame,
                 target = roleSurface,
                 priority = 82,
@@ -1092,6 +1098,7 @@ function PVESkin:ApplyTypeDropdown()
             appearanceWindowID = scopeID,
             label = "Dungeon Finder type selector",
             kind = "COMPOSITE",
+            contextualInspector = true,
             window = frame,
             target = dropdown,
             priority = 80,
@@ -1214,6 +1221,7 @@ function PVESkin:ApplyFindGroupButton()
         module = "GroupFinder",
         appearanceWindowID = IDs.DungeonFinder.Scope,
         label = "Dungeon Finder find group button",
+        contextualInspector = true,
         window = frame,
         target = button,
         priority = 80,
@@ -1249,6 +1257,7 @@ function PVESkin:ApplyDungeonScrollBars()
                 label = label,
                 containerDockLabel = id == IDs.SpecificScrollBar
                     and "Scrollbar" or nil,
+                contextualInspector = true,
                 window = frame,
                 target = scrollBar,
                 priority = 80,
@@ -1273,19 +1282,26 @@ local function RegisterCompositeParent(definition)
     if not definition or not definition.id or not definition.target then
         return nil
     end
+    local members = {}
+    if definition.surfaceMember then members[1] = definition.surfaceMember end
+    for _, member in ipairs(definition.members or {}) do members[#members + 1] = member end
     return NSkin:RegisterSkinningElement(definition.id, {
         module = "GroupFinder",
         appearanceWindowID = definition.appearanceWindowID,
         label = definition.label,
         kind = "COMPOSITE",
+        contextualInspector = true,
         window = definition.window,
         target = definition.target,
         priority = definition.priority or 79,
         draggable = false,
+        compositionParentID = definition.compositionParentID,
+        dragMemberID = definition.dragMemberID,
         composition = {
             mode = "COMPOSITE",
+            tag = definition.tag,
             movementOwner = definition.target,
-            members = definition.members or {},
+            members = members,
         },
         highlightRegions = definition.highlightRegions,
         isEditable = definition.isEditable,
@@ -1308,6 +1324,7 @@ function PVESkin:ApplyFollowerTexts()
         id = IDs.DungeonFinder.FollowerHeader,
         appearanceWindowID = IDs.DungeonFinder.Scope,
         label = "Follower dungeon header",
+        contextualInspector = true,
         window = frame,
         target = follower,
         priority = 80,
@@ -1336,6 +1353,7 @@ function PVESkin:ApplyFollowerTexts()
             module = "GroupFinder",
             appearanceWindowID = IDs.DungeonFinder.Scope,
             label = label,
+            contextualInspector = true,
             window = frame,
             target = target,
             highlightRegions = { target },
@@ -1350,12 +1368,265 @@ function PVESkin:ApplyFollowerTexts()
     return applied
 end
 
-local function GetRandomDungeonChildFrame()
+local function GetDungeonListContainerSurface(target, scrollBar)
+    if not target then return nil end
+    local data = NSkin:GetSkinData(
+        target, "groupFinderDungeonListContainerSurface")
+    if not data.frame then
+        local parent = target.GetParent and target:GetParent() or target
+        data.frame = _G.CreateFrame("Frame", nil, parent)
+        data.frame:EnableMouse(false)
+    end
+    local surface = data.frame
+    surface:ClearAllPoints()
+    surface:SetPoint("TOPLEFT", target, "TOPLEFT", 0, 0)
+    if scrollBar and scrollBar:IsShown() then
+        surface:SetPoint(
+            "BOTTOMRIGHT", scrollBar, "BOTTOMRIGHT", 0, 0)
+    else
+        surface:SetPoint(
+            "BOTTOMRIGHT", target, "BOTTOMRIGHT", 0, 0)
+    end
+    if surface.SetFrameLevel and target.GetFrameLevel then
+        surface:SetFrameLevel(math.max(0, target:GetFrameLevel() - 1))
+    end
+    surface:Show()
+    return surface
+end
+
+local function SkinDungeonListContainerSurface(surface, appearanceID)
+    if not surface then return false end
+    appearanceID = appearanceID or IDs.DungeonFinder.DungeonListSurface
+    local style = NSkin:GetAppearanceStyle(
+        "row", IDs.DungeonFinder.Scope,
+        appearanceID)
+    if not style then return false end
+    local border = NSkin:GetAppearanceBorderColor(
+        "row", style, IDs.DungeonFinder.Scope,
+        appearanceID)
+    if not NSkin:GetFlatBackground(
+        surface, "NSkinGroupFinderDungeonListContainerBackground")
+    then
+        NSkin:CreateFlatBackground(
+            surface, "NSkinGroupFinderDungeonListContainerBackground",
+            NSkin:GetResolvedAppearanceColor(style, "background"),
+            border)
+    end
+    NSkin:ApplyButtonSurface(
+        surface, style,
+        "NSkinGroupFinderDungeonListContainerBackground",
+        nil, border)
+    return true
+end
+
+local function GetRandomDungeonFrames()
     local queueFrame = _G.LFDQueueFrame
-    local random = queueFrame and queueFrame.Random
+    local random = (queueFrame and queueFrame.Random) or _G.LFDQueueFrameRandom
     local scrollFrame = random and (random.ScrollFrame or random.scrollFrame)
-    return (scrollFrame and (scrollFrame.ChildFrame or scrollFrame.childFrame))
+        or _G.LFDQueueFrameRandomScrollFrame
+    local child = (scrollFrame and (scrollFrame.ChildFrame or scrollFrame.childFrame))
         or _G.LFDQueueFrameRandomScrollFrameChildFrame
+    return random, scrollFrame, child
+end
+
+local function RefreshRandomContentClipping(hasOffsets)
+    if InCombatLockdown() then return end
+    local random, scrollFrame, child = GetRandomDungeonFrames()
+    if random and scrollFrame and child and child.SetParent and child.GetParent
+        and scrollFrame.GetScrollChild and scrollFrame.SetScrollChild
+        and not (child.IsForbidden and child:IsForbidden())
+        and not (child.IsProtected and child:IsProtected())
+        and not (random.IsForbidden and random:IsForbidden())
+        and not (random.IsProtected and random:IsProtected())
+        and not (scrollFrame.IsForbidden and scrollFrame:IsForbidden())
+        and not (scrollFrame.IsProtected and scrollFrame:IsProtected())
+    then
+        local data = NSkin:GetSkinData(child, "randomContentOverflowParent")
+        if not data.captured then
+            data.parent = child:GetParent()
+            data.level = child.GetFrameLevel and child:GetFrameLevel()
+            data.scrollChild = scrollFrame:GetScrollChild()
+            data.points = {}
+            for index = 1, child:GetNumPoints() do
+                data.points[index] = { child:GetPoint(index) }
+            end
+            data.scroll = scrollFrame:GetVerticalScroll()
+            data.captured = true
+        end
+        -- Reparenting alone leaves the native scroll-child render assignment
+        -- intact. An empty child retains the scrollbar's native range while
+        -- the original named content renders under the Random owner.
+        if hasOffsets and not data.placeholder then
+            data.placeholder = CreateFrame("Frame", nil, scrollFrame)
+            data.placeholder:EnableMouse(false)
+            local function CanSync()
+                return data.active and not InCombatLockdown()
+                    and not (child.IsForbidden and child:IsForbidden())
+                    and not (child.IsProtected and child:IsProtected())
+                    and not (scrollFrame.IsForbidden and scrollFrame:IsForbidden())
+                    and not (scrollFrame.IsProtected and scrollFrame:IsProtected())
+            end
+            data.SyncSize = function()
+                if not CanSync() then return end
+                data.placeholder:SetSize(child:GetWidth(), child:GetHeight())
+            end
+            data.SyncScroll = function()
+                if not CanSync() then return end
+                child:ClearAllPoints()
+                local delta = scrollFrame:GetVerticalScroll() - data.scroll
+                for _, point in ipairs(data.points) do
+                    child:SetPoint(point[1], point[2], point[3],
+                        point[4] or 0, (point[5] or 0) + delta)
+                end
+            end
+            child:HookScript("OnSizeChanged", data.SyncSize)
+            scrollFrame:HookScript("OnVerticalScroll", data.SyncScroll)
+        end
+        data.active = hasOffsets
+        if hasOffsets then
+            data.SyncSize()
+            if scrollFrame:GetScrollChild() ~= data.placeholder then
+                scrollFrame:SetScrollChild(data.placeholder)
+            end
+        elseif scrollFrame:GetScrollChild() == data.placeholder then
+            scrollFrame:SetScrollChild(data.scrollChild)
+        end
+        local parent = hasOffsets and random or data.parent
+        if parent and child:GetParent() ~= parent then
+            child:SetParent(parent)
+            if data.level and child.SetFrameLevel then child:SetFrameLevel(data.level) end
+        end
+        if hasOffsets then data.SyncScroll() end
+    end
+    local seen = {}
+    -- Only the audited Random content ancestors may clip these members.
+    -- Icon masks and Blizzard's scrolling/input ownership remain untouched.
+    for _, target in ipairs({ random, scrollFrame or random, child }) do
+        if not seen[target] and target.DoesClipChildren and target.SetClipsChildren
+            and not (target.IsForbidden and target:IsForbidden())
+            and not (target.IsProtected and target:IsProtected())
+        then
+            seen[target] = true
+            local data = NSkin:GetSkinData(target, "randomContentClipping")
+            if not data.captured then
+                data.original = target:DoesClipChildren()
+                data.captured = true
+            end
+            local desired = data.original
+            if hasOffsets then desired = false end
+            if target:DoesClipChildren() ~= desired then target:SetClipsChildren(desired) end
+        end
+    end
+end
+
+local function ApplyRandomContentOffsets(element, editedMember, x, y)
+    local _, _, child = GetRandomDungeonFrames()
+    if not child then return false end
+    local entries, seen, surfaces = {}, {}, {}
+    local rewardsX, rewardsY = 0, 0
+    local function Add(target, id, dx, dy)
+        if not target or seen[target] then return end
+        seen[target] = true
+        entries[#entries + 1] = { target = target,
+            baselineID = IDs.DungeonFinder.RandomContainer .. ":Independent:" .. id,
+            x = dx, y = dy }
+    end
+    for _, id in ipairs({ IDs.DungeonFinder.RandomHeader, IDs.DungeonFinder.RandomRewards }) do
+        local owner = NSkin:GetSkinningElement(id)
+        local members = owner and owner.composition and owner.composition.members or {}
+        local groupX, groupY = 0, 0
+        for _, member in ipairs(members) do
+            if member.editorSurface then
+                groupX, groupY = NSkin:GetCompositeMemberFamilyOffset(owner, member)
+                if member == editedMember then groupX, groupY = x, y end
+                surfaces[#surfaces + 1] = member
+            end
+        end
+        for _, member in ipairs(members) do
+            if not member.editorSurface then
+                local dx, dy = NSkin:GetCompositeMemberFamilyOffset(owner, member)
+                if member == editedMember then dx, dy = x, y end
+                Add(member.target, member.appearanceID,
+                    (groupX or 0) + (dx or 0), (groupY or 0) + (dy or 0))
+            end
+        end
+        if id == IDs.DungeonFinder.RandomRewards then rewardsX, rewardsY = groupX, groupY end
+    end
+    -- Reward frames participate in native anchor chains without acquiring a
+    -- second editor identity. They follow only the Rewards group's offset.
+    local childName = child.GetName and child:GetName()
+    for index = 1, tonumber(child.numRewardFrames) or 1 do
+        Add((childName and _G[childName .. "Item" .. index]) or child["Item" .. index],
+            "Item" .. index, rewardsX, rewardsY)
+    end
+    Add(child.MoneyReward, "MoneyReward", rewardsX, rewardsY)
+    if not NSkin:ApplyIndependentAnchorOffsets(entries) then return false end
+    local hasOffsets = false
+    for _, entry in ipairs(entries) do
+        if (entry.x or 0) ~= 0 or (entry.y or 0) ~= 0 then hasOffsets = true; break end
+    end
+    RefreshRandomContentClipping(hasOffsets)
+    for _, member in ipairs(surfaces) do member.refreshAppearance() end
+    NSkin:NotifySkinningElementBoundsChanged(IDs.DungeonFinder.RandomHeader)
+    NSkin:NotifySkinningElementBoundsChanged(IDs.DungeonFinder.RandomRewards)
+    return true
+end
+
+local function GetRandomCompositeSurface(child, id, regions)
+    local data = NSkin:GetSkinData(child, "randomCompositeSurface:" .. id)
+    if not data.frame then
+        data.frame = CreateFrame("Frame", nil, child)
+        data.frame:EnableMouse(false)
+    end
+    local surface = data.frame
+    local function Refresh()
+        local top, bottom, topY, bottomY, bottomRight
+        for _, region in ipairs(regions) do
+            if region and region:IsVisible() then
+                local t, b = region:GetTop(), region:GetBottom()
+                if t and (not topY or t > topY) then top, topY = region, t end
+                local right = region:GetRight() or 0
+                if b and (not bottomY or b < bottomY
+                    or (b == bottomY and right > bottomRight))
+                then bottom, bottomY, bottomRight = region, b, right end
+            end
+        end
+        if not top or not bottom then surface:Hide(); return true end
+        surface:ClearAllPoints()
+        surface:SetPoint("TOPLEFT", top, "TOPLEFT", 0, 0)
+        surface:SetPoint("BOTTOMRIGHT", bottom, "BOTTOMRIGHT", 0, 0)
+        surface:SetFrameLevel(math.max(0, child:GetFrameLevel() - 1))
+        surface:Show()
+        return SkinDungeonListContainerSurface(surface, id .. ".Surface")
+    end
+    Refresh()
+    return {
+        id = id .. ".Surface", kind = "BUTTON", role = "PRIMARY", label = "Surface",
+        target = surface, appearanceID = id .. ".Surface", appearanceParentID = id,
+        appearanceWindowID = IDs.DungeonFinder.Scope,
+        editorSurface = true, surfaceAppearanceKey = "row", movable = true,
+        movementFamilyID = id .. ".Surface", applyFamilyOffset = ApplyRandomContentOffsets,
+        editorOptions = NSkin:GetCompositeSurfaceEditorOptions(false),
+        refreshAppearance = Refresh,
+    }
+end
+
+local function RandomContentMember(id, kind, target, label, role)
+    -- Typed registrations retain rendering/baselines; Composite members are
+    -- the sole selection/edit path and address those same appearance IDs.
+    local function Refresh()
+        local registered = NSkin:GetSkinningElement(id)
+        return registered and NSkin:RefreshTypedElementAppearance(registered) or false
+    end
+    return {
+        kind = kind, target = target, label = label, role = role or "SECONDARY",
+        appearanceID = id, appearanceParentID = id,
+        movementFamilyID = id, movable = true,
+        applyFamilyOffset = ApplyRandomContentOffsets,
+        tightTextBounds = id == IDs.DungeonFinder.RandomTitle,
+        refreshAppearance = Refresh, refreshComponentAppearance = Refresh,
+        refreshSurfaceAppearance = Refresh,
+    }
 end
 
 local function SkinRandomRewardItem(frame, child, item, suffix)
@@ -1374,6 +1645,7 @@ local function SkinRandomRewardItem(frame, child, item, suffix)
             module = "GroupFinder",
             appearanceWindowID = IDs.DungeonFinder.Scope,
             label = "Random dungeon reward " .. suffix .. " icon",
+            contextualInspector = true,
             window = frame,
             target = item,
             texture = icon,
@@ -1387,10 +1659,7 @@ local function SkinRandomRewardItem(frame, child, item, suffix)
                 defaultShape = "square",
                 nativeDecorationRegions = { item.IconBorder },
             },
-            isEditable = function()
-                return frame:IsVisible() and child:IsVisible()
-                    and item:IsVisible() and icon:IsVisible()
-            end,
+            isEditable = function() return false end,
         }) ~= nil or applied
     end
 
@@ -1400,15 +1669,13 @@ local function SkinRandomRewardItem(frame, child, item, suffix)
             module = "GroupFinder",
             appearanceWindowID = IDs.DungeonFinder.Scope,
             label = "Random dungeon reward " .. suffix .. " name",
+            contextualInspector = true,
             window = frame,
             target = name,
             priority = 85,
             compositionParentID = IDs.DungeonFinder.RandomRewards,
             highlightRegions = { name },
-            isEditable = function()
-                return frame:IsVisible() and child:IsVisible()
-                    and item:IsVisible() and name:IsVisible()
-            end,
+            isEditable = function() return false end,
         })
         if element then NSkin:RefreshTypedElementAppearance(element) end
         applied = element ~= nil or applied
@@ -1418,8 +1685,62 @@ end
 
 function PVESkin:ApplyRandomDungeonContent()
     local frame = _G.PVEFrame
-    local child = GetRandomDungeonChildFrame()
-    if not frame or not child then return false end
+    local random, scrollFrame, child = GetRandomDungeonFrames()
+    if not frame or not random or not child then return false end
+
+    -- Queue choices reuse this Blizzard content frame. Its container and all
+    -- child IDs are layout identities, independent of the selected dungeon.
+    scrollFrame = scrollFrame or random
+    local surface = GetDungeonListContainerSurface(scrollFrame)
+    SkinDungeonListContainerSurface(surface, IDs.DungeonFinder.RandomSurface)
+    local function RefreshSurface()
+        return SkinDungeonListContainerSurface(
+            GetDungeonListContainerSurface(scrollFrame),
+            IDs.DungeonFinder.RandomSurface)
+    end
+    NSkin:RegisterOffsetContainer({
+        id = IDs.DungeonFinder.RandomContainer,
+        module = "GroupFinder",
+        appearanceWindowID = IDs.DungeonFinder.Scope,
+        label = "Random Dungeon",
+        contextualInspector = true,
+        window = frame,
+        priority = 1,
+        draggable = false,
+        appearanceStyles = { "row" },
+        editorOptions = {
+            { id = "shared.movable", label = "Position", presentation = "INLINE",
+                contextualInline = true, category = "POSITION" },
+        },
+        composition = {
+            mode = "CONTAINER",
+            movementStrategy = "OFFSET_ROOTS",
+            roots = function() return { scrollFrame } end,
+            children = {
+                IDs.DungeonFinder.RandomHeader,
+                IDs.DungeonFinder.RandomRewards,
+            },
+            surface = {
+                appearanceID = IDs.DungeonFinder.RandomSurface,
+                appearanceParentID = IDs.DungeonFinder.RandomContainer,
+                appearanceWindowID = IDs.DungeonFinder.Scope,
+                surfaceAppearanceKey = "row",
+                includeGeometry = false,
+                target = surface,
+                refreshAppearance = RefreshSurface,
+            },
+        },
+        highlightRegions = { surface },
+        pixelBorderTargets = { surface },
+        refreshAppearance = RefreshSurface,
+        isEditable = function()
+            return frame:IsVisible() and random:IsVisible() and child:IsVisible()
+        end,
+    })
+    if not hookedShowControls[child] and child.HookScript then
+        child:HookScript("OnShow", function() PVESkin:ApplyRandomDungeonContent() end)
+        hookedShowControls[child] = true
+    end
 
     local title = child.title or child.Title
     local description = child.description or child.Description
@@ -1428,14 +1749,19 @@ function PVESkin:ApplyRandomDungeonContent()
             id = IDs.DungeonFinder.RandomHeader,
             appearanceWindowID = IDs.DungeonFinder.Scope,
             label = "Random dungeon header",
+            dragMemberID = IDs.DungeonFinder.RandomHeader .. ".Surface",
+            compositionParentID = IDs.DungeonFinder.RandomContainer,
+            contextualInspector = true,
             window = frame,
             target = child,
             priority = 82,
+            surfaceMember = GetRandomCompositeSurface(child,
+                IDs.DungeonFinder.RandomHeader, { title, description }),
             members = {
-                { kind = "TEXT", role = "PRIMARY",
-                    target = title, label = "Title" },
-                { kind = "TEXT", role = "SECONDARY",
-                    target = description, label = "Description" },
+                RandomContentMember(IDs.DungeonFinder.RandomTitle,
+                    "TEXT", title, "Title", "PRIMARY"),
+                RandomContentMember(IDs.DungeonFinder.RandomDescription,
+                    "TEXT", description, "Description"),
             },
             highlightRegions = { title, description },
             isEditable = function()
@@ -1458,15 +1784,13 @@ function PVESkin:ApplyRandomDungeonContent()
                 module = "GroupFinder",
                 appearanceWindowID = IDs.DungeonFinder.Scope,
                 label = label,
+                contextualInspector = true,
                 window = frame,
                 target = target,
                 highlightRegions = { target },
                 priority = 83,
                 compositionParentID = IDs.DungeonFinder.RandomHeader,
-                isEditable = function()
-                    return frame:IsVisible() and child:IsVisible()
-                        and target:IsVisible()
-                end,
+                isEditable = function() return false end,
             }) ~= nil or applied
         end
     end
@@ -1477,16 +1801,12 @@ function PVESkin:ApplyRandomDungeonContent()
 
     local rewardMembers = {}
     if rewardsLabel then
-        rewardMembers[#rewardMembers + 1] = {
-            kind = "TEXT", role = "PRIMARY",
-            target = rewardsLabel, label = "Rewards label",
-        }
+        rewardMembers[#rewardMembers + 1] = RandomContentMember(
+            IDs.DungeonFinder.RandomRewardsLabel, "TEXT", rewardsLabel, "Rewards label", "PRIMARY")
     end
     if rewardsDescription then
-        rewardMembers[#rewardMembers + 1] = {
-            kind = "TEXT", role = "SECONDARY",
-            target = rewardsDescription, label = "Rewards description",
-        }
+        rewardMembers[#rewardMembers + 1] = RandomContentMember(
+            IDs.DungeonFinder.RandomRewardsDescription, "TEXT", rewardsDescription, "Rewards description")
     end
 
     local childName = child.GetName and child:GetName()
@@ -1500,16 +1820,14 @@ function PVESkin:ApplyRandomDungeonContent()
                 item = item, suffix = "Item" .. index,
             }
             if item.Icon then
-                rewardMembers[#rewardMembers + 1] = {
-                    kind = "ICON", role = "SECONDARY",
-                    target = item.Icon, label = "Reward " .. index .. " icon",
-                }
+                rewardMembers[#rewardMembers + 1] = RandomContentMember(
+                    IDs.DungeonFinder.RandomRewards .. ".Item" .. index .. ".Icon",
+                    "ICON", item.Icon, "Reward " .. index .. " icon")
             end
             if item.Name then
-                rewardMembers[#rewardMembers + 1] = {
-                    kind = "TEXT", role = "SECONDARY",
-                    target = item.Name, label = "Reward " .. index .. " name",
-                }
+                rewardMembers[#rewardMembers + 1] = RandomContentMember(
+                    IDs.DungeonFinder.RandomRewards .. ".Item" .. index .. ".Name",
+                    "TEXT", item.Name, "Reward " .. index .. " name")
             end
         end
     end
@@ -1520,27 +1838,52 @@ function PVESkin:ApplyRandomDungeonContent()
             item = money, suffix = "MoneyReward",
         }
         if money.Icon then
-            rewardMembers[#rewardMembers + 1] = {
-                kind = "ICON", role = "SECONDARY",
-                target = money.Icon, label = "Money reward icon",
-            }
+            rewardMembers[#rewardMembers + 1] = RandomContentMember(
+                IDs.DungeonFinder.RandomRewards .. ".MoneyReward.Icon",
+                "ICON", money.Icon, "Money reward icon")
         end
         if money.Name then
-            rewardMembers[#rewardMembers + 1] = {
-                kind = "TEXT", role = "SECONDARY",
-                target = money.Name, label = "Money reward name",
-            }
+            rewardMembers[#rewardMembers + 1] = RandomContentMember(
+                IDs.DungeonFinder.RandomRewards .. ".MoneyReward.Name",
+                "TEXT", money.Name, "Money reward name")
         end
     end
 
     if #rewardMembers > 0 then
+        local xpLabel, xpAmount = child.xpLabel or child.XPLabel, child.xpAmount or child.XPAmount
+        if xpLabel then
+            rewardMembers[#rewardMembers + 1] = RandomContentMember(
+                IDs.DungeonFinder.RandomRewards .. ".XPLabel", "TEXT", xpLabel, "XP label")
+        end
+        if xpAmount then
+            rewardMembers[#rewardMembers + 1] = RandomContentMember(
+                IDs.DungeonFinder.RandomRewards .. ".XPAmount", "TEXT", xpAmount, "XP amount")
+        end
+        local rewardRegions = {}
+        for _, member in ipairs(rewardMembers) do
+            rewardRegions[#rewardRegions + 1] = member.target
+        end
+        for _, reward in ipairs(rewardItems) do
+            rewardRegions[#rewardRegions + 1] = reward.item
+        end
+        if child.xpLabel or child.XPLabel then
+            rewardRegions[#rewardRegions + 1] = child.xpLabel or child.XPLabel
+        end
+        if child.xpAmount or child.XPAmount then
+            rewardRegions[#rewardRegions + 1] = child.xpAmount or child.XPAmount
+        end
         RegisterCompositeParent({
             id = IDs.DungeonFinder.RandomRewards,
             appearanceWindowID = IDs.DungeonFinder.Scope,
             label = "Random dungeon rewards",
+            dragMemberID = IDs.DungeonFinder.RandomRewards .. ".Surface",
+            compositionParentID = IDs.DungeonFinder.RandomContainer,
+            contextualInspector = true,
             window = frame,
             target = child,
             priority = 84,
+            surfaceMember = GetRandomCompositeSurface(child,
+                IDs.DungeonFinder.RandomRewards, rewardRegions),
             members = rewardMembers,
             highlightRegions = function()
                 local regions = {}
@@ -1570,15 +1913,13 @@ function PVESkin:ApplyRandomDungeonContent()
                 module = "GroupFinder",
                 appearanceWindowID = IDs.DungeonFinder.Scope,
                 label = label,
+                contextualInspector = true,
                 window = frame,
                 target = target,
                 highlightRegions = { target },
                 priority = 84,
                 compositionParentID = IDs.DungeonFinder.RandomRewards,
-                isEditable = function()
-                    return frame:IsVisible() and child:IsVisible()
-                        and target:IsVisible()
-                end,
+                isEditable = function() return false end,
             }) ~= nil or applied
         end
     end
@@ -1596,15 +1937,13 @@ function PVESkin:ApplyRandomDungeonContent()
             module = "GroupFinder",
             appearanceWindowID = IDs.DungeonFinder.Scope,
             label = "Random dungeon XP label",
+            contextualInspector = true,
             window = frame,
             target = xpLabel,
             priority = 84,
             compositionParentID = IDs.DungeonFinder.RandomRewards,
             highlightRegions = { xpLabel },
-            isEditable = function()
-                return frame:IsVisible() and child:IsVisible()
-                    and xpLabel:IsVisible()
-            end,
+            isEditable = function() return false end,
         })
         if element then NSkin:RefreshTypedElementAppearance(element) end
         applied = element ~= nil or applied
@@ -1615,20 +1954,28 @@ function PVESkin:ApplyRandomDungeonContent()
             module = "GroupFinder",
             appearanceWindowID = IDs.DungeonFinder.Scope,
             label = "Random dungeon XP amount",
+            contextualInspector = true,
             window = frame,
             target = xpAmount,
             priority = 84,
             compositionParentID = IDs.DungeonFinder.RandomRewards,
             highlightRegions = { xpAmount },
-            isEditable = function()
-                return frame:IsVisible() and child:IsVisible()
-                    and xpAmount:IsVisible()
-            end,
+            isEditable = function() return false end,
         })
         if element then NSkin:RefreshTypedElementAppearance(element) end
         applied = element ~= nil or applied
     end
 
+    for _, id in ipairs({ IDs.DungeonFinder.RandomHeader, IDs.DungeonFinder.RandomRewards }) do
+        local owner = NSkin:GetSkinningElement(id)
+        for _, member in ipairs(owner and owner.composition and owner.composition.members or {}) do
+            local dx, dy = NSkin:GetCompositeMemberFamilyOffset(owner, member)
+            if (dx or 0) ~= 0 or (dy or 0) ~= 0 then
+                ApplyRandomContentOffsets(owner, member, dx, dy)
+                return applied
+            end
+        end
+    end
     return applied
 end
 
@@ -1704,6 +2051,7 @@ local function RegisterRaidFinderRoleComposite(
         appearanceWindowID = scopeID,
         label = label,
         kind = "ICON",
+        contextualInspector = true,
         window = frame,
         target = roleButton,
         priority = 82,
@@ -1776,6 +2124,7 @@ function PVESkin:ApplyRaidFinderControls()
             module = "GroupFinder",
             appearanceWindowID = scopeID,
             label = "Raid Finder selection dropdown",
+            contextualInspector = true,
             window = frame,
             target = dropdown,
             priority = 80,
@@ -1793,6 +2142,7 @@ function PVESkin:ApplyRaidFinderControls()
                 module = "GroupFinder",
                 appearanceWindowID = scopeID,
                 label = "Raid Finder selection label",
+                contextualInspector = true,
                 window = frame,
                 target = raidLabel,
                 priority = 79,
@@ -1815,6 +2165,7 @@ function PVESkin:ApplyRaidFinderControls()
             module = "GroupFinder",
             appearanceWindowID = scopeID,
             label = "Raid Finder find group button",
+            contextualInspector = true,
             window = frame,
             target = button,
             priority = 80,
@@ -1848,6 +2199,7 @@ local function ApplyPremadeActionButton(id, label, button, visibilityOwner)
         module = "GroupFinder",
         appearanceWindowID = scopeID,
         label = label,
+        contextualInspector = true,
         window = frame,
         target = button,
         priority = 80,
@@ -1859,6 +2211,143 @@ local function ApplyPremadeActionButton(id, label, button, visibilityOwner)
         end,
     })
     HookRefresh(button)
+    return true
+end
+
+local function SuppressPremadeCardFeedback(region)
+    if not region or not region.SetTexture
+        or (region.IsForbidden and region:IsForbidden())
+        or (region.IsProtected and region:IsProtected()) then return end
+    local state = NSkin:GetSkinData(region, "premadeCardNativeFeedback")
+    if not state.captured then
+        state.texture = region.GetTexture and region:GetTexture()
+        state.atlas = region.GetAtlas and region:GetAtlas()
+        state.alpha = region.GetAlpha and region:GetAlpha()
+        state.captured = true
+    end
+    -- Native Button hover may animate its highlight independently of Lua
+    -- alpha. Remove only the audited feedback image, not its state/visibility.
+    region:SetTexture(nil)
+    region:SetAlpha(0)
+end
+
+function PVESkin:ApplyPremadeCategoryCards()
+    local frame, listFrame = _G.PVEFrame, _G.LFGListFrame
+    local category = listFrame and listFrame.CategorySelection
+    local inset = category and category.Inset
+    if not frame or not inset then return false end
+    local ids, childIDs = IDs.PremadeGroups, {}
+    local title = category.Label
+    if title then
+        childIDs[#childIDs + 1] = ids.CardsTitle
+        NSkin:RegisterTextElement({ id = ids.CardsTitle, module = "GroupFinder",
+            appearanceWindowID = ids.Scope, window = frame, target = title,
+            label = "Title", contextualInspector = true, compositionParentID = ids.Cards,
+            highlightRegions = { title }, priority = 83,
+            isEditable = function()
+                return frame:IsVisible() and category:IsVisible() and title:IsVisible()
+            end,
+        })
+    end
+    local envelope = GetDungeonListContainerSurface(inset)
+    NSkin:RegisterSurfaceBackgroundRegions(envelope, { inset.Bg, inset.CustomBG, inset.NineSlice },
+        { fitToSurface = true })
+    local function RefreshEnvelope()
+        local style = NSkin:GetAppearanceStyle("button", ids.Scope, ids.CardsSurface)
+        if not NSkin:GetFlatBackground(envelope) then
+            NSkin:CreateFlatBackground(envelope, nil, style.background, style.border)
+        end
+        NSkin:CreateFlatButtonGlow(envelope, style.hoverAlpha)
+        return NSkin:ApplyButtonSurface(envelope, style)
+    end
+    RefreshEnvelope()
+    for _, button in ipairs(category.CategoryButtons or {}) do
+        if button.categoryID and button.Label and button:IsShown()
+            and not (button.IsForbidden and button:IsForbidden())
+            and not (button.IsProtected and button:IsProtected())
+        then
+            local categoryID, filters = button.categoryID, button.filters or 0
+            local id = ids.Cards .. ".Card." .. tostring(categoryID) .. "." .. tostring(filters)
+            childIDs[#childIDs + 1] = id
+            local function IsCurrent()
+                return frame:IsVisible() and category:IsVisible() and button:IsVisible()
+                    and button.categoryID == categoryID and (button.filters or 0) == filters
+            end
+            -- Skin decoration directly on the native card so its Label and
+            -- functional overlays remain above the owned background.
+            local surface = button
+            NSkin:RegisterSurfaceBackgroundRegions(surface, { button.Icon },
+                { fitToSurface = true, texCoordInset = { 0.01, 0.065 } })
+            local function RefreshSurface()
+                if not IsCurrent() then return false end
+                -- Keep native state ownership, suppress only its presentation.
+                SuppressPremadeCardFeedback(button.HighlightTexture)
+                SuppressPremadeCardFeedback(button.SelectedTexture)
+                SuppressPremadeCardFeedback(button.Cover)
+                local style = NSkin:GetAppearanceStyle("button", ids.Scope, id .. ".Surface")
+                if not NSkin:GetFlatBackground(surface) then
+                    NSkin:CreateFlatBackground(surface, nil, style.background, style.border)
+                end
+                NSkin:CreateFlatButtonGlow(surface, style.hoverAlpha)
+                return NSkin:ApplyButtonSurface(surface, style, nil, nil, nil, function()
+                    return category.selectedCategory == categoryID
+                        and category.selectedFilters == filters
+                end)
+            end
+            local textID = id .. ".Text"
+            local function RefreshText()
+                if not IsCurrent() then return false end
+                local element = NSkin:GetSkinningElement(textID)
+                return element and NSkin:RefreshTypedElementAppearance(element) or false
+            end
+            RegisterCompositeParent({ id = id, label = button.Label:GetText() or "Card",
+                tag = "Card", appearanceWindowID = ids.Scope, window = frame,
+                target = button, compositionParentID = ids.Cards, priority = 83,
+                surfaceMember = { id = id .. ".Surface", kind = "BUTTON", label = "Surface",
+                    target = surface, editorSurface = true, movable = false,
+                    appearanceID = id .. ".Surface", appearanceParentID = id,
+                    surfaceAppearanceKey = "button", refreshAppearance = RefreshSurface,
+                    refreshSurfaceAppearance = RefreshSurface,
+                    editorOptions = NSkin:GetCompositeSurfaceEditorOptions(false),
+                },
+                members = { { kind = "TEXT", target = button.Label, label = "Text",
+                    appearanceID = textID, appearanceParentID = textID,
+                    refreshAppearance = RefreshText, refreshComponentAppearance = RefreshText,
+                    refreshSurfaceAppearance = RefreshText, tightTextBounds = true,
+                } }, highlightRegions = { button }, isEditable = IsCurrent,
+            })
+            NSkin:RegisterTextElement({ id = textID, module = "GroupFinder",
+                appearanceWindowID = ids.Scope, window = frame, target = button.Label,
+                label = "Card text", compositionParentID = id,
+                isEditable = function() return false end,
+            })
+            RefreshSurface()
+        end
+    end
+    local container = NSkin:RegisterOffsetContainer({ id = ids.Cards, module = "GroupFinder",
+        appearanceWindowID = ids.Scope, window = frame, label = "Category Cards",
+        contextualInspector = true, priority = 1, draggable = false,
+        editorOptions = { { id = "shared.movable", label = "Position", contextualInline = true,
+            presentation = "INLINE", category = "POSITION" } },
+        composition = { mode = "CONTAINER", movementStrategy = "OFFSET_ROOTS",
+            children = childIDs, roots = function()
+                local roots = { inset }
+                if title then roots[#roots + 1] = title end
+                for _, button in ipairs(category.CategoryButtons or {}) do
+                    if button:IsShown() then roots[#roots + 1] = button end
+                end
+                return roots
+            end,
+            surface = { appearanceID = ids.CardsSurface, appearanceParentID = ids.Cards,
+                appearanceWindowID = ids.Scope, surfaceAppearanceKey = "button", target = envelope,
+                refreshAppearance = RefreshEnvelope,
+            },
+        }, isEditable = function() return frame:IsVisible() and category:IsVisible() end,
+    })
+    if container then
+        container.composition.children = childIDs
+        NSkin:InitializeElementComposition(container)
+    end
     return true
 end
 
@@ -1875,6 +2364,13 @@ function PVESkin:ApplyPremadeGroupControls()
     local applied = false
 
     if category then
+        applied = self:ApplyPremadeCategoryCards() or applied
+        if not hookedControls[category] and _G.LFGListCategorySelection_UpdateCategoryButtons then
+            hooksecurefunc("LFGListCategorySelection_UpdateCategoryButtons", function(owner)
+                if owner == category then PVESkin:ApplyPremadeCategoryCards() end
+            end)
+            hookedControls[category] = true
+        end
         applied = ApplyPremadeActionButton(ids.CategoryStartGroupButton,
             "Premade Groups category start group button",
             category.StartGroupButton, category) or applied
@@ -1901,6 +2397,7 @@ function PVESkin:ApplyPremadeGroupControls()
                 module = "GroupFinder",
                 appearanceWindowID = scopeID,
                 label = "Premade Groups search bar",
+                contextualInspector = true,
                 window = frame,
                 target = searchBox,
                 priority = 82,
@@ -1920,6 +2417,7 @@ function PVESkin:ApplyPremadeGroupControls()
                 module = "GroupFinder",
                 appearanceWindowID = scopeID,
                 label = "Premade Groups filter",
+                contextualInspector = true,
                 window = frame,
                 target = filterButton,
                 priority = 81,
@@ -1941,6 +2439,7 @@ function PVESkin:ApplyPremadeGroupControls()
                 module = "GroupFinder",
                 appearanceWindowID = scopeID,
                 label = "Premade Groups results scroll bar",
+                contextualInspector = true,
                 window = frame,
                 target = scrollBar,
                 priority = 80,
@@ -2093,6 +2592,9 @@ local RefreshDungeonRowRenderingParent
 local function SkinDungeonCollapseButton(choice)
     local button = choice and choice.expandOrCollapseButton
     if not button or not button.CreateTexture then return end
+    if (button.IsForbidden and button:IsForbidden())
+        or (button.IsProtected and button:IsProtected())
+    then return end
 
     local data = NSkin:GetSkinData(button, "groupFinderCollapseButton")
     data.choice = choice
@@ -2148,6 +2650,56 @@ local function SkinDungeonCollapseButton(choice)
         end
         data.hooked = true
     end
+end
+
+local function RefreshDungeonCollapseButtonFamily(element, member, change, surfaceOnly)
+    local geometry = false
+    for _, entry in ipairs(change and (change.changes or { change }) or {}) do
+        local key = type(entry.path) == "string" and entry.path:match("([^.]+)$")
+            or entry.key or entry.propertyKey
+        if key == "width" or key == "height" then geometry = true end
+    end
+    for _, target in ipairs(NSkin:GetCompositionMemberTargets(
+        element, member, false) or {})
+    do
+        if not (target.IsForbidden and target:IsForbidden())
+            and not (target.IsProtected and target:IsProtected())
+        then
+            local data = NSkin:GetSkinData(target, "groupFinderCollapseButton", false)
+            local choice = data and data.choice
+            if choice and choice.expandOrCollapseButton == target then
+                if surfaceOnly and not geometry then
+                    local appearanceID = IDs.DungeonSections .. ".BUTTON."
+                        .. (choice.isCollapsed == true and "Expand" or "Collapse")
+                    local style = NSkin:GetAppearanceStyle(
+                        "button", IDs.DungeonFinder.Scope, appearanceID)
+                    NSkin:ApplyButtonSurface(target, style, "NSkinDungeonCollapseBackground",
+                        nil, NSkin:GetAppearanceBorderColor(
+                            "button", style, IDs.DungeonFinder.Scope, appearanceID))
+                else
+                    SkinDungeonCollapseButton(choice)
+                end
+            end
+        end
+    end
+    NSkin:NotifySkinningElementBoundsChanged(element.id)
+    return true
+end
+
+local function RefreshDungeonHeaderTextFamily(element, member)
+    local style = NSkin:GetAppearanceStyle(
+        "text", IDs.DungeonFinder.Scope, member.appearanceID or member.id)
+    -- The row's hover lifecycle reapplies its content style. Keep that cache
+    -- in sync with targeted text edits instead of restoring stale Surface values.
+    for _, row in ipairs(GetVisibleDungeonRows(true)) do
+        local data = NSkin:GetSkinData(row, "sectionRowComponent", false)
+        if data then data.contentStyle = style end
+    end
+    for _, target in ipairs(NSkin:GetCompositionMemberTargets(element, member, false) or {}) do
+        NSkin:SkinText(target, style, { elementID = member.appearanceID or member.id })
+    end
+    NSkin:NotifySkinningElementBoundsChanged(element.id)
+    return true
 end
 
 local function ApplyDungeonChoiceIndent(choice, isHeader)
@@ -2776,7 +3328,6 @@ function PVESkin:StyleDungeonChoice(_, _, choice, options)
             style = sectionStyle,
             contentStyle = textStyle,
             contentTextOptions = { elementID = id .. ".TEXT" },
-            collapseButton = choice.expandOrCollapseButton,
             contentRegions = {
                 choice.instanceName,
                 choice.level,
@@ -2919,56 +3470,6 @@ local function RefreshDungeonRowFamilyLayout(wantHeaders)
     return applied == true or #rows > 0
 end
 
-local function GetDungeonListContainerSurface(target, scrollBar)
-    if not target then return nil end
-    local data = NSkin:GetSkinData(
-        target, "groupFinderDungeonListContainerSurface")
-    if not data.frame then
-        local parent = target.GetParent and target:GetParent() or target
-        data.frame = _G.CreateFrame("Frame", nil, parent)
-        data.frame:EnableMouse(false)
-    end
-    local surface = data.frame
-    surface:ClearAllPoints()
-    surface:SetPoint("TOPLEFT", target, "TOPLEFT", 0, 0)
-    if scrollBar and scrollBar:IsShown() then
-        surface:SetPoint(
-            "BOTTOMRIGHT", scrollBar, "BOTTOMRIGHT", 0, 0)
-    else
-        surface:SetPoint(
-            "BOTTOMRIGHT", target, "BOTTOMRIGHT", 0, 0)
-    end
-    if surface.SetFrameLevel and target.GetFrameLevel then
-        surface:SetFrameLevel(math.max(0, target:GetFrameLevel() - 1))
-    end
-    surface:Show()
-    return surface
-end
-
-local function SkinDungeonListContainerSurface(surface)
-    if not surface then return false end
-    local style = NSkin:GetAppearanceStyle(
-        "row", IDs.DungeonFinder.Scope,
-        IDs.DungeonFinder.DungeonListSurface)
-    if not style then return false end
-    local border = NSkin:GetAppearanceBorderColor(
-        "row", style, IDs.DungeonFinder.Scope,
-        IDs.DungeonFinder.DungeonListSurface)
-    if not NSkin:GetFlatBackground(
-        surface, "NSkinGroupFinderDungeonListContainerBackground")
-    then
-        NSkin:CreateFlatBackground(
-            surface, "NSkinGroupFinderDungeonListContainerBackground",
-            NSkin:GetResolvedAppearanceColor(style, "background"),
-            border)
-    end
-    NSkin:ApplyButtonSurface(
-        surface, style,
-        "NSkinGroupFinderDungeonListContainerBackground",
-        nil, border)
-    return true
-end
-
 function PVESkin:RegisterDungeonRows()
     if dungeonRowsRegistered then return true end
     local frame = _G.PVEFrame
@@ -3065,7 +3566,7 @@ function PVESkin:RegisterDungeonRows()
             end,
             rowFamilySurfaceDefinition = {
                 movable = true,
-                contextualInspector = wantHeaders == true,
+                contextualInspector = true,
                 applyFamilyOffset = ApplyDungeonMemberFamilyOffset,
                 getTargetAppearanceID = function(_, member, target)
                     return GetDungeonRowExactAppearanceID(
@@ -3142,8 +3643,8 @@ function PVESkin:RegisterDungeonRows()
                 BUTTON = {
                     elementType = "BUTTON",
                     tag = "CollapseButton",
-                    contextualInspector = false,
-                    editorStateBaseLabel = "Shared",
+                    contextualInspector = true,
+                    editorStateBaseLabel = "All",
                     editorOptions = CreateDungeonRowElementEditorOptions(
                         "shared.buttonGeometry",
                         "shared.buttonContent"),
@@ -3151,7 +3652,12 @@ function PVESkin:RegisterDungeonRows()
                     applyFamilyOffset = ApplyDungeonMemberFamilyOffset,
                     label = "Button",
                     editorLabel = "Button",
+                    resetLabel = "Reset Button",
                     stateSuffix = "Button",
+                    refreshComponentAppearance = RefreshDungeonCollapseButtonFamily,
+                    refreshSurfaceAppearance = function(element, member, change)
+                        return RefreshDungeonCollapseButtonFamily(element, member, change, true)
+                    end,
                     states = {
                         {
                             id = "collapse",
@@ -3229,7 +3735,8 @@ function PVESkin:RegisterDungeonRows()
                 CHECKBOX = {
                     elementType = "BUTTON",
                     tag = "Checkbox",
-                    editorStateBaseLabel = "Shared",
+                    contextualInspector = true,
+                    editorStateBaseLabel = "All",
                     editorOptions = CreateDungeonRowElementEditorOptions(
                         "shared.checkboxGeometry",
                         "shared.checkboxContent"),
@@ -3263,14 +3770,14 @@ function PVESkin:RegisterDungeonRows()
             composition = {
                 mode = "COMPOSITE",
                 type = "REGULAR",
-                contextualInspector = wantHeaders == true,
+                contextualInspector = true,
                 contextualScopeLabel = wantHeaders
                     and "All dungeon headers" or nil,
-                contextualTargetLabel = wantHeaders and "This dungeon" or nil,
+                contextualTargetLabel = "This dungeon",
                 groupLabel = wantHeaders
-                    and "Dungeon header rows" or "Dungeon rows",
+                    and "Header Rows" or "Dungeon Rows",
                 editorLabel = wantHeaders
-                    and "Dungeon header row" or "Dungeon row",
+                    and "Header Rows" or "Dungeon Rows",
                 memberEditorLabels = {
                     CHECKBOX = "Checkbox",
                     BUTTON = "Button",
@@ -3283,8 +3790,10 @@ function PVESkin:RegisterDungeonRows()
                         label = "Section text",
                         editorLabel = "Section Text",
                         contextualInspector = true,
+                        refreshComponentAppearance = RefreshDungeonHeaderTextFamily,
+                        refreshSurfaceAppearance = RefreshDungeonHeaderTextFamily,
                         editorOptions = CreateDungeonRowElementEditorOptions(
-                            nil, "shared.textAppearance", false),
+                            nil, "shared.textAppearance"),
                         appearanceWindowID = IDs.DungeonFinder.Scope,
                         appearanceID = id .. ".TEXT",
                         appearanceParentID = id,
@@ -3305,6 +3814,7 @@ function PVESkin:RegisterDungeonRows()
                         role = "SECONDARY",
                         label = "Dungeon name",
                         editorLabel = "Dungeon name",
+                        contextualInspector = true,
                         editorOptions = CreateDungeonRowElementEditorOptions(
                             nil, "shared.textAppearance"),
                         appearanceWindowID = IDs.DungeonFinder.Scope,
@@ -3341,6 +3851,7 @@ function PVESkin:RegisterDungeonRows()
                         role = "SECONDARY",
                         label = "Level range",
                         editorLabel = "Level range",
+                        contextualInspector = true,
                         editorOptions = CreateDungeonRowElementEditorOptions(
                             nil, "shared.textAppearance"),
                         appearanceWindowID = IDs.DungeonFinder.Scope,
@@ -3374,6 +3885,7 @@ function PVESkin:RegisterDungeonRows()
                 },
                 members = {},
             },
+            contextualInspector = true,
             window = frame,
             target = queueFrame,
             priority = 82,
@@ -3452,6 +3964,7 @@ function PVESkin:RegisterDungeonRows()
                     module = "GroupFinder",
                     appearanceWindowID = IDs.DungeonFinder.Scope,
                     label = "Dungeon Rows",
+                    contextualInspector = true,
                     window = frame,
                     priority = 1,
                     draggable = false,
@@ -3520,6 +4033,7 @@ function PVESkin:RegisterDungeonRows()
                     end,
                     isEditable = function()
                         return frame:IsVisible() and queueFrame:IsVisible()
+                            and specific and specific:IsVisible()
                     end,
                 }) ~= nil
         end
@@ -3625,6 +4139,7 @@ local function RegisterPVPRoleGroup(frame, honorFrame)
             kind = "CHECKBOX",
             module = "GroupFinder",
             appearanceWindowID = IDs.PVP.Scope,
+            contextualInspector = true,
             window = frame,
             target = pvpRoleGroupAnchor,
             priority = 82,
@@ -3686,6 +4201,7 @@ function PVESkin:ApplyPVPControls()
             module = "GroupFinder",
             appearanceWindowID = ids.Scope,
             label = "PvP Quick Match type dropdown",
+            contextualInspector = true,
             window = frame,
             target = dropdown,
             priority = 80,
@@ -3706,6 +4222,7 @@ function PVESkin:ApplyPVPControls()
             module = "GroupFinder",
             appearanceWindowID = ids.Scope,
             label = "PvP Quick Match join battle button",
+            contextualInspector = true,
             window = frame,
             target = queueButton,
             priority = 80,
@@ -3981,6 +4498,7 @@ function PVESkin:ApplyFinderNavigation()
                         appearanceWindowID = IDs.Scope,
                         label = label,
                         kind = "COMPOSITE",
+                        contextualInspector = true,
                         window = frame,
                         target = button,
                         priority = 60,
@@ -4101,6 +4619,7 @@ function PVESkin:ApplyFinderNavigation()
                 module = "GroupFinder",
                 appearanceWindowID = IDs.Scope,
                 label = "Left Navigation",
+                contextualInspector = true,
                 window = frame,
                 priority = 59,
                 draggable = false,
@@ -4573,6 +5092,7 @@ function PVESkin:ApplyBottomTabs()
                     kind = "COMPOSITE",
                     module = "GroupFinder",
                     appearanceWindowID = IDs.Scope,
+                    contextualInspector = true,
                     window = frame,
                     target = tab,
                     priority = 50,
@@ -4701,6 +5221,7 @@ function PVESkin:ApplyBottomTabs()
                 module = "GroupFinder",
                 appearanceWindowID = IDs.Scope,
                 label = "Bottom Tabs",
+                contextualInspector = true,
                 window = frame,
                 priority = 49,
                 draggable = false,
@@ -4830,6 +5351,7 @@ function PVESkin:ApplyWindowChrome()
         kind = "WINDOW",
         module = "GroupFinder",
         appearanceWindowID = IDs.Scope,
+        contextualInspector = true,
         window = frame,
         target = frame,
         priority = 0,

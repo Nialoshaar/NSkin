@@ -43,7 +43,7 @@ NSkin:RegisterOptionGroup("appearance.sectionCard", {
         { type = "CHECKBOX", key = "showHighlight",
             label = "Enable highlight" },
         { type = "SLIDER", key = "hoverAlpha", label = "Hover opacity",
-            min = 0, max = 0.5, step = 0.01, decimals = 2 },
+            min = 0, max = 1, step = 0.01, decimals = 2 },
         { type = "COLOR", key = "glyph", label = "Expand/collapse glyph" },
         { type = "SLIDER", key = "glyphSize", label = "Glyph size",
             min = 8, max = 32, step = 1, suffix = " px" },
@@ -430,7 +430,7 @@ local columnHeaderAppearanceControls = {
             { value = "RIGHT", label = "Right" },
         } },
     { type = "SLIDER", key = "hoverAlpha", label = "Hover opacity",
-        min = 0, max = 0.5, step = 0.01, decimals = 2, order = 14 },
+        min = 0, max = 1, step = 0.01, decimals = 2, order = 14 },
 }
 AddTypographyControls(columnHeaderAppearanceControls,
     { useGlobal = "useGlobal", font = "font", size = "textSize",
@@ -497,7 +497,7 @@ local rowAppearanceControls = {
         min = 0, max = 100, step = 1, decimals = 0, suffix = " px",
         order = 14 },
     { type = "SLIDER", key = "hoverAlpha", label = "Hover opacity",
-        min = 0, max = 0.5, step = 0.01, decimals = 2, order = 15 },
+        min = 0, max = 1, step = 0.01, decimals = 2, order = 15 },
 }
 
 NSkin:RegisterOptionGroup("shared.rowAppearance", {
@@ -557,7 +557,7 @@ local function CreateSectionRowAppearanceControls(global)
         Color("border", "borderMode", "Border", 13),
         CreateBorderGeometryControls(14),
         { type = "SLIDER", key = "hoverAlpha", label = "Hover opacity",
-            min = 0, max = 0.5, step = 0.01, decimals = 2, order = 15 },
+            min = 0, max = 1, step = 0.01, decimals = 2, order = 15 },
     }
     if global then
         controls[#controls + 1] = {
@@ -677,21 +677,22 @@ local surfaceGeometryControls = {
 }
 
 local surfaceBackgroundControls = {
+    NSkin:GetSurfaceBackgroundSourceControl(0),
     {
-        type = "MIXED_PAIR", order = 1, editorPairLabel = "Background",
+        type = "MIXED_PAIR", order = 1,
         left = { type = "COLOR", key = "background",
-            modeKey = "backgroundMode", label = "Background" },
+            modeKey = "backgroundMode", label = "Color" },
         right = { type = "SLIDER", key = "backgroundOpacity",
             label = "Opacity", min = 0, max = 1,
             step = 0.05, decimals = 2 },
     },
     {
-        type = "MIXED_PAIR", order = 2, editorPairLabel = "Selected Background",
+        type = "MIXED_PAIR", order = 2,
         left = { type = "COLOR", key = "selectedBackground",
             modeKey = "selectedBackgroundMode",
-            label = "Selected Background" },
+            label = "Selected color" },
         right = { type = "SLIDER", key = "selectedBackgroundOpacity",
-            label = "Selected Background Opacity", min = 0, max = 1,
+            label = "Selected opacity", min = 0, max = 1,
             step = 0.05, decimals = 2 },
     },
 }
@@ -743,6 +744,7 @@ for _, controls in ipairs({
 end
 
 local surfaceAppearanceKeys = {
+    backgroundSource = true,
     width = true,
     height = true,
     showBackground = true,
@@ -821,6 +823,7 @@ local function GetSurfaceAppearanceValues(context)
             and style.showBorder == true or style.showBorder ~= false,
         showHighlight = style.showHighlight ~= false,
         background = CopyColor(style.background, { 0, 0, 0, 0 }),
+        backgroundSource = style.backgroundSource or "REGULAR",
         backgroundMode = style.backgroundMode or "CUSTOM",
         backgroundOpacity = tonumber(style.backgroundOpacity)
             or (style.background and style.background[4]) or 1,
@@ -948,6 +951,7 @@ RegisterSurfaceAppearanceGroup("shared.surfaceGeometry",
     })
 RegisterSurfaceAppearanceGroup("shared.surfaceBackground",
     surfaceBackgroundControls, {
+        backgroundSource = true,
         showBackground = true,
         background = true,
         backgroundMode = true,
@@ -1032,7 +1036,7 @@ local sectionCardAppearanceControls = {
     { type = "CHECKBOX", key = "showHighlight", label = "Enable highlight",
         order = 16 },
     { type = "SLIDER", key = "hoverAlpha", label = "Hover opacity",
-        min = 0, max = 0.5, step = 0.01, decimals = 2, order = 17 },
+        min = 0, max = 1, step = 0.01, decimals = 2, order = 17 },
     { type = "SECTION", label = "Expand / Collapse Glyph", order = 20 },
     { type = "COLOR", key = "glyph", modeKey = "glyphMode",
         label = "Color", order = 21 },

@@ -413,6 +413,39 @@ local function CreateInspector()
     NSkin:SkinFlatButton(close, "x")
     close:SetScript("OnClick", function() NSkin:ToggleSkinningDebugInspector() end)
 
+    local gridToggle = CreateFrame("Button", nil, frame)
+    gridToggle:SetSize(22, 22)
+    gridToggle:SetPoint("RIGHT", close, "LEFT", -4, 0)
+    gridToggle.icon = NSkin:CreateCenteredButtonGlyph(gridToggle, "debugGridToggle", {
+        texture = "Interface\\AddOns\\NSkin\\Media\\grid-alt.png",
+        size = 16,
+    })
+    local function RefreshGridToggle()
+        NSkin:SetCenteredButtonGlyphColor(gridToggle.icon,
+            NSkin:IsCompactGridDebugEnabled() and NSkin:GetAccentColor()
+                or { 1, 1, 1, 1 })
+    end
+    gridToggle:SetScript("OnClick", function()
+        NSkin:SetCompactGridDebugEnabled(not NSkin:IsCompactGridDebugEnabled())
+        RefreshGridToggle()
+    end)
+    gridToggle:SetScript("OnEnter", function(self)
+        NSkin:SetCenteredButtonGlyphColor(self.icon, NSkin:GetAccentColor())
+        if GameTooltip then
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetText("Toggle layout grid")
+            GameTooltip:Show()
+        end
+    end)
+    gridToggle:SetScript("OnLeave", function()
+        RefreshGridToggle()
+        if GameTooltip then GameTooltip:Hide() end
+    end)
+    gridToggle:SetScript("OnShow", RefreshGridToggle)
+    frame.title:SetPoint("TOPRIGHT", gridToggle, "TOPLEFT", -8, -6)
+    frame.title:SetJustifyH("LEFT")
+    RefreshGridToggle()
+
     local scroll = CreateFrame("ScrollFrame", nil, frame, "UIPanelScrollFrameTemplate")
     scroll:SetPoint("TOPLEFT", 8, -30)
     scroll:SetPoint("BOTTOMRIGHT", -28, 8)

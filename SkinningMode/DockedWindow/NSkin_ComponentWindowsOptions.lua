@@ -146,6 +146,7 @@ NSkin:RegisterOptionGroup("shared.windowHeaderControlsAppearance", {
     end,
 })
 local windowAppearanceControls = {
+    NSkin:GetSurfaceBackgroundSourceControl(0),
     { type = "SLIDER", key = "backgroundOpacity", label = "Background opacity",
         min = 0, max = 1, step = 0.05, decimals = 2, order = 3 },
     CreateBorderGeometryControls(4),
@@ -186,6 +187,7 @@ local windowResetPaths = {
     showBorder = "window.showBorder",
     showHighlight = "window.showHighlight",
     background = "window.background", backgroundOpacity = "window.background",
+    backgroundSource = "window.backgroundSource",
     backgroundMode = "window.backgroundMode", border = "window.border",
     borderMode = "window.borderMode", borderSize = "window.borderSize",
     borderPadding = "window.borderPadding",
@@ -211,6 +213,7 @@ NSkin:RegisterOptionGroup("shared.windowAppearance", {
             showHighlight = style.showHighlight == true,
             background = CopyColor(style.background),
             backgroundOpacity = style.background[4] or 1,
+            backgroundSource = style.backgroundSource or "REGULAR",
             border = CopyColor(style.border), borderMode = style.borderMode,
             borderSize = style.borderSize, borderPadding = style.borderPadding,
             highlight = CopyColor(style.highlight, { 1, 1, 1, 1 }),
@@ -232,6 +235,7 @@ NSkin:RegisterOptionGroup("shared.windowAppearance", {
         local style = NSkin:GetAppearanceStyle(
             "window", GetAppearanceWindowID(context), context.id)
         local mapping = {
+            ["window.backgroundSource"] = values.backgroundSource,
             ["window.showBackground"] = values.showBackground,
             ["window.showBorder"] = values.showBorder,
             ["window.showHighlight"] = values.showHighlight,
@@ -269,7 +273,7 @@ NSkin:RegisterOptionGroup("shared.windowAppearance", {
     reset = function(context)
         return ResetElementPaths(context, {
             "window.showBackground", "window.showBorder",
-            "window.showHighlight",
+            "window.showHighlight", "window.backgroundSource",
             "window.background", "window.backgroundMode",
             "window.border", "window.borderMode", "window.borderSize",
             "window.borderPadding", "window.highlight",
@@ -302,8 +306,28 @@ NSkin:RegisterOptionGroupSubset("shared.windowSurfaceAppearance", "shared.window
         left = windowColors.left, right = windowColors.right },
 })
 local function RegisterWindowSurfaceGroup(id, controls, keys)
+    local toggleKey = keys.showBackground and "showBackground"
+        or keys.showBorder and "showBorder"
+        or keys.showHighlight and "showHighlight"
+    local function ResetKeys(context, selected)
+        local paths = {}
+        for key in pairs(selected) do
+            if keys[key] then
+                local mapped = windowResetPaths[key]
+                if type(mapped) == "table" then
+                    for i = 1, #mapped do paths[#paths + 1] = mapped[i] end
+                elseif mapped then
+                    paths[#paths + 1] = mapped
+                end
+            end
+        end
+        return #paths > 0 and ResetElementPaths(context, paths) or false
+    end
     NSkin:RegisterOptionGroup(id, {
         controls = controls,
+        propertyControls = toggleKey and {
+            { type = "CHECKBOX", key = toggleKey, label = "Enabled", editorHeaderToggle = true },
+        } or nil,
         inheritedReset = true,
         inheritedResetLabel = "Reset to window defaults",
         get = function(context)
@@ -318,18 +342,8 @@ local function RegisterWindowSurfaceGroup(id, controls, keys)
             return NSkin:GetOptionGroupDefinition(
                 "shared.windowAppearance").set(context, filtered)
         end,
-        reset = function(context)
-            local paths = {}
-            for key in pairs(keys) do
-                local mapped = windowResetPaths[key]
-                if type(mapped) == "table" then
-                    for i = 1, #mapped do paths[#paths + 1] = mapped[i] end
-                elseif mapped then
-                    paths[#paths + 1] = mapped
-                end
-            end
-            return ResetElementPaths(context, paths)
-        end,
+        reset = function(context) return ResetKeys(context, keys) end,
+        resetSubset = ResetKeys,
     })
 end
 
@@ -339,10 +353,12 @@ NSkin:RegisterOptionGroupSubset(
     })
 
 RegisterWindowSurfaceGroup("shared.windowSurfaceBackground", {
+    FindControl(windowAppearanceControls, "DROPDOWN", "backgroundSource"),
     FindControl(windowAppearanceControls, "SLIDER", "backgroundOpacity"),
     windowColors.right,
 }, {
     showBackground = true,
+    backgroundSource = true,
     background = true,
     backgroundMode = true,
     backgroundOpacity = true,

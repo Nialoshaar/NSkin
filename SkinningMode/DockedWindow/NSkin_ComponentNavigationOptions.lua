@@ -60,7 +60,7 @@ RegisterColorAppearanceGroup("appearance.tab", "tab", {
     { type = "SLIDER", key = "selectedOpacity", label = "Selected opacity",
         min = 0, max = 1, step = 0.05, decimals = 2 },
     { type = "SLIDER", key = "hoverAlpha", label = "Hover opacity",
-        min = 0, max = 0.5, step = 0.01, decimals = 2 },
+        min = 0, max = 1, step = 0.01, decimals = 2 },
     { type = "COLOR", key = "border", label = "Tab border" },
     { type = "RESET", label = "Reset Tabs" },
 })

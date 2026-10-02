@@ -281,6 +281,15 @@ local function RefreshAnchorGroup(group)
     virtual.target = nil
     virtual.priority = group.priority or 0
     virtual.anchorGroupMembers = members
+    -- Inspector policy follows the registered members, independently of the
+    -- Anchor Group's structural, appearance, and movement contracts.
+    virtual.contextualInspector = #members > 0
+    for _, member in ipairs(members) do
+        if member.contextualInspector ~= true then
+            virtual.contextualInspector = false
+            break
+        end
+    end
     virtual.isEditable = function()
         for _, element in ipairs(GetSortedGroupMembers(group)) do
             if NSkin:IsSkinningElementEditable(element) then return true end
@@ -772,6 +781,7 @@ function NSkin:RefreshCompositeAppearanceFamily(change)
 end
 
 local SURFACE_APPEARANCE_KEYS = {
+    backgroundSource = true,
     width = true,
     height = true,
     showBackground = true,
@@ -2256,10 +2266,10 @@ function NSkin:CompositeMembersShareContainerFamily(
             rightElement, rightMemberOrID))
     if not leftElement or not rightElement or not leftMember or not rightMember
         or leftMember.kind ~= rightMember.kind
+        or (leftMember.editorSurface == true) ~= (rightMember.editorSurface == true)
     then
         return false
     end
-
     local leftParent = self:GetCompositionContainerParent(leftElement)
     local rightParent = self:GetCompositionContainerParent(rightElement)
     if not leftParent or leftParent ~= rightParent then return false end
@@ -2749,6 +2759,24 @@ function NSkin:GetCompositeMemberBounds(elementOrID, memberOrID, visibleOnly)
         member, element, visibleOnly ~= false))
     do
         local l, r, b, t = self:GetUIParentNormalizedBounds(target)
+        if l and member.tightTextBounds == true and target.GetStringWidth
+            and target.GetWidth
+        then
+            local width = tonumber(target:GetWidth()) or 0
+            local rendered = tonumber(target:GetStringWidth()) or 0
+            if width > 0 and rendered > 0 and rendered < width then
+                local extent = (r - l) * rendered / width
+                local justify = target.GetJustifyH and target:GetJustifyH() or "LEFT"
+                if justify == "RIGHT" then
+                    l = r - extent
+                elseif justify == "CENTER" then
+                    local center = (l + r) * 0.5
+                    l, r = center - extent * 0.5, center + extent * 0.5
+                else
+                    r = l + extent
+                end
+            end
+        end
         if l then
             left = left and math.min(left, l) or l
             right = right and math.max(right, r) or r
@@ -2788,7 +2816,24 @@ local function GetCompositeMemberFamilyStorageOwner(element, member)
     if container and type(appearanceFamily) == "string"
         and appearanceFamily ~= ""
     then
+        -- An explicit movement family may differ from appearance sharing.
+        -- Keep the existing Surface key; subordinate controls must not reuse
+        -- its placement store merely because they inherit the same appearance.
+        local movementKey
+        if member.editorSurface ~= true and member.movementFamilyID then
+            for _, candidate in ipairs(element.composition.members or {}) do
+                if candidate ~= member
+                    and candidate.appearanceParentID == appearanceFamily
+                    and GetCompositeMemberFamilyKey(candidate)
+                        ~= GetCompositeMemberFamilyKey(member)
+                then
+                    movementKey = member.movementFamilyID
+                    break
+                end
+            end
+        end
         return container, "APPEARANCE:" .. appearanceFamily
+            .. (movementKey and (":MOVEMENT:" .. movementKey) or "")
     end
     return element, GetCompositeMemberFamilyKey(member)
 end
@@ -3339,8 +3384,12 @@ function NSkin:GetCompositeMemberEditorOptions(elementOrID, memberOrID)
         or {}
     local options = {}
 
-    local navigationOwnsPlacement =
-        EditorDefinitionsContainID(definitions, "shared.movable")
+    local navigationOwnsPlacement = false
+    for _, definition in ipairs(definitions) do
+        if type(definition) == "table" and definition.presentation == "NAV_TABS"
+            and EditorDefinitionsContainID({ definition }, "shared.movable")
+        then navigationOwnsPlacement = true; break end
+    end
     if not navigationOwnsPlacement and placementContext
         and type(placementContext.getPlacement) == "function"
         and type(placementContext.setPlacement) == "function"
@@ -3577,6 +3626,43 @@ end
 local function CanModifyCompositionRoot(target)
     return target and not (target.IsForbidden and target:IsForbidden())
         and not (target.IsProtected and target:IsProtected() and InCombatLockdown())
+end
+
+-- Independently editable controls may be chained to siblings by Blizzard.
+-- Compensate relative-anchor deltas rather than moving dependent controls or
+-- flattening multi-point anchors (which would change text wrapping/geometry).
+function NSkin:ApplyIndependentAnchorOffsets(entries)
+    if InCombatLockdown() then return false end
+    local offsets, baselines = {}, {}
+    for _, entry in ipairs(entries) do
+        local target = entry.target
+        if not CanModifyCompositionRoot(target) or not target.GetNumPoints
+            or not target.ClearAllPoints or not target.SetPoint
+        then return false end
+        self:CaptureComponentBaseline(entry.baselineID, target, {
+            points = true,
+            canCapture = function(t) return t:GetNumPoints() > 0 end,
+        })
+        local baseline = self:GetComponentBaseline(entry.baselineID)
+        if not baseline or not baseline.points then return false end
+        offsets[target] = { tonumber(entry.x) or 0, tonumber(entry.y) or 0 }
+        baselines[target] = baseline.points
+    end
+    for _, entry in ipairs(entries) do
+        local target, offset = entry.target, offsets[entry.target]
+        target:ClearAllPoints()
+        local changed = offset[1] ~= 0 or offset[2] ~= 0
+        for _, point in ipairs(baselines[target]) do
+            local relative = point[2] or (target.GetParent and target:GetParent())
+            local relativeOffset = offsets[relative] or { 0, 0 }
+            local dx, dy = offset[1] - relativeOffset[1], offset[2] - relativeOffset[2]
+            target:SetPoint(point[1], point[2], point[3],
+                (point[4] or 0) + dx, (point[5] or 0) + dy)
+            changed = changed or dx ~= 0 or dy ~= 0
+        end
+        self:MarkComponentGeometryModified(entry.baselineID, "points", changed)
+    end
+    return true
 end
 
 local function CaptureOffsetRootPoints(target)

@@ -1,5 +1,13 @@
 local _, NSkin = ...
 
+function NSkin:GetSurfaceBackgroundSourceControl(order)
+    return { type = "DROPDOWN", key = "backgroundSource", label = "Background",
+        order = order or 0, values = {
+            { value = "BLIZZARD", label = "Blizzard Default" },
+            { value = "REGULAR", label = "Regular Surface" },
+        } }
+end
+
 NSkin.pendingOptionsPages = NSkin.pendingOptionsPages or {}
 function NSkin:RegisterOptionsPage(definition)
     if type(definition) ~= "table" or type(definition.builder) ~= "function" then
@@ -1622,6 +1630,7 @@ function NSkin:GetOptionGroupPropertyInheritance(id, context, property)
     then
         return {
             explicit = true,
+            sourceKind = context.exactMemberOverride and "override" or "group",
             label = context.exactMemberOverride
                 and "Set for this target" or "Set here",
         }
@@ -1641,6 +1650,9 @@ function NSkin:GetOptionGroupPropertyInheritance(id, context, property)
         then
             return {
                 explicit = false,
+                sourceKind = context.exactMemberOverride
+                    and parentID == context.exactAppearanceID
+                    and "override" or "group",
                 label = context.componentStateID and firstParent
                     and "Inherited · All"
                     or "Inherited · Family",
@@ -1662,6 +1674,7 @@ function NSkin:GetOptionGroupPropertyInheritance(id, context, property)
             local scope = self:GetAppearanceScope(scopeID)
             return {
                 explicit = false,
+                sourceKind = "group",
                 label = "Inherited · "
                     .. tostring(scope and scope.label or "Window"),
             }
@@ -1669,9 +1682,9 @@ function NSkin:GetOptionGroupPropertyInheritance(id, context, property)
     end
 
     if HasStoredAppearancePath(profile.appearance, paths) then
-        return { explicit = false, label = "Inherited · Global" }
+        return { explicit = false, sourceKind = "global", label = "Inherited · Global" }
     end
-    return { explicit = false, label = "Inherited · NSkin default" }
+    return { explicit = false, sourceKind = "global", label = "Inherited · NSkin default" }
 end
 
 
@@ -1690,6 +1703,7 @@ local function AddOverrideProperty(properties, control, forcedType)
 
     if controlType == "SECTION" or controlType == "RESET" then return end
     if controlType == "TYPOGRAPHY" then
+        local first = #properties + 1
         if control.fontKey then
             properties[#properties + 1] = {
                 key = control.fontKey,
@@ -1734,6 +1748,18 @@ local function AddOverrideProperty(properties, control, forcedType)
                     label = color.label or "Color",
                     control = color,
                 }
+            end
+        end
+        -- Keep the canonical typography fields, but declare their inspector
+        -- columns just as ordinary shared paired controls do.
+        for index = first, #properties - 1 do
+            local left, right = properties[index], properties[index + 1]
+            if (left.key == control.fontKey and right.key == control.sizeKey)
+                or (left.key == control.outlineKey and control.color
+                    and right.key == control.color.key)
+            then
+                local pair = left.key .. "\031" .. right.key
+                left.editorPair, right.editorPair = pair, pair
             end
         end
         return
@@ -1819,6 +1845,28 @@ function NSkin:EnsureOptionGroupPropertySubset(
         return optionGroups[subsetID] and subsetID or nil
     end
     return subsetID
+end
+
+-- Actions use the canonical callbacks without becoming override/reset properties.
+function NSkin:EnsureOptionGroupInspectorActions(sourceID)
+    local source = optionGroups[sourceID]
+    if not source then return nil end
+    local id = "inspector.actions." .. sourceID
+    if optionGroups[id] then return id end
+    local controls = {}
+    for _, ordered in ipairs(source.orderedControls or {}) do
+        if ordered.definition.type == "ACTION_BUTTON" then
+            controls[#controls + 1] = ordered.definition
+        end
+    end
+    if #controls == 0 then return nil end
+    self:RegisterOptionGroup(id, {
+        controls = controls,
+        get = source.get,
+        set = source.set,
+        reset = function() return false end,
+    })
+    return id
 end
 
 -- Reusable horizontal navigation over canonical option-group views.
@@ -1924,7 +1972,94 @@ end
 
 -- Property cells reuse canonical controls and their commit/reset contracts.
 -- A cell is inspector presentation, not a new option schema or editor identity.
-function NSkin:LayoutOptionPropertyView(view, property, width)
+local function RefreshPropertyPresentation(view)
+    local theme, property = view.propertyTheme, view.inspectorProperty
+    if not theme or not property then return end
+    local control = view.controlByKey[property.key]
+    local input = view.valueByKey[property.key]
+    if not control then return end
+    local controlText = control.text or control.Text
+    local function Surface(frame, key)
+        local background = NSkin:GetFlatBackground(frame, key)
+        if background then NSkin:SetOwnedTextureColor(background, unpack(theme.input)) end
+        local border = NSkin:GetPixelBorder(frame, (key or "NSkinFlatBackground") .. "Border")
+        NSkin:SetPixelBorderColor(border, unpack(theme.border))
+    end
+    Surface(control)
+    Surface(control, "NSkinOptionsDropdown")
+    if controlText then
+        controlText:SetTextColor(unpack(theme.text))
+        local font = GameFontNormal:GetFont()
+        controlText:SetFont(font, 10, "")
+    end
+    if control.nskinArrow then
+        control.nskinArrow:SetSize(10, 10)
+        control.nskinArrow:SetVertexColor(unpack(theme.muted))
+    end
+    if input then
+        Surface(input, "NSkinSliderValue")
+        input:SetTextColor(unpack(theme.text))
+        local font = GameFontNormal:GetFont()
+        input:SetFont(font, 10, "")
+        input:SetSize(48, 28)
+        local key = property.key:lower()
+        local pixels = key == "x" or key == "y" or key:find("offset", 1, true)
+            or key:find("size", 1, true) or key:find("width", 1, true)
+            or key:find("height", 1, true) or key:find("inset", 1, true)
+            or key:find("padding", 1, true) or key:find("spacing", 1, true)
+        if not input.inspectorUnit then
+            input.inspectorUnit = input:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            input.inspectorUnit:SetPoint("RIGHT", input, "RIGHT", -4, 0)
+            input.inspectorUnit:SetText("px")
+        end
+        input.inspectorUnit:SetShown(pixels ~= nil and pixels ~= false)
+        input.inspectorUnit:SetTextColor(unpack(theme.muted))
+        input.inspectorUnit:SetFont(font, 7, "")
+        input:SetTextInsets(3, pixels and 15 or 3, 0, 0)
+    end
+    local visuals = control.nskinOptionsVisuals
+    if visuals then
+        visuals.track:SetHeight(3)
+        visuals.track:SetColorTexture(unpack(theme.border))
+        visuals.fill:SetHeight(3)
+        visuals.fill:SetColorTexture(unpack(theme.accent))
+        visuals.thumb:SetSize(7, 7)
+        visuals.thumb:SetColorTexture(unpack(theme.accent))
+        for _, glow in ipairs(visuals.glows) do glow:SetAlpha(0) end
+    end
+    if view.colorByKey[property.key] then
+        local values = view.context and view.definition.get(view.context)
+        local definition = view.colorDefinitionByKey[property.key]
+        local modeKey = view.colorModeByKey[property.key]
+        local mode = modeKey and values and values[modeKey] or "CUSTOM"
+        local color = ResolveColorModeFill(values, definition, mode)
+        if not control.inspectorSwatch then
+            control.inspectorSwatch = control:CreateTexture(nil, "OVERLAY")
+            control.inspectorSwatch:SetPoint("LEFT", control, "LEFT", 7, 0)
+            control.inspectorSwatch:SetSize(12, 12)
+            control.inspectorHex = control:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            control.inspectorHex:SetPoint("LEFT", control.inspectorSwatch, "RIGHT", 5, 0)
+            control.inspectorHex:SetTextColor(unpack(theme.text))
+        end
+        control.inspectorSwatch:SetColorTexture(unpack(color))
+        local function Byte(value) return math.floor(math.max(0, math.min(1, value or 0)) * 255 + 0.5) end
+        control.inspectorHex:SetText(string.format("#%02X%02X%02X", Byte(color[1]), Byte(color[2]), Byte(color[3])))
+        local font = GameFontNormal:GetFont()
+        control.inspectorHex:SetFont(font, 9, "")
+        if controlText then
+            controlText:ClearAllPoints()
+            controlText:SetPoint("RIGHT", control, "RIGHT", -22, 0)
+            controlText:SetWidth(math.max(1, control:GetWidth() - 95))
+            controlText:SetJustifyH("RIGHT")
+            controlText:SetTextColor(unpack(theme.muted))
+            local font = GameFontNormal:GetFont()
+            controlText:SetFont(font, 8, "")
+        end
+    end
+end
+
+function NSkin:LayoutOptionPropertyView(view, property, width, theme)
+    view.propertyTheme, view.inspectorProperty = theme, property
     view:SetWidth(width)
     view:SetHeight(30)
     for _, region in ipairs({ view:GetRegions() }) do
@@ -1950,7 +2085,9 @@ function NSkin:LayoutOptionPropertyView(view, property, width)
         control:SetPoint("LEFT", view, "LEFT", 0, 0)
         control:SetPoint("RIGHT", view, "RIGHT", 0, 0)
         control:SetWidth(width)
+        if theme then control:SetHeight(28) end
     end
+    RefreshPropertyPresentation(view)
 end
 
 function NSkin:CreateOptionGroupView(parent, id, layout, context)
@@ -2298,6 +2435,7 @@ function NSkin:CreateOptionGroupView(parent, id, layout, context)
             NSkin:SkinFlatButton(self.resetButton,
                 self.resetControl.label or "Reset", nil, nil, 12)
         end
+        RefreshPropertyPresentation(self)
     end
 
     viewsByGroup[id][view] = true
@@ -2680,7 +2818,7 @@ end
 
 function NSkin:CreateSharedPlacementControls(extra)
     local controls = {
-        { type = "SLIDER_PAIR", order = 1, editorPairLabel = "Offsets",
+        { type = "SLIDER_PAIR", order = 1,
             left = { key = "alongOffset", label = "X offset", min = -200,
                 max = 200, step = 0.1, decimals = 1, suffix = " px" },
             right = { key = "edgeOffset", label = "Y offset", min = -200,
@@ -2779,6 +2917,9 @@ NSkin:RegisterOptionGroup("shared.movable", {
         values = NSkin:NormalizeGridPlacementForEditor(context, values) or values
         local explicit = (tonumber(values[property.key]) or 0) ~= 0
         return { explicit = explicit,
+            sourceKind = explicit
+                and (context.exactMemberOverride and "override" or "group")
+                or "global",
             label = explicit and "Set here" or "Default · Original offset" }
     end,
     get = function(context)

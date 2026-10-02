@@ -750,6 +750,7 @@ function NSkin:SkinRow(target, options)
     if surfaceInset == nil then surfaceInset = 1 end
     local showBackground = options.showBackground
     if showBackground == nil then showBackground = style.showBackground ~= false end
+    showBackground = showBackground and self:ShouldShowSurfaceBackground(style, target)
     local showBorder = options.showBorder
     if showBorder == nil then showBorder = style.showBorder ~= false end
     local background = self:GetFlatBackground(target, ROW_BACKGROUND)
@@ -1091,6 +1092,7 @@ function NSkin:SkinSectionRow(target, options)
         or self:GetComponentBorderColor("sectionRow", style)
     local showBackground = options.showBackground
     if showBackground == nil then showBackground = style.showBackground ~= false end
+    showBackground = showBackground and self:ShouldShowSurfaceBackground(style, target)
     local showBorder = options.showBorder
     if showBorder == nil then showBorder = style.showBorder == true end
     local surfaceInset = 1
@@ -1261,7 +1263,7 @@ local function RefreshRowFamilySurfaceTarget(
         or NSkin:GetComponentBorderColor(family, style)
 
     local background = NSkin:GetFlatBackground(target, backgroundKey)
-    if style.showBackground ~= false then
+    if NSkin:ShouldShowSurfaceBackground(style, target) then
         background = background or NSkin:CreateFlatBackground(
             target, backgroundKey, backgroundColor, borderColor)
         NSkin:SetOwnedTextureColor(
@@ -2876,6 +2878,8 @@ local function ApplyIconSurfaceBackground(
     if data.surfaceShowBackground == nil then
         data.surfaceShowBackground = style.showBackground == true
     end
+    data.surfaceShowBackground = data.surfaceShowBackground
+        and self:ShouldShowSurfaceBackground(style, owner)
     data.surfaceShowHighlight = options.showHighlight
     if data.surfaceShowHighlight == nil then
         data.surfaceShowHighlight = style.showHighlight ~= false

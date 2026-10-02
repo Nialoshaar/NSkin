@@ -92,9 +92,15 @@ end
 
 function NSkin:ConcealWindowArtwork(frame, preserveArtwork)
     if not frame then return end
+    local inset = frame.Inset or frame.InsetFrame
+    self:RegisterSurfaceBackgroundRegions(frame, {
+        frame.Bg, inset and inset.Bg,
+    })
     preserveArtwork = type(preserveArtwork) == "table"
         and preserveArtwork or nil
     local function Conceal(owner, key, preserveKey)
+        -- Conventional backdrops retain their native texture for Surface source switching.
+        if key == "Bg" then return end
         preserveKey = preserveKey or key
         if owner and (not preserveArtwork
             or preserveArtwork[preserveKey] ~= true)
@@ -176,7 +182,7 @@ function NSkin:SkinWindow(frame, backgroundAnchor, style, borderColor,
     self:SetOwnedTextureColor(
         background, backgroundColor[1], backgroundColor[2],
         backgroundColor[3], backgroundOpacity)
-    background:SetShown(style.showBackground ~= false)
+    background:SetShown(self:ShouldShowSurfaceBackground(style, frame))
     data.windowBackgroundColor = {
         backgroundColor[1], backgroundColor[2], backgroundColor[3],
         backgroundOpacity,
@@ -263,7 +269,7 @@ function NSkin:SkinWindowHeader(frame, style, owner, defaultHeight, anchor)
         or color[4] or 1
     self:SetOwnedTextureColor(
         background, color[1], color[2], color[3], opacity)
-    background:SetShown(style.showBackground ~= false)
+    background:SetShown(self:ShouldShowSurfaceBackground(style))
 
     local borderColor = self:GetResolvedAppearanceColor(style, "border")
         or self:GetWindowBorderColor()
@@ -1195,6 +1201,8 @@ function NSkin:EnsureStandardWindowStructure(definition, bodyDefinition)
 
     self:RegisterSkinningElement(headerID, {
         label = definition.headerLabel or "Header",
+        contextualInspector = bodyDefinition and bodyDefinition.contextualInspector
+            or definition.contextualInspector,
         kind = "COMPOSITE",
         module = module,
         appearanceWindowID = definition.appearanceWindowID,
@@ -1233,6 +1241,8 @@ function NSkin:EnsureStandardWindowStructure(definition, bodyDefinition)
 
     self:RegisterSkinningElement(containerID, {
         label = (bodyLabel or definition.elementID) .. " Container",
+        contextualInspector = bodyDefinition and bodyDefinition.contextualInspector
+            or definition.contextualInspector,
         kind = "CONTAINER",
         module = module,
         appearanceWindowID = definition.appearanceWindowID,

@@ -4,6 +4,41 @@ local RESET_CONFIRMATION_DIALOG = "NSKIN_CONFIRM_INHERITED_RESET"
 local RESET_ELEMENT_DIALOG = "NSKIN_CONFIRM_ELEMENT_RESET"
 local CLEAR_OVERRIDES_DIALOG = "NSKIN_CONFIRM_CLEAR_OVERRIDES"
 local state
+local INSPECTOR_THEME = {
+    background = { 0.035, 0.051, 0.071, 1 },
+    panel = { 0.075, 0.110, 0.149, 1 },
+    input = { 0.047, 0.075, 0.106, 1 },
+    border = { 0.157, 0.220, 0.290, 1 },
+    text = { 0.83, 0.91, 0.98, 1 },
+    muted = { 0.49, 0.61, 0.73, 1 },
+    accent = { 0.05, 0.76, 0.96, 1 },
+}
+
+local function InspectorFont(label, size, color)
+    local font = GameFontNormal:GetFont()
+    label:SetFont(font, size, "")
+    label:SetTextColor(unpack(color or INSPECTOR_THEME.text))
+end
+
+local function InspectorSurface(frame, color, bordered)
+    local background = NSkin:GetFlatBackground(frame)
+        or NSkin:CreateFlatBackground(frame, nil, color, INSPECTOR_THEME.border)
+    NSkin:SetOwnedTextureColor(background, unpack(color))
+    NSkin:SetPixelBorderColor(NSkin:GetPixelBorder(frame, "NSkinFlatBackgroundBorder"),
+        unpack(INSPECTOR_THEME.border))
+    NSkin:SetPixelBorderShown(NSkin:GetPixelBorder(frame, "NSkinFlatBackgroundBorder"), bordered == true)
+end
+
+local function RefreshInspectorScrollBar()
+    local bar = state.inspector.scrollBar
+    if not bar then return end
+    local range = state.scrollFrame:GetVerticalScrollRange() or 0
+    bar.syncing = true
+    bar:SetMinMaxValues(0, math.max(1, range))
+    bar:SetValue(state.scrollFrame:GetVerticalScroll())
+    bar.syncing = nil
+    bar:SetShown(range > 0)
+end
 
 local function CreateLabel(parent, text, point, relativeTo, relativePoint, x, y)
     local label = parent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -32,8 +67,7 @@ local function ResizeInspector(view, extraHeight)
     local maximumHeight = math.max(
         minimumHeight, math.min(screenLimit, anchoredLimit))
     local inspectorHeight = NSkin:SnapToPhysicalPixel(inspector,
-        math.max(minimumHeight,
-            math.min(contentHeight + headerHeight, maximumHeight)))
+        math.max(minimumHeight, math.min(704, maximumHeight)))
     local snappedContentHeight = NSkin:SnapToPhysicalPixel(
         state.scrollChild, math.max(1, contentHeight))
     inspector:SetHeight(inspectorHeight)
@@ -47,13 +81,16 @@ local function ResizeInspector(view, extraHeight)
     elseif state.scrollFrame:GetVerticalScroll() > range then
         state.scrollFrame:SetVerticalScroll(range)
     end
+    RefreshInspectorScrollBar()
 end
 
 local RefreshInspector
 local LayoutContextualInspector
 local RefreshContextualPairSource
 local RefreshContextualSectionPresentation
-local RefreshAuxiliaryDrawer
+local RefreshDebugLauncher
+local IsContextualInspectorElement
+local IsContextualInspectorMember
 
 local function ResolveEditorContext(definition, element)
     if definition.contextID then
@@ -73,6 +110,11 @@ local function GetContextualCompositeMember(element)
         composition and composition.members or {})
     do
         if candidate.editorSurface == true then return candidate end
+    end
+    if IsContextualInspectorElement and IsContextualInspectorElement(element) then
+        for _, candidate in ipairs(composition and composition.members or {}) do
+            if candidate.contextualInspector ~= false then return candidate end
+        end
     end
     return nil
 end
@@ -191,15 +233,15 @@ local function SnapInspectorOffset(value)
     return NSkin:SnapToPhysicalPixel(state.scrollChild, value)
 end
 
-local function SetInspectorTextWhite(frame)
+local function ApplyInspectorTextStyle(frame)
     if not frame then return end
     for _, region in ipairs({ frame:GetRegions() }) do
         if region.GetObjectType and region:GetObjectType() == "FontString" then
-            region:SetTextColor(1, 1, 1, 1)
+            InspectorFont(region, 10)
         end
     end
     for _, child in ipairs({ frame:GetChildren() }) do
-        SetInspectorTextWhite(child)
+        ApplyInspectorTextStyle(child)
     end
 end
 
@@ -267,19 +309,28 @@ local function GetDockMemberLabel(element, member)
     return memberLabel
 end
 
+local function GetDockContainerLabel(element)
+    local label = tostring(element.label or element.id)
+    if label:lower():match("%s+group$") then return label end
+    return label .. " Group"
+end
+
 local function GetDockSelectionLabel(element)
     if not element then return nil end
     local parent = NSkin:GetCompositionContainerParent(element)
     if parent then
         local families = NSkin:GetContainerCompositeFamilies(parent) or {}
         if #families > 1 then
-            return (parent.label or parent.id) .. " > "
+            return GetDockContainerLabel(parent) .. " > "
                 .. (NSkin:GetCompositeFamilyLabel(element)
                     or element.label or element.id)
         end
-        return parent.label or parent.id
+        return GetDockContainerLabel(parent)
     end
     local composition = element.composition
+    if composition and composition.mode == "CONTAINER" then
+        return GetDockContainerLabel(element)
+    end
     if composition and composition.mode == "COMPOSITE" then
         return composition.groupLabel
             or composition.editorLabel or element.label or element.id
@@ -312,7 +363,7 @@ local function GetCompositeDockMembers(element, includeContainer)
         if parent then
             result[#result + 1] = {
                 container = true,
-                label = "Container",
+                label = GetDockContainerLabel(parent),
                 familyKey = "__CONTAINER",
                 element = parent,
             }
@@ -347,6 +398,9 @@ local function GetCompositeDockMembers(element, includeContainer)
 end
 
 local function GetElementDockNavigation(element)
+    if element and element.contextualInspector == true
+        and element.kind == "SCROLLBAR"
+    then return nil end
     local options = element and NSkin:GetCompositionEditorOptions(element)
     if type(options) ~= "table" then return nil end
     for _, definition in ipairs(options) do
@@ -373,7 +427,7 @@ local function GetDirectChildDockMembers(element, parent)
     local result = {
         {
             container = true,
-            label = "Container",
+            label = GetDockContainerLabel(parent),
             familyKey = "__CONTAINER",
             element = parent,
         },
@@ -409,7 +463,7 @@ local function GetContainerDockMembers(element)
     local result = {
         {
             container = true,
-            label = "Container",
+            label = GetDockContainerLabel(element),
             familyKey = "__CONTAINER",
             element = element,
         },
@@ -439,7 +493,9 @@ local function GetContainerDockMembers(element)
     for _, child in ipairs(directChildren) do
         result[#result + 1] = {
             directChild = true,
-            label = child.containerDockLabel or child.label or child.id,
+            label = child.composition and child.composition.mode == "CONTAINER"
+                and GetDockContainerLabel(child)
+                or child.containerDockLabel or child.label or child.id,
             familyKey = "__CHILD\031" .. tostring(child.id),
             element = child,
         }
@@ -535,7 +591,7 @@ local function RefreshCompositeMemberTabs(element)
         button.label:SetText(entry.label
             or GetDockMemberLabel(entry.element or element, member)
             or (member and (member.label or member.id))
-            or "Container")
+            or "Group")
         button:ClearAllPoints()
         button:SetPoint(
             "TOPLEFT", bar, "TOPLEFT",
@@ -552,8 +608,6 @@ local function RefreshCompositeMemberTabs(element)
     return true
 end
 
-local IsContextualInspectorElement
-local IsContextualInspectorMember
 local GetValidatedFocusedRuntimeTarget
 
 local function RefreshStateSelector(element, member)
@@ -634,6 +688,7 @@ local function RefreshStateSelector(element, member)
         local selected = definition.allStates == true
             and selectedState == nil
             or definition.id == selectedState
+        button.inspectorSelected = selected
         button:SetAlpha(selected and 1 or 0.55)
         local fontString = button.GetFontString and button:GetFontString()
         if fontString then
@@ -659,6 +714,103 @@ local function RefreshStateSelector(element, member)
     end
 end
 
+local function LayoutInspectorChrome(element, member)
+    local inspector = state.inspector
+    local hasStates = member and #(member.states or {}) > 0
+    local headerHeight = hasStates and 212 or 166
+    if not state.contextualInspectorHeader and state.memberTabsShown then headerHeight = headerHeight + 28 end
+    state.inspectorHeaderHeight = headerHeight
+    inspector.title:Show()
+    InspectorFont(inspector.title, 14)
+    inspector.title:SetText("NSkin")
+    inspector.title:ClearAllPoints()
+    inspector.title:SetPoint("LEFT", inspector.logo, "RIGHT", 8, 0)
+    inspector.subtitle:Show()
+    InspectorFont(inspector.subtitle, 9, INSPECTOR_THEME.muted)
+    InspectorFont(inspector.editingLabel, 10, INSPECTOR_THEME.muted)
+    InspectorFont(inspector.designLabel, 12, INSPECTOR_THEME.accent)
+    state.inspectorDragRegion:SetHeight(38)
+    local headerStyle = CopyTable(NSkin:GetStyle("window").header)
+    headerStyle.height = 38
+    headerStyle.showBackground, headerStyle.showBorder = false, false
+    NSkin:SkinWindowHeader(inspector, headerStyle)
+    inspector.selection:ClearAllPoints()
+    inspector.selection:SetPoint("TOPLEFT", inspector, "TOPLEFT", 34, -54)
+    inspector.selection:SetPoint("TOPRIGHT", inspector, "TOPRIGHT", -26, -54)
+    inspector.memberPicker:ClearAllPoints()
+    inspector.memberPicker:SetPoint("TOPLEFT", inspector, "TOPLEFT", 68, -91)
+    inspector.memberPicker:SetSize(124, 28)
+    InspectorSurface(inspector.memberPicker, INSPECTOR_THEME.input, true)
+    local pickerBackground = NSkin:GetFlatBackground(inspector.memberPicker, "NSkinOptionsDropdown")
+    if pickerBackground then NSkin:SetOwnedTextureColor(pickerBackground, unpack(INSPECTOR_THEME.input)) end
+    NSkin:SetPixelBorderColor(NSkin:GetPixelBorder(inspector.memberPicker, "NSkinOptionsDropdownBorder"), unpack(INSPECTOR_THEME.border))
+    local pickerText = inspector.memberPicker.text or inspector.memberPicker.Text
+    if pickerText then InspectorFont(pickerText, 10) end
+    if inspector.memberPicker.nskinArrow then
+        inspector.memberPicker.nskinArrow:SetSize(10, 10)
+        inspector.memberPicker.nskinArrow:SetVertexColor(unpack(INSPECTOR_THEME.muted))
+    end
+    inspector.editingLabel:SetShown(inspector.memberPicker:IsShown())
+    inspector.contextScope:Hide()
+    inspector.resetElement:ClearAllPoints()
+    inspector.resetElement:SetPoint("TOPRIGHT", inspector, "TOPRIGHT", -24, -93)
+    inspector.resetElement:SetSize(106, 24)
+    InspectorSurface(inspector.resetElement, { 0, 0, 0, 0 }, false)
+    local resetText = inspector.resetElement:GetFontString()
+    if resetText then
+        InspectorFont(resetText, 9, INSPECTOR_THEME.muted)
+        resetText:ClearAllPoints()
+        resetText:SetPoint("LEFT", inspector.resetElement, "LEFT", 19, 0)
+        resetText:SetPoint("RIGHT", inspector.resetElement, "RIGHT", -2, 0)
+        resetText:SetJustifyH("RIGHT")
+    end
+    inspector.addOverride:ClearAllPoints()
+    inspector.addOverride:SetPoint("RIGHT", inspector.resetElement, "LEFT", -4, 0)
+    inspector.addOverride:SetSize(20, 24)
+    NSkin:SkinFlatButton(inspector.addOverride, "+", INSPECTOR_THEME.input, INSPECTOR_THEME.border, 11)
+    inspector.stateLabel:ClearAllPoints()
+    inspector.stateLabel:SetPoint("TOPLEFT", inspector, "TOPLEFT", 30, -139)
+    inspector.stateLabel:SetText("State")
+    InspectorFont(inspector.stateLabel, 10, INSPECTOR_THEME.muted)
+    inspector.stateTrack:SetShown(hasStates and inspector.stateLabel:IsShown())
+    inspector.stateTrack:ClearAllPoints()
+    inspector.stateTrack:SetPoint("TOPLEFT", inspector, "TOPLEFT", 68, -133)
+    inspector.stateTrack:SetPoint("TOPRIGHT", inspector, "TOPRIGHT", -24, -133)
+    inspector.stateTrack:SetHeight(32)
+    local shown = {}
+    for _, button in ipairs(inspector.stateButtons) do
+        if button:IsShown() then shown[#shown + 1] = button end
+    end
+    local buttonWidth = math.max(1, (inspector:GetWidth() - 98) / math.max(1, #shown))
+    for index, button in ipairs(shown) do
+        button:ClearAllPoints()
+        button:SetPoint("TOPLEFT", inspector.stateTrack, "TOPLEFT", 3 + (index-1)*buttonWidth, -3)
+        button:SetSize(buttonWidth, 26)
+        button:SetAlpha(1)
+        InspectorSurface(button, button.inspectorSelected and { 0.065, 0.20, 0.26, 1 }
+            or { 0, 0, 0, 0 }, false)
+        local label = button:GetFontString()
+        if label then InspectorFont(label, 10, button.inspectorSelected and INSPECTOR_THEME.accent or INSPECTOR_THEME.muted) end
+    end
+    inspector.designBar:ClearAllPoints()
+    inspector.designBar:SetPoint("TOPLEFT", inspector, "TOPLEFT", 12, -(headerHeight - 40))
+    inspector.designBar:SetPoint("TOPRIGHT", inspector, "TOPRIGHT", -12, -(headerHeight - 40))
+    inspector.designBar:SetHeight(40)
+    inspector.breadcrumbLine:ClearAllPoints()
+    inspector.breadcrumbLine:SetPoint("TOPLEFT", inspector.panel, "TOPLEFT", 0, -32)
+    inspector.breadcrumbLine:SetPoint("TOPRIGHT", inspector.panel, "TOPRIGHT", 0, -32)
+    if state.memberTabsShown then
+        inspector.memberTabs:ClearAllPoints()
+        inspector.memberTabs:SetPoint("TOPLEFT", inspector, "TOPLEFT", 24, -122)
+        inspector.memberTabs:SetPoint("TOPRIGHT", inspector, "TOPRIGHT", -24, -122)
+    end
+    state.scrollFrame:ClearAllPoints()
+    state.scrollFrame:SetPoint("TOPLEFT", inspector, "TOPLEFT", 14, -headerHeight)
+    state.scrollFrame:SetPoint("BOTTOMRIGHT", inspector, "BOTTOMRIGHT", -26, 32)
+    state.scrollChild:SetWidth(inspector:GetWidth() - 40)
+    RefreshInspectorScrollBar()
+end
+
 local function RefreshHeaderActions(element)
     local inspector = state.inspector
     if not inspector then return end
@@ -682,6 +834,8 @@ local function RefreshHeaderActions(element)
                 label = "Reset Checkbox"
             elseif member and member.kind == "TEXT" then
                 label = "Reset Text"
+            elseif member and member.kind == "BUTTON" and not member.editorSurface then
+                label = "Reset Button"
             end
         end
         NSkin:SkinFlatButton(inspector.resetElement, label, nil, nil, 12)
@@ -692,7 +846,8 @@ local function RefreshHeaderActions(element)
         inspector.resetElement.resetLabel = "Reset All"
     end
 
-    if IsContextualInspectorMember(element, overrideMember) then
+    local contextualOwner = IsContextualInspectorElement(element) and not composite
+    if IsContextualInspectorMember(element, overrideMember) or contextualOwner then
         state.contextualInspectorHeader = true
         state.memberTabsShown = nil
         inspector.memberTabs:Hide()
@@ -710,22 +865,45 @@ local function RefreshHeaderActions(element)
         headerStyle.showBackground, headerStyle.showBorder = false, false
         NSkin:SkinWindowHeader(inspector, headerStyle)
         state.inspectorDragRegion:SetHeight(26)
-        inspector.memberPicker:SetShown(member ~= nil)
+        inspector.memberPicker.navigationEntries = nil
+        inspector.memberPicker.element = element
+        inspector.memberPicker.member = member
+        inspector.memberPicker:SetShown(member ~= nil or contextualOwner)
         if member then
             inspector.memberPicker:SetDefaultText(
                 GetDockMemberLabel(element, member) or member.label or member.id)
             inspector.memberPicker.element = element
             inspector.memberPicker.member = member
+        elseif contextualOwner then
+            local parent = NSkin:GetCompositionContainerParent(element)
+            local entries, selectedKey
+            if element.kind == "SCROLLBAR" then
+                -- Parts are accordion sections on one page; the breadcrumb
+                -- already provides navigation back to the owning group.
+                inspector.memberPicker:Hide()
+            elseif composition and composition.mode == "CONTAINER" then
+                entries, selectedKey = GetContainerDockMembers(element), "__CONTAINER"
+            elseif parent then
+                entries, selectedKey = GetDirectChildDockMembers(element, parent)
+                entries = entries or GetContainerDockMembers(parent)
+                selectedKey = selectedKey or ("__CHILD\031" .. element.id)
+            end
+            inspector.memberPicker.navigationEntries = entries or {}
+            inspector.memberPicker.navigationSelectedKey = selectedKey
+            inspector.memberPicker:SetShown(#(entries or {}) > 0)
+            inspector.memberPicker:SetDefaultText(element.label or element.id)
+            for _, entry in ipairs(entries or {}) do
+                if entry.familyKey == selectedKey then
+                    inspector.memberPicker:SetDefaultText(entry.label)
+                    break
+                end
+            end
         end
         local detailKey = member and (element.id .. "\031" .. member.id)
         local exact = detailKey and state.contextualInspectorDetails[detailKey]
             == "__OVERRIDES"
-        inspector.contextScope:SetText(exact and ("Editing: "
-            .. (composition.contextualTargetLabel or "This target")
-            .. " · Specific overrides")
-            or ("Editing: " .. tostring(composition.contextualScopeLabel
-                or composition.groupLabel or element.label or element.id)))
-        inspector.contextScope:Show()
+        inspector.contextScope:SetText("Specific overrides")
+        inspector.contextScope:SetShown(exact)
         if exact then
             NSkin:SkinFlatButton(inspector.resetElement, "Clear Overrides", nil, nil, 12)
             inspector.resetElement.resetLabel = "Clear Overrides"
@@ -753,7 +931,7 @@ local function RefreshHeaderActions(element)
             state.inspectorHeaderHeight = 98
             inspector.resetElement:SetPoint("TOPRIGHT", inspector, "TOPRIGHT", -12, -68)
         end
-        if RefreshAuxiliaryDrawer then RefreshAuxiliaryDrawer(true) end
+        if RefreshDebugLauncher then RefreshDebugLauncher(true) end
 
         local exactTargetAvailable = true
         if member and type(member.getTargetAppearanceID) == "function" then
@@ -775,6 +953,7 @@ local function RefreshHeaderActions(element)
                 "BOTTOMRIGHT", inspector, "BOTTOMRIGHT", -1, 1)
         end
         RefreshStateSelector(element, member)
+        LayoutInspectorChrome(element, member)
         return
     end
 
@@ -782,7 +961,7 @@ local function RefreshHeaderActions(element)
     inspector.title:Show()
     NSkin:SkinWindowHeader(inspector)
     state.inspectorDragRegion:SetHeight(22)
-    if RefreshAuxiliaryDrawer then RefreshAuxiliaryDrawer(false) end
+    if RefreshDebugLauncher then RefreshDebugLauncher(false) end
     inspector.addOverride:ClearAllPoints()
     inspector.addOverride:SetPoint("RIGHT", inspector.resetElement, "LEFT", -4, 0)
     inspector.memberPicker:Hide()
@@ -823,6 +1002,7 @@ local function RefreshHeaderActions(element)
             "BOTTOMRIGHT", inspector, "BOTTOMRIGHT", -1, 1)
     end
     RefreshStateSelector(element, overrideMember)
+    LayoutInspectorChrome(element, overrideMember)
 end
 
 local function FocusEditorSection(element, memberID)
@@ -1231,6 +1411,7 @@ local function OpenOverridePopup(element, preferredMemberID)
     local preferred = preferredMemberID
         and NSkin:GetCompositeMember(element, preferredMemberID)
     if IsContextualInspectorMember(element, preferred)
+        and type(preferred.getTargetAppearanceID) == "function"
         and not GetValidatedFocusedRuntimeTarget(element, preferred)
     then return end
     popup:Open(element, preferred and { preferred } or nil)
@@ -1239,15 +1420,15 @@ end
 
 IsContextualInspectorElement = function(element)
     local composition = element and element.composition
-    return composition
+    return element and element.contextualInspector == true or (composition
         and composition.mode == "COMPOSITE"
-        and composition.contextualInspector == true
+        and composition.contextualInspector == true)
 end
 
 IsContextualInspectorMember = function(element, member)
     return IsContextualInspectorElement(element)
         and member
-        and member.contextualInspector == true
+        and member.contextualInspector ~= false
 end
 
 local function HideContextualInspectorRows()
@@ -1279,7 +1460,7 @@ local function HideLegacyInspectorRows()
 end
 
 local function GetContextualDetailKey(element, member)
-    return element.id .. "\031" .. member.id
+    return element.id .. "\031" .. (member and member.id or "__OWNER")
 end
 
 GetValidatedFocusedRuntimeTarget = function(element, member)
@@ -1324,8 +1505,9 @@ local function GetContextualOverrideEntries(element, member)
 end
 
 local function CollectContextualOptionGroups(element, member)
-    local definitions = NSkin:GetCompositeMemberEditorOptions(
-        element, member) or {}
+    local definitions = (member and NSkin:GetCompositeMemberEditorOptions(
+        element, member) or NSkin:GetCompositionEditorOptions(element)) or {}
+    local navigation = not member and GetElementDockNavigation(element)
     local groups, seen = {}, {}
 
     local function Add(definition, inheritedContext)
@@ -1334,21 +1516,30 @@ local function CollectContextualOptionGroups(element, member)
         end
         if type(definition) ~= "table" then return end
         local context = definition.context or inheritedContext
+        if type(definition.groups) == "table" then
+            for _, child in ipairs(definition.groups) do Add(child, context) end
+            return
+        end
         if definition.presentation == "NAV_TABS"
             and type(definition.tabs) == "table"
         then
-            for _, tab in ipairs(definition.tabs) do
-                local tabContext = type(tab) == "table"
-                    and (tab.context or context) or context
-                for _, child in ipairs(
-                    type(tab) == "table" and tab.groups or {})
-                do
-                    Add(child, tabContext)
-                end
-                for _, child in ipairs(
-                    type(tab) == "table" and tab.tabs or {})
-                do
-                    Add(child, tabContext)
+            local selected = navigation and navigation.id == definition.id and math.min(
+                state.selectedEditorSubtabs[element.id .. "\031" .. tostring(definition.id)] or 1,
+                #definition.tabs)
+            for index, tab in ipairs(definition.tabs) do
+                if not selected or index == selected then
+                    local tabContext = type(tab) == "table"
+                        and (tab.context or context) or context
+                    for _, child in ipairs(
+                        type(tab) == "table" and tab.groups or {})
+                    do
+                        Add(child, tabContext)
+                    end
+                    for _, child in ipairs(
+                        type(tab) == "table" and tab.tabs or {})
+                    do
+                        Add(child, tabContext)
+                    end
                 end
             end
             return
@@ -1356,6 +1547,18 @@ local function CollectContextualOptionGroups(element, member)
         if type(definition.id) ~= "string"
             or not NSkin:GetOptionGroupDefinition(definition.id)
         then return end
+        -- Reuse canonical subsets for the compact inspector; storage and reset
+        -- ownership still belong to the original shared appearance contract.
+        local subsets = {
+            ["shared.buttonAppearance"] = { "shared.buttonGeometry", "shared.buttonContent" },
+            ["shared.checkboxAppearance"] = { "shared.checkboxGeometry", "shared.checkboxContent" },
+            ["shared.surfaceAppearance"] = { "shared.surfaceGeometry", "shared.surfaceBackground",
+                "shared.surfaceBorder", "shared.surfaceHighlight" },
+        }
+        if subsets[definition.id] then
+            for _, id in ipairs(subsets[definition.id]) do Add({ id = id }, context) end
+            return
+        end
         local token = definition.id .. "\031"
             .. tostring(context and context.id or context)
         if seen[token] then return end
@@ -1363,23 +1566,48 @@ local function CollectContextualOptionGroups(element, member)
         groups[#groups + 1] = {
             id = definition.id,
             label = definition.label,
+            category = definition.category,
             context = context,
         }
     end
 
     for _, definition in ipairs(definitions) do Add(definition, element) end
-    return groups
+    local ordered = {}
+    for _, group in ipairs(groups) do
+        if group.id == "shared.movable" or group.category == "POSITION" then
+            ordered[#ordered + 1] = group
+        end
+    end
+    for _, group in ipairs(groups) do
+        if group.id ~= "shared.movable" and group.category ~= "POSITION" then
+            ordered[#ordered + 1] = group
+        end
+    end
+    return ordered
 end
 
 local CONTEXTUAL_GROUP_LABELS = {
     ["shared.movable"] = "Position",
     ["shared.checkboxGeometry"] = "Geometry",
     ["shared.checkboxContent"] = "Content",
+    ["shared.buttonGeometry"] = "Geometry",
+    ["shared.buttonContent"] = "Content",
+    ["shared.scrollBarBar"] = "Bar",
+    ["shared.scrollBarThumb"] = "Thumb",
+    ["shared.scrollBarArrowAll"] = "Arrow · All states",
+    ["shared.scrollBarArrowDisabled"] = "Arrow · Disabled",
+    ["shared.scrollBarArrowEnabled"] = "Arrow · Enabled",
     ["shared.textAppearance"] = "Text",
     ["shared.surfaceGeometry"] = "Geometry",
     ["shared.surfaceBackground"] = "Background",
     ["shared.surfaceBorder"] = "Border",
     ["shared.surfaceHighlight"] = "Highlight",
+    ["shared.windowSpecificAppearance"] = "Window",
+    ["shared.windowSurfaceBackground"] = "Background",
+    ["shared.windowSurfaceBorder"] = "Border",
+    ["shared.windowSurfaceHighlight"] = "Highlight",
+    ["shared.iconAppearance"] = "Icon",
+    ["shared.containerLayout"] = "Layout",
 }
 
 local function FormatContextualSummary(group)
@@ -1404,11 +1632,13 @@ local function FormatContextualSummary(group)
         local size = tonumber(values.textSize)
         return size and (tostring(math.floor(size + 0.5)) .. " px")
             or "Typography & color"
-    elseif group.id == "shared.surfaceGeometry" then
+    elseif group.id == "shared.surfaceGeometry" or group.id == "shared.buttonGeometry" then
         return tostring(math.floor((tonumber(values.width) or 0) + 0.5))
             .. " × "
             .. tostring(math.floor((tonumber(values.height) or 0) + 0.5))
             .. " px"
+    elseif group.id == "shared.buttonContent" then
+        return "Button content"
     elseif group.id == "shared.surfaceBackground" then
         return (values.showBackground == false and "Off" or "On")
             .. " · "
@@ -1442,9 +1672,16 @@ local function EnsureContextualSummaryRow(index)
     row.cells = {}
     row.label = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     row.label:SetPoint("LEFT", row, "LEFT", 12, 0)
+    row.sectionIcon = row:CreateTexture(nil, "OVERLAY")
+    row.sectionIcon:SetPoint("LEFT", row, "LEFT", 8, 0)
+    row.sectionIcon:SetSize(13, 13)
+    row.sectionIcon:SetTexture("Interface\\AddOns\\NSkin\\Media\\grid-alt.png")
+    row.sectionIcon:SetVertexColor(unpack(INSPECTOR_THEME.accent))
+    row.label:ClearAllPoints()
+    row.label:SetPoint("LEFT", row.sectionIcon, "RIGHT", 10, 0)
     row.enabledToggle = NSkin:CreateOwnedOptionsCheckbox(row)
-    row.enabledToggle:SetSize(18, 18)
-    row.enabledToggle:SetPoint("LEFT", row.label, "RIGHT", 8, 0)
+    row.enabledToggle:SetSize(22, 12)
+    row.enabledToggle:SetPoint("RIGHT", row, "RIGHT", -4, 0)
     row.enabledToggle:SetFrameLevel(row:GetFrameLevel() + 1)
     row.enabledToggle.Text:Hide()
     row.enabledToggle:RegisterForClicks("LeftButtonUp", "RightButtonUp")
@@ -1487,6 +1724,12 @@ local function EnsureContextualSummaryRow(index)
     row.arrow:SetRotation(-math.pi / 2)
     NSkin:CreateFlatBackground(row, nil,
         { 0, 0, 0, 0 }, NSkin:GetStyle("window").header.divider)
+    InspectorSurface(row, { 0, 0, 0, 0 }, false)
+    row.divider = row:CreateTexture(nil, "BACKGROUND")
+    row.divider:SetPoint("TOPLEFT")
+    row.divider:SetPoint("TOPRIGHT")
+    row.divider:SetHeight(1)
+    row.divider:SetColorTexture(unpack(INSPECTOR_THEME.border))
     row:SetScript("OnClick", function(self)
         if not self.detailKey or not self.groupID then return end
         if self.groupID == "__OVERRIDES" then
@@ -1500,17 +1743,42 @@ local function EnsureContextualSummaryRow(index)
         LayoutContextualInspector()
     end)
     row:SetScript("OnEnter", function(self)
-        NSkin:SetPixelBorderColor(
-            NSkin:GetPixelBorder(self, "NSkinFlatBackgroundBorder"),
-            unpack(NSkin:GetAccentColor()))
+        self.label:SetTextColor(unpack(INSPECTOR_THEME.accent))
     end)
     row:SetScript("OnLeave", function(self)
-        NSkin:SetPixelBorderColor(
-            NSkin:GetPixelBorder(self, "NSkinFlatBackgroundBorder"),
-            unpack(NSkin:GetStyle("window").header.divider))
+        self.label:SetTextColor(unpack(INSPECTOR_THEME.text))
     end)
     state.contextualSummaryRows[index] = row
     return row
+end
+
+local function GetContextualPropertySourceLabel(source)
+    -- Source tags are deliberately omitted from the current Design presentation.
+    return ""
+end
+
+local function LayoutContextualPropertyHeading(row, width, centered)
+    local available = math.max(1, width - 24)
+    -- Measure the complete text using the current font, not the previous
+    -- constrained heading widths. Only the source may be truncated.
+    row.label:ClearAllPoints()
+    row.label:SetWidth(0)
+    row.source:ClearAllPoints()
+    row.source:SetWidth(0)
+    local labelWidth = math.ceil(row.label:GetStringWidth()) + 2
+    local hasSource = (row.source:GetText() or "") ~= ""
+    local sourceWidth = hasSource and math.min(math.ceil(row.source:GetStringWidth()) + 2,
+        math.max(1, available - labelWidth - 6)) or 0
+    local headingWidth = labelWidth + (hasSource and (6 + sourceWidth) or 0)
+    row.label:ClearAllPoints()
+    row.label:SetPoint("TOPLEFT", row, "TOPLEFT",
+        centered and math.max(0, (available - headingWidth) / 2) or 0, -4)
+    row.label:SetSize(labelWidth, 16)
+    row.label:SetJustifyV("BOTTOM")
+    row.source:ClearAllPoints()
+    row.source:SetPoint("BOTTOMLEFT", row.label, "BOTTOMRIGHT", 6, 0)
+    row.source:SetSize(math.max(1, sourceWidth), 14)
+    row.source:SetJustifyV("BOTTOM")
 end
 
 local function RefreshContextualPropertySource(row)
@@ -1519,18 +1787,39 @@ local function RefreshContextualPropertySource(row)
     then return end
     local source = NSkin:GetOptionGroupPropertyInheritance(
         row.groupID, row.context, row.property)
-    row.source:SetText(source and source.label or "")
+    row.source:SetText(GetContextualPropertySourceLabel(source))
+    if not row.pairRow or row.pairRow.mixedSources then
+        LayoutContextualPropertyHeading(row, row:GetWidth())
+    end
     if row.pairRow then RefreshContextualPairSource(row.pairRow) end
 end
 
 RefreshContextualSectionPresentation = function(section)
-    section.value:SetText(FormatContextualSummary(section.group))
+    section.value:SetText((FormatContextualSummary(section.group):gsub("^O[nf]+ · ", "")))
     local cell = section.headerToggleCell
     section.enabledToggle:SetShown(cell ~= nil)
     if cell then
         local definition = NSkin:GetOptionGroupDefinition(cell.groupID)
         local values = definition.get(cell.context)
         section.enabledToggle:SetChecked(values[cell.property.key] == true)
+    end
+    InspectorFont(section.label, 12)
+    InspectorFont(section.value, 9, INSPECTOR_THEME.muted)
+    section.value:ClearAllPoints()
+    section.value:SetPoint("RIGHT", section, "RIGHT", cell and -66 or -28, 0)
+    section.arrow:ClearAllPoints()
+    section.arrow:SetPoint("RIGHT", section, "RIGHT", cell and -38 or -8, 0)
+    section.arrow:SetVertexColor(unpack(INSPECTOR_THEME.accent))
+    local toggle = section.enabledToggle
+    InspectorSurface(toggle, INSPECTOR_THEME.input, true)
+    NSkin:SetPixelBorderColor(NSkin:GetPixelBorder(toggle, "NSkinOptionsCheckboxBorder"), unpack(INSPECTOR_THEME.border))
+    -- A square switch uses the canonical CheckButton's checked state and click handler.
+    local checked = toggle:GetCheckedTexture()
+    if checked then
+        checked:ClearAllPoints()
+        checked:SetPoint("TOPLEFT", toggle, "TOPLEFT", 1, -1)
+        checked:SetPoint("BOTTOMRIGHT", toggle, "BOTTOMRIGHT", -1, 1)
+        checked:SetColorTexture(unpack(INSPECTOR_THEME.accent))
     end
 end
 
@@ -1546,8 +1835,7 @@ local function EnsureContextualPropertyRow(key)
     cell.label:SetJustifyH("LEFT")
     cell.label:SetWordWrap(false)
     cell.source = cell:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    cell.source:SetPoint("BOTTOMLEFT", cell, "BOTTOMLEFT", 0, 4)
-    cell.source:SetPoint("BOTTOMRIGHT", cell, "BOTTOMRIGHT", 0, 4)
+    cell.source:SetPoint("LEFT", cell.label, "RIGHT", 6, 0)
     cell.source:SetHeight(14)
     cell.source:SetJustifyH("LEFT")
     cell.source:SetWordWrap(false)
@@ -1574,7 +1862,7 @@ local function EnsureContextualPropertyRow(key)
         end
     end)
     cell.reset:SetScript("OnLeave", function(self)
-        NSkin:SetCenteredButtonGlyphColor(self.icon, { 1, 1, 1, 1 })
+        NSkin:SetCenteredButtonGlyphColor(self.icon, INSPECTOR_THEME.muted)
         if GameTooltip then GameTooltip:Hide() end
     end)
     cell.reset:SetScript("OnClick", function()
@@ -1598,8 +1886,9 @@ RefreshContextualPairSource = function(pair)
         right.groupID, right.context, right.property)
     local a, b = leftSource and leftSource.label or "", rightSource and rightSource.label or ""
     local mixed = a ~= b
-    pair.label:SetText(pair.title .. (mixed and " · Mixed sources"
-        or (a ~= "" and (" · " .. a) or "")))
+    pair.label:SetText(pair.title)
+    pair.source:SetText(not mixed and GetContextualPropertySourceLabel(leftSource) or "")
+    LayoutContextualPropertyHeading(pair, pair:GetWidth(), true)
     left.source:SetShown(mixed)
     right.source:SetShown(mixed)
     local changed = pair.mixedSources ~= nil and pair.mixedSources ~= mixed
@@ -1619,6 +1908,10 @@ local function EnsureContextualPairRow(section, left, right)
         pair.label:SetHeight(16)
         pair.label:SetJustifyH("CENTER")
         pair.label:SetWordWrap(false)
+        pair.source = pair:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        pair.source:SetJustifyH("LEFT")
+        pair.source:SetWordWrap(false)
+        pair.source:SetTextColor(0.65, 0.65, 0.65, 1)
         pair.reset = CreateFrame("Button", nil, pair)
         pair.reset:SetSize(20, 20)
         pair.reset:SetPoint("TOPRIGHT")
@@ -1678,8 +1971,8 @@ LayoutContextualInspector = function()
             local nextCell = section.cells[index + 1]
             local hasPair = nextCell and cell.property.editorPair
                 and cell.property.editorPair == nextCell.property.editorPair
-            local paired = width >= 440 and hasPair
-            local sharedHeading = hasPair and cell.property.editorPairLabel
+            local paired = width >= 330 and hasPair
+            local sharedHeading = false
             local pair = sharedHeading and EnsureContextualPairRow(section, cell, nextCell)
             local cellWidth = paired and (width - 36) / 2 or width - 20
             if pair then
@@ -1693,14 +1986,14 @@ LayoutContextualInspector = function()
                 RefreshContextualPairSource(pair)
                 bodyY = bodyY + 24
             end
-            local cellHeight = pair and (pair.mixedSources and 60 or 42) or 76
+            local cellHeight = 66
             local function Place(current, x)
                 current:ClearAllPoints()
                 current:SetPoint("TOPLEFT", section.body, "TOPLEFT", x, -bodyY)
                 current:SetSize(cellWidth, cellHeight)
                 current.label:ClearAllPoints()
                 current.valueCell:ClearAllPoints()
-                if pair then
+                if pair and not pair.mixedSources then
                     local key = current.property.key
                     current.label:SetText(key == "alongOffset" and "X"
                         or (key == "edgeOffset" and "Y" or ""))
@@ -1713,14 +2006,13 @@ LayoutContextualInspector = function()
                     current.valueCell:SetPoint("TOPRIGHT", current, "TOPRIGHT", 0, -6)
                     current.valueCell:SetWidth(cellWidth - inset)
                 else
-                    current.pairRow = nil
+                    if not pair then current.pairRow = nil end
                     current.label:SetText(current.property.label or current.property.key)
-                    current.label:SetPoint("TOPLEFT", current, "TOPLEFT", 0, -4)
-                    current.label:SetPoint("TOPRIGHT", current, "TOPRIGHT", -24, -4)
-                    current.label:SetHeight(16)
+                    InspectorFont(current.label, 10)
+                    LayoutContextualPropertyHeading(current, cellWidth)
                     current.label:Show()
-                    current.source:Show()
-                    current.reset:Show()
+                    current.source:Hide()
+                    current.reset:SetShown(not pair)
                     current.valueCell:SetPoint("TOPLEFT", current, "TOPLEFT", 0, -25)
                     current.valueCell:SetPoint("TOPRIGHT", current, "TOPRIGHT", 0, -25)
                     current.valueCell:SetWidth(cellWidth)
@@ -1728,7 +2020,7 @@ LayoutContextualInspector = function()
                 current.view:ClearAllPoints()
                 current.view:SetAllPoints(current.valueCell)
                 NSkin:LayoutOptionPropertyView(current.view, current.property,
-                    current.valueCell:GetWidth())
+                    current.valueCell:GetWidth(), INSPECTOR_THEME)
             end
             Place(cell, 10)
             if hasPair then
@@ -1737,6 +2029,12 @@ LayoutContextualInspector = function()
             end
             bodyY = bodyY + cellHeight + 4
             index = index + (hasPair and 2 or 1)
+        end
+        if section.actionView then
+            section.actionView:ClearAllPoints()
+            section.actionView:SetPoint("TOPLEFT", section.body, "TOPLEFT", 10, -bodyY)
+            section.actionView:SetWidth(width - 20)
+            bodyY = bodyY + section.actionView:GetHeight() + 4
         end
         section.body:SetHeight(bodyY)
         if open then y = y + bodyY end
@@ -1829,26 +2127,42 @@ local function LoadContextualInspector(element, member)
     end
     state.contextualInspectorDetails[detailKey] = nil
     state.contextualAccordionExpansion = state.contextualAccordionExpansion or {}
-    for _, group in ipairs(groups) do
+    state.contextualDesignInitialized = state.contextualDesignInitialized or {}
+    local initializeExpansion = not state.contextualDesignInitialized[detailKey]
+    state.contextualDesignInitialized[detailKey] = true
+    for groupIndex, group in ipairs(groups) do
         local key = detailKey .. "\031" .. group.id
+        if initializeExpansion and state.contextualAccordionExpansion[key] == nil then
+            state.contextualAccordionExpansion[key] = groupIndex <= 4
+        end
         local section = EnsureContextualSummaryRow(key)
         section.detailKey, section.expansionKey = detailKey, key
         section.groupID, section.group = group.id, group
         local definition = NSkin:GetOptionGroupDefinition(group.id)
         local label = group.label or CONTEXTUAL_GROUP_LABELS[group.id] or group.id
-        if definition.stateIndependent and #(member.states or {}) > 0 then
-            label = label .. " · All states"
-        end
         section.label:SetText(label)
         section.value:SetText(FormatContextualSummary(group))
         section.cells = {}
         section.headerToggleCell = nil
         section.enabledToggle:Hide()
+        if section.actionView then section.actionView:Hide() end
+        local actionsID = NSkin:EnsureOptionGroupInspectorActions(group.id)
+        if actionsID then
+            if not section.actionView then
+                section.actionView = NSkin:CreateOptionGroupView(
+                    section.body, actionsID, "FULL", group.context)
+                section.actionView.isSkinningModeInspector = true
+                section.actionView.preserveInspectorContext = true
+            else
+                section.actionView:SetContext(group.context)
+            end
+            section.actionView:Show()
+        end
         section:Show()
         state.contextualActiveSections[#state.contextualActiveSections + 1] = section
         for _, property in ipairs(NSkin:GetOptionGroupOverrideProperties(group.id, true)) do
             local subsetID = NSkin:EnsureOptionGroupPropertySubset(
-                group.id, member.id, property.key, property.label)
+                group.id, member and member.id or element.id, property.key, property.label)
             if subsetID then
                 local cell = EnsureContextualPropertyRow(key .. "\031" .. property.key)
                 cell:SetParent(section.body)
@@ -1881,8 +2195,9 @@ local function LoadContextualInspector(element, member)
                 end
             end
         end
+        RefreshContextualSectionPresentation(section)
     end
-    local overrides = GetContextualOverrideEntries(element, member)
+    local overrides = member and GetContextualOverrideEntries(element, member) or {}
     if #overrides > 0 then
         local key = detailKey .. "\031__OVERRIDES"
         local section = EnsureContextualSummaryRow(key)
@@ -1900,7 +2215,7 @@ end
 local function LoadEditorOptions(element)
     local focusedMember = element and state.focusedCompositeMemberID
         and NSkin:GetCompositeMember(element, state.focusedCompositeMemberID)
-    local contextualMember = focusedMember
+    local contextualMember = GetContextualCompositeMember(element)
     local composition = element and element.composition
     if not contextualMember and composition
         and composition.mode == "COMPOSITE"
@@ -1922,6 +2237,9 @@ local function LoadEditorOptions(element)
 
     if IsContextualInspectorMember(element, contextualMember) then
         return LoadContextualInspector(element, contextualMember)
+    end
+    if IsContextualInspectorElement(element) and not contextualMember then
+        return LoadContextualInspector(element, nil)
     end
     HideContextualInspectorRows()
 
@@ -2466,10 +2784,15 @@ RefreshInspector = function()
             element, state.focusedCompositeMemberID)
     local selectionLabel = GetDockSelectionLabel(element)
     if IsContextualInspectorElement(element) then
+        local composition = element.composition or {}
         selectionLabel = tostring(
-            element.composition.editorLabel
-                or element.composition.groupLabel
-                or selectionLabel or element.label or element.id)
+            composition.editorLabel or composition.groupLabel
+                or (composition.mode == "CONTAINER" and GetDockContainerLabel(element))
+                or element.label or element.id)
+        local parent = NSkin:GetCompositionContainerParent(element)
+        if parent then
+            selectionLabel = GetDockContainerLabel(parent) .. " > " .. selectionLabel
+        end
     end
     state.inspector.selection:SetText(
         selectionLabel or "Select an element"
@@ -2477,17 +2800,77 @@ RefreshInspector = function()
     RefreshHeaderActions(element)
     LoadEditorOptions(element)
     NSkin:ApplyGlobalTypography(state.inspector)
-    SetInspectorTextWhite(state.inspector)
+    ApplyInspectorTextStyle(state.inspector)
+    local selection = state.inspector.selection
+    local parent = element and NSkin:GetCompositionContainerParent(element)
+    local breadcrumb = IsContextualInspectorElement(element) and parent ~= nil
+    selection.label:SetShown(not breadcrumb)
+    selection.parentButton:SetShown(breadcrumb)
+    selection.separator:SetShown(breadcrumb)
+    selection.currentLabel:SetShown(breadcrumb)
+    if breadcrumb then
+        selection.parentButton.label:SetText(GetDockContainerLabel(parent))
+        selection.parentButton:SetWidth(
+            math.ceil(selection.parentButton.label:GetStringWidth()) + 2)
+        local composition = element.composition or {}
+        selection.currentLabel:SetText(composition.editorLabel
+            or composition.groupLabel or element.label or element.id)
+        selection.currentLabel:SetTextColor(unpack(NSkin:GetAccentColor()))
+    end
+    local activeMember = GetContextualCompositeMember(element)
+    selection.memberSeparator:SetShown(activeMember ~= nil)
+    selection.memberLabel:SetShown(activeMember ~= nil)
+    InspectorFont(selection.label, 10, INSPECTOR_THEME.muted)
+    InspectorFont(selection.parentButton.label, 10, INSPECTOR_THEME.muted)
+    InspectorFont(selection.separator, 10, INSPECTOR_THEME.muted)
+    InspectorFont(selection.currentLabel, 10, activeMember and INSPECTOR_THEME.muted or INSPECTOR_THEME.accent)
+    InspectorFont(selection.memberSeparator, 10, INSPECTOR_THEME.muted)
+    InspectorFont(selection.memberLabel, 10, INSPECTOR_THEME.accent)
+    selection.currentLabel:ClearAllPoints()
+    selection.currentLabel:SetPoint("LEFT", selection.separator, "RIGHT", 6, 0)
+    selection.label:ClearAllPoints()
+    selection.label:SetPoint("LEFT")
+    local ownerLabel = breadcrumb and selection.currentLabel or selection.label
+    if activeMember then
+        selection.memberLabel:SetText(GetDockMemberLabel(element, activeMember) or activeMember.label or activeMember.id)
+        local parentWidth = breadcrumb and math.min(selection:GetWidth() * 0.43,
+            math.ceil(selection.parentButton.label:GetStringWidth()) + 2) or 0
+        if breadcrumb then selection.parentButton:SetWidth(parentWidth) end
+        local memberWidth = math.ceil(selection.memberLabel:GetStringWidth()) + 2
+        ownerLabel:SetWidth(math.max(1, math.min(math.ceil(ownerLabel:GetStringWidth()) + 2,
+            selection:GetWidth() - parentWidth - memberWidth - 28)))
+        selection.memberSeparator:ClearAllPoints()
+        selection.memberSeparator:SetPoint("LEFT", ownerLabel, "RIGHT", 6, 0)
+        selection.memberLabel:ClearAllPoints()
+        selection.memberLabel:SetPoint("LEFT", selection.memberSeparator, "RIGHT", 6, 0)
+        selection.memberLabel:SetPoint("RIGHT")
+    else
+        ownerLabel:SetWidth(math.max(1, selection:GetWidth()
+            - (breadcrumb and selection.parentButton:GetWidth() + 16 or 0)))
+    end
     if IsContextualInspectorElement(element) then
         state.inspector.contextScope:SetTextColor(0.75, 0.75, 0.75, 1)
         for _, section in ipairs(state.contextualActiveSections or {}) do
-            section.value:SetTextColor(0.75, 0.75, 0.75, 1)
+            RefreshContextualSectionPresentation(section)
+            for _, pair in pairs(section.pairRows or {}) do
+                pair.source:SetTextColor(0.65, 0.65, 0.65, 1)
+                LayoutContextualPropertyHeading(pair, pair:GetWidth(), true)
+            end
             for _, cell in ipairs(section.cells) do
+                InspectorFont(cell.label, 10)
+                cell.source:Hide()
+                NSkin:SetCenteredButtonGlyphColor(cell.reset.icon, INSPECTOR_THEME.muted)
                 cell.source:SetTextColor(0.65, 0.65, 0.65, 1)
+                if not cell.pairRow or cell.pairRow.mixedSources then
+                    LayoutContextualPropertyHeading(cell, cell:GetWidth())
+                end
             end
         end
     end
     RefreshHeaderActions(element)
+    if state.contextualInspectorHeader and #(state.contextualActiveSections or {}) > 0 then
+        LayoutContextualInspector()
+    end
     NSkin:ResnapPixelBordersForTarget(state.inspector)
     NSkin:ResnapPixelBordersForTarget(state.scrollChild)
     if element then NSkin:ResnapPixelBordersForElement(element) end
@@ -2574,8 +2957,8 @@ function DockedWindow:Dock(window)
     else
         inspector:SetPoint("TOPRIGHT", window, "TOPLEFT", -8, 0)
     end
-    if RefreshAuxiliaryDrawer then
-        RefreshAuxiliaryDrawer(state.contextualInspectorHeader == true)
+    if RefreshDebugLauncher then
+        RefreshDebugLauncher(state.contextualInspectorHeader == true)
     end
 end
 
@@ -2584,13 +2967,10 @@ function DockedWindow:ResetScroll()
 end
 
 function DockedWindow:RefreshAppearance()
-    NSkin:SkinWindow(state.inspector)
+    NSkin:SkinWindow(state.inspector, nil, state.inspector.inspectorStyle, INSPECTOR_THEME.border)
     NSkin:SkinWindowHeader(state.inspector)
     NSkin:ApplyGlobalTypography(state.inspector)
-    SetInspectorTextWhite(state.inspector)
-    if state.gridToggle and state.gridToggle.RefreshState then
-        state.gridToggle:RefreshState()
-    end
+    ApplyInspectorTextStyle(state.inspector)
     if state.debugToggle then NSkin:SkinFlatButton(state.debugToggle, "Debug") end
     if state.inspector.addOverride then
         NSkin:SkinFlatButton(state.inspector.addOverride, "+ Override")
@@ -2598,7 +2978,7 @@ function DockedWindow:RefreshAppearance()
     if state.overridePopup then
         NSkin:RefreshSelectionPopupAppearance(state.overridePopup)
     end
-    RefreshHeaderActions(state.selectedElement)
+    RefreshInspector()
 end
 
 function NSkin:CreateDockedWindow(owner)
@@ -2674,11 +3054,18 @@ function NSkin:CreateDockedWindow(owner)
 
     local inspector = CreateFrame("Frame", nil, UIParent)
     inspector.nskinOwnedGeometry = true
-    inspector:SetSize(520, 130)
+    inspector:SetSize(432, 704)
     inspector:SetFrameStrata("DIALOG")
     inspector:SetMovable(true)
     inspector:SetClampedToScreen(true)
-    NSkin:SkinWindow(inspector)
+    local inspectorStyle = CopyTable(NSkin:GetStyle("window"))
+    inspectorStyle.background = INSPECTOR_THEME.background
+    inspectorStyle.backgroundOpacity = 1
+    inspectorStyle.backgroundSource = "REGULAR"
+    inspectorStyle.showBackground, inspectorStyle.showBorder = true, true
+    inspectorStyle.borderSize, inspectorStyle.borderPadding = 1, 0
+    inspector.inspectorStyle = inspectorStyle
+    NSkin:SkinWindow(inspector, nil, inspectorStyle, INSPECTOR_THEME.border)
     NSkin:SkinWindowHeader(inspector)
 
     local dragRegion = CreateFrame("Frame", nil, inspector)
@@ -2693,13 +3080,51 @@ function NSkin:CreateDockedWindow(owner)
     dragRegion:SetScript("OnDragStop", function()
         inspector:StopMovingOrSizing()
         state.inspectorManuallyPositioned = true
-        if RefreshAuxiliaryDrawer then
-            RefreshAuxiliaryDrawer(state.contextualInspectorHeader == true)
+        if RefreshDebugLauncher then
+            RefreshDebugLauncher(state.contextualInspectorHeader == true)
         end
     end)
     state.inspectorDragRegion = dragRegion
 
     inspector.title = CreateLabel(inspector, "Skinning Mode", "TOPLEFT", inspector, "TOPLEFT", 12, -5)
+    inspector.logo = inspector:CreateTexture(nil, "OVERLAY")
+    inspector.logo:SetTexture("Interface\\AddOns\\NSkin\\Media\\logo.png")
+    inspector.logo:SetSize(18, 18)
+    inspector.logo:SetPoint("TOPLEFT", inspector, "TOPLEFT", 14, -12)
+    inspector.subtitle = CreateLabel(inspector, "Blizzard window · Docked/Floating",
+        "TOPLEFT", inspector, "TOPLEFT", 96, -17)
+    InspectorFont(inspector.subtitle, 9, INSPECTOR_THEME.muted)
+    inspector.panel = CreateFrame("Frame", nil, inspector)
+    inspector.panel:SetPoint("TOPLEFT", inspector, "TOPLEFT", 12, -48)
+    inspector.panel:SetPoint("BOTTOMRIGHT", inspector, "BOTTOMRIGHT", -12, 32)
+    inspector.panel:SetFrameLevel(inspector:GetFrameLevel())
+    InspectorSurface(inspector.panel, INSPECTOR_THEME.panel, true)
+    inspector.breadcrumbLine = inspector:CreateTexture(nil, "ARTWORK")
+    inspector.breadcrumbLine:SetHeight(1)
+    inspector.breadcrumbLine:SetColorTexture(unpack(INSPECTOR_THEME.border))
+    inspector.breadcrumbIcon = inspector:CreateTexture(nil, "OVERLAY")
+    inspector.breadcrumbIcon:SetTexture("Interface\\AddOns\\NSkin\\Media\\grid-alt.png")
+    inspector.breadcrumbIcon:SetSize(11, 11)
+    inspector.breadcrumbIcon:SetPoint("TOPLEFT", inspector, "TOPLEFT", 22, -59)
+    inspector.breadcrumbIcon:SetVertexColor(unpack(INSPECTOR_THEME.muted))
+    inspector.editingLabel = CreateLabel(inspector, "Editing", "TOPLEFT", inspector, "TOPLEFT", 30, -100)
+    InspectorFont(inspector.editingLabel, 10, INSPECTOR_THEME.muted)
+    inspector.stateTrack = CreateFrame("Frame", nil, inspector)
+    inspector.stateTrack:SetFrameLevel(inspector:GetFrameLevel())
+    InspectorSurface(inspector.stateTrack, INSPECTOR_THEME.input, true)
+    inspector.designBar = CreateFrame("Frame", nil, inspector)
+    inspector.designBar:SetFrameLevel(inspector:GetFrameLevel())
+    inspector.designLabel = CreateLabel(inspector.designBar, "Design", "LEFT", inspector.designBar, "LEFT", 18, 0)
+    InspectorFont(inspector.designLabel, 12, INSPECTOR_THEME.accent)
+    inspector.designUnderline = inspector.designBar:CreateTexture(nil, "ARTWORK")
+    inspector.designUnderline:SetPoint("BOTTOMLEFT", inspector.designBar, "BOTTOMLEFT", 18, 0)
+    inspector.designUnderline:SetSize(40, 2)
+    inspector.designUnderline:SetColorTexture(unpack(INSPECTOR_THEME.accent))
+    local designDivider = inspector.designBar:CreateTexture(nil, "BACKGROUND")
+    designDivider:SetPoint("TOPLEFT")
+    designDivider:SetPoint("TOPRIGHT")
+    designDivider:SetHeight(1)
+    designDivider:SetColorTexture(unpack(INSPECTOR_THEME.border))
     local close = CreateButton(inspector, "", 22, function()
         NSkin:SetSkinningModeEnabled(false)
     end)
@@ -2707,50 +3132,13 @@ function NSkin:CreateDockedWindow(owner)
         glyph = "close",
     })
     close:SetFrameLevel(dragRegion:GetFrameLevel() + 1)
-    close:SetPoint("TOPRIGHT", inspector, "TOPRIGHT", 0, 0)
+    close:SetPoint("TOPRIGHT", inspector, "TOPRIGHT", -10, -9)
+    InspectorSurface(close, { 0, 0, 0, 0 }, false)
     inspector.closeButton = close
-    local gridToggle = CreateFrame("Button", nil, inspector)
-    gridToggle:SetFrameLevel(dragRegion:GetFrameLevel() + 1)
-    gridToggle:SetSize(22, 22)
-    gridToggle:SetPoint("RIGHT", close, "LEFT", -4, 0)
-    gridToggle.icon = NSkin:CreateCenteredButtonGlyph(
-        gridToggle, "gridToggle", {
-            texture = "Interface\\AddOns\\NSkin\\Media\\grid-alt.png",
-            size = 16,
-        })
-    local function RefreshGridToggle()
-        NSkin:SetCenteredButtonGlyphColor(
-            gridToggle.icon,
-            NSkin:IsCompactGridDebugEnabled() and NSkin:GetAccentColor()
-                or { 1, 1, 1, 1 })
-    end
-    gridToggle.RefreshState = RefreshGridToggle
-    gridToggle:SetScript("OnClick", function()
-        NSkin:SetCompactGridDebugEnabled(
-            not NSkin:IsCompactGridDebugEnabled())
-        RefreshGridToggle()
-    end)
-    gridToggle:SetScript("OnEnter", function(self)
-        NSkin:SetCenteredButtonGlyphColor(
-            self.icon, NSkin:GetAccentColor())
-        if GameTooltip then
-            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-            GameTooltip:SetText("Toggle layout grid")
-            GameTooltip:Show()
-        end
-    end)
-    gridToggle:SetScript("OnLeave", function()
-        RefreshGridToggle()
-        if GameTooltip then GameTooltip:Hide() end
-    end)
-    RefreshGridToggle()
-    state.gridToggle = gridToggle
     local debugToggle = CreateFrame("Button", nil, inspector)
     debugToggle:SetFrameLevel(dragRegion:GetFrameLevel() + 1)
     debugToggle:SetSize(52, 22)
     debugToggle:SetPoint("RIGHT", close, "LEFT", -4, 0)
-    gridToggle:ClearAllPoints()
-    gridToggle:SetPoint("RIGHT", debugToggle, "LEFT", -4, 0)
     NSkin:SkinFlatButton(debugToggle, "Debug")
     debugToggle:SetScript("OnClick", function()
         NSkin:ToggleSkinningDebugInspector(inspector)
@@ -2768,70 +3156,55 @@ function NSkin:CreateDockedWindow(owner)
         if GameTooltip then GameTooltip:Hide() end
     end)
     state.debugToggle = debugToggle
-    local auxiliaryDrawer = CreateFrame("Frame", nil, inspector)
-    auxiliaryDrawer:SetSize(110, 68)
-    auxiliaryDrawer:SetClampedToScreen(true)
-    auxiliaryDrawer:SetFrameLevel(inspector:GetFrameLevel() + 20)
-    NSkin:CreateFlatBackground(auxiliaryDrawer, "NSkinInspectorTools",
-        NSkin:GetStyle("window").background, NSkin:GetSharedBorderColor())
-    auxiliaryDrawer:Hide()
-    local drawerToggle = CreateButton(inspector, "", 20, function()
-        state.inspectorToolsOpen = not state.inspectorToolsOpen
-        RefreshAuxiliaryDrawer(true)
-    end)
-    drawerToggle:SetFrameLevel(inspector:GetFrameLevel() + 20)
-    drawerToggle:SetSize(20, 30)
-    drawerToggle.arrow = drawerToggle:CreateTexture(nil, "OVERLAY")
-    drawerToggle.arrow:SetTexture("Interface\\AddOns\\NSkin\\Media\\angle-small-down.png")
-    drawerToggle.arrow:SetSize(12, 12)
-    drawerToggle.arrow:SetPoint("CENTER")
-    drawerToggle:SetScript("OnEnter", function(self)
-        if GameTooltip then
-            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-            GameTooltip:SetText("Debug and grid tools")
-            GameTooltip:Show()
+    local dockToggle = CreateButton(inspector, "", 20, function()
+        state.inspectorManuallyPositioned = not state.inspectorManuallyPositioned
+        if not state.inspectorManuallyPositioned and state.selectedElement then
+            state.dockedWindow:Dock(state.selectedElement.window)
         end
     end)
-    drawerToggle:SetScript("OnLeave", function()
-        if GameTooltip then GameTooltip:Hide() end
+    dockToggle:SetFrameLevel(dragRegion:GetFrameLevel() + 1)
+    dockToggle:SetPoint("RIGHT", close, "LEFT", -6, 0)
+    InspectorSurface(dockToggle, { 0, 0, 0, 0 }, false)
+    dockToggle.icon = dockToggle:CreateTexture(nil, "OVERLAY")
+    dockToggle.icon:SetTexture("Interface\\AddOns\\NSkin\\Media\\grid-alt.png")
+    dockToggle.icon:SetSize(12, 12)
+    dockToggle.icon:SetPoint("CENTER")
+    dockToggle.icon:SetVertexColor(unpack(INSPECTOR_THEME.muted))
+    dockToggle:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText(state.inspectorManuallyPositioned and "Dock inspector" or "Float inspector")
+        GameTooltip:Show()
     end)
-    drawerToggle:Hide()
-    RefreshAuxiliaryDrawer = function(contextual)
-        drawerToggle:SetShown(contextual == true)
-        auxiliaryDrawer:SetShown(contextual == true and state.inspectorToolsOpen == true)
-        gridToggle:ClearAllPoints()
-        debugToggle:ClearAllPoints()
-        if contextual then
+    dockToggle:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    local debugLauncher = CreateButton(inspector, "", 20, function()
+        NSkin:ToggleSkinningDebugInspector(inspector)
+    end)
+    debugLauncher:SetFrameLevel(inspector:GetFrameLevel() + 20)
+    debugLauncher:SetSize(20, 30)
+    debugLauncher.arrow = debugLauncher:CreateTexture(nil, "OVERLAY")
+    debugLauncher.arrow:SetTexture("Interface\\AddOns\\NSkin\\Media\\angle-small-down.png")
+    debugLauncher.arrow:SetSize(12, 12)
+    debugLauncher.arrow:SetPoint("CENTER")
+    debugLauncher:SetScript("OnEnter", debugToggle:GetScript("OnEnter"))
+    debugLauncher:SetScript("OnLeave", debugToggle:GetScript("OnLeave"))
+    debugLauncher:Hide()
+    RefreshDebugLauncher = function(contextual)
+        debugLauncher:SetShown(true)
+        debugToggle:Hide()
+        if inspector then
             local left, right = NSkin:GetUIParentNormalizedBounds(inspector)
             local screenRight = UIParent:GetRight() or UIParent:GetWidth()
             local rightSpace = screenRight - (right or screenRight)
             local towardRight = rightSpace >= 140 or rightSpace >= (left or 0)
-            drawerToggle:ClearAllPoints()
-            drawerToggle:SetPoint(towardRight and "LEFT" or "RIGHT", inspector,
+            debugLauncher:ClearAllPoints()
+            debugLauncher:SetPoint(towardRight and "LEFT" or "RIGHT", inspector,
                 towardRight and "RIGHT" or "LEFT", towardRight and 1 or -1, 0)
-            drawerToggle.arrow:SetRotation(towardRight and math.pi / 2 or -math.pi / 2)
-            auxiliaryDrawer:ClearAllPoints()
-            auxiliaryDrawer:SetPoint(towardRight and "TOPLEFT" or "TOPRIGHT",
-                inspector, towardRight and "TOPRIGHT" or "TOPLEFT",
-                towardRight and 24 or -24, -28)
-            gridToggle:SetParent(auxiliaryDrawer)
-            debugToggle:SetParent(auxiliaryDrawer)
-            debugToggle:SetPoint("TOPLEFT", auxiliaryDrawer, "TOPLEFT", 8, -8)
-            debugToggle:SetWidth(94)
-            gridToggle:SetPoint("TOPLEFT", debugToggle, "BOTTOMLEFT", 0, -6)
-        else
-            gridToggle:SetParent(inspector)
-            debugToggle:SetParent(inspector)
-            debugToggle:SetWidth(52)
-            debugToggle:SetPoint("RIGHT", close, "LEFT", -4, 0)
-            gridToggle:SetPoint("RIGHT", debugToggle, "LEFT", -4, 0)
+            debugLauncher.arrow:SetRotation(towardRight and math.pi / 2 or -math.pi / 2)
         end
     end
-    inspector:HookScript("OnHide", function()
-        auxiliaryDrawer:Hide()
-    end)
 
     local selection = CreateFrame("Button", nil, inspector)
+    selection:SetFrameLevel(dragRegion:GetFrameLevel() + 1)
     selection:SetHeight(20)
     selection:RegisterForDrag("LeftButton")
     selection:SetScript("OnDragStart", function()
@@ -2869,6 +3242,36 @@ function NSkin:CreateDockedWindow(owner)
     selection:SetScript("OnLeave", function(self)
         self.label:SetTextColor(1, 1, 1, 1)
     end)
+    selection.parentButton = CreateFrame("Button", nil, selection)
+    selection.parentButton:SetPoint("LEFT")
+    selection.parentButton:SetHeight(20)
+    selection.parentButton.label = selection.parentButton:CreateFontString(
+        nil, "OVERLAY", "GameFontNormal")
+    selection.parentButton.label:SetPoint("LEFT")
+    selection.parentButton:SetScript("OnClick", selection:GetScript("OnClick"))
+    selection.parentButton:SetScript("OnEnter", function(self)
+        self.label:SetTextColor(unpack(NSkin:GetAccentColor()))
+    end)
+    selection.parentButton:SetScript("OnLeave", function(self)
+        self.label:SetTextColor(1, 1, 1, 1)
+    end)
+    selection.separator = selection:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    selection.separator:SetText(">")
+    selection.separator:SetPoint("LEFT", selection.parentButton, "RIGHT", 4, 0)
+    selection.currentLabel = selection:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    selection.currentLabel:SetPoint("LEFT", selection.separator, "RIGHT", 4, 0)
+    selection.currentLabel:SetPoint("RIGHT")
+    selection.currentLabel:SetJustifyH("LEFT")
+    selection.currentLabel:SetWordWrap(false)
+    selection.memberSeparator = selection:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    selection.memberSeparator:SetText(">")
+    selection.memberLabel = selection:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    selection.memberLabel:SetWordWrap(false)
+    selection.memberSeparator:Hide()
+    selection.memberLabel:Hide()
+    selection.parentButton:Hide()
+    selection.separator:Hide()
+    selection.currentLabel:Hide()
     inspector.selection = selection
     inspector.stateLabel = CreateLabel(
         inspector, "State:", "TOPLEFT", inspector, "TOPLEFT", 12, -48)
@@ -2899,6 +3302,11 @@ function NSkin:CreateDockedWindow(owner)
                     element.label or element.id, nil, element)
             end
         end)
+    resetElement.inspectorResetIcon = resetElement:CreateTexture(nil, "OVERLAY")
+    resetElement.inspectorResetIcon:SetTexture("Interface\\AddOns\\NSkin\\Media\\rotate-right.png")
+    resetElement.inspectorResetIcon:SetSize(12, 12)
+    resetElement.inspectorResetIcon:SetPoint("LEFT", resetElement, "LEFT", 3, 0)
+    resetElement.inspectorResetIcon:SetVertexColor(unpack(INSPECTOR_THEME.muted))
     resetElement:SetPoint("TOPRIGHT", inspector, "TOPRIGHT", -12, -27)
     resetElement:SetScript("OnEnter", function(self)
         if GameTooltip then
@@ -2955,6 +3363,24 @@ function NSkin:CreateDockedWindow(owner)
     menus.SkinAddonDropdown(memberPicker)
     memberPicker:SetupMenu(function(self, root)
         local element = self.element
+        if self.navigationEntries then
+            for _, entry in ipairs(self.navigationEntries) do
+                root:CreateRadio(entry.label,
+                    function() return self.navigationSelectedKey == entry.familyKey end,
+                    function()
+                        if entry.editorNavigation then
+                            state.selectedEditorSubtabs[entry.navigationKey] = entry.navigationIndex
+                            RefreshInspector()
+                        elseif entry.member then
+                            NSkin:SelectSkinningCompositeMember(
+                                entry.element, entry.member.id, nil)
+                        else
+                            NSkin:SelectSkinningElement(entry.element)
+                        end
+                    end)
+            end
+            return
+        end
         for _, member in ipairs(element and element.composition.members or {}) do
             root:CreateRadio(GetDockMemberLabel(element, member)
                     or member.label or member.id,
@@ -2989,10 +3415,27 @@ function NSkin:CreateDockedWindow(owner)
         self:SetVerticalScroll(math.max(0, math.min(range, nextValue)))
     end)
     local scrollChild = CreateFrame("Frame", nil, scrollFrame)
-    scrollChild:SetSize(518, 1)
+    scrollChild:SetSize(392, 1)
     scrollFrame:SetScrollChild(scrollChild)
     state.scrollFrame = scrollFrame
     state.scrollChild = scrollChild
+    inspector.scrollBar = CreateFrame("Slider", nil, inspector)
+    local scrollBar = inspector.scrollBar
+    scrollBar:SetOrientation("VERTICAL")
+    scrollBar:SetWidth(7)
+    scrollBar:SetPoint("TOPRIGHT", scrollFrame, "TOPRIGHT", 10, -8)
+    scrollBar:SetPoint("BOTTOMRIGHT", scrollFrame, "BOTTOMRIGHT", 10, 8)
+    scrollBar:SetMinMaxValues(0, 1)
+    scrollBar:SetValueStep(1)
+    scrollBar:SetThumbTexture("Interface\\Buttons\\WHITE8X8")
+    scrollBar:GetThumbTexture():SetSize(3, 60)
+    scrollBar:GetThumbTexture():SetColorTexture(unpack(INSPECTOR_THEME.muted))
+    scrollBar:SetScript("OnValueChanged", function(self, value)
+        if not self.syncing then scrollFrame:SetVerticalScroll(value) end
+    end)
+    scrollFrame:HookScript("OnVerticalScroll", RefreshInspectorScrollBar)
+    scrollFrame:HookScript("OnScrollRangeChanged", RefreshInspectorScrollBar)
+    scrollBar:Hide()
 
     local overridePopup = NSkin:CreateSelectionPopup({
         title = "Add Override",

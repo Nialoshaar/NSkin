@@ -716,6 +716,9 @@ secondary layer beneath the selected part when needed.
 
 Dock navigation is presentation metadata only. It must not merge canonical
 IDs, appearance identities, reset ownership, or structural relationships.
+User-facing Container names in inspector headings, breadcrumbs, and navigation
+use "Name Group" rather than exposing the architectural term Container. This
+display label does not change Container semantics or imply an Editor Group.
 
 The inspector need not expose every architectural level as a separately
 selectable navigation step. Content slots and Parts may be edited contextually
@@ -812,6 +815,9 @@ When NSkin takes ownership of placement:
 - never accumulate offsets from an already NSkin-modified baseline
 
 Movement availability and movement ownership must remain independent from selection policy.
+Explicit member movement families also remain distinct when members share an
+appearance parent. A row Surface and its subordinate button must never share
+placement storage or movement propagation solely through appearance inheritance.
 
 ---
 
@@ -857,6 +863,48 @@ belong to the Composite root. Member-local Surfaces belong to their atomic
 members and do not merge into the group Surface.
 
 A Surface may skin an existing Blizzard visual surface or use NSkin-owned non-interactive decoration. NSkin-created regions must not steal Blizzard clicks, tooltips, or hit regions.
+
+Surface Background exposes a canonical `backgroundSource` selector: `REGULAR`
+uses the owned Surface fill; `BLIZZARD` leaves the fill hidden and restores the
+owner's explicitly audited native backdrop regions. The Enabled flag remains
+independent. Native alpha is captured before first suppression and never
+recaptured after edits or frame reuse. Regions retain Blizzard texture/atlas,
+visibility, and interaction ownership. Functional selection/hover/disabled
+overlays are not backdrop regions. Owners without a native backdrop have no
+fill in Blizzard mode. Window backdrops retain their native textures for this
+switch instead of being destructively cleared.
+Audited native backdrop textures may opt into `fitToSurface`: their original
+points and size are captured once, Blizzard mode anchors them to the owner's
+Surface bounds, and leaving that mode restores only this owned geometry.
+Atlas/texture content and functional overlays retain native ownership.
+Audited backdrop artwork may additionally opt into `texCoordInset` to crop
+baked decorative edges. Native texture coordinates are cached per atlas/texture
+source before its first crop, reused without cumulative cropping, and restored
+when leaving enabled Blizzard-background mode. Premade category card Icons use
+this inset consistently to remove their baked rounded edge on every category.
+
+Premade Groups category cards belong to a Category Cards Group Container with
+its own Surface. Each category/filter pair has a stable Composite tagged `Card`,
+with canonical Surface and TEXT members. Blizzard's CategoryButtons array is
+rebound after its category-update lifecycle; recycled frame/list indices never
+form saved identity. Card backdrop artwork (Icon) is declared separately
+from native functional overlays. Category cards suppress the native highlight
+and selected texture images and alpha while retaining Blizzard's selected-category/filter
+state. Canonical Surface hover and selection feedback replace that artwork;
+native-background mode preserves that backdrop when selected and uses the
+canonical Surface border's accent color instead of an opaque selection fill.
+That selection border is hidden on idle cards in native-background mode, so
+the generic button's default border does not add a white edge to the artwork.
+The native Cover bevel is suppressed with the feedback artwork; it is not
+part of the native backdrop restored by the source selector.
+The audited native feedback media/alpha are captured before suppression;
+clearing their image content prevents native hover animation from revealing
+them again without changing visibility or selection ownership.
+Container and card appearance edits refresh
+their own Surfaces, without reapplying the PVE window.
+The Premade Groups title is a canonical TEXT child of that Container and joins
+its movement roots; it retains independent typography, Surface and Position
+options. Category card and Container backdrop textures fit their Surface bounds.
 
 ## 11.1 Surface Inheritance
 
@@ -925,8 +973,12 @@ it must not expand/collapse the section or change editor context.
 
 Declared property pairs such as X/Y offsets and background color/opacity may
 share a heading, inheritance label, and explicit combined reset action. Show a
-common source only when both properties resolve to that source; otherwise show
-Mixed sources and retain each property's source. A combined reset invokes the
+common source only when both properties resolve to that source; otherwise omit
+the common label and retain each property's source. Compact source labels show
+Group for shared group/scope values, including edits at that shared scope, and
+Override for exact-target exceptions (including their inherited base state);
+global/default values have no visible source label. Detailed source descriptions
+remain available to shared controls such as tooltips. A combined reset invokes the
 existing logical resets for both properties at their supported scope/state,
 without changing storage, identity, or unrelated overrides.
 
@@ -1505,6 +1557,22 @@ Selection policy must remain replaceable without changing canonical IDs, composi
 
 The Docked Window is the compact inspector for the selected editor object.
 
+Its owned presentation uses square corners, an opaque dark shell and inset
+property panel, owner/member breadcrumbs, an Editing dropdown, a segmented
+state selector, and a single Design page. No Tokens/Code pages or inheritance
+tags are exposed yet. Inheritance resolution, source tooltips, storage, and
+reset boundaries remain canonical. Shared property views accept an optional
+inspector palette; color controls show a small swatch and hex value instead of
+coloring the entire control. This palette is confined to owned inspector
+controls and never alters the appearance of the edited Blizzard window or
+other configuration pages. Media icons may stand in for missing section icons.
+The inspector has a stable 432-unit width and a 704-unit preferred height,
+clamped to available screen space; overflow uses the owned vertical scrollbar.
+Declared property pairs use two columns when there is sufficient width, with
+individual headings and reset buttons. Accordion expansion and editing focus
+survive local commits. The shell's dock/float action shares the existing docking
+and manual placement state.
+
 A contextual inspector keeps owner, focused member, editing scope, and state
 visible while properties expand in place. A decorative window-title row is
 optional. Auxiliary debug/grid tools must not change property width or editor
@@ -1516,6 +1584,56 @@ before applying a preview or exact-target edit; never follow a recycled frame
 into another semantic instance.
 
 It renders canonical option groups rather than duplicate schemas.
+The contextual accordion renderer supports Composite members, Container owners,
+and standalone controls through the same canonical option contracts. Owner
+editing must not invent a synthetic Composite member or appearance identity;
+Container/part navigation remains in the primary navigation row.
+Adapters may opt an entire registered element into this presentation with
+`contextualInspector`. Composite members inherit that policy unless explicitly
+excluded; standard window Header/Container registrations carry the body's policy.
+Anchor Groups use it when all registered members opt in. PVEFrame registrations
+use this layout across their window chrome, navigation, finder controls, rewards,
+PvP controls, and bottom tabs. Scrollbar parts expand on one page. Canonical
+button content actions remain available in their accordion and do not become
+override properties or acquire reset ownership.
+Dungeon Finder's reused Random scroll content is a `Random Dungeon Group`
+Container around the existing header and reward Composites. Random queues and
+world-event dungeons using that content retain the same text/reward appearance
+IDs; the selected dungeon does not create a new appearance family. The specific
+Dungeon Rows Container is selectable only while its own view is visible.
+Random Header and Rewards declare separate canonical Surface members anchored
+to their own visible content, rather than sharing the entire scroll child as
+their presentation target. Position groups precede appearance groups in the
+contextual accordion renderer.
+Random content's typed registrations retain the original rendering/baseline
+and appearance identities but do not expose duplicate selection overlays.
+Their Composite members use those same identities for edits and resets, with
+independent member movement families and targeted typed refresh callbacks.
+Member Position is injected unless an explicit nested navigation definition
+owns that placement context. A top-level preset Position entry must not be
+mistaken for nested navigation. Random content uses shared independent anchor
+offset application: native multi-point anchors are retained, sibling-relative
+offsets are compensated, and reset restores the captured native points. Header
+and Rewards Surface Position translates only that Composite's declared content;
+the outer Container Position continues to translate the entire viewport.
+While Random content has member or Composite offsets, its audited native
+content ancestors allow overflow rendering. Their original clipping flags are
+captured before mutation and restored when those offsets are cleared. This
+also captures the scroll child's original parent and frame level. While offsets
+are active, the reused child renders under the Random owner to escape native
+ScrollFrame viewport clipping. An empty, noninteractive scroll child retains
+the native scroll range; targeted size/vertical-scroll hooks keep it in sync
+with the original named content. Clearing offsets restores the original scroll
+child assignment, parent and level. Native anchor references and reward controls remain intact; icon
+masks are unchanged. Protected/forbidden targets and combat are skipped.
+Random Header and Rewards declare a `dragMemberID` pointing to their own Surface
+member. Root dragging uses the canonical member movement path, matching Surface
+X/Y rather than moving their shared scroll child. The title member uses tight
+text selection bounds without changing its native layout width.
+
+Canonical appearance opacity defaults are 1 (100%), including slider glow;
+highlight (`hoverAlpha`) defaults remain 0.10. Existing enabled/disabled Surface defaults and saved
+appearance overrides are preserved. Opacity controls support the full 0–1 range.
 
 Target presentation:
 

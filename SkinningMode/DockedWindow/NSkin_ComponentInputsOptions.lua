@@ -20,7 +20,7 @@ RegisterColorAppearanceGroup("appearance.button", "button", {
     { type = "SLIDER", key = "backgroundOpacity", label = "Background opacity",
         min = 0, max = 1, step = 0.05, decimals = 2 },
     { type = "SLIDER", key = "hoverAlpha", label = "Hover opacity",
-        min = 0, max = 0.5, step = 0.01, decimals = 2 },
+        min = 0, max = 1, step = 0.01, decimals = 2 },
     { type = "COLOR", key = "border", label = "Button border" },
     { type = "COLOR", key = "text", label = "Button text" },
     { type = "RESET", label = "Reset Buttons" },
@@ -225,6 +225,12 @@ local buttonResetPaths = {
 
 NSkin:RegisterOptionGroup("shared.buttonAppearance", {
     controls = buttonAppearanceControls,
+    appearancePaths = function(_, property)
+        local path = buttonResetPaths[property and property.key]
+        if not path then return {} end
+        if property.key == "text" then return { path, "button.textMode" } end
+        return { path }
+    end,
     get = function(context)
         local style = NSkin:GetAppearanceStyle(
             "button", GetAppearanceWindowID(context), context.id)
