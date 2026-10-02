@@ -5,7 +5,7 @@ local RESET_ELEMENT_DIALOG = "NSKIN_CONFIRM_ELEMENT_RESET"
 local CLEAR_OVERRIDES_DIALOG = "NSKIN_CONFIRM_CLEAR_OVERRIDES"
 local state
 local INSPECTOR_THEME = {
-    fontSizeOffset = 2,
+    fontSizeOffset = 3,
     background = { 0.035, 0.051, 0.071, 1 },
     panel = { 0.075, 0.110, 0.149, 1 },
     input = { 0.047, 0.075, 0.106, 1 },
@@ -19,6 +19,10 @@ local function InspectorFont(label, size, color)
     local font = GameFontNormal:GetFont()
     label:SetFont(font, size + INSPECTOR_THEME.fontSizeOffset, "")
     label:SetTextColor(unpack(color or INSPECTOR_THEME.text))
+end
+
+local function InspectorGlyphColor(glyph, color)
+    return NSkin:SetCenteredButtonGlyphColor(glyph, { color[1], color[2], color[3], 0.9 })
 end
 
 local function InspectorSurface(frame, color, bordered)
@@ -764,7 +768,8 @@ local function LayoutInspectorChrome(element, member)
     inspector.selection:SetPoint("TOPLEFT", inspector, "TOPLEFT", 24, -54)
     inspector.selection:SetPoint("TOPRIGHT", inspector, "TOPRIGHT", -26, -54)
     inspector.memberPicker:ClearAllPoints()
-    inspector.memberPicker:SetPoint("TOPLEFT", inspector, "TOPLEFT", 68, -91)
+    inspector.memberPicker:SetPoint("TOPLEFT", inspector, "TOPLEFT",
+        30 + math.ceil(inspector.editingLabel:GetStringWidth()) + 10, -91)
     inspector.memberPicker:SetSize(124, 28)
     InspectorSurface(inspector.memberPicker, INSPECTOR_THEME.input, true)
     local pickerBackground = NSkin:GetFlatBackground(inspector.memberPicker, "NSkinOptionsDropdown")
@@ -775,6 +780,7 @@ local function LayoutInspectorChrome(element, member)
     if inspector.memberPicker.nskinArrow then
         inspector.memberPicker.nskinArrow:SetSize(12, 12)
         inspector.memberPicker.nskinArrow:SetVertexColor(unpack(INSPECTOR_THEME.muted))
+        inspector.memberPicker.nskinArrow:SetAlpha(0.9)
     end
     inspector.editingLabel:SetShown(inspector.memberPicker:IsShown())
     inspector.contextScope:Hide()
@@ -786,14 +792,17 @@ local function LayoutInspectorChrome(element, member)
     if resetText then
         InspectorFont(resetText, 9, INSPECTOR_THEME.muted)
         resetText:ClearAllPoints()
-        resetText:SetPoint("LEFT", inspector.resetElement, "LEFT", 19, 0)
-        resetText:SetPoint("RIGHT", inspector.resetElement, "RIGHT", -2, 0)
-        resetText:SetJustifyH("RIGHT")
+        resetText:SetWidth(0)
+        inspector.resetElement:SetWidth(math.ceil(resetText:GetStringWidth()) + 26)
+        resetText:SetPoint("LEFT", inspector.resetElement, "LEFT", 0, 0)
+        resetText:SetPoint("RIGHT", inspector.resetElement, "RIGHT", -22, 0)
+        resetText:SetJustifyH("LEFT")
     end
     inspector.addOverride:ClearAllPoints()
     inspector.addOverride:SetPoint("RIGHT", inspector.resetElement, "LEFT", -4, 0)
     inspector.addOverride:SetSize(20, 24)
-    NSkin:SkinFlatButton(inspector.addOverride, "+", INSPECTOR_THEME.input, INSPECTOR_THEME.border, 13)
+    NSkin:SkinFlatButton(inspector.addOverride, "+", INSPECTOR_THEME.input, INSPECTOR_THEME.border, 14)
+    InspectorGlyphColor(inspector.closeGlyph, INSPECTOR_THEME.muted)
     inspector.stateLabel:ClearAllPoints()
     inspector.stateLabel:SetPoint("TOPLEFT", inspector, "TOPLEFT", 30, -139)
     inspector.stateLabel:SetText("State")
@@ -1458,6 +1467,7 @@ IsContextualInspectorMember = function(element, member)
 end
 
 local function HideContextualInspectorRows()
+    if state.contextualBottomDivider then state.contextualBottomDivider:Hide() end
     for _, row in pairs(state.contextualSummaryRows or {}) do
         row:Hide()
         if row.body then row.body:Hide() end
@@ -1699,12 +1709,13 @@ local function EnsureContextualSummaryRow(index)
     row.label = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     row.label:SetPoint("LEFT", row, "LEFT", 12, 0)
     row.sectionIcon = row:CreateTexture(nil, "OVERLAY")
-    row.sectionIcon:SetPoint("LEFT", row, "LEFT", 8, 0)
+    row.sectionIcon:SetPoint("CENTER", row, "LEFT", 16, 0)
     row.sectionIcon:SetSize(16, 16)
     row.sectionIcon:SetTexture("Interface\\AddOns\\NSkin\\Media\\Icons\\Edit-Box.png")
     row.sectionIcon:SetVertexColor(unpack(INSPECTOR_THEME.accent))
+    row.sectionIcon:SetAlpha(0.9)
     row.label:ClearAllPoints()
-    row.label:SetPoint("LEFT", row.sectionIcon, "RIGHT", 10, 0)
+    row.label:SetPoint("LEFT", row, "LEFT", 34, 0)
     row.enabledToggle = NSkin:CreateOwnedOptionsCheckbox(row)
     row.enabledToggle:SetSize(22, 12)
     row.enabledToggle:SetPoint("RIGHT", row, "RIGHT", -4, 0)
@@ -1840,6 +1851,7 @@ RefreshContextualSectionPresentation = function(section)
     section.arrow:ClearAllPoints()
     section.arrow:SetPoint("RIGHT", section, "RIGHT", cell and -38 or -8, 0)
     section.arrow:SetVertexColor(unpack(INSPECTOR_THEME.accent))
+    section.arrow:SetAlpha(0.9)
     local toggle = section.enabledToggle
     InspectorSurface(toggle, INSPECTOR_THEME.input, true)
     NSkin:SetPixelBorderColor(NSkin:GetPixelBorder(toggle, "NSkinOptionsCheckboxBorder"), unpack(INSPECTOR_THEME.border))
@@ -1882,7 +1894,7 @@ local function EnsureContextualPropertyRow(key)
             size = 14,
         })
     cell.reset:SetScript("OnEnter", function(self)
-        NSkin:SetCenteredButtonGlyphColor(self.icon, NSkin:GetAccentColor())
+        InspectorGlyphColor(self.icon, NSkin:GetAccentColor())
         if GameTooltip then
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
             GameTooltip:SetText("Reset " .. (cell.property.label or cell.property.key))
@@ -1892,7 +1904,7 @@ local function EnsureContextualPropertyRow(key)
         end
     end)
     cell.reset:SetScript("OnLeave", function(self)
-        NSkin:SetCenteredButtonGlyphColor(self.icon, INSPECTOR_THEME.muted)
+        InspectorGlyphColor(self.icon, INSPECTOR_THEME.muted)
         if GameTooltip then GameTooltip:Hide() end
     end)
     cell.reset:SetScript("OnClick", function()
@@ -1958,7 +1970,7 @@ local function EnsureContextualPairRow(section, left, right)
             end
         end)
         pair.reset:SetScript("OnEnter", function(self)
-            NSkin:SetCenteredButtonGlyphColor(self.icon, NSkin:GetAccentColor())
+            InspectorGlyphColor(self.icon, NSkin:GetAccentColor())
             if GameTooltip then
                 GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
                 GameTooltip:SetText("Reset " .. pair.title)
@@ -1969,7 +1981,7 @@ local function EnsureContextualPairRow(section, left, right)
             end
         end)
         pair.reset:SetScript("OnLeave", function(self)
-            NSkin:SetCenteredButtonGlyphColor(self.icon, { 1, 1, 1, 1 })
+            InspectorGlyphColor(self.icon, { 1, 1, 1, 1 })
             if GameTooltip then GameTooltip:Hide() end
         end)
         section.pairRows[key] = pair
@@ -2069,6 +2081,18 @@ LayoutContextualInspector = function()
         section.body:SetHeight(bodyY)
         if open then y = y + bodyY end
     end
+    local divider = state.contextualBottomDivider
+    if not divider then
+        divider = state.scrollChild:CreateTexture(nil, "BACKGROUND")
+        divider:SetHeight(1)
+        divider:SetColorTexture(unpack(INSPECTOR_THEME.border))
+        state.contextualBottomDivider = divider
+    end
+    divider:ClearAllPoints()
+    divider:SetPoint("TOPLEFT", state.scrollChild, "TOPLEFT", 0, -y)
+    divider:SetPoint("TOPRIGHT", state.scrollChild, "TOPRIGHT", 0, -y)
+    divider:SetShown(#(state.contextualActiveSections or {}) > 0)
+    y = y + 1
     ResizeInspector(nil, y)
 end
 
@@ -2173,10 +2197,13 @@ local function LoadContextualInspector(element, member)
         local iconName = label:match("^Position") and "Position"
             or label:match("^Background") and "Background"
             or label:match("^Highlight") and "Highlight"
-            or (label:match("^Border") or label:match("^Geometry")) and "Border"
+            or label:match("^Geometry") and "Shape"
+            or label:match("^Border") and "Border"
             or (label:match("^Text") or label:match("^Content")) and "Text"
             or "Edit-Box"
         section.sectionIcon:SetTexture("Interface\\AddOns\\NSkin\\Media\\Icons\\" .. iconName .. ".png")
+        local iconSize = iconName == "Shape" and 20 or 16
+        section.sectionIcon:SetSize(iconSize, iconSize)
         section.value:SetText(FormatContextualSummary(group))
         section.cells = {}
         section.headerToggleCell = nil
@@ -2895,7 +2922,7 @@ RefreshInspector = function()
             for _, cell in ipairs(section.cells) do
                 InspectorFont(cell.label, 10)
                 cell.source:Hide()
-                NSkin:SetCenteredButtonGlyphColor(cell.reset.icon, INSPECTOR_THEME.muted)
+                InspectorGlyphColor(cell.reset.icon, INSPECTOR_THEME.muted)
                 cell.source:SetTextColor(0.65, 0.65, 0.65, 1)
                 if not cell.pairRow or cell.pairRow.mixedSources then
                     LayoutContextualPropertyHeading(cell, cell:GetWidth())
@@ -3129,6 +3156,7 @@ function NSkin:CreateDockedWindow(owner)
     inspector.logo = inspector:CreateTexture(nil, "OVERLAY")
     inspector.logo:SetTexture("Interface\\AddOns\\NSkin\\Media\\logo.png")
     inspector.logo:SetSize(21, 21)
+    inspector.logo:SetAlpha(0.9)
     inspector.logo:SetPoint("TOPLEFT", inspector, "TOPLEFT", 14, -12)
     inspector.subtitle = CreateLabel(inspector, "No window · Floating",
         "TOPLEFT", inspector, "TOPLEFT", 96, -17)
@@ -3165,7 +3193,7 @@ function NSkin:CreateDockedWindow(owner)
     local close = CreateButton(inspector, "", 22, function()
         NSkin:SetSkinningModeEnabled(false)
     end)
-    NSkin:CreateCenteredButtonGlyph(close, "inspectorClose", {
+    inspector.closeGlyph = NSkin:CreateCenteredButtonGlyph(close, "inspectorClose", {
         glyph = "close",
         size = 14,
     })
@@ -3209,6 +3237,7 @@ function NSkin:CreateDockedWindow(owner)
     dockToggle.icon:SetSize(15, 15)
     dockToggle.icon:SetPoint("CENTER")
     dockToggle.icon:SetVertexColor(unpack(INSPECTOR_THEME.muted))
+    dockToggle.icon:SetAlpha(0.9)
     dockToggle:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:SetText(state.inspectorManuallyPositioned and "Dock inspector" or "Float inspector")
@@ -3223,6 +3252,7 @@ function NSkin:CreateDockedWindow(owner)
     debugLauncher.arrow = debugLauncher:CreateTexture(nil, "OVERLAY")
     debugLauncher.arrow:SetTexture("Interface\\AddOns\\NSkin\\Media\\angle-small-down.png")
     debugLauncher.arrow:SetSize(14, 14)
+    debugLauncher.arrow:SetAlpha(0.9)
     debugLauncher.arrow:SetPoint("CENTER")
     debugLauncher:SetScript("OnEnter", debugToggle:GetScript("OnEnter"))
     debugLauncher:SetScript("OnLeave", debugToggle:GetScript("OnLeave"))
@@ -3306,6 +3336,7 @@ function NSkin:CreateDockedWindow(owner)
     selection.memberSeparator:SetText(">")
     selection.memberLabel = selection:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     selection.memberLabel:SetWordWrap(false)
+    selection.memberLabel:SetJustifyH("LEFT")
     selection.memberSeparator:Hide()
     selection.memberLabel:Hide()
     selection.parentButton:Hide()
@@ -3344,8 +3375,9 @@ function NSkin:CreateDockedWindow(owner)
     resetElement.inspectorResetIcon = resetElement:CreateTexture(nil, "OVERLAY")
     resetElement.inspectorResetIcon:SetTexture("Interface\\AddOns\\NSkin\\Media\\rotate-right.png")
     resetElement.inspectorResetIcon:SetSize(14, 14)
-    resetElement.inspectorResetIcon:SetPoint("LEFT", resetElement, "LEFT", 3, 0)
+    resetElement.inspectorResetIcon:SetPoint("RIGHT", resetElement, "RIGHT", -2, 0)
     resetElement.inspectorResetIcon:SetVertexColor(unpack(INSPECTOR_THEME.muted))
+    resetElement.inspectorResetIcon:SetAlpha(0.9)
     resetElement:SetPoint("TOPRIGHT", inspector, "TOPRIGHT", -12, -27)
     resetElement:SetScript("OnEnter", function(self)
         if GameTooltip then

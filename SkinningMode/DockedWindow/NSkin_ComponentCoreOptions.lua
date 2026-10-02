@@ -1996,6 +1996,7 @@ local function RefreshPropertyPresentation(view)
     if control.nskinArrow then
         control.nskinArrow:SetSize(12, 12)
         control.nskinArrow:SetVertexColor(unpack(theme.muted))
+        control.nskinArrow:SetAlpha(0.9)
     end
     if input then
         Surface(input, "NSkinSliderValue")

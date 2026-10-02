@@ -1577,10 +1577,16 @@ selection, docking, and completed manual drags update it without polling.
 The breadcrumb has no leading icon. Section icons use the dedicated Media/Icons
 assets, and full-width separators meet the inset panel's side borders. The
 property viewport shares those panel bounds, with a 12-unit bottom shell margin.
-The inspector palette adds 2 units to its base text sizes, including shared
+The inspector palette adds 3 units to its base text sizes, including shared
 property controls, without changing fonts on the edited window or other options
 pages. Accordion titles and summaries are vertically centered within 40-unit
-headers; section icons are 16 units and reset/navigation icons scale with them.
+headers; section icons are 16 units, with the more detailed Shape icon at 20.
+Icons share a fixed center and title inset so larger artwork does not shift
+the heading column. Reset/navigation icons scale with the presentation.
+Inspector icons use 90% opacity. A final full-width rule closes the accordion
+list below its last section, including an expanded section's body. Breadcrumb
+member text is left-aligned after its separator; Editing keeps a measured gap
+before its dropdown, and the header reset icon sits to the right of its label.
 
 A contextual inspector keeps owner, focused member, editing scope, and state
 visible while properties expand in place. A decorative window-title row is
