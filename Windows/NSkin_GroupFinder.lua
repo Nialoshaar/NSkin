@@ -7,7 +7,7 @@ local PVESkin = NSkin:NewModule("GroupFinder")
 function NSkin:GetPVEFrameElementTypes()
     return { "TEXT", "WINDOW", "BUTTON", "CHECKBOX", "DROPDOWN", "TAB",
         "CARD", "ROW", "SEARCH_BOX", "SCROLLBAR", "ICON" }
-end
+end 
 
 local IDs = {
     Scope = "GroupFinder",
