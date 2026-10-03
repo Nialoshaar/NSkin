@@ -156,6 +156,7 @@ NSkin:RegisterOptionGroup("talents.edgeArrows", {
 })
 
 NSkin:RegisterOptionsPage({ key = "playerSpellsTalents", label = "Talents", group = "windows", order = 15,
+    moduleOwner = "SpellBook",
     builder = function(parent)
         local page = NSkin:CreateOptionsPage(parent)
         local function Context(id, kind, extra)

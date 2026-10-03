@@ -1846,8 +1846,13 @@ function NSkin:RegisterPhysicalPixelRefresh(target, key, callback)
 
     local ancestor = target
     while ancestor do
-        local canObserve = ancestor.HookScript
-            or (_G.hooksecurefunc and type(ancestor.SetScale) == "function")
+        -- Regions may expose HookScript without supporting frame lifecycle scripts.
+        local canObserveSize = ancestor.HookScript and ancestor.HasScript
+            and ancestor:HasScript("OnSizeChanged")
+        local canObserveShow = ancestor.HookScript and ancestor.HasScript
+            and ancestor:HasScript("OnShow")
+        local canObserveScale = _G.hooksecurefunc and type(ancestor.SetScale) == "function"
+        local canObserve = canObserveSize or canObserveShow or canObserveScale
         if canObserve then
             local data = self:GetSkinData(ancestor, "physicalPixelDependents")
             data.targets = data.targets or setmetatable({}, { __mode = "k" })
@@ -1856,11 +1861,13 @@ function NSkin:RegisterPhysicalPixelRefresh(target, key, callback)
                 local function QueueRefresh()
                     QueuePhysicalPixelDependentRefresh(data)
                 end
-                if ancestor.HookScript then
+                if canObserveSize then
                     ancestor:HookScript("OnSizeChanged", QueueRefresh)
+                end
+                if canObserveShow then
                     ancestor:HookScript("OnShow", QueueRefresh)
                 end
-                if _G.hooksecurefunc and type(ancestor.SetScale) == "function" then
+                if canObserveScale then
                     pcall(_G.hooksecurefunc, ancestor, "SetScale", QueueRefresh)
                 end
                 data.hooked = true

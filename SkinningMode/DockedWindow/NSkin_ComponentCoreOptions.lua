@@ -1,5 +1,79 @@
 local _, NSkin = ...
 
+-- Presentation for NSkin-owned editors, independent of the skin being edited.
+NSkin.editorTheme = {
+    fontSizeOffset = 3,
+    background = { 0.035, 0.051, 0.071, 1 },
+    panel = { 0.075, 0.110, 0.149, 1 },
+    input = { 0.047, 0.075, 0.106, 1 },
+    border = { 0.157, 0.220, 0.290, 1 },
+    text = { 0.83, 0.91, 0.98, 1 },
+    muted = { 0.49, 0.61, 0.73, 1 },
+    accent = { 0.05, 0.76, 0.96, 1 },
+    selected = { 0.07, 0.21, 0.27, 1 },
+    sidebar = { 0.025, 0.039, 0.055, 1 },
+}
+
+function NSkin:CreateEditorScrollBar(scrollFrame, parent, offsetX)
+    local bar = CreateFrame("Slider", nil, parent)
+    bar:SetOrientation("VERTICAL")
+    bar:SetWidth(7)
+    bar:SetPoint("TOPRIGHT", scrollFrame, "TOPRIGHT", offsetX or -3, -8)
+    bar:SetPoint("BOTTOMRIGHT", scrollFrame, "BOTTOMRIGHT", offsetX or -3, 8)
+    bar:SetMinMaxValues(0, 1)
+    bar:SetValueStep(1)
+    bar:SetThumbTexture("Interface\\Buttons\\WHITE8X8")
+    bar:GetThumbTexture():SetSize(3, 60)
+    bar:GetThumbTexture():SetColorTexture(unpack(self.editorTheme.muted))
+    local function Refresh()
+        local range = scrollFrame:GetVerticalScrollRange() or 0
+        bar.syncing = true
+        bar:SetMinMaxValues(0, math.max(1, range))
+        bar:SetValue(scrollFrame:GetVerticalScroll())
+        bar.syncing = nil
+        bar:SetShown(range > 0)
+    end
+    bar:SetScript("OnValueChanged", function(self, value)
+        if not self.syncing then scrollFrame:SetVerticalScroll(value) end
+    end)
+    scrollFrame:HookScript("OnVerticalScroll", Refresh)
+    scrollFrame:HookScript("OnScrollRangeChanged", Refresh)
+    bar:Hide()
+    return bar
+end
+
+-- Owned editor rules share the same snapped boundaries as canonical borders.
+function NSkin:CreateEditorDivider(parent, anchor, vertical, offset, startInset, endInset)
+    local texture = parent:CreateTexture(nil, "ARTWORK")
+    texture:SetColorTexture(unpack(self.editorTheme.border))
+    self:ConfigureOwnedPixelTexture(texture)
+    local function Refresh()
+        local left, right, top, bottom = anchor:GetLeft(), anchor:GetRight(),
+            anchor:GetTop(), anchor:GetBottom()
+        if not left or not right or not top or not bottom then return end
+        local pixel = NSkin:GetPhysicalPixelSize(anchor)
+        local function Snap(value) return NSkin:SnapToPhysicalPixel(anchor, value) end
+        texture:ClearAllPoints()
+        if vertical then
+            local x = Snap(left + (offset or 0)) - left
+            texture:SetPoint("TOPLEFT", anchor, "TOPLEFT", x,
+                Snap(top - (startInset or 0)) - top)
+            texture:SetPoint("BOTTOMRIGHT", anchor, "BOTTOMLEFT", x + pixel,
+                Snap(bottom + (endInset or 0)) - bottom)
+        else
+            local y = Snap(top + (offset or 0)) - top
+            texture:SetPoint("TOPLEFT", anchor, "TOPLEFT",
+                Snap(left + (startInset or 0)) - left, y)
+            texture:SetPoint("BOTTOMRIGHT", anchor, "TOPRIGHT",
+                Snap(right - (endInset or 0)) - right, y - pixel)
+        end
+    end
+    local observer = anchor.HasScript and anchor:HasScript("OnSizeChanged") and anchor or parent
+    self:RegisterPhysicalPixelRefresh(observer, "editorDivider:" .. tostring(texture), Refresh)
+    Refresh()
+    return texture
+end
+
 function NSkin:GetSurfaceBackgroundSourceControl(order)
     return { type = "DROPDOWN", key = "backgroundSource", label = "Background",
         order = order or 0, values = {
@@ -19,9 +93,9 @@ end
 
 local optionGroups = {}
 local viewsByGroup = {}
-local DEFAULT_OPTIONS_WIDTH = 760
-local DEFAULT_OPTIONS_HEIGHT = 560
-local MIN_OPTIONS_WIDTH = 640
+local DEFAULT_OPTIONS_WIDTH = 1040
+local DEFAULT_OPTIONS_HEIGHT = 720
+local MIN_OPTIONS_WIDTH = 720
 local MIN_OPTIONS_HEIGHT = 420
 local COMPACT_OPTIONS_WIDTH = 502
 local COMPACT_GRID_HEIGHT = 48
@@ -165,6 +239,7 @@ function NSkin:CreateOptionsPage(parent)
     page:SetPoint("TOPRIGHT")
     page:SetHeight(1)
     page.sectionDividers = {}
+    page.optionsTheme = parent.optionsTheme
 
     function page:SetContentHeight(height)
         height = math.max(1, math.ceil(tonumber(height) or 1))
@@ -174,9 +249,17 @@ function NSkin:CreateOptionsPage(parent)
     end
 
     function page:ApplyStructureAppearance()
-        local color = NSkin:GetStyle("window").header.divider
+        local color = self.optionsTheme and self.optionsTheme.border
+            or NSkin:GetStyle("window").header.divider
         for i = 1, #self.sectionDividers do
             self.sectionDividers[i]:SetColorTexture(unpack(color))
+        end
+        if self.optionsTheme then
+            for _, region in ipairs({ self:GetRegions() }) do
+                if region:GetObjectType() == "FontString" then
+                    region:SetTextColor(unpack(self.optionsTheme.text))
+                end
+            end
         end
     end
 
@@ -193,7 +276,8 @@ function NSkin:CreateOptionsSection(page, title, offset)
     divider:SetPoint("TOPLEFT", heading, "BOTTOMLEFT", 0, -6)
     divider:SetPoint("RIGHT", page, "RIGHT", 0, 0)
     divider:SetHeight(1)
-    divider:SetColorTexture(unpack(self:GetStyle("window").header.divider))
+    divider:SetColorTexture(unpack(page.optionsTheme and page.optionsTheme.border
+        or self:GetStyle("window").header.divider))
     page.sectionDividers[#page.sectionDividers + 1] = divider
     return heading, offset + 30
 end
@@ -1970,6 +2054,49 @@ function NSkin:SetOptionGroupValues(
     return false
 end
 
+-- Main-menu presentation preserves canonical control layout and setting swatches.
+local function RefreshMenuPresentation(view)
+    local theme = view.optionsTheme
+    if not theme then return end
+    for _, region in ipairs({ view:GetRegions() }) do
+        if region:GetObjectType() == "FontString" then
+            region:SetTextColor(unpack(theme.text))
+        end
+    end
+    for key, control in pairs(view.controlByKey) do
+        -- Color controls display the chosen setting; preserve that swatch.
+        if not view.colorByKey[key] then
+            for _, name in ipairs({ "NSkinFlatBackground", "NSkinOptionsDropdown" }) do
+                local background = NSkin:GetFlatBackground(control, name)
+                if background then
+                    NSkin:SetOwnedTextureColor(background, unpack(theme.input))
+                    NSkin:SetPixelBorderColor(NSkin:GetPixelBorder(control, name .. "Border"),
+                        unpack(theme.border))
+                end
+            end
+        end
+        local text = control.text or control.Text
+        if text then text:SetTextColor(unpack(theme.text)) end
+        local visuals = control.nskinOptionsVisuals
+        if visuals then
+            visuals.track:SetColorTexture(unpack(theme.border))
+            visuals.fill:SetColorTexture(unpack(theme.accent))
+            visuals.thumb:SetColorTexture(unpack(theme.accent))
+            for _, glow in ipairs(visuals.glows) do glow:SetAlpha(0) end
+        end
+    end
+    for _, divider in ipairs(view.sectionDividers) do
+        NSkin:SetOwnedTextureColor(divider, unpack(theme.border))
+    end
+    for _, row in ipairs(view.typographyRows) do
+        if row.divider then NSkin:SetOwnedTextureColor(row.divider, unpack(theme.border)) end
+    end
+    if view.resetButton and view.presentation ~= "COMPACT" then
+        NSkin:SkinFlatButton(view.resetButton, view.resetControl.label or "Reset",
+            theme.input, theme.border, 12)
+    end
+end
+
 -- Property cells reuse canonical controls and their commit/reset contracts.
 -- A cell is inspector presentation, not a new option schema or editor identity.
 local function RefreshPropertyPresentation(view)
@@ -2102,6 +2229,7 @@ function NSkin:CreateOptionGroupView(parent, id, layout, context)
     view.id = id
     view.definition = definition
     view.presentation = presentation
+    view.optionsTheme = parent.optionsTheme
     view.context = context
     view.boundContextID = context and context.id
     view.controls = {}
@@ -2405,6 +2533,7 @@ function NSkin:CreateOptionGroupView(parent, id, layout, context)
                     values, self.context, enabled)
             end
         end
+        RefreshMenuPresentation(self)
     end
 
     function view:ApplyAppearance()
@@ -2438,6 +2567,7 @@ function NSkin:CreateOptionGroupView(parent, id, layout, context)
                 self.resetControl.label or "Reset", nil, nil, 12)
         end
         RefreshPropertyPresentation(self)
+        RefreshMenuPresentation(self)
     end
 
     viewsByGroup[id][view] = true
@@ -2491,6 +2621,61 @@ local function ResetPaths(paths)
     for i = 1, #paths do changed = NSkin:ResetAppearanceOverride(paths[i]) or changed end
     return changed == true
 end
+-- Reuse canonical control definitions/getters for a global appearance view.
+-- Only storage scope changes; no synthetic element or window identity is used.
+function NSkin:RegisterGlobalAppearanceOptionGroup(id, sources, mapping, label)
+    if self:GetOptionGroupDefinition(id) then return true end
+    local controls, definitions = {}, {}
+    for _, sourceID in ipairs(sources) do
+        local source = self:GetOptionGroupDefinition(sourceID)
+        if not source then return false end
+        definitions[#definitions + 1] = source
+        for _, entry in ipairs(source.orderedControls) do
+            local control = CopyTable(entry.definition)
+            control.order = #controls + 1
+            controls[#controls + 1] = control
+        end
+    end
+    controls[#controls + 1] = { type = "RESET", label = "Reset " .. label,
+        order = #controls + 1 }
+    local function GetValues()
+        local values = {}
+        for _, definition in ipairs(definitions) do
+            for key, value in pairs(definition.get({})) do values[key] = value end
+        end
+        return values
+    end
+    return self:RegisterOptionGroup(id, {
+        controls = controls,
+        get = GetValues,
+        set = function(_, values)
+            local changed = false
+            for key, path in pairs(mapping) do
+                if values[key] ~= nil then
+                    changed = NSkin:SetAppearanceOverride(path, values[key]) or changed
+                end
+            end
+            return changed
+        end,
+        reset = function()
+            local changed = false
+            for _, path in pairs(mapping) do
+                changed = NSkin:ResetAppearanceOverride(path) or changed
+            end
+            return changed
+        end,
+        resetSubset = function(_, keys)
+            local changed = false
+            for _, key in ipairs(keys) do
+                if mapping[key] then
+                    changed = NSkin:ResetAppearanceOverride(mapping[key]) or changed
+                end
+            end
+            return changed
+        end,
+    })
+end
+
 NSkin:RegisterOptionGroup("appearance.typography", {
     controls = {
         { type = "DROPDOWN", key = "font", label = "Global font",
@@ -2584,53 +2769,6 @@ local function RegisterColorAppearanceGroup(id, styleName, controls)
         end,
     })
 end
-local function BuildAppearanceOptions(parent)
-    local page = NSkin:CreateOptionsPage(parent)
-    local title = page:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
-    title:SetPoint("TOPLEFT")
-    title:SetText("Appearance")
-
-    local views = {}
-    local y = 38
-    local groups = {
-        { "Typography", "appearance.typography" },
-        { "Windows", "appearance.window" },
-        { "Buttons", "appearance.button" },
-        { "Tabs", "appearance.tab" },
-        { "Section cards", "appearance.sectionCard" },
-        { "Section rows", "appearance.sectionRow" },
-        { "Search boxes", "appearance.search" },
-        { "Progress bars", "appearance.progress" },
-        { "Icons", "appearance.icon" },
-    }
-    for i = 1, #groups do
-        local _, contentY = NSkin:CreateOptionsSection(page, groups[i][1], y)
-        local view = NSkin:CreateOptionGroupView(page, groups[i][2], "FULL", page)
-        view:SetPoint("TOPLEFT", page, "TOPLEFT", 0, -contentY)
-        views[#views + 1] = view
-        y = contentY + view:GetHeight() + 24
-    end
-
-    function page:ApplyAppearance()
-        for i = 1, #views do views[i]:ApplyAppearance() end
-    end
-    function page:Refresh()
-        for i = 1, #views do views[i]:Refresh() end
-        self:ApplyAppearance()
-    end
-
-    page:SetContentHeight(y)
-    return page
-end
-
-NSkin:RegisterOptionsPage({
-    key = "appearance",
-    label = "Appearance",
-    group = "shared",
-    order = 1,
-    builder = BuildAppearanceOptions,
-})
-
 do
 local _, NSkin = ...
 

@@ -956,6 +956,69 @@ Editor grouping and appearance grouping remain separate concerns.
 
 # 13. Shared Options and Configuration UI
 
+The main options menu and docked inspector share `NSkin.editorTheme` for
+NSkin-owned chrome. This fixed navy/cyan palette is independent of the Blizzard
+skin being edited. The main menu uses a full-width header, scrollable sidebar,
+page breadcrumb, content viewport, and footer for its existing reload action.
+Its preferred size is 1040 by 720; persisted dimensions remain authoritative
+within screen and minimum-size limits. Navigation, module enablement, page
+builders, and live settings behavior remain unchanged. Main-menu pages opt into
+the palette through their parent `optionsTheme`; canonical controls retain
+their existing geometry, callbacks, enabled state, and setting-color swatches.
+The stable `appearance` page key presents an Elements library limited to the
+audited PVEFrame type/tag catalog declared by the GroupFinder window adapter.
+This catalog does not depend on runtime visibility, module enablement, or which
+pooled frames are currently instantiated. It includes Text, Window, Button,
+Checkbox, Dropdown, Tab, Card, Row, Search Box, Scrollbar, and Icon presentations.
+Entries reuse existing `appearance.*` groups, creating a settings view only when
+opened. Checkbox and Scrollbar global views reuse canonical control definitions
+and getters through `RegisterGlobalAppearanceOptionGroup`, writing/resetting
+only their explicitly mapped global paths. Dropdown surfaces share Buttons;
+this does not introduce a separate dropdown appearance layer. Filtering the
+catalog does not restrict these global defaults to PVEFrame alone.
+Search/category filters and detail navigation are editor presentation;
+they introduce no appearance identities or new inheritance/reset semantics.
+Decorative previews are NSkin-owned and never register as Blizzard targets.
+Except for the unchanged Window sample, Elements previews use canonical
+component renderers on passive owned controls, including real checkboxes,
+dropdown arrows, selected/unselected tabs, icon masks/borders, row/card surfaces,
+and scrollbar track/thumb/arrow presentations. These controls do not consume
+library-card mouse clicks. Global appearance refreshes update existing samples;
+no polling, synthetic registrations, or duplicate skinning logic is introduced.
+Vertical scrollbar library cards split preview and description side by side.
+Detail previews sit beside the controls when space permits and stack below
+them at narrow widths. Menu and inspector scrollbars use the same event-driven
+`CreateEditorScrollBar` helper, without native arrow chrome or polling.
+The resizable main-menu shell snaps its own size and origin to physical pixels,
+and the Elements grid distributes columns using snapped boundaries rather than
+fractional widths. Editor dividers use `CreateEditorDivider`: two explicitly
+snapped bounds separated by one physical pixel, refreshed through the existing
+physical-pixel lifecycle registry. This changes owned editor presentation only;
+it does not snap or move Blizzard interaction targets.
+Texture-anchored editor rules observe their owning frame for geometry changes.
+The physical-pixel registry checks `HasScript` before attaching lifecycle
+handlers and traverses region ancestors without assigning unsupported scripts.
+The Windows page sits immediately below Elements and owns the former sidebar
+module list as a paginated catalog. Rows reuse canonical owned checkboxes and
+dropdowns; existing window-specific page builders remain available through the
+window-name action. Search, category/status/skin filters, counts, and pagination
+are presentation over the existing catalog; they do not invent new windows.
+The catalog reuses at most twelve row slots. Row selection is keyed by stable
+page keys, while enable/skin writes remain keyed by the explicit module owner.
+Dropdown callbacks capture the owner when opened so recycled rows cannot
+redirect a choice. Bulk edits deduplicate module owners and use the same
+reload notification as individual edits. Pagination adapts to viewport height;
+category filters wrap and the Category column hides in narrow layouts.
+`moduleOwner` declaratively associates a standalone window page with its module
+(Talents shares SpellBook's lifecycle and preferences).
+The checkbox stores the existing module enable preference independently from
+`profile.moduleSkins`. Missing skin values mean NSkin; Blizzard Modern selects
+native Blizzard rendering by skipping NSkin module initialization after reload.
+`GetModuleEnabledPreference` exposes the checkbox value, while `IsModuleEnabled`
+is the effective NSkin lifecycle gate (enabled preference plus NSkin skin).
+Enable/skin changes use the existing reload notice/action; they do not attempt
+to uninstall live hooks or reconstruct Blizzard's original runtime state.
+
 Canonical option definitions belong with shared component/capability infrastructure, not in individual window adapters.
 
 The Docked Window consumes those canonical definitions rather than reconstructing reduced copies.
@@ -1559,7 +1622,8 @@ The Docked Window is the compact inspector for the selected editor object.
 
 Its owned presentation uses square corners, an opaque dark shell and inset
 property panel, owner/member breadcrumbs, an Editing dropdown, a segmented
-state selector, and a single Design page. No Tokens/Code pages or inheritance
+state selector, and directly accessible property accordions with no Design tab
+or reserved tab row. No Tokens/Code pages or inheritance
 tags are exposed yet. Inheritance resolution, source tooltips, storage, and
 reset boundaries remain canonical. Shared property views accept an optional
 inspector palette; color controls show a small swatch and hex value instead of
@@ -1579,10 +1643,12 @@ assets, and full-width separators meet the inset panel's side borders. The
 property viewport shares those panel bounds, with a 12-unit bottom shell margin.
 The inspector palette adds 3 units to its base text sizes, including shared
 property controls, without changing fonts on the edited window or other options
-pages. Accordion titles and summaries are vertically centered within 40-unit
-headers; section icons are 16 units, with the more detailed Shape icon at 20.
-Icons share a fixed center and title inset so larger artwork does not shift
-the heading column. Reset/navigation icons scale with the presentation.
+pages. Accordion titles and summaries are vertically centered within 48-unit
+headers. The header logo and section artwork icons are 32 units, with a shared
+title inset after the section icon. The logo uses Media/Logo.png; the 48-unit
+title bar accommodates it without overlapping breadcrumbs or controls.
+Reset/navigation glyphs retain their control sizes. Inspector artwork sizing
+does not affect Blizzard icons.
 Inspector icons use 90% opacity. A final full-width rule closes the accordion
 list below its last section, including an expanded section's body. Breadcrumb
 member text is left-aligned after its separator; Editing keeps a measured gap

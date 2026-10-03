@@ -5,7 +5,7 @@
 ## Version: 3.0.0
 ## SavedVariables: NSkinDB
 ## OptionalDeps: LibSharedMedia-3.0, SharedMedia
-## IconTexture: Interface\AddOns\NSkin\Media\Icon.tga
+## IconTexture: Interface\AddOns\NSkin\Media\Logo.png
 
 NSkin_Core.lua
 NSkin_Database.lua
@@ -59,6 +59,8 @@ Windows\NSkin_HousingDashboard.lua
 Windows\NSkin_Stable.lua
 Windows\NSkin_BarberShop.lua
 Options\NSkin_WindowsOptions.lua
+Options\NSkin_ElementsOptions.lua
+Options\NSkin_WindowLibrary.lua
 NSkin_Menu.lua
 SkinningMode\NSkin_SkinningMode.lua
 SkinningMode\DockedWindow\NSkin_DockedWindow.lua

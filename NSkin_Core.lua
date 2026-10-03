@@ -157,10 +157,36 @@ function NSkin:GetModuleDefault(name)
     return definition and definition.defaultEnabled == true or false
 end
 
-function NSkin:IsModuleEnabled(name)
+function NSkin:GetModuleEnabledPreference(name)
     local modules = self:GetProfile().modules
     if modules and modules[name] ~= nil then return modules[name] == true end
     return self:GetModuleDefault(name)
+end
+
+function NSkin:GetModuleSkin(name)
+    local skins = self:GetProfile().moduleSkins
+    return skins and skins[name] == "BLIZZARD_MODERN" and "BLIZZARD_MODERN" or "NSKIN"
+end
+
+function NSkin:SetModuleSkin(name, skin)
+    if not self.moduleDefinitionByKey[name]
+        or (skin ~= "NSKIN" and skin ~= "BLIZZARD_MODERN") then return false end
+    if self:GetModuleSkin(name) == skin then return false end
+    local profile = self:GetProfile()
+    if skin == "NSKIN" then
+        if profile.moduleSkins then
+            profile.moduleSkins[name] = nil
+            if not next(profile.moduleSkins) then profile.moduleSkins = nil end
+        end
+    else
+        profile.moduleSkins = profile.moduleSkins or {}
+        profile.moduleSkins[name] = skin
+    end
+    return true
+end
+
+function NSkin:IsModuleEnabled(name)
+    return self:GetModuleEnabledPreference(name) and self:GetModuleSkin(name) == "NSKIN"
 end
 
 function NSkin:SetModuleEnabled(name, enabled)

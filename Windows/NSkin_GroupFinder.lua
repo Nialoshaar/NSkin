@@ -2,6 +2,13 @@ local _, NSkin = ...
 
 local PVESkin = NSkin:NewModule("GroupFinder")
 
+-- Audited catalog of element types and presentation tags registered below.
+-- Independent of which Blizzard subpage happens to be instantiated or visible.
+function NSkin:GetPVEFrameElementTypes()
+    return { "TEXT", "WINDOW", "BUTTON", "CHECKBOX", "DROPDOWN", "TAB",
+        "CARD", "ROW", "SEARCH_BOX", "SCROLLBAR", "ICON" }
+end
+
 local IDs = {
     Scope = "GroupFinder",
     Window = "GroupFinder.Window",
